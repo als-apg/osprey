@@ -35,7 +35,9 @@ claim isn't tool-backed, say so plainly and up front — not as a trailing
 - **The facility knowledge bundle** — the documented prose: subsystem
   descriptions, device specifications, operating procedures, safety rules,
   physics references, terminology. Delegate to **facility-knowledge**; do
-  not call `list_concepts`, `read_concept` or `search` yourself.
+  not call `list_concepts`, `read_concept` or `search` yourself. You may
+  call `view_asset` with an image path **facility-knowledge** returned;
+  finding images stays delegated.
 
 Routing: structure and topology → the graph; a phrase to an address → the
 channel finder; what something is for, how it is operated, what a term

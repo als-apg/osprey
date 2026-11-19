@@ -118,6 +118,10 @@ def validate(bundle: Path | None) -> None:
         the indexes and search, and does not fail the bundle.
       - each index.md must match what regen-index writes for its directory,
         and every directory holding concepts must have one.
+      - each image a concept embeds must exist inside the bundle, be a
+        picture, stay under the size limit, and have alt text.  A problem
+        is named in a warning, one line per problem, and does not fail the
+        bundle.
 
     All files are checked even if earlier failures are found.  A
     per-file report is printed and the command exits non-zero if any
@@ -125,6 +129,7 @@ def validate(bundle: Path | None) -> None:
     """
     bundle = _resolve_bundle(bundle)
 
+    from osprey.services.facility_knowledge.okf.assets import bundle_image_findings
     from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
     from osprey.services.facility_knowledge.okf.index import (
         OKFIndexError,
@@ -164,6 +169,16 @@ def validate(bundle: Path | None) -> None:
         warn(
             f"{len(not_concepts)} file(s) have no 'type' and are not served as concepts",
             "\n".join(str(path) for path in not_concepts),
+        )
+
+    image_findings = bundle_image_findings(bundle)
+    if image_findings:
+        warn(
+            f"{len(image_findings)} image problem(s) found in concepts",
+            "\n".join(
+                f"{finding.concept_id}: {finding.target}: {finding.kind} ({finding.detail})"
+                for finding in image_findings
+            ),
         )
 
     if not failures:

@@ -7,13 +7,17 @@ frontmatter and broken cross-links each surface as a categorised warning; and
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
+
+from PIL import Image
 
 from osprey.interfaces.okf_panel.validation import (
     ValidationWarning,
     bundle_health,
     validate_bundle,
 )
+from osprey.services.facility_knowledge.okf.assets import MAX_IMAGE_BYTES
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 
 
@@ -191,6 +195,131 @@ def test_facility_links_are_not_broken_concept_links(tmp_path):
             "Read [X](facility:SR:DIAG:BPM:01:POSITION:X), [gauge](<facility:SR GAUGE 1>) "
             "and [pump](facility:SR/ION-PUMP01)."
         ),
+    )
+
+    assert validate_bundle(OKFBundle(tmp_path)) == []
+
+
+def _png() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 3), (200, 10, 10)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _image_kinds(warnings: list[ValidationWarning]) -> list[str]:
+    return sorted(w.kind for w in warnings if w.kind.startswith("image-"))
+
+
+def test_each_image_problem_is_reported_once(tmp_path):
+    figures = tmp_path / "devices" / "figures"
+    figures.mkdir(parents=True)
+    (figures / "ok.png").write_bytes(_png())
+    (figures / "notes.png").write_text("not a picture", encoding="utf-8")
+    (figures / "huge.png").write_bytes(_png() + b"\0" * MAX_IMAGE_BYTES)
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body=(
+            "![Good](figures/ok.png)\n\n"
+            "![Gone](figures/gone.png)\n\n"
+            "![Notes](figures/notes.png)\n\n"
+            "![Huge](figures/huge.png)\n\n"
+            "![](figures/ok.png)\n"
+        ),
+    )
+
+    warnings = validate_bundle(OKFBundle(tmp_path))
+
+    assert _image_kinds(warnings) == [
+        "image-alt-empty",
+        "image-missing",
+        "image-too-large",
+        "image-type",
+    ]
+    assert [w for w in warnings if not w.kind.startswith("image-")] == []
+    by_kind = {w.kind: w for w in warnings}
+    assert by_kind["image-missing"].concept_id == "devices/bpm"
+    assert "figures/gone.png" in by_kind["image-missing"].detail
+    assert "figures/notes.png" in by_kind["image-type"].detail
+    assert "figures/huge.png" in by_kind["image-too-large"].detail
+    assert bundle_health(warnings)["counts"] == {
+        "image-alt-empty": 1,
+        "image-missing": 1,
+        "image-too-large": 1,
+        "image-type": 1,
+    }
+
+
+def test_a_missing_image_is_not_also_a_broken_link(tmp_path):
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body="![Gone](/assets/gone.png) and ![Also gone](missing.png)",
+    )
+
+    warnings = validate_bundle(OKFBundle(tmp_path))
+
+    assert [w.kind for w in warnings] == ["image-missing", "image-missing"]
+
+
+def test_a_broken_concept_link_beside_an_image_is_still_reported(tmp_path):
+    (tmp_path / "devices").mkdir()
+    (tmp_path / "devices" / "ok.png").write_bytes(_png())
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body="![Ring](ok.png) next to [ghost](/devices/does-not-exist.md).",
+    )
+
+    warnings = validate_bundle(OKFBundle(tmp_path))
+
+    assert [w.kind for w in warnings] == ["broken-link"]
+    assert (
+        warnings[0].detail
+        == "'/devices/does-not-exist.md' -> devices/does-not-exist.md (no such file)"
+    )
+
+
+def test_a_link_wrapping_a_missing_image_reports_both(tmp_path):
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body="[![alt](a.png)](page.md)",
+    )
+
+    warnings = validate_bundle(OKFBundle(tmp_path))
+
+    assert sorted(w.kind for w in warnings) == ["broken-link", "image-missing"]
+    broken = next(w for w in warnings if w.kind == "broken-link")
+    assert "devices/page.md" in broken.detail
+    missing = next(w for w in warnings if w.kind == "image-missing")
+    assert "a.png" in missing.detail
+
+
+def test_a_link_wrapping_a_present_image_checks_only_the_link(tmp_path):
+    (tmp_path / "devices").mkdir()
+    (tmp_path / "devices" / "a.png").write_bytes(_png())
+    _write_concept(tmp_path, "devices/page", frontmatter=_clean_fm("Page"))
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body="[![alt](a.png)](page.md)",
+    )
+
+    assert validate_bundle(OKFBundle(tmp_path)) == []
+
+
+def test_external_images_are_not_flagged(tmp_path):
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body="![Logo](https://example.org/logo.png)",
     )
 
     assert validate_bundle(OKFBundle(tmp_path)) == []

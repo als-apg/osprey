@@ -66,7 +66,7 @@ def _stubborn_worker(tmp_path) -> tuple[str, ...]:
             out.write(b'{{"ready": true}}\\n'); out.flush()
             (n,) = struct.unpack(">I", inp.read(4)); inp.read(n)
             header = {{"ok": True, "format": "PNG", "w": 8, "h": 8, "mode": "RGB",
-                       "mime": "image/png", "reason": None}}
+                       "mime": "image/png", "reason": None, "resized": False}}
             out.write(json.dumps(header).encode() + b"\\n" + struct.pack(">I", len(PNG)) + PNG)
             out.flush()
             inp.read()

@@ -1,9 +1,10 @@
 """Warn-only bundle validation for the OKF knowledge panel.
 
 Sweeps an :class:`~osprey.services.facility_knowledge.okf.bundle.OKFBundle` and
-reports authoring-level problems without ever raising: missing frontmatter and
+reports authoring-level problems without ever raising: missing frontmatter,
 dangling links in document bodies (OKF §6.1 has consumers accept broken links,
-but the panel surfaces them as warnings so authors can fix them).
+but the panel surfaces them as warnings so authors can fix them), and images
+that are missing, of a refused type, too large or without alt text.
 
 The OKF imports resolve to core osprey rather than a vendored ``okf/`` copy.
 
@@ -17,6 +18,9 @@ The OKF API this builds on is intentionally narrow:
   listing the missing required keys.
 * ``resolve_in_bundle(target, source_dir=...)`` -> the bundle-relative path a
   link names, or ``None`` for an external one (OKF §6).
+* ``concept_image_findings(root, concept_id, body)`` -> the image problems of
+  one concept; ``scan_image_embeds(body, source_dir)`` -> its image embeds,
+  whose spans are blanked before the link scan so an image is checked once.
 
 Every risky call is wrapped: :func:`validate_bundle` returns a list and never
 raises.
@@ -28,6 +32,10 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from osprey.services.facility_knowledge.okf.assets import (
+    concept_image_findings,
+    scan_image_embeds,
+)
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle, OKFBundleError
 from osprey.services.facility_knowledge.okf.document import OKFDocumentError
 from osprey.services.facility_knowledge.okf.paths import resolve_in_bundle
@@ -43,7 +51,9 @@ class ValidationWarning:
 
     Args:
         concept_id: The concept whose document the problem was found in.
-        kind: Problem category — ``"frontmatter"`` or ``"broken-link"``.
+        kind: Problem category: ``"frontmatter"``, ``"broken-link"``, or one
+            of the image kinds ``"image-missing"``, ``"image-type"``,
+            ``"image-too-large"`` and ``"image-alt-empty"``.
         detail: Human-readable description of the specific problem.
     """
 
@@ -60,7 +70,9 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
     concept, an asset or a directory. External links are skipped: any URI
     scheme (``https:``, ``mailto:``, and ``facility:``, whose records the
     facility build checks), in-page ``#`` anchors, and targets outside the
-    bundle root.
+    bundle root. It also checks (c) every image the body embeds; an image is
+    reported only as an image finding, never also as a broken link, while a
+    link that wraps an image is still checked.
 
     This function never raises: any unexpected error while reading a concept is
     itself recorded as a ``"frontmatter"`` warning so the sweep can continue.
@@ -131,10 +143,47 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
                 )
             )
 
-        # 3. Cross-link scan over the body.
-        warnings.extend(_scan_links(bundle, concept_id, doc.body))
+        # 3. Cross-link scan over the body, image embeds blanked out.
+        body = doc.body or ""
+        warnings.extend(_scan_links(bundle, concept_id, _blank_image_embeds(body)))
+
+        # 4. Image findings.
+        warnings.extend(_scan_images(bundle, concept_id, body))
 
     return warnings
+
+
+def _blank_image_embeds(body: str) -> str:
+    """Return *body* with every image embed replaced by spaces. Never raises.
+
+    The spans do not depend on the source directory, so the bundle root
+    stands in for it.
+    """
+    try:
+        embeds = scan_image_embeds(body, "")
+    except Exception:  # never let the scan abort the sweep.
+        return body
+    chars = list(body)
+    for embed in embeds:
+        start, end = embed.span
+        chars[start:end] = " " * (end - start)
+    return "".join(chars)
+
+
+def _scan_images(bundle: OKFBundle, concept_id: str, body: str) -> list[ValidationWarning]:
+    """Return image warnings for one document body. Never raises."""
+    try:
+        findings = concept_image_findings(bundle.root, concept_id, body)
+    except Exception:  # warn-only sweep, never propagate.
+        return []
+    return [
+        ValidationWarning(
+            concept_id=f.concept_id,
+            kind=f.kind,
+            detail=f"{f.target!r}: {f.detail}",
+        )
+        for f in findings
+    ]
 
 
 def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[ValidationWarning]:

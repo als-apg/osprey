@@ -230,6 +230,184 @@ class TestReadConcept:
 
 
 # ---------------------------------------------------------------------------
+# read_concept images
+# ---------------------------------------------------------------------------
+
+
+def _picture(fmt: str = "PNG") -> bytes:
+    """A small real raster image, encoded at test time."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 3), (200, 40, 40)).save(buffer, format=fmt)
+    return buffer.getvalue()
+
+
+_SVG = b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="4" height="3"/>\n'
+
+
+def _write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+def _concept(root: Path, concept_id: str, body: str) -> None:
+    """Write a concept whose body is *body*, taken verbatim."""
+    path = root / f"{concept_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"---\ntype: note\ntitle: {concept_id}\ndescription: Images.\n---\n{body}",
+        encoding="utf-8",
+    )
+
+
+async def _read(concept_id: str) -> dict:
+    from osprey.mcp_server.facility_knowledge.server import read_concept
+
+    return json.loads(await get_tool_fn(read_concept)(concept_id=concept_id))
+
+
+class TestReadConceptImages:
+    """read_concept lists the in-bundle images a concept embeds (C6, decision 10)."""
+
+    @pytest.mark.asyncio
+    async def test_two_embedded_images_are_listed(self, fixture_bundle: Path):
+        _write_bytes(fixture_bundle / "devices" / "figures" / "orbit.png", _picture("PNG"))
+        _write_bytes(fixture_bundle / "shared" / "layout.jpg", _picture("JPEG"))
+        _concept(
+            fixture_bundle,
+            "devices/bpm",
+            "Orbit:\n\n![Closed orbit](figures/orbit.png)\n\n"
+            "Layout: ![Ring layout](/shared/layout.jpg)\n",
+        )
+
+        result = await _read("devices/bpm")
+
+        assert result["images"] == [
+            {"path": "devices/figures/orbit.png", "alt": "Closed orbit", "viewable": True},
+            {"path": "shared/layout.jpg", "alt": "Ring layout", "viewable": True},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_concept_without_images_lists_none(self):
+        result = await _read("accelerator_overview")
+
+        assert result["images"] == []
+
+    @pytest.mark.asyncio
+    async def test_existing_keys_keep_names_order_and_values(self):
+        result = await _read("tables/beam_params")
+
+        assert list(result) == ["concept_id", "frontmatter", "body", "url", "images"]
+        assert result["concept_id"] == "tables/beam_params"
+        assert result["url"] == "panel/okf#tables/beam_params"
+
+    @pytest.mark.asyncio
+    async def test_unviewable_images_carry_their_reason(self, fixture_bundle: Path):
+        from osprey.services.facility_knowledge.okf.assets import MAX_IMAGE_BYTES
+
+        figures = fixture_bundle / "figures"
+        _write_bytes(figures / "diagram.svg", _SVG)
+        _write_bytes(figures / "notes.png", b"this is plain text, not a picture\n")
+        big = figures / "huge.png"
+        _write_bytes(big, _picture("PNG"))
+        with big.open("r+b") as handle:
+            handle.truncate(MAX_IMAGE_BYTES + 1)
+        _write_bytes(fixture_bundle / ".hidden" / "a.png", _picture("PNG"))
+        _concept(
+            fixture_bundle,
+            "gallery",
+            "![svg](figures/diagram.svg)\n"
+            "![gone](figures/missing.png)\n"
+            "![big](figures/huge.png)\n"
+            "![text](figures/notes.png)\n"
+            "![dot](.hidden/a.png)\n",
+        )
+
+        result = await _read("gallery")
+
+        assert result["images"] == [
+            {"path": "figures/diagram.svg", "alt": "svg", "viewable": False, "reason": "svg"},
+            {
+                "path": "figures/missing.png",
+                "alt": "gone",
+                "viewable": False,
+                "reason": "not_found",
+            },
+            {"path": "figures/huge.png", "alt": "big", "viewable": False, "reason": "too_large"},
+            {
+                "path": "figures/notes.png",
+                "alt": "text",
+                "viewable": False,
+                "reason": "not_an_image",
+            },
+            {"path": ".hidden/a.png", "alt": "dot", "viewable": False, "reason": "dot_path"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_external_and_escaping_embeds_are_not_listed(self, fixture_bundle: Path):
+        _write_bytes(fixture_bundle.parent / "outside.png", _picture("PNG"))
+        _write_bytes(fixture_bundle / "figures" / "kept.png", _picture("PNG"))
+        _concept(
+            fixture_bundle,
+            "mixed",
+            "![remote](https://example.org/a.png)\n"
+            "![proto](//example.org/b.png)\n"
+            "![data](data:image/png;base64,AAAA)\n"
+            "![escape](../outside.png)\n"
+            "![encoded](%2e%2e/outside.png)\n"
+            "![kept](figures/kept.png)\n",
+        )
+
+        result = await _read("mixed")
+
+        assert result["images"] == [
+            {"path": "figures/kept.png", "alt": "kept", "viewable": True},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_leading_slash_id_lists_the_same_images(self, fixture_bundle: Path):
+        _write_bytes(fixture_bundle / "devices" / "figures" / "orbit.png", _picture("PNG"))
+        _write_bytes(fixture_bundle / "figures" / "root.png", _picture("PNG"))
+        _concept(
+            fixture_bundle,
+            "devices/bpm",
+            "![rel](figures/orbit.png) ![missing](figures/root.png)\n",
+        )
+
+        plain = await _read("devices/bpm")
+        slashed = await _read("/devices/bpm")
+
+        assert slashed["concept_id"] == "/devices/bpm"
+        assert slashed["images"] == plain["images"]
+        assert plain["images"][0] == {
+            "path": "devices/figures/orbit.png",
+            "alt": "rel",
+            "viewable": True,
+        }
+        assert plain["images"][1]["reason"] == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_no_image_decoder_is_called(self, fixture_bundle: Path, monkeypatch):
+        import PIL.Image
+
+        _write_bytes(fixture_bundle / "figures" / "a.png", _picture("PNG"))
+        _write_bytes(fixture_bundle / "figures" / "b.gif", _picture("GIF"))
+        _concept(fixture_bundle, "decoded", "![a](figures/a.png) ![b](figures/b.gif)\n")
+
+        def _refuse(*args: object, **kwargs: object) -> None:
+            raise AssertionError("an image decoder was called")
+
+        monkeypatch.setattr(PIL.Image, "open", _refuse)
+
+        result = await _read("decoded")
+
+        assert [image["viewable"] for image in result["images"]] == [True, True]
+
+
+# ---------------------------------------------------------------------------
 # search
 # ---------------------------------------------------------------------------
 
