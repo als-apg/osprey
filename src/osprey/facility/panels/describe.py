@@ -689,7 +689,7 @@ def _shared(graph: PanelGraph, index: _Index, thing: Thing) -> list[tuple[str, l
             row = _value_row(graph, graph.channel(hit.channel))
             rows.append(
                 dataclasses.replace(
-                    row, label=_SHARED_LABEL.format(hit.role.label or hit.role.role), writable=False
+                    row, label=_SHARED_LABEL.format(_row_word(hit.role)), writable=False
                 )
             )
         if not rows:
@@ -3016,7 +3016,8 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
             last.append(_value_row(graph, channel))
             continue
         if role is not None:
-            title = _role_word(role)
+            plate = role.role in graph.identity
+            title = _plate_word(role).capitalize() if plate and not role.label else _role_word(role)
         else:
             row = graph.record_type(channel.name)
             title = (
