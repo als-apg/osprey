@@ -1002,17 +1002,26 @@ class TestValueRules:
         files = _tree(**{"scenarios/s.yaml": {"stopped_servers": block}})
         assert not _run(tmp_path, files).ok
 
-    def test_stopped_servers_is_refused_by_a_connectors_release_without_it(
+    def test_stopped_servers_passes_on_a_connectors_release_that_cannot_stop_a_server(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from osprey.facility import validate
 
         monkeypatch.setattr(validate, "served_servers", None)
-        files = _tree(**{"scenarios/s.yaml": {"stopped_servers": ["sim-texture"]}})
-        error = _rule(tmp_path, files, "value-invalid")
-        assert error.detail == (
-            "`stopped_servers` needs an osprey-connectors release that can stop a simulated IOC"
-        )
+        monkeypatch.setattr(validate, "TEXTURE_SERVER", None)
+        files = _tree(**{"scenarios/s.yaml": {"stopped_servers": ["sim-texture", "sim-nothing"]}})
+        result = _run(tmp_path, files)
+        assert result.ok, _lines(result)
+
+    def test_stopped_servers_keeps_its_shape_on_a_connectors_release_that_cannot_stop_a_server(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from osprey.facility import validate
+
+        monkeypatch.setattr(validate, "served_servers", None)
+        monkeypatch.setattr(validate, "TEXTURE_SERVER", None)
+        files = _tree(**{"scenarios/s.yaml": {"stopped_servers": "sim-texture"}})
+        assert not _run(tmp_path, files).ok
 
     def _monitor_map(self, faults: dict[str, Any]) -> dict[str, Any]:
         model = _wired("Q1:SP")

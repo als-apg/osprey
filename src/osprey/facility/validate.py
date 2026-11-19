@@ -2237,28 +2237,24 @@ class _Records:
 
         Which models a render serves is the render's to know, so a name of a
         model it leaves unserved is refused there (``views/simulator.py``).
+        The names are the connectors' to know: on an osprey-connectors release
+        that cannot stop a simulated IOC only the shape is checked here, and
+        the view carries every name as inactive.
         """
         if block is None:
             return
-        if served_servers is None:
-            yield self._error(
-                "value-invalid",
-                "scenario",
-                name,
-                files,
-                "`stopped_servers` needs an osprey-connectors release that can stop a simulated IOC",
-                "upgrade osprey-connectors, or remove `stopped_servers`",
-            )
-            return
         if not isinstance(block, list) or not all(isinstance(ioc, str) for ioc in block):
+            texture = f" or `[{TEXTURE_SERVER}]`" if TEXTURE_SERVER is not None else ""
             yield self._error(
                 "value-invalid",
                 "scenario",
                 name,
                 files,
                 f"`stopped_servers` is {block!r}, not a list of simulated IOC names",
-                f"write `stopped_servers: [sim-<model>, ...]` or `[{TEXTURE_SERVER}]`",
+                f"write `stopped_servers: [sim-<model>, ...]`{texture}",
             )
+            return
+        if served_servers is None:
             return
         known = served_servers(
             model_name

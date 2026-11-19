@@ -31,7 +31,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
-from osprey.facility.views.simulator import INACTIVE_UNSERVED
+from osprey.facility.views.simulator import INACTIVE_UNSERVED, INACTIVE_UNSTOPPABLE
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import (
     IOC_HEALTH_SIGNALS,
@@ -1218,3 +1218,47 @@ def test_a_default_scenario_stopping_an_unserved_models_ioc_is_refused_at_render
     assert "`sim-SR`, which this render does not serve" in stop.value.detail
     assert "`sim-texture`" in stop.value.remedy
     assert "`simulation.default_scenarios`" in stop.value.remedy
+
+
+def test_stopped_servers_are_all_inactive_on_connectors_that_cannot_stop_a_server(
+    tmp_path: Path, built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.facility.views import simulator
+
+    monkeypatch.setattr(simulator, "served_servers", None)
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
+
+    (entry,) = [
+        e for e in _rendered_scenarios(tmp_path, built_demo, [scenario]) if e["name"] == "sr-down"
+    ]
+    assert entry == {
+        "name": "sr-down",
+        "stopped_servers": [],
+        "inactive_servers": {
+            "sim-SR": INACTIVE_UNSTOPPABLE,
+            "sim-texture": INACTIVE_UNSTOPPABLE,
+        },
+    }
+
+
+def test_a_default_scenario_stopping_a_server_is_refused_on_connectors_that_cannot(
+    tmp_path: Path, built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.facility.views import simulator
+
+    monkeypatch.setattr(simulator, "served_servers", None)
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR"]}
+    config = {"simulation": {"default_scenarios": ["sr-down"]}}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _rendered_scenarios(tmp_path, built_demo, [scenario], config)
+
+    assert stop.value.kind == "value-invalid"
+    assert stop.value.record_id == "sr-down"
+    assert stop.value.detail == (
+        "default scenario `sr-down`'s `stopped_servers` needs an osprey-connectors "
+        "release that can stop a simulated IOC"
+    )
+    assert stop.value.remedy == (
+        "upgrade osprey-connectors, or drop `sr-down` from `simulation.default_scenarios`"
+    )

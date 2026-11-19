@@ -202,7 +202,8 @@ def apply_scenarios(
         ValueError: If the render carries no simulator view, a scenario name is
             unknown, the requested set does not compose (channel collision), or
             a requested scenario stops an IOC of a model the render does not
-            serve (its ``inactive_servers``).
+            serve, or one the osprey-connectors it was built with cannot stop
+            (its ``inactive_servers``).
     """
     from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
@@ -326,17 +327,28 @@ def _scenarios(view: SimulatorView) -> dict[str, Any]:
 def _refuse_inactive_stops(
     scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
 ) -> None:
-    """Refuse a requested scenario that stops an IOC this render does not serve.
+    """Refuse a requested scenario that stops an IOC this render cannot stop.
 
-    The view keeps such a name out of the scenario's ``stopped_servers`` and lists
-    it under ``inactive_servers`` instead, so the scenario would apply without the
-    stop it describes. Applying it is refused rather than run half-way.
+    The view keeps the name of an IOC whose model the render does not serve out
+    of the scenario's ``stopped_servers`` and lists it under ``inactive_servers``
+    instead, and does the same with every name when the osprey-connectors it was
+    built with cannot stop a simulated IOC. Either way the scenario would apply
+    without the stop it describes. Applying it is refused rather than run half-way.
 
     Raises:
         ValueError: A requested scenario lists an inactive IOC.
     """
+    from osprey.facility.views.simulator import INACTIVE_UNSTOPPABLE
+
     for name in names:
         inactive = (scenarios.get(name) or {}).get("inactive_servers") or {}
+        unstoppable = sorted(ioc for ioc, why in inactive.items() if why == INACTIVE_UNSTOPPABLE)
+        if unstoppable:
+            raise ValueError(
+                f"Scenario {name!r} stops IOC(s) {', '.join(unstoppable)}, which needs an "
+                "osprey-connectors release that can stop a simulated IOC; "
+                "upgrade osprey-connectors and run 'osprey build' to apply it."
+            )
         if inactive:
             listed = ", ".join(f"{ioc} ({why})" for ioc, why in sorted(inactive.items()))
             raise ValueError(

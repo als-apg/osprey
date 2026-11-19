@@ -44,7 +44,10 @@ plus ``inactive: model not served`` when the render does not serve it;
 ``stopped_servers`` keeps only the IOCs this render serves, and each named IOC of
 a model the render does not serve moves to ``inactive_servers``, mapped to
 ``model not served``, and stops nothing; such a name is refused only when its
-scenario is one of the render's ``simulation.default_scenarios``;
+scenario is one of the render's ``simulation.default_scenarios``; on an
+osprey-connectors release that cannot stop a simulated IOC every named IOC moves
+there, mapped to ``osprey-connectors cannot stop a simulated IOC``, under the
+same rule;
 ``still`` is the sorted list of float addresses its ``all``, addresses and
 selections resolve to; a scenario named ``still`` that stills every float
 reading is listed when no file defines one. Each
@@ -111,6 +114,7 @@ __all__ = [
     "ADDRESSES_SCHEMA",
     "DECKS_DIR",
     "INACTIVE_UNSERVED",
+    "INACTIVE_UNSTOPPABLE",
     "SCENARIOS_DIR",
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
@@ -132,6 +136,10 @@ __all__ = [
 
 #: The mark a scenario's faults carry for a model the render does not serve.
 INACTIVE_UNSERVED = "model not served"
+
+#: The mark a scenario's stopped IOCs carry on an osprey-connectors release that
+#: cannot stop a simulated IOC.
+INACTIVE_UNSTOPPABLE = "osprey-connectors cannot stop a simulated IOC"
 
 #: The channel keys ``variables.json`` carries only when the record states them.
 _CHANNEL_OPTIONAL_KEYS = ("options", "shape", "precision")
@@ -440,15 +448,30 @@ def _split_stopped_servers(
     when the scenario is one of the render's default scenarios, which would
     otherwise come up stopping nothing.
 
+    An osprey-connectors release that cannot stop a simulated IOC stops none of
+    the names, so every one of them follows the same rule under its own mark.
+
     Raises:
         FacilityBuildError: ``value-invalid``: a default scenario names an IOC
-            this render does not serve.
+            this render does not serve, or one the installed osprey-connectors
+            cannot stop.
     """
     from osprey.facility.errors import FacilityBuildError
     from osprey.simulation.apply import resolve_default_scenarios
 
-    # The validator refuses ``stopped_servers`` on connectors that cannot stop a server.
-    assert served_servers is not None
+    name = str(scenario["name"])
+    if served_servers is None:
+        if name in resolve_default_scenarios(inputs.rendered_config):
+            raise FacilityBuildError(
+                "value-invalid",
+                name,
+                [f"{SCENARIOS_DIR}/{name}.yaml"],
+                f"upgrade osprey-connectors, or drop `{name}` from `simulation.default_scenarios`",
+                record_kind="scenario",
+                detail=f"default scenario `{name}`'s `stopped_servers` needs an "
+                "osprey-connectors release that can stop a simulated IOC",
+            )
+        return [], dict.fromkeys(map(str, scenario["stopped_servers"]), INACTIVE_UNSTOPPABLE)
     physics = [
         str(model["name"])
         for model in inputs.records.document.get("models", [])
@@ -459,7 +482,6 @@ def _split_stopped_servers(
     known = served_servers(physics)
     stopped = [str(ioc) for ioc in scenario["stopped_servers"] if ioc in known]
     unserved = [str(ioc) for ioc in scenario["stopped_servers"] if ioc not in known]
-    name = str(scenario["name"])
     if unserved and name in resolve_default_scenarios(inputs.rendered_config):
         raise FacilityBuildError(
             "value-invalid",
