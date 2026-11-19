@@ -312,10 +312,8 @@ export function createChatRenderer(container, options = {}) {
       t.place(card.el);
     }
     cards.set(id, card);
-    // A live card takes focus, but never from the composer's text box, and never while history is redrawn.
-    // The card's own document: the console may live in an attached window.
-    const typing = card.el.ownerDocument.activeElement;
-    if (!replaying && !(typing instanceof HTMLTextAreaElement && !typing.disabled)) card.focus();
+    // A new card leaves the keyboard focus where it is, so a Space or Enter meant for
+    // another field cannot answer it; chat-announce.js speaks the card instead.
   }
 
   /** @param {Record<string, any>} event - the `result` event */

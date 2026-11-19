@@ -28,7 +28,6 @@
  * @property {HTMLElement} el
  * @property {boolean} pending - awaiting the operator, or mid-delivery
  * @property {() => void} cancel - make inert: the turn ended without an answer
- * @property {() => void} focus - move focus to the card's primary control
  * @property {(outcome: RemoteAnswer) => void} resolved - answered elsewhere:
  *   another tab, or the server's deadline
  */

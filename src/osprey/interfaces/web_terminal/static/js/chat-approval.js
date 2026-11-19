@@ -56,8 +56,9 @@ let cardSeq = 0;
 
 /**
  * The approval card for a tool call the operator must allow or deny, or — for
- * kind `plan` — the plan the agent wants to carry out. Enter allows and Escape
- * denies while the card has focus. Where the request offers it, "Allow for this
+ * kind `plan` — the plan the agent wants to carry out. The card never takes
+ * focus on its own; Enter allows and Escape denies once the operator has moved
+ * focus to it. Where the request offers it, "Allow for this
  * session" also lets the tool run without asking until the session ends. A card
  * filed under its tool row leaves the log once answered, and the row shows the
  * answer; any other card folds to one line stating the outcome.
@@ -248,7 +249,6 @@ export function createApprovalCard(request, hooks) {
       return isPending();
     },
     cancel,
-    focus: () => allow.focus(),
     resolved(answer) {
       // Answered in another tab, or declined by the server's deadline; an
       // answer of this tab's own still in flight folds the card itself.

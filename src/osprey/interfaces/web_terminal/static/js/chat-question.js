@@ -203,7 +203,8 @@ export function createQuestionReplay() {
  * The question card for an AskUserQuestion: one question per page, options as
  * radio rows (checkboxes for multi-select), and an "Other…" row for free text.
  * Keys 1–9 pick an option on the current page, the arrow keys turn pages,
- * Enter takes the primary action and Escape skips. Submit answers every
+ * Enter takes the primary action and Escape skips, once the operator has moved
+ * focus to the card: it never takes focus on its own. Submit answers every
  * question, keyed by its exact text; Skip denies the request.
  * @param {WireEvent} request - a `permission_request` event of kind `question`
  * @param {CardHooks} hooks
@@ -497,7 +498,6 @@ export function createQuestionCard(request, hooks) {
       return isPending();
     },
     cancel,
-    focus: () => el.focus(),
     resolved(answer) {
       // Answered in another tab, or declined by the server's deadline; this
       // tab's own answer in flight folds itself.
