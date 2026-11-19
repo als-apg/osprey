@@ -42,6 +42,7 @@ KINDS: tuple[str, ...] = (
     "relation-invalid",
     "class-unknown",
     "pair-invalid",
+    "command-invalid",
     "value-invalid",
     "seed-invalid",
     "seed-missing",

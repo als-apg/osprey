@@ -233,6 +233,36 @@ EXTRA_SP = {"id": "Q2:SP", "role": "setpoint", "on": {"device": "SR/Q1"}}
 NO_DECK = {"name": "optics", "engine": "pyat", "wiring": [{"address": "Q1:SP", "element": "Q1"}]}
 
 
+#: A command on the plain tree's quadrupole that states a bound, and the idle status it pairs with.
+COMMAND_ON = {
+    "id": "Q1:ON",
+    "role": "setpoint",
+    "signal": "power_on_command",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "timeout_s": 5.0,
+    "on": {"device": "SR/Q1"},
+}
+COMMAND_STATE = {
+    "id": "Q1:STATE",
+    "signal": "power_on_status",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "idle": "OFF",
+    "on": {"device": "SR/Q1"},
+}
+
+
+def commanded(on: dict[str, Any] | None = None, state: dict[str, Any] | None = None) -> Edit:
+    """Append ``COMMAND_ON`` and ``COMMAND_STATE`` with slots changed; a slot set to None is dropped."""
+
+    def changed(record: dict[str, Any], slots: dict[str, Any] | None) -> dict[str, Any]:
+        merged = {**record, **(slots or {})}
+        return {key: value for key, value in merged.items() if value is not None}
+
+    return append("records/channels.yaml", changed(COMMAND_ON, on), changed(COMMAND_STATE, state))
+
+
 #: The groups file, and the group holding both of the deck tree's SR quadrupoles.
 GROUPS_FILE = "records/groups.yaml"
 QUAD_GROUP = {"id": "SR/Q", "members": ["SR/QF", "SR/QD"]}
@@ -394,6 +424,35 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "pair_invalid__endpoint_unnamed",
         "pair-invalid",
         "a wired `endpoint_of` device named by no slice",
+    ),
+    ("command_invalid__bound_on_no_command", "command-invalid", "`timeout_s` on no command"),
+    ("command_invalid__bound_not_positive", "command-invalid", "`timeout_s` not > 0"),
+    (
+        "command_invalid__bound_without_idle",
+        "command-invalid",
+        "`timeout_s` on a command whose status states no `idle`",
+    ),
+    (
+        "command_invalid__bound_on_own_pair",
+        "command-invalid",
+        "`timeout_s` on a command that is its own pair",
+    ),
+    (
+        "command_invalid__idle_without_bound",
+        "command-invalid",
+        "a command whose status states `idle` states no `timeout_s`",
+    ),
+    ("command_invalid__idle_on_setpoint", "command-invalid", "`idle` on a setpoint"),
+    ("command_invalid__idle_type", "command-invalid", "`idle` not of its channel's type"),
+    (
+        "command_invalid__idle_unpaired",
+        "command-invalid",
+        "`idle` on a readback no command pairs with",
+    ),
+    (
+        "command_invalid__confirm_on_bound",
+        "command-invalid",
+        "`confirm: true` on a command that states `timeout_s`",
     ),
     (
         "value_invalid__measurement_step_key",
@@ -1524,6 +1583,70 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: pair-invalid: wiring optics/Q1:SP — `endpoint_of` device SR/BPM1 is named "
             "by no slice; fix: name each `endpoint_of` device in a slice, or remove it from "
             "`endpoint_of`"
+        ),
+    ),
+    "command_invalid__bound_on_no_command": (
+        _plain(update("records/channels.yaml", 0, timeout_s=1.0)),
+        (
+            "facility: command-invalid: channel Q1:SP — `timeout_s` on a channel that is no "
+            "command; fix: remove `timeout_s`; only a command states how long one act may take"
+        ),
+    ),
+    "command_invalid__bound_not_positive": (
+        _plain(commanded(on={"timeout_s": 0})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` 0 is not a finite number > 0; "
+            "fix: state `timeout_s` as the longest one act may take, in seconds"
+        ),
+    ),
+    "command_invalid__bound_without_idle": (
+        _plain(commanded(state={"idle": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command whose status "
+            "Q1:STATE states no `idle`; fix: state `idle` on Q1:STATE"
+        ),
+    ),
+    "command_invalid__bound_on_own_pair": (
+        _plain(commanded(on={"pair": "Q1:ON"}, state={"idle": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command that is its own "
+            "pair; fix: name the readback that reads the act as `pair`, and state `idle` on it"
+        ),
+    ),
+    "command_invalid__idle_without_bound": (
+        _plain(commanded(on={"timeout_s": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — a command whose status Q1:STATE states "
+            "`idle` states no `timeout_s`; fix: state `timeout_s` on Q1:ON"
+        ),
+    ),
+    "command_invalid__idle_on_setpoint": (
+        _plain(update("records/channels.yaml", 0, idle=0.0)),
+        (
+            "facility: command-invalid: channel Q1:SP — `idle` on a setpoint channel; fix: remove "
+            "`idle`; only a readback a command pairs with states it"
+        ),
+    ),
+    "command_invalid__idle_type": (
+        _plain(commanded(state={"idle": "MAYBE"})),
+        (
+            "facility: command-invalid: channel Q1:STATE — `idle` of bool channel Q1:STATE is "
+            "'MAYBE', not a label; fix: type `idle` by the channel: a label on a bool or enum, an "
+            "integer on an int, a number on a float"
+        ),
+    ),
+    "command_invalid__idle_unpaired": (
+        _plain(update("records/channels.yaml", 1, idle=0.0)),
+        (
+            "facility: command-invalid: channel Q1:RB — `idle` on a readback no command pairs "
+            "with; fix: remove `idle`, or name Q1:RB as a command's `pair`"
+        ),
+    ),
+    "command_invalid__confirm_on_bound": (
+        _plain(commanded(), limits({"address": "Q1:ON", "writable": True, "confirm": True})),
+        (
+            "facility: command-invalid: limit Q1:ON — `confirm: true` on a command that states "
+            "`timeout_s`; fix: remove `confirm`; the wait for Q1:STATE confirms the write"
         ),
     ),
     "value_invalid__measurement_step_key": (

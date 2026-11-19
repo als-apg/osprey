@@ -72,6 +72,7 @@ __all__ = [
     "Stage",
     "StageReport",
     "Validated",
+    "check_commands",
     "check_measurement",
     "check_records",
     "check_references",
@@ -124,6 +125,7 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
     ("relation-invalid",),
     ("class-unknown",),
     ("pair-invalid",),
+    ("command-invalid",),
     ("value-invalid",),
     ("seed-invalid", "seed-missing"),
     ("limit-invalid",),
@@ -1254,6 +1256,26 @@ def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     return list(_Records(document).run())
 
 
+def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+    """Check each command's ``timeout_s`` and its status's ``idle`` together.
+
+    A command that states ``timeout_s`` pairs with a readback, its status, that
+    states ``idle``; a command whose status states ``idle`` states
+    ``timeout_s``. ``idle`` sits only on a readback a command pairs with and is
+    typed by that channel; ``timeout_s`` sits only on a command and is a finite
+    number > 0. A limits record states no ``confirm: true`` on a command with
+    ``timeout_s``: the wait for its status confirms the write. Runs once
+    commands are marked, so the stop is ``command-invalid`` alone.
+
+    Args:
+        document: The combined document, its commands marked ``command: true``.
+
+    Returns:
+        Every error found.
+    """
+    return list(_Records(document).commands())
+
+
 class _Records:
     def __init__(self, document: Mapping[str, Any]) -> None:
         self.index = _Index(document)
@@ -1281,6 +1303,140 @@ class _Records:
         yield from self._limits()
         yield from self._scenarios()
         yield from self._relations()
+
+    def commands(self) -> Iterator[FacilityBuildError]:
+        from osprey_connectors.simulation.values import coerce
+
+        self.coerce = coerce
+        channels = self.index.channels
+        status_of = {
+            address: str(channel.get("pair", address))
+            for address, channel in sorted(channels.items())
+            if channel.get("command") is True
+        }
+        awaited = {status for address, status in status_of.items() if status != address}
+        for address, channel in sorted(channels.items()):
+            yield from self._bound(address, channel, status_of.get(address))
+            if "idle" in channel:
+                yield from self._idle(address, channel, awaited)
+        for record in self.index.limits:
+            address = str(record.get("address"))
+            bounded = address in status_of and "timeout_s" in channels[address]
+            if bounded and record.get("confirm") is True:
+                yield self._error(
+                    "command-invalid",
+                    "limit",
+                    address,
+                    ["limits.yaml"],
+                    "`confirm: true` on a command that states `timeout_s`",
+                    f"remove `confirm`; the wait for {status_of[address]} confirms the write",
+                )
+
+    def _bound(
+        self, address: str, channel: Mapping[str, Any], status: str | None
+    ) -> Iterator[FacilityBuildError]:
+        """A command's ``timeout_s`` and its status's ``idle`` are stated together."""
+        bound: Any = channel.get("timeout_s")
+        files = stating_files(channel, "timeout_s")
+        if status is None:
+            if "timeout_s" in channel:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    "`timeout_s` on a channel that is no command",
+                    "remove `timeout_s`; only a command states how long one act may take",
+                )
+            return
+        if "timeout_s" not in channel:
+            if status != address and "idle" in self.index.channels[status]:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    stating_files(channel, None),
+                    f"a command whose status {status} states `idle` states no `timeout_s`",
+                    f"state `timeout_s` on {address}",
+                )
+        elif not (_finite(bound) and bound > 0):
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`timeout_s` {bound!r} is not a finite number > 0",
+                "state `timeout_s` as the longest one act may take, in seconds",
+            )
+        elif status == address:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                "`timeout_s` on a command that is its own pair",
+                "name the readback that reads the act as `pair`, and state `idle` on it",
+            )
+        elif "idle" not in self.index.channels[status]:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`timeout_s` on a command whose status {status} states no `idle`",
+                f"state `idle` on {status}",
+            )
+
+    def _idle(
+        self, address: str, channel: Mapping[str, Any], awaited: set[str]
+    ) -> Iterator[FacilityBuildError]:
+        """``idle`` sits on a readback a command pairs with, typed by the channel."""
+        files = stating_files(channel, "idle")
+        role = channel.get("role", DEFAULT_ROLE)
+        if role != "readback":
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`idle` on a {role} channel",
+                "remove `idle`; only a readback a command pairs with states it",
+            )
+        elif address not in awaited:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                "`idle` on a readback no command pairs with",
+                f"remove `idle`, or name {address} as a command's `pair`",
+            )
+        else:
+            problem = self._idle_problem(address, channel["idle"])
+            if problem is not None:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    problem,
+                    "type `idle` by the channel: a label on a bool or enum, an integer on an "
+                    "int, a number on a float",
+                )
+
+    def _idle_problem(self, address: str, idle: Any) -> str | None:
+        """Why ``idle`` does not fit its channel's type, or ``None``."""
+        value_type = self._type(address)
+        prefix = f"`idle` of {value_type} channel {address} is {idle!r}"
+        if value_type == "float":
+            if not _finite(idle):
+                return f"{prefix}, not a number"
+        elif value_type == "int":
+            if not _finite(idle) or _non_integral(idle):
+                return f"{prefix}, not an integer"
+        elif self._label_refusal(address, idle) is not None:
+            return f"{prefix}, not a label"
+        return None
 
     # --- helpers -------------------------------------------------------------------
 
