@@ -244,6 +244,26 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
     assert not leaders
 
 
+def test_a_ruled_readback_drawn_by_its_role_default_still_shows_its_number(tmp_path) -> None:
+    rows = [*_six_poles(), _row("gauge 1", "thermocouple", -90, 90, signal="current_readback")]
+    tables = _tables(tmp_path, rows)
+    types = tables / "record_types.csv"
+    types.write_text(types.read_text().replace("Current-RB,ai,value,", "Current-RB,ai,,"))
+    with (tables / "health.csv").open("a") as handle:
+        handle.write("XR01-QF1:Current-RB,1,bad,screen,stated,xr-screens,4d5e6f7,m.screen:2\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    assert graph.channel("XR01-QF1:Current-RB").drawn_as == "value"  # the readback default
+    doc = _card(graph)
+    (gauge,) = _tipped(doc, "gauge 1")
+    gy = _centre(gauge)[1]
+    beside = [
+        n
+        for n in _by_type(doc, "pv-label")
+        if n["props"].get("pv") == "XR01-QF1:Current-RB" and abs(_centre(n)[1] - gy) < 1
+    ]
+    assert beside  # an empty drawn_as draws as the stated "value" does
+
+
 def test_the_picture_is_a_drawing_of_its_own_after_the_relations(tmp_path) -> None:
     doc = _card(_graph(tmp_path, _six_poles()))
     heads = {n["props"]["text"]: n["geometry"] for n in _by_type(doc, "text-label")}

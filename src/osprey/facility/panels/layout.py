@@ -1844,9 +1844,12 @@ class _Page:
             return None
 
     def own_kind(self, channel: str) -> str | None:
-        """The ``drawn_as`` ``record_types.csv`` states for *channel*, or ``None``."""
-        row = self.graph.record_type(channel)
-        return row.drawn_as if row is not None else None
+        """How *channel* is drawn: the ``drawn_as`` ``record_types.csv`` states, else
+        its role's default; ``None`` for a channel the graph does not hold."""
+        try:
+            return self.graph.channel(channel).drawn_as
+        except KeyError:
+            return None
 
     def command_label(self, channel: str) -> str:
         """The word a command's button reads: the word ``state_labels.csv`` states
