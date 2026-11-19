@@ -242,10 +242,12 @@ function requireEl(id) {
   const readerNav = createLatestRequest();
 
   /**
-   * Whether the Knowledge view shows what `knowledgeLoc` names: false while a
-   * load is in flight, and after the Graph view superseded one before it drew.
+   * The load that has not drawn what `knowledgeLoc` names, as it was asked
+   * for: set while it is in flight, kept when the Graph view superseded it
+   * before it drew, null once the Knowledge view shows it.
+   * @type {(() => void) | null}
    */
-  let knowledgeDrawn = false;
+  let undrawnLoad = null;
 
   const graph = graphAvailable()
     ? createGraphView({
@@ -278,12 +280,13 @@ function requireEl(id) {
   /**
    * Show the Graph view on a node's neighbourhood, or on its overview.
    * @param {string | null} node
+   * @returns {Promise<void> | undefined} settles once the graph is drawn
    */
   function openGraph(node) {
-    if (!graph) return;
+    if (!graph) return undefined;
     readerNav.cancel();
     enterView('graph');
-    graph.show(node);
+    return graph.show(node);
   }
 
   /**
@@ -300,12 +303,11 @@ function requireEl(id) {
 
   /**
    * Show the Knowledge view on what it last showed; a load the Graph view
-   * superseded before it drew starts again.
+   * superseded before it drew starts again as it was asked for.
    */
   function resumeKnowledge() {
-    if (knowledgeDrawn) enterView('knowledge');
-    else if (knowledgeLoc && knowledgeLoc !== STRUCTURE_MARKER) loadConcept(knowledgeLoc);
-    else loadStructure({ push: false });
+    if (undrawnLoad) undrawnLoad();
+    else enterView('knowledge');
   }
 
   initViews({
@@ -520,7 +522,7 @@ function requireEl(id) {
     const nav = readerNav.begin();
     enterView('knowledge');
     knowledgeLoc = id;
-    knowledgeDrawn = false;
+    undrawnLoad = () => loadConcept(id);
     showContentsFor('page');
     showOpenPage({ id, title: conceptTitles.get(id) ?? id });
     showReaderState({ icon: 'refresh', message: 'Loading the page' });
@@ -533,7 +535,7 @@ function requireEl(id) {
       /* no reply, or an unreadable one: reported below */
     }
     if (!nav.isCurrent()) return;
-    knowledgeDrawn = true;
+    undrawnLoad = null;
     if (resp && resp.status === 404) {
       showReaderState({
         icon: 'search',
@@ -615,7 +617,7 @@ function requireEl(id) {
     const nav = readerNav.begin();
     enterView('knowledge');
     knowledgeLoc = STRUCTURE_MARKER;
-    knowledgeDrawn = false;
+    undrawnLoad = () => loadStructure({ push: false, section: opts && opts.section });
     showContentsFor('browse');
     highlightStructure();
     showOpenPage(null);
@@ -629,7 +631,7 @@ function requireEl(id) {
       /* no reply, or an unreadable one: reported below */
     }
     if (!nav.isCurrent()) return;
-    knowledgeDrawn = true;
+    undrawnLoad = null;
     if (!data) {
       renderLoadFailure('The overview did not load', () => loadStructure(opts));
       return;
@@ -745,9 +747,11 @@ function requireEl(id) {
     const params = readPanelParams();
     const inGraph = graph ? graphTarget(params.raw) : null;
     if (inGraph) {
+      // The Knowledge view loads the overview when it is first shown.
       history.replaceState({ id: GRAPH_MARKER, node: inGraph.node }, '', graphHash(inGraph.node));
-      openGraph(inGraph.node);
-    } else if (params.concept) {
+      return openGraph(inGraph.node);
+    }
+    if (params.concept) {
       // Seed a history entry with the target id so browser back/forward returns
       // to the deep-linked concept (popstate reads ev.state.id).
       history.replaceState({ id: params.concept }, '', '#' + params.concept);

@@ -72,7 +72,9 @@ function answerFor(url) {
     });
   }
   if (url === '/api/bundle_health') return jsonResponse({ ok: true, counts: {}, total: 0 });
-  if (url === '/api/structure') return jsonResponse({ markdown: '# Structure' });
+  if (url === '/api/structure') {
+    return jsonResponse({ markdown: '<h1>Structure</h1><h2>devices</h2>' });
+  }
   if (url === '/api/graph') return jsonResponse(payload());
   if (url.startsWith('/api/concept?id=')) {
     const id = decodeURIComponent(url.slice('/api/concept?id='.length));
@@ -82,15 +84,38 @@ function answerFor(url) {
 }
 
 /**
+ * *answer*, or a rejection with an AbortError once *signal* aborts, as `fetch`
+ * rejects a request its signal aborts.
+ * @param {Promise<unknown>} answer
+ * @param {AbortSignal | null | undefined} signal
+ * @returns {Promise<unknown>}
+ */
+function abortable(answer, signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('The operation was aborted.', 'AbortError'));
+    if (signal?.aborted) abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    answer.then(resolve, reject);
+  });
+}
+
+/**
+ * @param {string} url
+ * @param {RequestInit} [init]
+ */
+async function fakeFetch(url, init = {}) {
+  const late = held.get(url);
+  if (late) held.delete(url);
+  await abortable(late ? late.answer : Promise.resolve(), init.signal);
+  return answerFor(url);
+}
+
+/**
+ * How often the panel has asked for *url*.
  * @param {string} url
  */
-async function fakeFetch(url) {
-  const late = held.get(url);
-  if (late) {
-    held.delete(url);
-    await late.answer;
-  }
-  return answerFor(url);
+function fetchCount(url) {
+  return vi.mocked(fetch).mock.calls.filter(([asked]) => asked === url).length;
 }
 
 async function flush() {
@@ -157,6 +182,8 @@ describe('okf panel: the newest navigation wins', () => {
   test('a page opened while the start-up overview loads stays when the overview answers', async () => {
     await changeHash('#devices/bpm');
     expect(reader().dataset.conceptId).toBe('devices/bpm');
+    // The overview's request was aborted, so start-up is over before it answers.
+    expect(document.documentElement.getAttribute('data-page-ready')).toBe('true');
 
     startUpOverview.release(undefined);
     await flush();
@@ -194,6 +221,7 @@ describe('okf panel: the newest navigation wins', () => {
   });
 
   test('a page the Graph view interrupted loads again when Knowledge is shown', async () => {
+    const asked = fetchCount(conceptFetch('devices/magnet'));
     const magnet = hold(conceptFetch('devices/magnet'));
     await changeHash('#devices/magnet');
     await clickView('graph');
@@ -206,5 +234,27 @@ describe('okf panel: the newest navigation wins', () => {
     expect($('knowledge-view').hidden).toBe(false);
     expect(reader().dataset.conceptId).toBe('devices/magnet');
     expect(history.state).toEqual({ id: 'devices/magnet' });
+    expect(fetchCount(conceptFetch('devices/magnet')) - asked).toBe(2);
+  });
+
+  test('a Browse the Graph view interrupted scrolls to its group when Knowledge is shown', async () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    await changeHash('#devices/bpm');
+    const overview = hold('/api/structure');
+    const groupCrumb = /** @type {HTMLElement} */ (
+      Array.from($('crumb').querySelectorAll('a')).find((a) => a.textContent === 'devices')
+    );
+    groupCrumb.click();
+    await flush();
+    await clickView('graph');
+
+    overview.release(undefined);
+    await flush();
+    await clickView('knowledge');
+
+    const section = reader().querySelector('h2');
+    expect(section?.textContent).toBe('devices');
+    expect(scroll.mock.contexts).toContain(section);
+    scroll.mockRestore();
   });
 });

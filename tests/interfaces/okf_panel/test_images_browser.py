@@ -450,9 +450,11 @@ def test_a_concept_opened_during_start_up_outlives_the_late_overview(
         page.evaluate("location.hash = '#devices/bpm'")
         _wait_concept(page, "devices/bpm")
         assert_image_displayed(page, EXAMPLE_FIGURE_ALT_START)
+        # The concept aborted the overview's request, so start-up is over while
+        # the overview's answer is still held.
+        wait_for_page_ready(page)
 
         held[0].continue_()
-        wait_for_page_ready(page)
         expect(page.locator('#reader-content[data-concept-id="devices/bpm"]')).to_have_count(1)
         assert page.evaluate("history.state") == {"id": "devices/bpm"}
         assert_image_displayed(page, EXAMPLE_FIGURE_ALT_START)
