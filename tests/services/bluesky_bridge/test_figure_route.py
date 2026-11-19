@@ -24,6 +24,7 @@ no Tiled, and no test-injected catalog to serve a live run's figure.
 
 from __future__ import annotations
 
+import pickle
 import statistics
 import time
 from typing import Any
@@ -963,6 +964,26 @@ def test_live_and_tiled_produce_the_same_figure_through_the_shared_adapter(
     assert live_body.pop("source") == "live"
     assert tiled_body.pop("source") == "tiled"
     assert live_body == tiled_body
+
+
+def test_a_live_waveform_column_is_left_out_of_the_figure(client: TestClient) -> None:
+    """A live run's array cells reach the figure as the stored run's do: unplotted.
+
+    The live twin of the Tiled case in `test_data_route.py`; pinned because the
+    live buffer's cell shape is this route's input.
+    """
+    rows = [{"motor": 1.0 * (i + 1), "det_wave": np.arange(3.0) + i} for i in range(4)]
+    _feed_live("run-live-wave", pickle.loads(pickle.dumps(rows)), stop=True)
+
+    figure = _get_figure(client, "run-live-wave")
+
+    plotted = {
+        series["label"]
+        for panel in figure["panels"]
+        for series in panel["mark"].get("series") or []
+    }
+    assert "det_wave" not in plotted
+    assert plotted == {"motor"}
 
 
 def test_tiled_start_doc_without_a_stamp_is_plan_identity_unavailable(
