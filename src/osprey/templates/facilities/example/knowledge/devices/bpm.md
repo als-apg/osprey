@@ -13,6 +13,12 @@ centroid using electromagnetic button pickups.  BPMs sit along every section of
 the machine, from the gun-to-linac line to SR, and are the primary diagnostic
 for orbit control.
 
+![Cross-section of a button BPM: four button pickups, A to D, sit at 45 degrees around a round vacuum chamber; the beam is off centre, and its horizontal (x) and vertical (y) offsets are marked.](figures/bpm-button-pickups.png)
+
+An off-centre beam induces a larger signal on the buttons nearer to it; the
+differences between the four button signals give the horizontal and vertical
+position.
+
 ## Channels
 
 Each monitor is a device record of the facility file, and each of its readings

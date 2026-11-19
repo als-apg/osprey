@@ -783,7 +783,7 @@ def test_a_word_with_no_stated_meaning_keeps_inside_its_block(tmp_path):
     assert inside and all(n["geometry"]["x"] + n["geometry"]["width"] <= right for n in inside)
 
 
-def _stripped(tmp_path, *, raft: bool = False):
+def _stripped(tmp_path, *, place_pose: bool = False, change=None):
     """A pump recipe whose first section is a strip of pumps and quadrupoles."""
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import copy_tables, write_fixture_facility
@@ -802,12 +802,12 @@ def _stripped(tmp_path, *, raft: bool = False):
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
     )
-    if raft:  # the place is placed; the second pump only by it
+    if place_pose:  # the place has a position of its own
         with (tables / "positions.csv").open("a") as handle:
             handle.write(
                 "XR/XR01,XR-RING,0,0,0,,,,1.5,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 9\n"
             )
-    return load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
 
 
 def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
@@ -827,6 +827,24 @@ def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
     assert _text(doc, "2 m") and _text(doc, "-1 m")  # a tick every metre
     opens = [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == "XR01:QF1"]
     assert opens and opens[0]["props"]["actions"]
+
+
+def test_a_strip_window_reads_on_across_a_rings_start(tmp_path) -> None:
+    from osprey.facility.panels.view import CardStrip
+    from tests.facility.panels.test_describe import ring_model
+
+    graph = _stripped(tmp_path, change=ring_model(12.0))
+    view = device_card(graph, "XR01:IP1")  # at 1.25; XR02:QF1 at 11.0 is 2.25 m before it
+    strip = next(i for s in view.sections for i in s.items if isinstance(i, CardStrip))
+    assert [(m.thing, m.s_m) for m in strip.members] == [
+        ("XR02:QF1", pytest.approx(-1.0)),
+        ("XR01:IP1", 1.25),
+        ("XR01:QF1", 1.25),
+    ]
+    line = _stripped(tmp_path / "line")  # no ring length stated: nothing read across
+    view = device_card(line, "XR01:IP1")
+    strip = next(i for s in view.sections for i in s.items if isinstance(i, CardStrip))
+    assert "XR02:QF1" not in [m.thing for m in strip.members]
 
 
 def test_close_strip_members_keep_their_names_and_values_apart(tmp_path) -> None:
@@ -869,18 +887,26 @@ def test_close_strip_members_keep_their_names_and_values_apart(tmp_path) -> None
 def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by_none_says_so(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels.describe import STRIP_NOWHERE, STRIP_ON_RAFT, strip_state
+    from osprey.facility.panels.describe import STRIP_BY_PLACE, STRIP_NOWHERE, strip_state
     from osprey.facility.panels.view import CardHead, CardStrip
 
-    graph = _stripped(tmp_path, raft=True)
+    graph = _stripped(tmp_path, place_pose=True)
     view = device_card(graph, "XR01:IP2")
     strip = next(i for s in view.sections for i in s.items if isinstance(i, CardStrip))
-    assert strip.bracket == (0.0, 3.0, "on XR/XR01, place on the raft not stated")
+    # the place's stretch: its own point (1.5) and its devices' positions (1.25 to 2.0)
+    assert strip.bracket == (1.25, 2.0, "in XR/XR01, place in it not stated")
+    assert strip.window == (1.625 - 3, 1.625 + 3)
     assert [m.thing for m in strip.members if m.focus] == ["XR01:IP2"]
     doc = stub_render(view, graph)
-    assert _text(doc, "on XR/XR01, place on the raft not stated")
-    assert strip_state(graph, graph.thing("XR01:IP2", "device")) == STRIP_ON_RAFT
-    nowhere = _stripped(tmp_path / "b")
+    assert _text(doc, "in XR/XR01, place in it not stated")
+    assert strip_state(graph, graph.thing("XR01:IP2", "device")) == STRIP_BY_PLACE
+
+    def unplaced(document) -> None:
+        for device in document["devices"]:
+            if device["id"] == "XR01:IP2":
+                device.pop("place", None)
+
+    nowhere = _stripped(tmp_path / "b", change=unplaced)
     view = device_card(nowhere, "XR01:IP2")
     assert not [i for s in view.sections for i in s.items if isinstance(i, CardStrip)]
     head = next(i for s in view.sections for i in s.items if isinstance(i, CardHead))
@@ -892,9 +918,9 @@ def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by
 def test_strip_states_count_the_devices_of_a_recipe_by_how_they_are_placed(tmp_path):
     from osprey.facility.panels.describe import strip_states
 
-    graph = _stripped(tmp_path, raft=True)
+    graph = _stripped(tmp_path, place_pose=True)
     assert strip_states(graph, ["XR01:IP1", "XR01:IP2", "XR01:QF1"]) == {
-        "pump": {"placed": 1, "on a raft": 1}
+        "pump": {"placed": 1, "by its place": 1}
     }
 
 
@@ -1750,10 +1776,17 @@ def test_a_device_with_no_curve_says_none_is_stated(tmp_path):
     assert curve.points == () and curve.note == "no excitation curve stated for this device"
 
 
-NO_CARDS_HEADER = "class,under,devices,owner_relation,owner_direction,owner_to,reason,source\n"
+CARDS_HEADER = (
+    "action,class,under,devices,attribute,when,owner_relation,owner_direction,owner_to,"
+    "reason,source\n"
+)
 
 
-def _no_card_graph(tmp_path, rows: str):
+def _carded(tmp_path, rows: str | None, attributes: dict | None = None):
+    """The fixture with two parts in no place of their own: ``XR01:CARD1`` (part of the
+    racked ``XR01:CH1``, with a rule channel and *attributes*) and ``XR01:CARD2``
+    (only cabled to it, no channel); *rows* is the ``cards.csv`` body (``None``: no
+    file)."""
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import (
         PART_RULE,
@@ -1767,148 +1800,127 @@ def _no_card_graph(tmp_path, rows: str):
         add_part(document, "XR01:CARD2", "XR01:CH1")
         document["relations"][-1]["subject"]["device"] = "XR01:CARD2"
         document["relations"][-1]["type"] = "cabled_to"  # not part of anything
+        for device in document["devices"]:
+            if device["id"] == "XR01:CARD1":
+                device["attributes"] = attributes or {}
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as handle:
         handle.write(PART_RULE)
-    (tables / "no_cards.csv").write_text(NO_CARDS_HEADER + rows)
+    (tables / "cards.csv").write_text(CARDS_HEADER + (rows or ""))
     return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
 
 
-def test_a_thing_no_cards_takes_gets_no_card_and_its_index_entry_points_to_its_owner(tmp_path):
+def test_by_default_a_device_gets_a_card_only_with_a_channel_or_a_drawing(tmp_path):
+    from osprey.facility.panels.describe import (
+        _index,
+        _ref,
+        card_counts,
+        card_rule_counts,
+        drawn_on,
+        targets,
+    )
+    from osprey.facility.panels.view import Fact, Target
+
+    graph = _carded(tmp_path, None)
+    found = targets(graph)
+    assert Target("card", "device", "XR01:CARD1") in found  # a channel of its own
+    assert Target("card", "device", "XR01:CH1") in found  # its part's channel walks to it
+    # a pose and relations alone are no reason for a card
+    for bare in ("XR01:CARD2", "XR02:SHIELD1", "XR02:BLOCK1"):
+        assert Target("card", "device", bare) not in found
+    assert graph.card_rule("XR01:CARD2") is None and card_rule_counts(graph) == []
+    cardless, ownerless, by_default = card_counts(graph)
+    assert cardless == ownerless == by_default >= 3
+    # no screen, no index entry, and a related card names it without a link
+    assert "XR01:CARD2" not in {thing for thing, _target in drawn_on(graph)}
+    assert isinstance(_ref(graph, _index(graph), graph.thing("XR01:CARD2", "device")), Fact)
+
+
+def test_a_drop_row_with_an_owner_draws_the_device_on_its_owners_card(tmp_path):
     import json
 
-    from osprey.facility.panels.describe import no_card_counts, targets
+    from osprey.facility.panels.describe import _index, _ref, card_rule_counts, targets
     from osprey.facility.panels.emit import write
     from osprey.facility.panels.view import Target
 
-    graph = _no_card_graph(
-        tmp_path, "ElectronicsModule,,,part_of,out,device,a card in its chassis,S\n"
-    )
-    found = targets(graph)
-    assert Target("card", "device", "XR01:CARD1") not in found
-    assert Target("card", "device", "XR01:CARD2") not in found
-    assert no_card_counts(graph) == (2, 1)  # CARD2 is part of nothing: no owner stated
+    graph = _carded(tmp_path, "drop,ElectronicsModule,,,,,part_of,out,device,in its chassis,S\n")
+    assert Target("card", "device", "XR01:CARD1") not in targets(graph)
+    assert [n for _row, n in card_rule_counts(graph)] == [2]  # CARD2 too, with no owner
     out = tmp_path / "out"
     write(graph, out)
     index = json.loads((out / "index.json").read_text())
     (entry,) = index["drawn_on"]
     assert entry["thing"] == "XR01:CARD1" and entry["file"].endswith("card-xr01-ch1.screen.json")
-    # a link to it on another card opens its owner's card
-    from osprey.facility.panels.describe import _index, _ref
-
     link = _ref(graph, _index(graph), graph.thing("XR01:CARD1", "device"))
     assert link.target == Target("card", "device", "XR01:CH1") and link.label == "XR01:CARD1"
 
 
-NO_CARDS_FULL = NO_CARDS_HEADER.rstrip("\n") + ",when,attribute\n"
-
-
-def _attributed(tmp_path, rows: str, attributes: dict):
-    """The no-card graph with *attributes* set on XR01:CARD1, and *rows* as the full
-    no_cards.csv body."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import (
-        PART_RULE,
-        add_part,
-        copy_tables,
-        write_fixture_facility,
-    )
-
-    def change(document) -> None:
-        add_part(document, "XR01:CARD1", "XR01:CH1", "XR01-CARD1:Fault-Sts")
-        add_part(document, "XR01:CARD2", "XR01:CH1")
-        document["relations"][-1]["subject"]["device"] = "XR01:CARD2"
-        document["relations"][-1]["type"] = "cabled_to"
-        for device in document["devices"]:
-            if device["id"] == "XR01:CARD1":
-                device["attributes"] = attributes
-
-    tables = copy_tables(tmp_path / "panels")
-    with (tables / "health.csv").open("a") as handle:
-        handle.write(PART_RULE)
-    (tables / "no_cards.csv").write_text(NO_CARDS_FULL + rows)
-    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
-
-
-def test_a_no_cards_row_with_an_attribute_takes_only_the_devices_that_carry_it(tmp_path):
-    from osprey.facility.panels.describe import no_card_takes, targets
+def test_a_keep_row_gives_a_card_the_default_would_not(tmp_path):
+    from osprey.facility.panels.describe import card_counts, targets
     from osprey.facility.panels.view import Target
 
-    graph = _attributed(
+    bare = card_counts(_carded(tmp_path / "a", None))
+    graph = _carded(tmp_path / "b", "keep,*,,XR01:CARD2,,,,,,a passive part worth a card,S\n")
+    assert Target("card", "device", "XR01:CARD2") in targets(graph)
+    assert card_counts(graph) == (bare[0] - 1, bare[1] - 1, bare[2] - 1)
+
+
+def test_a_row_with_an_attribute_selects_only_the_devices_that_carry_it(tmp_path):
+    from osprey.facility.panels.describe import card_rule_counts, targets
+    from osprey.facility.panels.view import Target
+
+    graph = _carded(
         tmp_path,
-        "ElectronicsModule,,,part_of,out,device,a carrier card,S,,kind=carrier\n",
+        "drop,ElectronicsModule,,,kind=carrier,,,,,a carrier card,S\n"
+        "keep,ElectronicsModule,,,,,,,,the others keep theirs,S\n",
         {"kind": "carrier", "slots": [1, 2]},
     )
     found = targets(graph)
     assert Target("card", "device", "XR01:CARD1") not in found
     assert Target("card", "device", "XR01:CARD2") in found  # same class, no such attribute
-    ((row, taken),) = no_card_takes(graph)
-    assert row.attribute == ("kind", "carrier") and taken == 1
+    (first, n_first), (_second, n_second) = card_rule_counts(graph)
+    assert first.attribute == ("kind", "carrier") and (n_first, n_second) == (1, 1)
     assert ("slots", "1") in graph.thing("XR01:CARD1", "device").attributes
 
 
-def test_a_no_cards_row_when_no_channel_of_any_class_takes_the_bare_devices(tmp_path):
-    from osprey.facility.panels.describe import _index, _ref, drawn_on, no_card_takes, targets
-    from osprey.facility.panels.view import Fact, Target
+def test_a_row_under_a_place_selects_a_part_by_its_wholes_place(tmp_path):
+    from osprey.facility.panels.describe import card_rule_counts
 
-    row = "no reading of its own,S,no-channel,\n"
-    graph = _attributed(tmp_path, "*,XR,XR01:CARD*,,,," + row, {})
-    assert [n for _row, n in no_card_takes(graph)] == [0]  # no place: under XR holds neither
-    graph = _attributed(tmp_path / "b", "*,,XR01:CARD*,,,," + row, {})
-    assert [n for _row, n in no_card_takes(graph)] == [1]
-    assert Target("card", "device", "XR01:CARD1") in targets(graph)  # it has a channel
-    # no owner named: no screen, no index entry, and a related card names it as a fact
-    assert Target("card", "device", "XR01:CARD2") not in targets(graph)
-    assert "XR01:CARD2" not in {thing for thing, _target in drawn_on(graph)}
-    ref = _ref(graph, _index(graph), graph.thing("XR01:CARD2", "device"))
-    assert isinstance(ref, Fact)
+    graph = _carded(tmp_path, "drop,*,XR,XR01:CARD*,,,,,,parts in the ring,S\n")
+    assert graph.card_rule("XR01:CARD1") is not None  # part of a racked chassis in XR
+    assert graph.card_rule("XR01:CARD2") is None  # in no place
+    assert [n for _row, n in card_rule_counts(graph)] == [1]
 
 
-def test_a_no_cards_row_when_no_recipe_spares_a_class_with_a_recipe(tmp_path):
-    from osprey.facility.panels.describe import no_card_takes
-
-    graph = _attributed(tmp_path, "*,,XR01:*,,,,the default card says nothing,S,no-recipe,\n", {})
-    taken = {d for d in (t.id for t in graph.things()) if graph.no_card(d) is not None}
-    assert taken and all(graph.recipe(d) is None for d in taken)
-    assert [n for _row, n in no_card_takes(graph)] == [len(taken)]
-
-
-def test_the_first_matching_no_cards_row_takes_a_device(tmp_path):
-    from osprey.facility.panels.describe import no_card_takes
-
-    graph = _attributed(
-        tmp_path,
-        "ElectronicsModule,,,,,,first,S,,kind=carrier\nElectronicsModule,,,,,,second,S,,\n",
-        {"kind": "carrier"},
-    )
-    assert [n for _row, n in no_card_takes(graph)] == [1, 1]
+def test_when_conditions_select_by_channel_and_by_drawing(tmp_path):
+    graph = _carded(tmp_path, "keep,*,,XR01:*,,no-channel;no-drawing,,,,bare devices,S\n")
+    kept = {t.id for t in graph.things() if t.kind == "device" and graph.card_rule(t.id)}
+    assert "XR01:CARD2" in kept and "XR01:CARD1" not in kept
+    assert all(not graph.card_channels(d) and not graph.card_drawing(d) for d in kept)
 
 
 @pytest.mark.parametrize(
     ("row", "said"),
     [
-        ("ElectronicsModule,,,part_of,,,r,S,,\n", "together"),
-        ("ElectronicsModule,,,,,device,r,S,,\n", "owner_to needs owner_relation"),
-        ("ElectronicsModule,,,,,,r,S,no-place,\n", "when is 'no-place'"),
-        ("ElectronicsModule,,,,,,r,S,no-channel;no-channel,\n", "when is"),
-        ("ElectronicsModule,,,,,,r,S,,carrier\n", "attribute is 'carrier', not name=value"),
+        ("drop,ElectronicsModule,,,,,part_of,,,r,S\n", "together"),
+        ("drop,ElectronicsModule,,,,,,,device,r,S\n", "owner_to needs owner_relation"),
+        ("keep,ElectronicsModule,,,,,part_of,out,,r,S\n", "a keep row names no owner"),
+        ("hide,ElectronicsModule,,,,,,,,r,S\n", "action is 'hide'"),
+        (",ElectronicsModule,,,,,,,,r,S\n", "action"),
+        ("drop,ElectronicsModule,,,,no-place,,,,r,S\n", "when is 'no-place'"),
+        ("drop,ElectronicsModule,,,,no-channel;no-channel,,,,r,S\n", "when is"),
+        ("drop,ElectronicsModule,,,carrier,,,,,r,S\n", "attribute is 'carrier', not name=value"),
     ],
 )
-def test_a_no_cards_row_that_cannot_be_read_says_why(tmp_path, row, said):
-    from osprey.facility.panels.tables import NO_CARDS, PanelTableError, read_tables
+def test_a_cards_row_that_cannot_be_read_says_why(tmp_path, row, said):
+    from osprey.facility.panels.tables import CARDS, PanelTableError, read_tables
     from tests.facility.panels._fixture import copy_tables
 
     tables = copy_tables(tmp_path / "panels")
-    (tables / NO_CARDS).write_text(NO_CARDS_FULL + row)
+    (tables / CARDS).write_text(CARDS_HEADER + row)
     with pytest.raises(PanelTableError, match=said):
         read_tables(tables)
-
-
-def test_tables_without_no_cards_give_every_device_its_card(panel_graph):
-    from osprey.facility.panels.describe import no_card_counts
-
-    assert no_card_counts(panel_graph) == (0, 0)
 
 
 def test_choice_segments_that_share_a_word_carry_their_value() -> None:
@@ -2257,3 +2269,131 @@ def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
     need = layout.BLOCK_LABEL + layout.text_width(f"-0.000 {long_unit}", layout.BLOCK_TEXT_SIZE)
     assert width(long_unit) >= need  # the field holds the number and its unit whole
     assert width(None) == layout.BLOCK_LEAST  # the facility's unit, A, fits the least
+
+
+def _family_supply_graph(tmp_path):
+    """The fixture with one family supply whose two channels have the ring's first
+    quadrupoles as endpoints."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def supply(document) -> None:
+        document["devices"].append({"id": "XR:FAMILY-PS", "class": "FamilySupply"})
+        members = ["XR01:QF1", "XR02:QF1"]
+        for name, role in (
+            ("XR:FAMILY-PS:Setpoint", "setpoint"),
+            ("XR:FAMILY-PS:Reset", "setpoint"),
+        ):
+            document["channels"].append(
+                {"id": name, "on": {"device": "XR:FAMILY-PS"}, "endpoint_of": members, "role": role}
+            )
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "FamilySupply,set-point,*:Setpoint,device,entry,A,,,set point,stated,S,,\n"
+        + "FamilySupply,reset,*:Reset,device,action,,,1,Reset,stated,S,,\n"
+    )
+    return load_graph(write_fixture_facility(tmp_path / "f.json", supply), tables)
+
+
+def test_a_member_card_shows_its_shared_supply_read_only_and_links_to_it(tmp_path) -> None:
+    from osprey.facility.panels.view import Link, Target, ValueRow
+
+    graph = _family_supply_graph(tmp_path)
+    view = device_card(graph, "XR01:QF1")
+    (section,) = [s for s in view.sections if s.title == "shared supply XR:FAMILY-PS"]
+    link, row = section.items
+    assert link == Link("XR:FAMILY-PS", Target("card", "device", "XR:FAMILY-PS"))
+    assert isinstance(row, ValueRow)
+    assert (row.label, row.channel, row.writable) == (
+        "set point (shared)",
+        "XR:FAMILY-PS:Setpoint",
+        False,
+    )
+    # the press stays on the supply's own card; no member writes the family's channel
+    doc = stub_render(view, graph)
+    assert not [
+        n
+        for n in nodes(doc)
+        if n["type"] in ("pv-text-input", "pv-button") and "FAMILY-PS" in json.dumps(n)
+    ]
+    texts = [n["props"].get("text") for n in nodes(doc)]
+    assert "set point (shared)" in texts
+
+
+@pytest.mark.parametrize("write_under", [(), ("XR/XR01",)])
+def test_a_shared_supply_on_a_member_card_links_to_no_unwritten_channels_list(
+    tmp_path, write_under
+) -> None:
+    """A channel drawn under its supply is shown, not hidden: the member card offers
+    the full list only when the list is a screen, in a whole write or a scoped one."""
+    from osprey.facility.panels.emit import Draw, check, write
+    from osprey.facility.panels.view import ChannelGrid
+
+    graph = _family_supply_graph(tmp_path)
+    view = device_card(graph, "XR01:QF1")
+    (grid,) = [i for s in view.sections for i in s.items if isinstance(i, ChannelGrid)]
+    assert (grid.hidden, grid.full) == (0, None)
+    out = tmp_path / "out"
+    draw = Draw(write_under=write_under)
+    write(graph, out, draw=draw)
+    assert not list(out.glob("channels/channels-XR01*"))
+    problems = check(graph, out, draw=draw)
+    assert not [p for p in problems if p.failing], problems
+
+
+def _interlocked(document) -> None:
+    """Both XR01 pumps interlocked by the chassis XR01:CH3 on inputs IN1 and IN2."""
+    for n, pump in enumerate(("XR01:IP1", "XR01:IP2"), start=1):
+        document["relations"].append(
+            {
+                "id": f"{pump.lower()}-interlock",
+                "type": "interlocked_by",
+                "subject": {"device": pump},
+                "object": {"device": "XR01:CH3", "port": f"IN{n}"},
+                "standing": "accepted",
+            }
+        )
+        document["channels"].append({"id": f"XR01-CH3:In{n}-Sts", "on": {"device": "XR01:CH3"}})
+
+
+def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.tables import ROLE_SCOPES
+    from osprey.facility.panels.view import Chain
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    assert {"read_out_by", "controlled_by", "interlocked_by"} <= set(ROLE_SCOPES)
+    assert "located_in" not in ROLE_SCOPES  # its object is a place
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,interlock,*:In{n}-Sts,interlocked_by,lamp,,,,,stated,S,1,l\n"
+    )
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\n"
+        "ElectronicsChassis,,XR01:CH3,interlocks,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "interlocks,1,chain,Inputs,,inputs,,,,S\n"
+    )
+    (tables / "chains.csv").write_text(
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source\n"
+        "interlocks,inputs,1,0,interlocked_by,in,Pump,yes,,Interlocks,interlock,S\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _interlocked), tables)
+    # the device's card shows its own point by the stated relation
+    hits = [(h.role.role, h.channel, h.owner, h.port) for h in graph.roles("XR01:IP1")]
+    assert hits == [("interlock", "XR01-CH3:In1-Sts", "XR01:CH3", "IN1")]
+    assert graph.card_channels("XR01:IP2")
+    # the interlock's card carries the point of each device it interlocks
+    chain = next(
+        i for s in device_card(graph, "XR01:CH3").sections for i in s.items if isinstance(i, Chain)
+    )
+    _own, pumps = chain.blocks
+    points = {b.title: [r.channel for r in b.rows] for b in (pumps, *pumps.stack)}
+    assert points == {
+        "Interlocks  XR01:IP1": ["XR01-CH3:In1-Sts"],
+        "Interlocks  XR01:IP2": ["XR01-CH3:In2-Sts"],
+    }

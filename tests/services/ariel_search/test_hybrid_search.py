@@ -2771,6 +2771,66 @@ class TestPictureLaneFailure:
         assert lane.calls == []
 
 
+class TestLaneProvidersResolveBeforeTheLanesStart:
+    """No lane's first provider import runs while the other lane's timeout runs."""
+
+    async def test_the_semantic_providers_first_import_leaves_the_picture_lane_its_budget(
+        self, tmp_path, monkeypatch, search_calls
+    ):
+        # Registry init imports no provider adapter, so the first RRF search
+        # of a process imports the semantic lane's provider. Resolved inside
+        # that lane's task, the import blocks the event loop the picture lane's
+        # embedding timeout is running on; here it outlasts that timeout.
+        from tests.services.ariel_search.slow_provider import (
+            IMAGE_EMBEDDING,
+            TEXT_EMBEDDING,
+            SlowProviders,
+        )
+
+        monkeypatch.setattr(image_lane, "QUERY_EMBEDDING_TIMEOUT_S", 0.25)
+        picture_budget_s = image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1
+        slow = SlowProviders(tmp_path, monkeypatch)
+        slow.register("slow-embed", TEXT_EMBEDDING, sleep_s=picture_budget_s + 0.25)
+        slow.register("picture", IMAGE_EMBEDDING, sleep_s=0)
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/ariel"},
+                "search_modules": {
+                    "hybrid": {"enabled": True, "settings": {"strategy": "rrf"}},
+                    "semantic": {
+                        "enabled": True,
+                        "model": "nomic-embed-text",
+                        "provider": "slow-embed",
+                        "settings": {"embedding_dimension": 768},
+                    },
+                },
+                "enhancement_modules": {
+                    "image_embedding": {
+                        "enabled": True,
+                        "provider": "picture",
+                        "model": _LLAMA_MODEL,
+                        "dimensions": 1024,
+                    }
+                },
+            }
+        )
+        entries = [make_entry("a")]
+        repository = SemanticRepository(entries, [(entries[0], 0.9)])
+        repository.pool = _FakePool(rows_for={"FROM ": []})  # type: ignore[attr-defined]
+
+        result = await hybrid_search(
+            "q",
+            repository,
+            config,
+            client=StubClient([make_hit("a")]),
+            include_images=True,
+            search_calls=search_calls,
+        )
+
+        assert _picture_diagnostics(result) == []
+        assert image_lane.last_unavailable_reason() is None
+
+
 @pytest.fixture
 def lane_clock(monkeypatch):
     class _Clock:

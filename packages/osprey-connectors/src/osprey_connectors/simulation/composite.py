@@ -15,7 +15,7 @@ child's own variables that no channel names (faults, optics) are reached as
 ``<model>/<name>`` through :meth:`Composite.model_get` and
 :meth:`Composite.model_set` only.
 
-**IOC health.** ``supported_variables`` also holds the view's ``ioc_health``
+**Server health.** ``supported_variables`` also holds the view's server health
 addresses, ``<code>:SIM:<model>:<signal>``, read-only and served for every model
 the view lists whether or not it is built: ``HEARTBEAT`` counts the whole seconds
 since the composite started, ``UPTIME`` is those seconds, both on its clock, and
@@ -262,11 +262,11 @@ def _for_variable(variable: Variable, value: object) -> object:
     return value
 
 
-def _ioc_health_variable(address: str, signal: str) -> Variable:
-    """The read-only variable of one IOC health address.
+def _server_health_variable(address: str, signal: str) -> Variable:
+    """The read-only variable of one server health address.
 
     Raises:
-        ViewSchemaError: ``signal`` is not an IOC health signal.
+        ViewSchemaError: ``signal`` is not a server health signal.
     """
     if signal == HEARTBEAT:
         return IntVariable(name=address, default_value=0, read_only=True)
@@ -274,7 +274,7 @@ def _ioc_health_variable(address: str, signal: str) -> Variable:
         return ScalarVariable(name=address, default_value=0.0, unit="s", read_only=True)
     if signal == ENGINEER:
         return StrVariable(name=address, default_value=_DEMO_ENGINEER, read_only=True)
-    raise ViewSchemaError(f"{address} is not an IOC health address: rebuild with osprey build")
+    raise ViewSchemaError(f"{address} is not a server health address: rebuild with osprey build")
 
 
 def _producers_first(children: Mapping[str, _Child]) -> list[str]:
@@ -451,17 +451,17 @@ class Composite(LUMEModel):
         self._status: dict[str, str] = {
             address: name for name, address in view.status_addresses().items()
         }
-        self._ioc_health: dict[str, str] = {
+        self._server_health: dict[str, str] = {
             address: signal
-            for signals in view.ioc_health_by_model().values()
+            for signals in view.server_health_by_model().values()
             for signal, address in signals.items()
         }
-        #: Every address of the view, by the simulated IOC serving it.
-        self._ioc_addresses: dict[str, frozenset[str]] = server_addresses(
+        #: Every address of the view, by the simulated server serving it.
+        self._server_addresses: dict[str, frozenset[str]] = server_addresses(
             physics,
             {address: str(record.get("owner")) for address, record in self._channels.items()},
             view.status_addresses(),
-            view.ioc_health_by_model(),
+            view.server_health_by_model(),
         )
 
         self._variables: dict[str, Variable] = {}
@@ -477,8 +477,8 @@ class Composite(LUMEModel):
             self._variables[address] = StrVariable(
                 name=address, default_value=STATUS_OK, read_only=True
             )
-        for address, signal in self._ioc_health.items():
-            self._variables[address] = _ioc_health_variable(address, signal)
+        for address, signal in self._server_health.items():
+            self._variables[address] = _server_health_variable(address, signal)
 
         self._signature: tuple[str, int] | None | bool = False
         self._refresh()
@@ -800,7 +800,7 @@ class Composite(LUMEModel):
             noise.update(scenario.get("noise") or {})
             still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
-            stopped_servers.update(str(ioc) for ioc in scenario.get("stopped_servers") or ())
+            stopped_servers.update(str(server) for server in scenario.get("stopped_servers") or ())
 
         resolved: dict[str, list[ResolvedCoupling]] = {}
         for address, terms in couple.items():
@@ -841,12 +841,14 @@ class Composite(LUMEModel):
         self._apply_stopped_servers(stopped_servers)
 
     def _apply_stopped_servers(self, stopped_servers: set[str]) -> None:
-        """Stop the named simulated IOCs: none of their addresses answers a reader."""
+        """Stop the named simulated servers: none of their addresses answers a reader."""
         stopped: set[str] = set()
-        for ioc in sorted(stopped_servers):
-            addresses = self._ioc_addresses.get(ioc)
+        for server in sorted(stopped_servers):
+            addresses = self._server_addresses.get(server)
             if addresses is None:
-                logger.warning(f"Ignoring stopped IOC {ioc!r}: the view serves no such IOC")
+                logger.warning(
+                    f"Ignoring stopped server {server!r}: the view serves no such server"
+                )
                 continue
             stopped.update(addresses)
         self._stopped = frozenset(stopped)
@@ -916,7 +918,7 @@ class Composite(LUMEModel):
     @property
     @override
     def supported_variables(self) -> dict[str, Variable]:
-        """Every channel, status and IOC health address of the view, by address."""
+        """Every channel, status and server health address of the view, by address."""
         return self._variables
 
     @property
@@ -942,12 +944,12 @@ class Composite(LUMEModel):
         return self._moving
 
     def stopped(self) -> frozenset[str]:
-        """The addresses of the simulated IOCs the active scenarios stop.
+        """The addresses of the simulated servers the active scenarios stop.
 
         A reader of one of them gets no answer: the in-process connector
         raises, the served virtual accelerator withholds its reply. The
         composite itself still computes them, so a channel answers with its
-        current value, never a frozen one, once its IOC is no longer stopped.
+        current value, never a frozen one, once its server is no longer stopped.
         """
         self._refresh()
         return self._stopped
@@ -998,23 +1000,23 @@ class Composite(LUMEModel):
     def _partition(
         self, names: Sequence[str]
     ) -> tuple[dict[str, object], list[str], dict[str, list[str]]]:
-        """Split names into the status and IOC health values, the texture's and each child's."""
+        """Split names into the status and server health values, the texture's and each child's."""
         statuses: dict[str, object] = {}
         texture: list[str] = []
         physics: dict[str, list[str]] = {}
         for name in names:
             if name in self._status:
                 statuses[name] = self._children[self._status[name]].status
-            elif name in self._ioc_health:
-                statuses[name] = self._ioc_health_value(self._ioc_health[name])
+            elif name in self._server_health:
+                statuses[name] = self._server_health_value(self._server_health[name])
             elif self._owner[name] == TEXTURE_OWNER:
                 texture.append(name)
             else:
                 physics.setdefault(self._owner[name], []).append(name)
         return statuses, texture, physics
 
-    def _ioc_health_value(self, signal: str) -> str | int | float:
-        """The value an IOC health signal serves at this instant."""
+    def _server_health_value(self, signal: str) -> str | int | float:
+        """The value a server health signal serves at this instant."""
         if signal == ENGINEER:
             return _DEMO_ENGINEER
         uptime = max(float(self._clock()) - self._started_s, 0.0)
@@ -1235,10 +1237,10 @@ class Composite(LUMEModel):
         A texture channel returns the value the texture holds; a physics
         channel its child's plain read; a setpoint the active scenarios hold
         the value last written to it; a faulted reading its unfaulted value;
-        a status address its status; an IOC health address its value now.
+        a status address its status; a server health address its value now.
 
         Args:
-            names: Channel, status or IOC health addresses.
+            names: Channel, status or server health addresses.
 
         Returns:
             The value by address, in its stored representation.

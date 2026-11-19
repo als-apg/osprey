@@ -40,7 +40,6 @@ from osprey_connectors.service_answers import (
 )
 
 _SEARCH_PATH = "/search"
-_WHERE = "channel_directory.put_log.settings"
 _NO_ROWS_REASON = "no logged puts"
 _MALFORMED_REASON = "malformed response"
 
@@ -79,7 +78,9 @@ class CaPutLog(PutLog):
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         if transport is None:
-            transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_WHERE)
+            transport = ReadOnlyTransport(
+                spec.settings, self.ALLOWED_REQUESTS, where=spec.settings_key
+            )
         self._transport = transport
 
     @override

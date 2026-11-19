@@ -56,6 +56,7 @@ __all__ = [
     "OUTPUT",
     "PERIODIC",
     "PERIODIC_IOC_HEALTH",
+    "PERIODIC_SERVER_HEALTH",
     "PLANES",
     "READBACK",
     "REFRESH",
@@ -63,6 +64,7 @@ __all__ = [
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
     "SERVED_SIGNAL_PROPERTY",
+    "SERVER_HEALTH_SIGNALS",
     "SCHEMAS",
     "SEEDS_FILE",
     "SEEDS_SCHEMA",
@@ -148,12 +150,16 @@ STATUS_SIGNAL = "STATUS"
 HEARTBEAT = "HEARTBEAT"
 UPTIME = "UPTIME"
 ENGINEER = "ENGINEER"
-#: The signals of a model's IOC health addresses, ``<code>:SIM:<model>:<signal>``,
+#: The signals of a model's server health addresses, ``<code>:SIM:<model>:<signal>``,
 #: in the order a view lists them.
-IOC_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
-#: The IOC health signals each periodic pass publishes.
-PERIODIC_IOC_HEALTH = (HEARTBEAT, UPTIME)
-#: The directory property the simulator sets on each status and IOC health row,
+SERVER_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
+#: The server health signals each periodic pass publishes.
+PERIODIC_SERVER_HEALTH = (HEARTBEAT, UPTIME)
+#: The name :data:`SERVER_HEALTH_SIGNALS` was first released under.
+IOC_HEALTH_SIGNALS = SERVER_HEALTH_SIGNALS
+#: The name :data:`PERIODIC_SERVER_HEALTH` was first released under.
+PERIODIC_IOC_HEALTH = PERIODIC_SERVER_HEALTH
+#: The directory property the simulator sets on each status and server health row,
 #: valued with that row's signal; channel rows carry none.
 SERVED_SIGNAL_PROPERTY = "signal"
 
@@ -544,35 +550,47 @@ class SimulatorView:
             }
         )
 
-    def ioc_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
-        """Each listed model's IOC health addresses by signal, ``{model: {signal: address}}``.
+    def server_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
+        """Each listed model's server health addresses by signal, ``{model: {signal: address}}``.
 
         An address is ``<code>:SIM:<model>:<signal>`` with ``<signal>`` one of
-        :data:`IOC_HEALTH_SIGNALS`; each model's signals keep the list's order.
-        ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from
-        a build without it yields an empty mapping. Unlike the status
+        :data:`SERVER_HEALTH_SIGNALS`; each model's signals keep the list's order.
+        The list is read from ``server_health``, or from ``ioc_health``, the key
+        it was first written under, when the document has no ``server_health``.
+        Both are optional under :data:`ADDRESSES_SCHEMA`: a view from a build
+        that wrote neither yields an empty mapping. Unlike the status
         addresses, it lists the ``texture`` model too.
 
         Raises:
             ViewSchemaError: a listed entry is not such an address.
         """
-        listed = self.document(ADDRESSES_FILE).get("ioc_health", ())
+        document = self.document(ADDRESSES_FILE)
+        key = "server_health" if "server_health" in document else "ioc_health"
+        listed = document.get("server_health", document.get("ioc_health", ()))
         if not listed:
             return MappingProxyType({})
         prefix = f"{self.code}:SIM:"
         by_model: dict[str, dict[str, str]] = {}
         for address in listed:
             model, _, signal = str(address).removeprefix(prefix).rpartition(":")
-            if not model or not str(address).startswith(prefix) or signal not in IOC_HEALTH_SIGNALS:
+            if (
+                not model
+                or not str(address).startswith(prefix)
+                or signal not in SERVER_HEALTH_SIGNALS
+            ):
                 raise ViewSchemaError(
-                    f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
+                    f"{self.path / ADDRESSES_FILE} lists {address!r} under {key}, "
                     f"which is not {prefix}<model>:<signal> with <signal> one of "
-                    f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build"
+                    f"{', '.join(SERVER_HEALTH_SIGNALS)}: rebuild with osprey build"
                 )
             by_model.setdefault(model, {})[signal] = str(address)
         return MappingProxyType(
             {model: MappingProxyType(signals) for model, signals in by_model.items()}
         )
+
+    def ioc_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
+        """:meth:`server_health_by_model`, under the name it was first released with."""
+        return self.server_health_by_model()
 
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:

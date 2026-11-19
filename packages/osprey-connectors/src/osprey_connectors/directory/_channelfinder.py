@@ -244,7 +244,7 @@ class ChannelFinderDirectory(ChannelDirectory):
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         self._transport = transport or ReadOnlyTransport(
-            spec.settings, self.ALLOWED_REQUESTS, where="channel_directory.settings"
+            spec.settings, self.ALLOWED_REQUESTS, where=spec.settings_key
         )
         description = spec.settings.get("description_property")
         self._description_property = (
@@ -444,11 +444,13 @@ class ChannelFinderDirectory(ChannelDirectory):
             left = deadline - (time.monotonic() - started)
             if left <= 0:
                 return Unavailable(
-                    f"listing the IOCs did not finish within {deadline:g} s ({seen} PVs read)"
+                    f"listing the servers did not finish within {deadline:g} s ({seen} channels read)"
                 )
             page = _scroll_page(await self._get(path, params, left))
             if isinstance(page, Unavailable):
-                return Unavailable(f"listing the IOCs stopped after {seen} PVs: {page.reason}")
+                return Unavailable(
+                    f"listing the servers stopped after {seen} channels: {page.reason}"
+                )
             after, channels = page
             for found in channels:
                 properties = _properties_of(found)
@@ -469,7 +471,7 @@ class ChannelFinderDirectory(ChannelDirectory):
             next_path = f"{_SCROLL}/{urllib.parse.quote(after, safe='')}" if after else None
             if next_path is None or next_path == path:
                 return Unavailable(
-                    f"listing the IOCs stopped after {seen} PVs: the scroll did not advance"
+                    f"listing the servers stopped after {seen} channels: the scroll did not advance"
                 )
             path = next_path
         return [

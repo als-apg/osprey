@@ -273,6 +273,40 @@ def test_a_directory_backend_without_list_servers_answers_unavailable():
     assert "cannot list" in answer.reason
 
 
+# -- A released name outlives its rename -------------------------------------
+
+
+def test_the_released_server_health_names_stay_importable():
+    # Framework releases import the simulator view's health signals under the
+    # names they were first released with, so a rename keeps those names bound
+    # to the same objects.
+    from osprey_connectors.simulation import view
+
+    if not hasattr(view, "SERVER_HEALTH_SIGNALS"):
+        pytest.skip("connectors floor predates the neutral names")
+    assert view.IOC_HEALTH_SIGNALS is view.SERVER_HEALTH_SIGNALS
+    assert view.PERIODIC_IOC_HEALTH is view.PERIODIC_SERVER_HEALTH
+    assert {"IOC_HEALTH_SIGNALS", "PERIODIC_IOC_HEALTH"} <= set(view.__all__)
+    assert hasattr(view.SimulatorView, "ioc_health_by_model")
+
+
+def test_the_directory_section_is_read_under_its_released_key():
+    # A framework release from before the section was renamed hands the config
+    # over with `pv_directory`, and has to get the same sources from it.
+    from osprey_connectors.service_targets import service_targets
+
+    section = {"type": "channelfinder", "settings": {"url": "https://directory.example"}}
+    base = {"control_system": {"type": "epics"}}
+    released = service_targets({**base, "pv_directory": section})
+
+    assert released["directory"]["live"] is not None
+    assert released["directory"]["live"].type == "channelfinder"
+    neutral = service_targets({**base, "channel_directory": section})
+    if neutral["directory"]["live"] is None:
+        pytest.skip("connectors floor predates the neutral section key")
+    assert neutral == released
+
+
 # -- Public signatures name only public types -------------------------------
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

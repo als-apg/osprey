@@ -61,11 +61,12 @@ from osprey.facility import FACILITY_FILE
 from osprey.facility.panels.tables import (
     CALIBRATION_BASES,
     CURVE_PREFIX,
-    POSITIONS,
     TABLE_FILES,
+    WALKED_RELATIONS,
     Calibration,
     CalibrationKind,
     CardRecipe,
+    CardRule,
     CardSection,
     ChainStep,
     ChannelRole,
@@ -75,9 +76,7 @@ from osprey.facility.panels.tables import (
     FrontRow,
     HealthRule,
     Metric,
-    NoCard,
     Pair,
-    PanelTableError,
     PanelTables,
     PicturePart,
     Pose,
@@ -110,8 +109,6 @@ PLACE_RELATION = "located_in"
 #: The relation kind, from the facility vocabulary, that makes a device a component of
 #: another device; a part with no place of its own is in the place of its whole.
 PART_RELATION = "part_of"
-#: The relation from a device to the device that reads it out.
-READ_OUT_RELATION = "read_out_by"
 
 #: A port's trailing number, which a role pattern's ``{n}`` stands for.
 _PORT_NUMBER = re.compile(r"(\d+)$")
@@ -228,6 +225,9 @@ class Thing:
     #: A device's attributes as ``(name, value)`` pairs, values as text (a list
     #: value gives one pair per item), in name order; empty for a place or a group.
     attributes: tuple[tuple[str, str], ...] = ()
+    #: A device's ``s`` along its model's beam path, as the build computed or a
+    #: source stated it; ``None`` without one.
+    s_m: float | None = None
 
 
 @dataclass(frozen=True)
@@ -343,24 +343,22 @@ def _unit(value: Any) -> tuple[int | None, str | None]:
         return None, text
 
 
-def _ring_frame(poses: list[Pose]) -> str | None:
-    """The frame with the most rows that assume nothing, or ``None`` with no such row.
-
-    Raises:
-        PanelTableError: Two frames tie for the most.
-    """
-    ranked = Counter(pose.frame for pose in poses if not pose.derived_assumes).most_common()
-    if not ranked:
-        return None
-    tied = [frame for frame, count in ranked if count == ranked[0][1]]
-    if len(tied) > 1:
-        raise PanelTableError(
-            POSITIONS,
-            None,
-            f"frames {', '.join(sorted(tied))} tie for the ring frame with {ranked[0][1]} "
-            "rows each; pass the ring frame to load_graph",
-        )
-    return ranked[0][0]
+def _beam_frames(poses: list[Pose], model_of: Mapping[str, str | None]) -> dict[str | None, str]:
+    """Per model (``None``: the devices that name none), the frame its devices' ``s_m``
+    is the beam position in: the frame with the most of their rows that state an
+    ``s_m`` and assume nothing; a tie goes to the frame with the most such rows of
+    all devices, then to the first by name. A frame where fewer of them are stated
+    (a girder's own frame) is a local frame."""
+    counts: dict[str | None, Counter[str]] = {}
+    overall: Counter[str] = Counter()
+    for pose in poses:
+        if pose.thing in model_of and pose.s_m is not None and not pose.derived_assumes:
+            counts.setdefault(model_of[pose.thing], Counter())[pose.frame] += 1
+            overall[pose.frame] += 1
+    return {
+        model: min(counted, key=lambda frame: (-counted[frame], -overall[frame], frame))
+        for model, counted in counts.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -436,8 +434,19 @@ def _value_key(value: object) -> str:
     return str(int(number)) if number.is_integer() else text
 
 
-#: The ``class`` of a ``no_cards.csv`` row that matches a device of any class.
+#: The ``class`` of a ``cards.csv`` row that matches a device of any class.
 ANY_CLASS = "*"
+
+
+def _number_or_none(value: Any) -> float | None:
+    """A JSON number as a float; anything else (a bool included) ``None``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+#: The frame name of a model's beam path: positions in it are its devices' ``s``.
+MODEL_FRAME = "model {}"
 
 
 def _attribute_pairs(record: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
@@ -466,11 +475,11 @@ class PanelGraph:
         self,
         records: FacilityRecords,
         tables: PanelTables,
-        ring_frame: str | None = None,
         *,
         content_hash: str | None = None,
     ) -> None:
         self._records = records
+        self._lengths: dict[str, float] | None = None
         self._tables = tables
         self._content_hash = content_hash
         self._under_names: dict[str, list[Thing]] | None = None
@@ -506,7 +515,7 @@ class PanelGraph:
         self._read_edges(records)
         self._read_claims()
         self._read_wholes()
-        self._read_poses(tables, ring_frame)
+        self._read_poses(tables)
         self._rules: dict[str, list[HealthRule]] = {}
         for rule in tables.health:
             if rule.channel in self._channel and rule.source not in self._excluded_documents:
@@ -624,6 +633,7 @@ class PanelGraph:
                     model=_text(record.get("model")) if kind == "device" else None,
                     group_kind=(_text(record.get("kind")) or "family") if kind == "group" else None,
                     attributes=_attribute_pairs(record) if kind == "device" else (),
+                    s_m=_number_or_none(record.get("s")) if kind == "device" else None,
                 )
         return things
 
@@ -777,7 +787,7 @@ class PanelGraph:
     def _read_wholes(self) -> None:
         """Every device with no place of its own, put in the place of its nearest whole.
 
-        The walk follows outgoing ``part_of`` edges to devices, breadth first in
+        The walk follows outgoing accepted ``part_of`` edges to devices, breadth first in
         file order, and stops at the first whole that has a built place or a
         claim; a device it reaches twice is not walked again, so a loop ends.
         """
@@ -795,7 +805,12 @@ class PanelGraph:
                 for here in level:
                     for edge in self._edges.get(here, {}).get(PART_RELATION, ()):
                         whole = (edge.other_kind, edge.other)
-                        if not edge.outgoing or edge.other_kind != "device" or whole in seen:
+                        if (
+                            not edge.outgoing
+                            or edge.other_kind != "device"
+                            or edge.standing != "accepted"
+                            or whole in seen
+                        ):
                             continue
                         seen.add(whole)
                         places = self._own_places(whole)
@@ -813,23 +828,31 @@ class PanelGraph:
             for place in found[1]:
                 self._derived.setdefault(place, []).append(thing)
 
-    def _read_poses(self, tables: PanelTables, ring_frame: str | None) -> None:
+    def _read_poses(self, tables: PanelTables) -> None:
         thing_ids = {thing_id for _kind, thing_id in self._things}
         kept = [
             pose
             for pose in tables.positions
             if pose.thing in thing_ids and pose.document not in self._excluded_documents
         ]
-        if ring_frame is None:
-            ring_frame = _ring_frame(kept)
-        self.ring_frame: str | None = ring_frame
-        """The frame whose ``s_m`` is the ring position."""
+        model_of = {
+            thing.id: thing.model for thing in self._things.values() if thing.kind == "device"
+        }
+        self._beam_frame: dict[str | None, str] = _beam_frames(kept, model_of)
+        self.beam_frames: frozenset[str] = frozenset(self._beam_frame.values())
+        """The frames some model's (or the model-less devices') positions are in."""
         self._poses: dict[str, list[Pose]] = {}
         for pose in kept:
-            ringed = dataclasses.replace(pose, in_ring_frame=pose.frame == ring_frame)
-            self._poses.setdefault(pose.thing, []).append(ringed)
+            if pose.thing in model_of:  # a device: its own model's frame
+                frame = self._beam_frame.get(model_of[pose.thing])
+                on_beam = pose.frame == frame
+            else:  # a place: any beam frame
+                on_beam = pose.frame in self.beam_frames
+            self._poses.setdefault(pose.thing, []).append(
+                dataclasses.replace(pose, on_beam=on_beam)
+            )
         for poses in self._poses.values():
-            poses.sort(key=lambda pose: not pose.in_ring_frame)
+            poses.sort(key=lambda pose: not pose.is_beam_position)
 
     def _read_pairs(self, tables: PanelTables) -> None:
         self._pairs: dict[str, Pair] = {}
@@ -991,6 +1014,17 @@ class PanelGraph:
         """
         return self._whole_of.get(("device", thing_id))
 
+    def place_of(self, thing_id: str, kind: ThingKind | None = None) -> str | None:
+        """The one place a thing stands in for its crumbs and strips: its built place,
+        else, for a part placed by its whole (:meth:`whole_of`), the whole's first
+        place; else ``None``."""
+        key = self._key(thing_id, kind)
+        place = self._things[key].place
+        if place is not None:
+            return place
+        whole = self._whole_of.get(key)
+        return whole[1][0] if whole is not None else None
+
     def placed(self, thing_id: str, kind: ThingKind | None = None) -> bool:
         """Whether the thing is in some place: built, claimed, or as part of a whole."""
         key = self._key(thing_id, kind)
@@ -1004,8 +1038,40 @@ class PanelGraph:
             if thing.kind == "device" and not self._own_places(key) and key not in self._whole_of
         ]
 
+    def beam_position(self, thing: Thing) -> tuple[str, float] | None:
+        """Where a thing is along a beam path, as ``(frame, s)``: its pose in its
+        model's beam frame (:attr:`Pose.is_beam_position`; a place: in any beam frame),
+        else a device record's ``s`` in its model's frame (:data:`MODEL_FRAME`), else
+        ``None``."""
+        pose = self.pose(thing.id)
+        if pose is not None and pose.is_beam_position:
+            return pose.frame, float(pose.s_m)  # type: ignore[arg-type]
+        if thing.s_m is not None and thing.model is not None:
+            return MODEL_FRAME.format(thing.model), thing.s_m
+        return None
+
+    def frame_length(self, frame: str) -> float | None:
+        """The length a closed beam path (a ring) wraps at, for positions in *frame*:
+        the ``length`` of a model the facility file marks ``periodic``; ``None`` for a
+        path the beam passes once, or one whose length is not stated. A pose frame
+        takes the length of the model it is the beam frame of."""
+        if self._lengths is None:
+            rings: dict[str, float] = {}
+            for model in self._records.document.get("models") or ():
+                if not isinstance(model, Mapping) or model.get("periodic") is not True:
+                    continue
+                length = _number_or_none(model.get("length"))
+                if length:
+                    rings[MODEL_FRAME.format(model.get("name"))] = length
+            for name, posed in self._beam_frame.items():
+                found = rings.get(MODEL_FRAME.format(name)) if name is not None else None
+                if found is not None:
+                    rings[posed] = found
+            self._lengths = rings
+        return self._lengths.get(frame)
+
     def pose(self, thing_id: str) -> Pose | None:
-        """The thing's ring-frame pose, else its first pose, else ``None``."""
+        """The thing's beam-frame pose, else its first pose, else ``None``."""
         poses = self._poses.get(thing_id)
         return poses[0] if poses else None
 
@@ -1205,16 +1271,19 @@ class PanelGraph:
     def signal_channels(self, device_id: str, signal: str) -> tuple[str, ...]:
         """The channels that state *signal* for a device, in channel order, from the
         first of these that has any: (1) the device the ``port`` of the device's
-        ``read_out_by`` claims names, when it names a device (the control system's
-        own records); (2) the device itself; (3) the device it is read out by.
+        relations to devices names, when it names a device (the control system's own
+        records); (2) the device itself; (3) the devices those relations name (any
+        relation type in :data:`~osprey.facility.panels.tables.WALKED_RELATIONS`).
         Empty when none states it.
 
         Raises:
             KeyError: No such device.
         """
+        near = self.neighbours(device_id, "device")
         edges = [
             edge
-            for edge in self.neighbours(device_id, "device").get(READ_OUT_RELATION, ())
+            for relation in WALKED_RELATIONS
+            for edge in near.get(relation, ())
             if edge.outgoing and edge.other_kind == "device"
         ]
         ports = [
@@ -1244,12 +1313,14 @@ class PanelGraph:
     def picture_matches(self, device_id: str, signal: str) -> list[tuple[str, str]]:
         """What a ``pictures.csv`` row's *signal* matches for a device, as ``(device,
         channel)`` pairs from the first of these levels that has any: (1) the device
-        itself; (2) its parts, the devices ``part_of`` it (one level); (3) the device
-        the ``port`` of its ``read_out_by`` claims names; (4) the devices it is read
-        out by. *signal* is a signal name, matched against a channel's stated
-        signal, or a pattern with ``*``, ``?`` or ``[``, matched against channel
-        names. Matches on more than one device of a level are all returned: the
-        caller says which it shows (:meth:`picture_channel`) and ``check`` notes them.
+        itself; (2) its parts, the devices ``part_of`` it (one level); (3) the devices
+        the ``port`` of its relations to devices names (any relation type a
+        ``channel_roles.csv`` scope may walk, :data:`~osprey.facility.panels.tables.WALKED_RELATIONS`);
+        (4) the devices those relations name. *signal* is a signal name, matched
+        against a channel's stated signal, or a pattern with ``*``, ``?`` or ``[``,
+        matched against channel names. Matches on more than one device of a level
+        are all returned: the caller says which it shows (:meth:`picture_channel`)
+        and ``check`` notes them.
 
         Raises:
             KeyError: No such device.
@@ -1261,17 +1332,18 @@ class PanelGraph:
             for edge in edges.get(PART_RELATION, ())
             if not edge.outgoing and edge.other_kind == "device"
         ]
-        read = [
+        walked = [
             edge
-            for edge in edges.get(READ_OUT_RELATION, ())
+            for relation in WALKED_RELATIONS
+            for edge in edges.get(relation, ())
             if edge.outgoing and edge.other_kind == "device"
         ]
         ports = [
             edge.other_port
-            for edge in read
+            for edge in walked
             if edge.other_port is not None and ("device", edge.other_port) in self._things
         ]
-        for level in ([device_id], parts, ports, [edge.other for edge in read]):
+        for level in ([device_id], parts, ports, [edge.other for edge in walked]):
             found = [
                 (each, channel.name)
                 for each in dict.fromkeys(level)
@@ -1349,35 +1421,57 @@ class PanelGraph:
         """The ``fronts.csv`` rows of *recipe*, by ``order``."""
         return list(self._fronts.get(recipe, ()))
 
-    def no_card_rows(self) -> tuple[NoCard, ...]:
-        """The ``no_cards.csv`` rows, in file order."""
-        return self._tables.no_cards
+    def card_rules(self) -> tuple[CardRule, ...]:
+        """The ``cards.csv`` rows, in file order."""
+        return self._tables.cards
 
-    def no_card(self, thing_id: str) -> NoCard | None:
-        """The ``no_cards.csv`` row that takes a device: the first whose class (``*``
-        matches any), place (the device's place is it or within it), id pattern,
-        attribute and conditions (``when``) all hold."""
+    def card_channels(self, device_id: str) -> bool:
+        """Whether a device has a channel its card shows: one on it or that it is an
+        endpoint of (:meth:`channels`), or one a ``channel_roles.csv`` row walks to
+        from it (:meth:`roles`: its parts, what reads it out or controls it)."""
+        return bool(self.channels(device_id, "device")) or bool(self.roles(device_id))
+
+    def card_drawing(self, device_id: str) -> bool:
+        """Whether a device has a drawing: a ``card_recipes.csv`` row, or a
+        ``pictures.csv`` row that applies to it."""
+        thing = self.thing(device_id, "device")
+        if self.recipe(device_id) is not None:
+            return True
+        return thing.cls is not None and bool(self.pictures(thing.cls, device_id))
+
+    def card_rule(self, device_id: str) -> CardRule | None:
+        """The ``cards.csv`` row that decides a device's card: the first whose class
+        (``*`` matches any), place (the device's place, or its whole's, is it or
+        within it), id pattern, attribute and conditions (``when``) all hold."""
         try:
-            thing = self.thing(thing_id, "device")
+            thing = self.thing(device_id, "device")
         except KeyError:
             return None
-        for row in self._tables.no_cards:
+        for row in self._tables.cards:
             if row.cls not in (ANY_CLASS, thing.cls):
                 continue
-            if row.under and not (
-                thing.place == row.under or (thing.place or "").startswith(row.under + "/")
-            ):
-                continue
+            if row.under:
+                place = self.place_of(thing.id, "device") or ""
+                if place != row.under and not place.startswith(row.under + "/"):
+                    continue
             if row.devices and not fnmatch.fnmatchcase(thing.id, row.devices):
                 continue
             if row.attribute is not None and row.attribute not in thing.attributes:
                 continue
-            if "no-channel" in (row.when or ()) and self.channels(thing.id, "device"):
+            if "no-channel" in (row.when or ()) and self.card_channels(thing.id):
                 continue
-            if "no-recipe" in (row.when or ()) and self.recipe(thing.id) is not None:
+            if "no-drawing" in (row.when or ()) and self.card_drawing(thing.id):
                 continue
             return row
         return None
+
+    def has_card(self, device_id: str) -> bool:
+        """Whether a device gets a card: as its :meth:`card_rule` says, else by the
+        default, a card when it has a channel its card shows or a drawing."""
+        row = self.card_rule(device_id)
+        if row is not None:
+            return row.action == "keep"
+        return self.card_channels(device_id) or self.card_drawing(device_id)
 
     def named_under(self, owner: str) -> list[Thing]:
         """The devices whose id is *owner* and one more ``:`` or ``.`` segment (the
@@ -1434,8 +1528,9 @@ class PanelGraph:
 
         A ``device`` row matches the device's own channels and a ``parts`` row
         those of its parts (``part_of`` it, one level); every match plays the role.
-        A ``read_out_by`` or ``controlled_by`` row walks each such relation of the
-        device to a device, fills the pattern from that relation's object port
+        A row whose scope is a relation type (:data:`~osprey.facility.panels.tables.ROLE_SCOPES`:
+        ``read_out_by``, ``controlled_by``, ``interlocked_by``, ...) walks each such
+        relation of the device to a device, fills the pattern from that relation's object port
         (:func:`substitute`) and matches that device's channels: exactly one
         channel over all walked relations plays the role, more than one is
         contested and none plays it.
@@ -1495,14 +1590,12 @@ class PanelGraph:
         return self._pairs.get(setpoint)
 
 
-def load_graph(facility: Path, panels_dir: Path, *, ring_frame: str | None = None) -> PanelGraph:
+def load_graph(facility: Path, panels_dir: Path) -> PanelGraph:
     """Read a built facility file and its rule tables into a :class:`PanelGraph`.
 
     Args:
         facility: The facility file, or the directory holding ``facility.json``.
         panels_dir: The directory holding the rule tables.
-        ring_frame: The frame whose ``s_m`` is the ring position; ``None``
-            finds it in ``positions.csv``.
 
     Returns:
         The graph.
@@ -1510,8 +1603,7 @@ def load_graph(facility: Path, panels_dir: Path, *, ring_frame: str | None = Non
     Raises:
         FileNotFoundError: No facility file is there.
         FacilityFileError: The facility file cannot be read.
-        PanelTableError: A rule table breaks its schema, or two frames tie
-            for the ring frame and none is passed.
+        PanelTableError: A rule table breaks its schema.
     """
     path = Path(facility)
     if path.is_dir():
@@ -1526,4 +1618,4 @@ def load_graph(facility: Path, panels_dir: Path, *, ring_frame: str | None = Non
         digest.update(b"\0" + name.encode("utf-8") + b"\0")
         table = Path(panels_dir) / name
         digest.update(table.read_bytes() if table.is_file() else b"")
-    return PanelGraph(records, tables, ring_frame=ring_frame, content_hash=digest.hexdigest())
+    return PanelGraph(records, tables, content_hash=digest.hexdigest())

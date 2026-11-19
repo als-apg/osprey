@@ -427,6 +427,7 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "mcp__osprey_facility_knowledge__list_concepts",
             "mcp__osprey_facility_knowledge__read_concept",
             "mcp__osprey_facility_knowledge__search",
+            "mcp__osprey_facility_knowledge__view_asset",
             "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [

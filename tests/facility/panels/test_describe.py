@@ -33,6 +33,7 @@ from osprey.facility.panels.describe import (
 from osprey.facility.panels.model import PanelGraph
 from osprey.facility.panels.tables import HealthRule, Pair, PanelTables, Pose, RecordType
 from osprey.facility.panels.view import (
+    CardHead,
     CheckRow,
     Elevation,
     Fact,
@@ -52,6 +53,7 @@ from osprey.facility.panels.view import (
 from osprey.facility.records import FacilityRecords
 from tests.facility.panels._fixture import (
     PANELS_DIR,
+    RING_FRAME,
     copy_tables,
     graph_with_part,
     write_fixture_facility,
@@ -417,7 +419,8 @@ def test_targets_name_each_screen_with_view_kind_thing_kind_and_id(panel_graph):
     found = set(targets(panel_graph))
     assert card("XR01:QF1") in found
     assert card("XR01:CH1") in found  # a channel and the located_in to its own place
-    assert card("XR02:SHIELD1") in found  # a pose and no channel: reachable
+    assert card("XR02:SHIELD1") not in found  # a pose and no channel: no card by default
+    assert card("XR01:CH2") in found  # no channel, kept by the fixture's cards.csv
     assert card("XR02:BLOCK1") not in found  # a citation alone is no screen
     for place in ("XR", "XR/XR01", "XR/XR02", "XR/XR01/RK1"):
         assert Target("card", "place", place) in found
@@ -1112,7 +1115,10 @@ def test_a_device_claimed_into_a_rack_with_no_unit_is_unpositioned_there(tmp_pat
 
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json", claimed), PANELS_DIR)
     (elevation,) = _section(rack_elevation(graph, "XR/XR01/RK1"), "units").items
-    assert "XR02:BLOCK1" in [u.link.label for u in elevation.unpositioned]
+    # no card: named as a fact, its id the text
+    assert "XR02:BLOCK1" in [
+        u.link.text for u in elevation.unpositioned if isinstance(u.link, Fact)
+    ]
 
 
 def test_every_roll_up_counts_a_channel_once_at_every_level(tmp_path) -> None:
@@ -1343,3 +1349,122 @@ def test_a_place_card_draws_its_own_lights_up_to_the_cap_and_counts_the_rest(tmp
     assert health[-1] == Link(
         "1 more with a health rule, in the roll-up", Target("rollup", "place", "XR", by="place")
     )
+
+
+def test_a_part_stands_where_its_whole_is(tmp_path):
+    from osprey.facility.panels.describe import _where_on_strip
+    from osprey.facility.panels.layout import _BY_WHOLE
+    from tests.facility.panels._fixture import add_part
+    from tests.facility.panels._views import nodes, stub_render
+
+    def coil(document: dict[str, Any]) -> None:
+        add_part(document, "XR01:QF1:PUMP", "XR01:QF1")
+        document["devices"][-1]["class"] = "Pump"
+
+    graph = graph_with_part(tmp_path, coil)
+    # crumbs: home, then the places round the whole (a part has no place of its own)
+    view = device_card(graph, "XR01:CARD1")
+    assert [c.label for c in view.crumbs] == ["home", "XR", "XR/XR01", "XR/XR01/RK1"]
+    head = next(i for s in view.sections for i in s.items if isinstance(i, CardHead))
+    assert head.by_whole == ("XR/XR01/RK1", "XR01:CH1")
+    texts = [n["props"].get("text") for n in nodes(stub_render(view, graph))]
+    assert _BY_WHOLE.format("XR/XR01/RK1", "XR01:CH1") in texts
+    # the strip: at its whole's position
+    part = graph.thing("XR01:QF1:PUMP", "device")
+    assert _where_on_strip(graph, part) == (1.25, None, RING_FRAME)
+    strip = place_view(graph, "XR/XR01", symbols={"Pump": "pump"}).sections
+    elements = [e for s in strip for i in s.items for e in getattr(i, "elements", ())]
+    assert ("XR01:QF1:PUMP", 1.25) in [(e.thing, e.s_m) for e in elements]
+
+
+def test_a_contested_part_of_does_not_place_a_part(tmp_path):
+    def contest(document: dict[str, Any]) -> None:
+        document["relations"][-1]["standing"] = "contested"
+
+    graph = graph_with_part(tmp_path, contest)
+    assert graph.whole_of("XR01:CARD1") is None
+    assert graph.place_of("XR01:CARD1") is None
+    assert [c.label for c in device_card(graph, "XR01:CARD1").crumbs] == ["home"]
+
+
+def test_a_rack_row_with_no_unit_takes_the_unit_another_row_of_the_device_states(tmp_path):
+    def rows(document: dict[str, Any]) -> None:
+        for n, unit in enumerate((None, 7)):
+            obj: dict[str, Any] = {"place": "XR/XR01/RK1"}
+            if unit is not None:
+                obj["unit"] = unit
+            document["relations"].append(
+                {
+                    "id": f"xr02-block1-rack-{n}",
+                    "type": "located_in",
+                    "subject": {"device": "XR02:BLOCK1"},
+                    "object": obj,
+                    "standing": "accepted",
+                }
+            )
+
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json", rows), PANELS_DIR)
+    (elevation,) = _section(rack_elevation(graph, "XR/XR01/RK1"), "units").items
+    named = {id(u): u.link.text if isinstance(u.link, Fact) else u.link.label for u in [
+        *elevation.units, *elevation.unpositioned
+    ]}  # fmt: skip
+    placed = [(u.position, u.conflicting) for u in elevation.units if named[id(u)] == "XR02:BLOCK1"]
+    assert placed == [(7, False)]
+    assert "XR02:BLOCK1" not in [named[id(u)] for u in elevation.unpositioned]
+
+
+def test_a_stretch_across_a_rings_start_is_read_on_in_one_piece():
+    from osprey.facility.panels.describe import _unwrapped
+
+    last_sector = {"a": 171.6, "b": 175.0, "c": 181.9, "valve": 0.07}
+    assert _unwrapped(last_sector, 181.9) == {**last_sector, "valve": 0.07 + 181.9}
+    whole_ring = {str(i): i * 10.0 for i in range(19)}  # no gap over half the ring
+    assert _unwrapped(whole_ring, 180.0) == whole_ring
+    assert _unwrapped(last_sector, None) == last_sector  # a line: as stated
+
+
+def test_a_line_model_is_drawn_from_its_devices_s(tmp_path):
+    def line(document: dict[str, Any]) -> None:
+        document["places"].append({"id": "XL"})
+        document["models"] = [
+            *document.get("models", []),
+            {"name": "XL", "engine": "none", "length": 8.0, "periodic": False},
+        ]
+        for n, (cls, s) in enumerate((("Quadrupole", 2.0), ("Pump", 0.5), ("Quadrupole", 7.5))):
+            document["devices"].append(
+                {"id": f"XL:D{n}", "class": cls, "place": "XL", "model": "XL", "s": s}
+            )
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", line), PANELS_DIR)
+    assert graph.beam_position(graph.thing("XL:D0", "device")) == ("model XL", 2.0)
+    assert graph.frame_length("model XL") is None  # one pass: never wrapped
+    assert graph.frame_length(RING_FRAME) is None  # no model states the ring's length
+    view = place_view(graph, "XL", symbols={"Quadrupole": "quad", "Pump": "pump"})
+    (strip,) = [i for s in view.sections for i in s.items if isinstance(i, Strip)]
+    assert [(e.thing, e.s_m) for e in strip.elements] == [
+        ("XL:D1", 0.5),
+        ("XL:D0", 2.0),
+        ("XL:D2", 7.5),
+    ]
+    assert strip.extent_m == (0.5, 7.5) and not strip.tray
+
+
+def ring_model(length: float):
+    """A change giving every device with a ring position the periodic model ``XRM``."""
+
+    def change(document: dict[str, Any]) -> None:
+        document["models"] = [
+            *document.get("models", []),
+            {"name": "XRM", "engine": "none", "length": length, "periodic": True},
+        ]
+        for device in document["devices"]:
+            if device["id"].startswith(("XR01:", "XR02:")):
+                device["model"] = "XRM"
+
+    return change
+
+
+def test_the_ring_frame_takes_the_length_of_the_periodic_model_of_its_devices(tmp_path):
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", ring_model(12.0)), PANELS_DIR)
+    assert graph.frame_length(RING_FRAME) == 12.0
+    assert graph.frame_length("model XRM") == 12.0

@@ -117,11 +117,6 @@ def test_a_metrics_row_applies_only_where_the_place_level_matches(panel_graph, m
 # -- the ring --------------------------------------------------------------------
 
 
-class _Pose:
-    def __init__(self, s_m: float) -> None:
-        self.s_m, self.is_ring_position = s_m, True
-
-
 class _Ringed:
     """A stand-in graph: place R with children A, B, C; C spans the ring's start."""
 
@@ -140,9 +135,12 @@ class _Ringed:
             for i in range(len(self.spans[place_id]))
         ]
 
-    def pose(self, thing_id):
-        place, i = thing_id.split("#")
-        return _Pose(self.spans[place][int(i)])
+    def beam_position(self, thing):
+        place, i = thing.id.split("#")
+        return "R-RING", self.spans[place][int(i)]
+
+    def frame_length(self, frame):
+        return 100.0 if frame == "R-RING" else None
 
 
 def test_the_ring_orders_children_by_where_their_span_starts() -> None:

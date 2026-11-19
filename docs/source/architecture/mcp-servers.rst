@@ -387,6 +387,7 @@ agent can look up operational know-how and draft new concepts for human review.
 - ``list_concepts`` -- List all concepts in the facility knowledge bundle.
 - ``read_concept`` -- Read a concept document by its OKF §2 concept ID.
 - ``search`` -- Search the facility knowledge bundle for a query string.
+- ``view_asset`` -- Look at an image stored in the facility knowledge bundle.
 - ``draft_concept`` -- Draft a new concept document for human review and approval.
 
 

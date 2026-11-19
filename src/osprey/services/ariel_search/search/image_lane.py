@@ -309,11 +309,14 @@ async def search_images(
     if _breaker_until is not None and _now() < _breaker_until:
         return None
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + QUERY_EMBEDDING_TIMEOUT_S + 1
     settings: ImageLaneSettings | None = None
     generation = _generation
     try:
+        # Resolved before the lane's clock starts: the first resolution in a
+        # process imports the provider's adapter, and the deadline bounds only
+        # the embedding call and the SQL.
         settings = _settings_for(config)
+        deadline = loop.time() + QUERY_EMBEDDING_TIMEOUT_S + 1
         vector = await search_calls.run(
             _embed_query, settings, query, generation, timeout_s=QUERY_EMBEDDING_TIMEOUT_S + 1
         )

@@ -53,7 +53,8 @@ _EXIT_CEILING_S = 3 * (2 * render.CLOSE_GRACE_S)
 pytestmark = pytest.mark.timeout(2 * (_READY_BUDGET_S + _TASK_TIMEOUT_S))
 
 # A stub worker: hand-shakes (unless told otherwise), then answers every frame
-# from ``behaviour(payload)``, which returns (header dict, body bytes) or acts.
+# from ``behaviour(payload)``, which returns (header dict, body bytes) or acts;
+# ``budget`` holds the request's byte budget (0 for none).
 _STUB_TEMPLATE = """
 import json, os, struct, sys, time
 PNG = {png!r}
@@ -76,7 +77,7 @@ def reply(header, body=b""):
 
 def ok(body=PNG, **over):
     header = {{"ok": True, "format": "PNG", "w": 8, "h": 8, "mode": "RGB",
-               "mime": "image/png", "reason": None}}
+               "mime": "image/png", "reason": None, "resized": False}}
     header.update(over)
     reply(header, body)
 
@@ -92,6 +93,8 @@ while True:
     payload = read_exactly(struct.unpack(">I", prefix)[0])
     if payload is None:
         break
+    # The request opens with the byte budget (0 for none), then the picture.
+    (budget,), payload = struct.unpack(">I", payload[:4]), payload[4:]
 {behaviour}
 """
 
@@ -379,6 +382,7 @@ async def test_bad_replies_are_worker_failures(monkeypatch, tmp_path, behaviour)
                 "mode": "RGB",
                 "mime": "image/png",
                 "reason": None,
+                "resized": False,
             },
             PNG,
         ),
@@ -391,6 +395,7 @@ async def test_bad_replies_are_worker_failures(monkeypatch, tmp_path, behaviour)
                 "mode": "L",
                 "mime": "image/jpeg",
                 "reason": None,
+                "resized": True,
             },
             b"\xff\xd8\xff\xe0" + b"\0" * 32,
         ),
@@ -425,6 +430,7 @@ def test_check_reply_accepts_valid_replies(header, body):
                 "mode": "RGB",
                 "mime": "image/png",
                 "reason": None,
+                "resized": False,
             },
             PNG,
         ),
@@ -437,6 +443,7 @@ def test_check_reply_accepts_valid_replies(header, body):
                 "mode": "RGB",
                 "mime": "image/png",
                 "reason": None,
+                "resized": False,
             },
             PNG,
         ),
@@ -449,6 +456,7 @@ def test_check_reply_accepts_valid_replies(header, body):
                 "mode": "RGB",
                 "mime": "image/png",
                 "reason": None,
+                "resized": False,
             },
             b"",
         ),
@@ -461,6 +469,7 @@ def test_check_reply_accepts_valid_replies(header, body):
                 "mode": "RGB",
                 "mime": "image/png",
                 "reason": None,
+                "resized": False,
             },
             b"\xff\xd8\xff" + b"\0" * 32,
         ),
@@ -473,6 +482,7 @@ def test_check_reply_accepts_valid_replies(header, body):
                 "mode": "RGB",
                 "mime": "image/png",
                 "reason": None,
+                "resized": False,
             },
             PNG + b"\0" * RENDITION_MAX_BYTES,
         ),
@@ -488,6 +498,44 @@ def test_check_reply_accepts_valid_replies(header, body):
             },
             b"",
         ),
+        (
+            {
+                "ok": True,
+                "format": "PNG",
+                "w": 8,
+                "h": 8,
+                "mode": "RGB",
+                "mime": "image/png",
+                "reason": None,
+            },
+            PNG,
+        ),
+        (
+            {
+                "ok": True,
+                "format": "PNG",
+                "w": 8,
+                "h": 8,
+                "mode": "RGB",
+                "mime": "image/png",
+                "reason": None,
+                "resized": None,
+            },
+            PNG,
+        ),
+        (
+            {
+                "ok": True,
+                "format": "PNG",
+                "w": 8,
+                "h": 8,
+                "mode": "RGB",
+                "mime": "image/png",
+                "reason": None,
+                "resized": 0,
+            },
+            PNG,
+        ),
     ],
     ids=[
         "not-a-dict",
@@ -497,6 +545,9 @@ def test_check_reply_accepts_valid_replies(header, body):
         "magic-mismatch",
         "oversize",
         "refusal-without-reason",
+        "resized-missing",
+        "resized-null",
+        "resized-int",
     ],
 )
 def test_check_reply_rejects_invalid_replies(header, body):
@@ -669,3 +720,116 @@ async def test_kill_never_signals_a_reaped_worker(monkeypatch, tmp_path):
     monkeypatch.setattr(render.os, "kill", lambda pid, sig: signalled.append(pid))
     worker.kill()
     assert signalled == []
+
+
+# -- byte budget ------------------------------------------------------------------------
+
+
+def _photo(size: tuple[int, int] = (640, 480)) -> bytes:
+    import random
+
+    rng = random.Random(11)
+    im = Image.frombytes("RGB", size, rng.randbytes(size[0] * size[1] * 3))
+    out = io.BytesIO()
+    im.save(out, "PNG")
+    return out.getvalue()
+
+
+_BUDGET = 64 * 1024
+
+
+async def test_the_real_worker_returns_a_rendition_within_the_budget():
+    data = _photo()
+    outcome = await render.render_isolated(data, max_bytes=_BUDGET)
+    assert outcome.reason is None
+    assert outcome.rendition is not None
+    assert len(outcome.rendition.data) <= _BUDGET
+    assert outcome.rendition.mime == "image/jpeg"
+    assert outcome.rendition.resized is False
+
+
+async def test_no_budget_gives_the_default_rendition():
+    from osprey.imaging.render_worker import handle
+
+    data = _photo()
+    outcome = await render.render_isolated(data)
+    assert outcome.rendition is not None
+    assert len(outcome.rendition.data) > _BUDGET
+    header, rest = handle(data).split(b"\n", 1)
+    assert outcome.rendition.data == rest[4:]
+    assert outcome.rendition.resized is False
+
+
+async def test_resized_is_reported_on_the_rendition():
+    outcome = await render.render_isolated(_png((2000, 10)))
+    assert outcome.rendition is not None
+    assert outcome.rendition.resized is True
+
+
+async def test_a_budget_no_encoding_can_meet_is_rendition_too_large():
+    outcome = await render.render_isolated(_photo(), max_bytes=100)
+    assert outcome == render.RenderOutcome(None, "rendition_too_large")
+
+
+@pytest.mark.parametrize("max_bytes", [0, -1, True, 1.5, "1024"])
+async def test_a_budget_that_is_not_a_positive_integer_is_rejected(max_bytes):
+    with pytest.raises(ValueError):
+        await render.render_isolated(b"x", max_bytes=max_bytes)
+
+
+async def test_the_budget_travels_in_the_request(monkeypatch, tmp_path):
+    # The stub echoes the budget it read as the rendition width.
+    behaviour = """
+    if payload != b"x":
+        refuse("not_an_image")
+    else:
+        ok(w=budget or 8)
+    """
+    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, behaviour))
+    unbounded = await render.render_isolated(b"x", task_id="x")
+    assert unbounded.rendition is not None and unbounded.rendition.width == 8
+    bounded = await render.render_isolated(b"x", task_id="x", max_bytes=1000)
+    assert bounded.rendition is not None and bounded.rendition.width == 1000
+
+
+async def test_a_budget_above_the_rendition_cap_is_sent_as_the_cap(monkeypatch, tmp_path):
+    behaviour = """
+    ok(w=1 if budget == {cap} else 2)
+    """.replace("{cap}", str(RENDITION_MAX_BYTES))
+    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, behaviour))
+    outcome = await render.render_isolated(b"x", max_bytes=10 * RENDITION_MAX_BYTES)
+    assert outcome.rendition is not None and outcome.rendition.width == 1
+
+
+async def test_a_reply_larger_than_the_budget_is_a_protocol_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, "ok()"))
+    outcome = await render.render_isolated(b"x", task_id="x", max_bytes=len(PNG) - 1)
+    assert outcome == render.RenderOutcome(None, "decoder_failed")
+    # The same reply within the budget is accepted.
+    outcome = await render.render_isolated(b"x", task_id="y", max_bytes=len(PNG))
+    assert outcome.rendition is not None and outcome.rendition.data == PNG
+
+
+_OK_HEADER = {
+    "ok": True,
+    "format": "PNG",
+    "w": 8,
+    "h": 8,
+    "mode": "RGB",
+    "mime": "image/png",
+    "reason": None,
+    "resized": True,
+}
+
+
+def test_check_reply_measures_the_body_against_the_budget():
+    assert render._check_reply(_OK_HEADER, PNG, len(PNG)).rendition.resized is True
+    with pytest.raises(render._WorkerFailure):
+        render._check_reply(_OK_HEADER, PNG, len(PNG) - 1)
+
+
+def test_rendition_resized_defaults_to_false():
+    rendition = render.Rendition(
+        data=PNG, mime="image/png", format="PNG", width=8, height=8, mode="RGB"
+    )
+    assert rendition.resized is False

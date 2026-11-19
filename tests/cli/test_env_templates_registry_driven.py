@@ -13,6 +13,8 @@ which renders a template.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import warnings
 
 import pytest
@@ -215,6 +217,25 @@ class TestProviderBaseUrlEntries:
         the provider already has.
         """
         assert "als-apg" not in {e["provider"] for e in provider_base_url_entries()}
+
+    def test_a_stock_render_imports_no_provider_adapter(self):
+        """Both provider sections answer from the built-in entries.
+
+        A render runs in every cold ``osprey build`` and ``facility validate``;
+        importing the adapters there cost seconds of litellm import per call.
+        """
+        code = (
+            "import sys\n"
+            "from osprey.cli.templates.scaffolding import (\n"
+            "    provider_api_key_entries, provider_base_url_entries)\n"
+            "provider_api_key_entries(); provider_base_url_entries()\n"
+            "print('litellm' in sys.modules,"
+            " [m for m in sys.modules if m.startswith('osprey.models.providers.')])\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=120
+        )
+        assert result.stdout.strip().splitlines()[-1] == "False []"
 
     def test_no_shipped_provider_leaves_its_endpoint_to_the_deployment(self):
         """The list is empty for a stock install -- the section renders nothing.

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 import fnmatch
+import itertools
 import math
 import os
 import re
@@ -56,10 +57,10 @@ from osprey.facility.panels.tables import (
     DRAWN_AS,
     Calibration,
     CalibrationKind,
+    CardRule,
     CardSection,
     ChainStep,
     FrontRow,
-    NoCard,
     Pose,
 )
 from osprey.facility.panels.view import (
@@ -138,7 +139,7 @@ __all__ = [
     "HOP_FOUND",
     "HOP_NOT_STATED",
     "STRIP_NOWHERE",
-    "STRIP_ON_RAFT",
+    "STRIP_BY_PLACE",
     "STRIP_PLACED",
     "checkout",
     "describe",
@@ -237,7 +238,7 @@ class _Index:
     set_class: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     # device -> its sets
     sets_of: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
-    # a device no_cards.csv takes -> the thing whose card draws it, or None (not stated)
+    # a device with no card -> the thing whose card draws it, or None (not stated)
     owners: Mapping[str, tuple[str, ThingKind] | None] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -259,27 +260,6 @@ def _index(graph: PanelGraph) -> _Index:
     if found is None:
         found = _INDEXES[graph] = _build_index(graph)
     return found
-
-
-def _is_place_edge(graph: PanelGraph, thing: Thing, edge: Edge) -> bool:
-    """Whether the edge is the thing's own place relation, seen from either end."""
-    if edge.kind != PLACE_RELATION:
-        return False
-    if edge.outgoing:
-        return edge.other_kind == "place" and edge.other == thing.place
-    if thing.kind != "place" or edge.other_kind != "device":
-        return False
-    return graph.thing(edge.other, "device").place == thing.id
-
-
-def _neighbour_edges(graph: PanelGraph, thing: Thing) -> dict[str, list[Edge]]:
-    """The thing's edges by kind, without its place relation."""
-    kept: dict[str, list[Edge]] = {}
-    for kind, edges in graph.neighbours(thing.id, thing.kind).items():
-        others = [edge for edge in edges if not _is_place_edge(graph, thing, edge)]
-        if others:
-            kept[kind] = others
-    return kept
 
 
 def _build_index(graph: PanelGraph) -> _Index:
@@ -321,14 +301,14 @@ def _build_index(graph: PanelGraph) -> _Index:
             if edge.outgoing and edge.other_kind == "place" and edge.unit is not None:
                 racked.add(edge.other)
         if thing.kind == "device":
-            taken = graph.no_card(thing.id)
-            if taken is not None:
-                owners[thing.id] = _owner(graph, thing.id, taken)
-            elif channels or graph.pose(thing.id) is not None or _neighbour_edges(graph, thing):
+            has_card = graph.has_card(thing.id)
+            if has_card:
                 carded.add(thing.id)
+            else:
+                owners[thing.id] = _owner(graph, thing.id, graph.card_rule(thing.id))
             shown = _listed(graph, thing.id, channels)
             # over the cap, or with driver-internal records: those are read only there
-            if taken is None and (len(shown) > GRID_CAP or len(shown) < len(channels)):
+            if has_card and (len(shown) > GRID_CAP or len(shown) < len(channels)):
                 listed.add(thing.id)
                 ruled_here = len(rule_channels(graph, thing.id, "device"))
                 if ruled_here:  # no card reads them all: a roll-up of its own does
@@ -407,11 +387,11 @@ def _unplaced_carded(graph: PanelGraph, carded: frozenset[str]) -> dict[str, lis
     return found
 
 
-def _owner(graph: PanelGraph, device: str, row: NoCard) -> tuple[str, ThingKind] | None:
-    """The thing a ``no_cards.csv`` row's relation names at *device* (its ``owner_to``
-    taking it, as a chain hop's ``to``): one thing, else ``None`` (none, or several:
-    no owner is stated, as when the row names no owner relation)."""
-    if row.owner_relation is None or row.owner_direction is None:
+def _owner(graph: PanelGraph, device: str, row: CardRule | None) -> tuple[str, ThingKind] | None:
+    """The thing a ``cards.csv`` drop row's relation names at *device* (its
+    ``owner_to`` taking it, as a chain hop's ``to``): one thing, else ``None`` (none,
+    or several: no owner is stated, as for a device the default leaves cardless)."""
+    if row is None or row.owner_relation is None or row.owner_direction is None:
         return None
     to = row.owner_to or None
     step = ChainStep(
@@ -440,7 +420,7 @@ def _drawn_owners(
 
 
 def owner_link(index: _Index, thing_id: str) -> Link | None:
-    """For a device no_cards.csv takes, a link named by it to its owner's card."""
+    """For a device with no card and an owner, a link named by it to its owner's card."""
     owner = index.owners.get(thing_id)
     if owner is None:
         return None
@@ -448,7 +428,7 @@ def owner_link(index: _Index, thing_id: str) -> Link | None:
 
 
 def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
-    """Each device no_cards.csv takes and has an owner for, with its owner's card, in
+    """Each device with no card and an owner, with its owner's card, in
     id order; one with no owner stated gets no entry."""
     index = _index(graph)
     return [
@@ -458,17 +438,22 @@ def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
     ]
 
 
-def no_card_takes(graph: PanelGraph) -> list[tuple[NoCard, int]]:
-    """Each ``no_cards.csv`` row, in file order, with how many devices it takes (a
-    device is taken by the first row that matches it)."""
-    taken = Counter(graph.no_card(device) for device in _index(graph).owners)
-    return [(row, taken[row]) for row in graph.no_card_rows()]
+def card_rule_counts(graph: PanelGraph) -> list[tuple[CardRule, int]]:
+    """Each ``cards.csv`` row, in file order, with how many devices it decides (a
+    device is decided by the first row that selects it)."""
+    decided = Counter(
+        graph.card_rule(thing.id) for thing in graph.things() if thing.kind == "device"
+    )
+    return [(row, decided[row]) for row in graph.card_rules()]
 
 
-def no_card_counts(graph: PanelGraph) -> tuple[int, int]:
-    """How many devices get no card, and of them how many have no owner stated."""
+def card_counts(graph: PanelGraph) -> tuple[int, int, int]:
+    """How many devices get no card, how many of them have no owner stated, and how
+    many get none by the default alone (no ``cards.csv`` row selects them)."""
     index = _index(graph)
-    return len(index.owners), sum(owner is None for owner in index.owners.values())
+    by_default = sum(graph.card_rule(device) is None for device in index.owners)
+    ownerless = sum(owner is None for owner in index.owners.values())
+    return len(index.owners), ownerless, by_default
 
 
 def _existing(graph: PanelGraph, index: _Index, target: Target) -> Target | None:
@@ -680,9 +665,97 @@ def _number(value: float) -> str:
     return f"{value:g}"
 
 
-def _ring_s(pose: Pose | None) -> float | None:
-    """The pose's ``s_m`` when it is a true ring position (:attr:`Pose.is_ring_position`)."""
-    return pose.s_m if pose is not None and pose.is_ring_position else None
+#: The roles of a shared supply a member's card shows: its values, never its presses.
+_SHARED_SHOWN = frozenset({"value", "entry", "word", "lamp"})
+_SHARED_TITLE = "shared supply {}"
+_SHARED_LABEL = "{} (shared)"
+
+
+def _shared(graph: PanelGraph, index: _Index, thing: Thing) -> list[tuple[str, list[Item]]]:
+    """For a device that is an endpoint of channels another device holds (a family's
+    shared supply), one section per such holder: a link to the holder's card, then
+    the holder's roles among those channels, each read-only and labelled as shared.
+    The holder's presses stay on its own card."""
+    if thing.kind != "device":
+        return []
+    held: dict[str, set[str]] = {}
+    for channel in graph.channels(thing.id, "device"):
+        if channel.thing_kind == "device" and channel.thing not in (None, thing.id):
+            held.setdefault(channel.thing, set()).add(channel.name)  # type: ignore[arg-type]
+    out: list[tuple[str, list[Item]]] = []
+    for holder, names in held.items():
+        rows: list[Item] = []
+        seen: set[str] = set()
+        for hit in graph.roles(holder):
+            if hit.channel not in names or hit.channel in seen:
+                continue
+            if hit.role.shown_as not in _SHARED_SHOWN:
+                continue
+            seen.add(hit.channel)
+            row = _value_row(graph, graph.channel(hit.channel))
+            rows.append(
+                dataclasses.replace(
+                    row, label=_SHARED_LABEL.format(hit.role.label or hit.role.role), writable=False
+                )
+            )
+        if not rows:
+            continue
+        ref = _ref(graph, index, graph.thing(holder, "device"))
+        out.append((_SHARED_TITLE.format(holder), [ref, *rows]))
+    return out
+
+
+_OTHER_FRAME = "placed along another beam path ({})"
+
+
+def _beam_of(graph: PanelGraph, thing: Thing) -> tuple[str, float] | None:
+    """A device's ``(frame, s)`` (:meth:`PanelGraph.beam_position`), else, for a part
+    placed by its whole, the whole's."""
+    found = graph.beam_position(thing)
+    if found is not None:
+        return found
+    whole = graph.whole_of(thing.id)
+    return graph.beam_position(graph.thing(whole[0], "device")) if whole is not None else None
+
+
+def _unwrapped(positions: Mapping[str, float], length: float | None) -> dict[str, float]:
+    """*positions* along one beam path, read on past the end of a ring: when a gap
+    between two of them is over half the ring's *length*, the stretch crosses the
+    ring's start, and those before the gap are moved one length on, so it is drawn
+    in one piece. A whole ring has no such gap and a line (``length`` ``None``) is
+    drawn as stated."""
+    out = dict(positions)
+    if not length or len(out) < 2:
+        return out
+    ordered = sorted(out.values())
+    gap, before = max((b - a, a) for a, b in itertools.pairwise(ordered))
+    if gap > length / 2:
+        for key, s_m in out.items():
+            if s_m <= before:
+                out[key] = s_m + length
+    return out
+
+
+def _by_whole(graph: PanelGraph, thing: Thing) -> tuple[str, str] | None:
+    """``(place, whole)`` for a device placed only by its whole, else ``None``."""
+    whole = graph.whole_of(thing.id) if thing.kind == "device" else None
+    return (whole[1][0], whole[0]) if whole is not None else None
+
+
+def _pose_of(graph: PanelGraph, thing: Thing) -> Pose | None:
+    """A device's pose, else, for a part placed by its whole (:meth:`PanelGraph.whole_of`),
+    the whole's: a part is where its whole is."""
+    pose = graph.pose(thing.id)
+    if pose is not None or thing.kind != "device":
+        return pose
+    whole = graph.whole_of(thing.id)
+    return graph.pose(whole[0]) if whole is not None else None
+
+
+def _beam_s(graph: PanelGraph, thing: Thing) -> float | None:
+    """The thing's position along its beam path (:meth:`PanelGraph.beam_position`)."""
+    found = graph.beam_position(thing)
+    return found[1] if found is not None else None
 
 
 def _pose_text(pose: Pose) -> str:
@@ -1016,7 +1089,7 @@ def device_card(
             ("calibration", _calibration(graph, index, thing)),
         ]
         # up to the place's view where it has one: the way back to where it sits
-        crumbs = _crumbs(graph, index, thing.place, "place")
+        crumbs = _crumbs(graph, index, graph.place_of(thing.id, "device"), "place")
         sets = tuple(
             Link(group, Target("set", "group", group)) for group in index.sets_of.get(thing.id, ())
         )
@@ -1056,7 +1129,11 @@ def device_card(
             ("sources", sources),
         ]
     )
-    crumbs = _crumbs(graph, index, thing.place) if thing.kind != "group" else (HOME_LINK,)
+    crumbs = (
+        _crumbs(graph, index, graph.place_of(thing.id, thing.kind))
+        if thing.kind != "group"
+        else (HOME_LINK,)
+    )
     target = Target("card", thing.kind, thing.id)
     return View(target, thing.id, crumbs, sections, alias=thing.short_name)
 
@@ -1765,54 +1842,74 @@ def _block_rows(
     return rows, used
 
 
-#: How far round a raft's stated point a device placed only on the raft is drawn, m:
-#: the raft's own extent is not stated in the tables.
-RAFT_HALF_M = 1.5
-_RAFT_BRACKET = "on {}, place on the raft not stated"
+#: The half width of a card strip's window when its section states none, m.
+STRIP_HALF_M = 3.0
+_PLACE_BRACKET = "in {}, place in it not stated"
 #: How a card's strip came out for a device.
-STRIP_PLACED, STRIP_ON_RAFT, STRIP_NOWHERE = "placed", "on a raft", "not stated"
+STRIP_PLACED, STRIP_BY_PLACE, STRIP_NOWHERE = "placed", "by its place", "not stated"
 
 
-def _ring_order(graph: PanelGraph) -> list[tuple[float, Thing]]:
-    """Every device with a ring position, by it; built once per graph."""
-    found = _RING_ORDERS.get(graph)
-    if found is None:
-        found = sorted(
-            (
-                (s_m, thing)
-                for thing in graph.things()
-                if thing.kind == "device"
-                for s_m in [_ring_s(graph.pose(thing.id))]
-                if s_m is not None
-            ),
-            key=lambda pair: (pair[0], pair[1].id),
-        )
-        _RING_ORDERS[graph] = found
-    return found
+def _beam_order(graph: PanelGraph, frame: str) -> list[tuple[float, Thing]]:
+    """Every device placed along the beam path *frame* (:func:`_beam_of`), by its
+    position; built once per graph."""
+    frames = _BEAM_ORDERS.get(graph)
+    if frames is None:
+        frames = {}
+        for thing in graph.things():
+            if thing.kind == "device":
+                found = _beam_of(graph, thing)
+                if found is not None:
+                    frames.setdefault(found[0], []).append((found[1], thing))
+        for listed in frames.values():
+            listed.sort(key=lambda pair: (pair[0], pair[1].id))
+        _BEAM_ORDERS[graph] = frames
+    return frames.get(frame, [])
 
 
-_RING_ORDERS: weakref.WeakKeyDictionary[PanelGraph, list[tuple[float, Thing]]] = (
+_BEAM_ORDERS: weakref.WeakKeyDictionary[PanelGraph, dict[str, list[tuple[float, Thing]]]] = (
     weakref.WeakKeyDictionary()
 )
 
 
-def _where_on_strip(graph: PanelGraph, thing: Thing) -> tuple[float, str | None] | None:
-    """Where a device is along the beam: its own ring position (no raft), else the
-    ring position of the nearest place around it that has one (that place), else
-    ``None``."""
-    s_m = _ring_s(graph.pose(thing.id))
-    if s_m is not None:
-        return s_m, None
-    place = thing.place
+def _where_on_strip(
+    graph: PanelGraph, thing: Thing
+) -> tuple[float, tuple[str, float, float] | None, str] | None:
+    """Where a device is along the beam, as ``(s, by, frame)``: its own position on
+    a beam path (``by`` ``None``; :func:`_beam_of`, so a part takes its whole's), else
+    the stretch of the nearest place around it that has one, as ``by = (place, lo,
+    hi)`` with ``s`` its middle: the place's own position and those of the devices
+    in it, along the beam path most of them are on, read on across a ring's start;
+    else ``None``."""
+    found = _beam_of(graph, thing)
+    if found is not None:
+        return found[1], None, found[0]
+    place = graph.place_of(thing.id, "device")
     while place is not None:
-        s_m = _ring_s(graph.pose(place))
-        if s_m is not None:
-            return s_m, place
         try:
-            place = graph.thing(place, "place").place
+            here = graph.thing(place, "place")
         except KeyError:
             return None
+        stretch = _place_stretch(graph, here)
+        if stretch is not None:
+            frame, lo, hi = stretch
+            return (lo + hi) / 2, (place, lo, hi), frame
+        place = here.place
     return None
+
+
+def _place_stretch(graph: PanelGraph, place: Thing) -> tuple[str, float, float] | None:
+    """``(frame, lo, hi)``: where a place and what it holds lie along a beam path."""
+    found = [graph.beam_position(place)]
+    found += [_beam_of(graph, t) for t in graph.contents(place.id) if t.kind == "device"]
+    frames = Counter(where[0] for where in found if where is not None)
+    if not frames:
+        return None
+    frame = frames.most_common(1)[0][0]
+    positions = {
+        str(n): where[1] for n, where in enumerate(found) if where is not None and where[0] == frame
+    }
+    read = _unwrapped(positions, graph.frame_length(frame)).values()
+    return frame, min(read), max(read)
 
 
 def strip_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
@@ -1829,11 +1926,11 @@ def strip_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter
 
 
 def strip_state(graph: PanelGraph, thing: Thing) -> str:
-    """:data:`STRIP_PLACED`, :data:`STRIP_ON_RAFT` or :data:`STRIP_NOWHERE`."""
+    """:data:`STRIP_PLACED`, :data:`STRIP_BY_PLACE` or :data:`STRIP_NOWHERE`."""
     where = _where_on_strip(graph, thing)
     if where is None:
         return STRIP_NOWHERE
-    return STRIP_PLACED if where[1] is None else STRIP_ON_RAFT
+    return STRIP_PLACED if where[1] is None else STRIP_BY_PLACE
 
 
 def card_strip(
@@ -1841,20 +1938,26 @@ def card_strip(
 ) -> CardStrip | None:
     """A card's strip: the devices of the section's ``members`` classes that
     ``symbols.csv`` draws, within ``window_m`` of the device along the beam, each
-    with the first channel of the section's first role. A device placed only by its
-    raft (or another place around it) is a dashed bracket round that place's point;
-    one placed by neither has no strip (``None``)."""
+    with the first channel of the section's first role. A device placed only by a
+    place around it is a dashed bracket over that place's stretch, the window
+    widened to hold it; one placed by neither has no strip (``None``)."""
     where = _where_on_strip(graph, thing)
     if where is None:
         return None
-    centre, raft = where
-    half = section.window_m or RAFT_HALF_M * 2
+    centre, by, frame = where
+    half = section.window_m or STRIP_HALF_M
     lo, hi = centre - half, centre + half
+    if by is not None:
+        lo, hi = min(lo, by[1]), max(hi, by[2])
     classes = {c for c in (section.members or "").split(";") if c}
     role = next((r for r in (section.roles or "").split(";") if r), None)
     members: list[StripMember] = []
     seen: set[str] = set()
-    for s_m, other in _ring_order(graph):
+    ring = graph.frame_length(frame)
+    for stated, other in _beam_order(graph, frame):
+        # on a ring the window reads on across its start: a device just before it
+        # is drawn just below the window's centre, not a ring's length away
+        s_m = centre + _ring_offset(stated - centre, ring) if ring else stated
         if s_m < lo or s_m > hi or (other.cls not in classes and other.id != thing.id):
             continue
         symbol = graph.strip_symbol(other)
@@ -1863,13 +1966,18 @@ def card_strip(
         seen.add(other.id)
         members.append(_strip_member(graph, index, other, s_m, symbol, role, thing.id))
     bracket = None
-    if raft is not None:
-        bracket = (centre - RAFT_HALF_M, centre + RAFT_HALF_M, _RAFT_BRACKET.format(raft))
+    if by is not None:
+        bracket = (by[1], by[2], _PLACE_BRACKET.format(by[0]))
         symbol = graph.strip_symbol(thing)
         if symbol is not None and thing.id not in seen:  # drawn in the bracket's middle
             members.append(_strip_member(graph, index, thing, centre, symbol, role, thing.id))
     members.sort(key=lambda m: (m.s_m, m.thing))
     return CardStrip((lo, hi), tuple(members), bracket, section.caption)
+
+
+def _ring_offset(delta: float, length: float) -> float:
+    """*delta* along a ring of *length*, taken the short way: in [-length/2, length/2)."""
+    return (delta + length / 2) % length - length / 2
 
 
 def _strip_member(graph, index, other: Thing, s_m: float, symbol, role, focus: str) -> StripMember:
@@ -2541,10 +2649,11 @@ def ring_group(graph: PanelGraph, thing: Thing, recipe: str, members: str) -> li
     in the device's place, the device among them) or ``<relation> <direction>`` (the
     devices that relation names at the device)."""
     if members == _SAME_PLACE:
-        if thing.place is None:
+        place = graph.place_of(thing.id, "device")
+        if place is None:
             return [thing]
         try:
-            here = graph.within(thing.place)
+            here = graph.within(place)
         except KeyError:
             return [thing]
         return [
@@ -2584,7 +2693,7 @@ def ring_strip(
         near = _near(graph, thing.id, relation, direction or "out")
         resting = {m.id: inferred_rule(e for e in near if e.other == m.id) for m in members}
     roles = [r for r in (section.roles or "").split(";") if r]
-    where = {m.id: _ring_s(graph.pose(m.id)) for m in members}
+    where = {m.id: _beam_s(graph, m) for m in members}
     if all(s_m is not None for s_m in where.values()):
         ordered = RING_BY_S
         members.sort(key=lambda m: (where[m.id], m.id))
@@ -2872,7 +2981,7 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
     if last:
         pairs.append((_INTERNAL_COUNT.format(len(last)), last))
     crumbs = (
-        *_crumbs(graph, index, thing.place),
+        *_crumbs(graph, index, graph.place_of(thing.id, "device")),
         Link(thing.id, Target("card", "device", thing.id)),
     )
     return View(
@@ -2905,7 +3014,13 @@ def _drawn_card(
     hits = graph.roles(thing.id)
     every = graph.channels(thing.id, thing.kind)
     channels = _listed(graph, thing.id, every)  # the driver-internal never shown
-    hidden = len(every) - len(channels)
+    hidden = len(every) - len(channels)  # read only in the full list
+    shared = _shared(graph, index, thing)
+    drawn_shared = {
+        row.channel for _title, items in shared for row in items if isinstance(row, ValueRow)
+    }
+    # once, under its supply: shown there, so not hidden and no reason for the full list
+    channels = [c for c in channels if c.name not in drawn_shared]
     tiles = _key_tiles(graph, thing, hits)
     name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
     drawings: list[tuple[str, list[Item]]] = []
@@ -2945,8 +3060,10 @@ def _drawn_card(
         for connector in group.connectors
         for control in connector.controls
     } | {control.channel for item in fronts for group in item.entries for control in group.controls}
-    operate_hits = [h for h in hits if h.channel not in on_front]  # drawn on the front
-    operate_channels = [c for c in channels if c.name not in on_front]  # nor as a fallback
+    # a channel another device holds (a family's shared supply) is pressed on its card
+    theirs = {c.name for c in every if c.thing_kind == "device" and c.thing not in (None, thing.id)}
+    operate_hits = [h for h in hits if h.channel not in on_front | theirs]  # drawn on the front
+    operate_channels = [c for c in channels if c.name not in on_front | theirs]  # nor as fallback
     operate, _in_operate, _unstated = _operate(graph, thing, operate_hits, operate_channels)
     columns = (
         int(recipe.channels_cols)
@@ -2963,9 +3080,13 @@ def _drawn_card(
         full = Link("in the full list", Target("channels", "device", thing.id)) if hidden else None
         listing = [ChannelGrid(rows, columns, hidden, full)]
     pairs: list[tuple[str, list[Item]]] = [
-        (CARD_SECTIONS["head"], [CardHead(kind, description, recipe is None, nowhere)]),
+        (
+            CARD_SECTIONS["head"],
+            [CardHead(kind, description, recipe is None, nowhere, _by_whole(graph, thing))],
+        ),
         (CARD_SECTIONS["tiles"], list(tiles)),
         *drawings,
+        *shared,
         *extra,
         # a device whose presses all stand on its front has no operate block to say none
         (
@@ -3343,7 +3464,7 @@ def _member_groups(graph: PanelGraph, members: list[Thing]) -> list[tuple[str | 
     rows_of = _row_places(graph, members)
 
     def beam(member: Thing) -> tuple[float, str]:
-        s_m = _ring_s(graph.pose(member.id))
+        s_m = _beam_s(graph, member)
         return (s_m if s_m is not None else math.inf, member.id)
 
     order = {thing.id: n for n, thing in enumerate(graph.things()) if thing.kind == "place"}
@@ -3463,7 +3584,7 @@ def place_view(
     Only a device whose class has a symbol belongs on the beamline (a class
     meant to show without a picture of its own is mapped to ``generic`` in
     the data). Such a device with a true ring position
-    (:attr:`Pose.is_ring_position`) is a strip element; with none it is in
+    (:attr:`Pose.is_beam_position`) is a strip element; with none it is in
     the tray with ``no position`` or what its position assumes. Every other
     device, a ring position or not, is counted on one line, ``<n> other
     things in this place``, that opens the place's card (which lists them). Sections:
@@ -3493,13 +3614,22 @@ def place_view(
     elements: list[StripElement] = []
     tray: list[TrayEntry] = []
     others = 0
-    for thing in graph.contents(place_id):
-        if thing.kind != "device":
-            continue
+    devices = [t for t in graph.contents(place_id) if t.kind == "device"]
+    beams = {t.id: _beam_of(graph, t) for t in devices}
+    # one beam path per strip: the frame most of its drawn devices are placed in
+    frames = Counter(
+        found[0] for t in devices if t.cls in symbols for found in [beams[t.id]] if found
+    )
+    frame = frames.most_common(1)[0][0] if frames else None
+    s_of = _unwrapped(
+        {t.id: found[1] for t in devices for found in [beams[t.id]] if found and found[0] == frame},
+        graph.frame_length(frame) if frame is not None else None,
+    )
+    for thing in devices:
         ref = _ref(graph, index, thing)
         link = ref if isinstance(ref, Link) else None
-        pose = graph.pose(thing.id)
-        s_m = _ring_s(pose)
+        pose = _pose_of(graph, thing)
+        s_m = s_of.get(thing.id)
         cls = thing.cls
         drawn = cls is not None and cls in symbols
         if cls is not None and cls in symbols and s_m is not None:
@@ -3521,6 +3651,9 @@ def place_view(
             )
         elif drawn:
             reason = pose.derived_assumes if pose is not None and pose.derived_assumes else None
+            elsewhere = beams[thing.id]
+            if reason is None and elsewhere is not None:
+                reason = _OTHER_FRAME.format(elsewhere[0])
             tray.append(TrayEntry(thing.id, thing.cls, reason or NO_POSITION, link))
         else:
             others += 1
@@ -3741,7 +3874,7 @@ def device_rollup(graph: PanelGraph, device_id: str, page: int = 1) -> View:
         )
         sections += (Section(_PAGES, links),)
     crumbs = (
-        *_crumbs(graph, index, thing.place, "rollup", "place"),
+        *_crumbs(graph, index, graph.place_of(thing.id, "device"), "rollup", "place"),
         Link(device_id, Target("card", "device", device_id)),
     )
     target = pages[page - 1]
@@ -3778,36 +3911,50 @@ def ring_arcs(graph: PanelGraph, place_id: str) -> list[str]:
     """The child places of *place_id* that lie on the ring, in beam order.
 
     A child lies on the ring when what it holds (:meth:`PanelGraph.contents`)
-    has a true ring position. Its span starts after the widest gap between
-    its positions, taken round the ring (whose length is the furthest
-    position of them all), so a child across the ring's start is ordered by
-    where its span begins, not by its position nearest zero.
+    has a position along the beam path most of them are on. Its span starts after
+    the widest gap between its positions, taken round the ring when the path's
+    length is stated (:meth:`PanelGraph.frame_length`), so a child across the
+    ring's start is ordered by where its span begins, not by its position nearest
+    zero.
     """
-    spans: dict[str, list[float]] = {}
+    placed: dict[str, list[tuple[str, float]]] = {}
     for child in graph.within(place_id):
         if child.kind != "place":
             continue
-        found = sorted(
-            s_m
+        found = [
+            where
             for thing in graph.contents(child.id)
-            for s_m in (_ring_s(graph.pose(thing.id)),)
-            if s_m is not None
-        )
+            for where in (graph.beam_position(thing),)
+            if where is not None
+        ]
         if found:
-            spans[child.id] = found
-    length = max((s for found in spans.values() for s in found), default=0.0)
+            placed[child.id] = found
+    frames = Counter(frame for found in placed.values() for frame, _s in found)
+    frame = frames.most_common(1)[0][0] if frames else None
+    spans = {
+        child: sorted(s for f, s in found if f == frame)
+        for child, found in placed.items()
+        if any(f == frame for f, _s in found)
+    }
+    length = graph.frame_length(frame) if frame is not None else None
 
     def start(found: list[float]) -> float:
         gaps = [(b - a, b) for a, b in zip(found, found[1:], strict=False)]
-        gaps.append((found[0] + length - found[-1], found[0]))  # round the ring's start
+        if length:
+            gaps.append((found[0] + length - found[-1], found[0]))  # round the ring's start
+        else:
+            gaps.append((math.inf, found[0]))  # a line: a span starts at its lowest
         return max(gaps)[1]
 
     return sorted(spans, key=lambda child: (start(spans[child]), child))
 
 
 def _beam_key(graph: PanelGraph, label: str) -> tuple[float, str]:
-    """Beam order for a node of a thing with a true ring position, else name order after."""
-    s_m = _ring_s(graph.pose(label))
+    """Beam order for a node of a thing with a beam position, else name order after."""
+    try:
+        s_m = _beam_s(graph, graph.thing(label))
+    except KeyError:
+        s_m = None
     return (s_m if s_m is not None else math.inf, label)
 
 

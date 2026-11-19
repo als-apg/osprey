@@ -29,6 +29,7 @@ import yaml
 
 import osprey_connectors
 from osprey_connectors import control_context
+from osprey_connectors import process as process_module
 from osprey_connectors import recovery as recovery_module
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import (
@@ -50,12 +51,16 @@ from osprey_connectors.ipc._pool import (
     ConnectorHostWriteTimeoutError,
     PooledConnector,
 )
-from osprey_connectors.ipc._proxy import ChildUnresponsiveError, raised_by_child
+from osprey_connectors.ipc._proxy import (
+    ChildUnresponsiveError,
+    ConnectorHostProxy,
+    raised_by_child,
+)
 from osprey_connectors.recovery import RecoveryAction, Timing
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
-from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
+from osprey_connectors_tests.ipc._pool_connectors import BRIEF_S, WRITE_LOG_ENV
 from tests._child_stubs import CHILD_STUBS
 from tests._live import async_wait_until, wait_until
 from tests._processes import pid_alive
@@ -92,12 +97,19 @@ OK_TIMEOUT_S = 10.0
 #: child's reply; this bound only fails a child that never replies, and a loaded xdist run can
 #: hold a cold child past the product default.
 CHILD_START_TIMEOUT_S = 120.0
+#: How long a child stopped by the pool gets to finish its calls in flight, where the call
+#: in flight is a ``BRIEF:`` write: ten times the write, so a loaded runner still fits it.
+DRAIN_FITS_S = 10 * BRIEF_S
+#: The same, where the call in flight hangs: short, so the test does not sit through the
+#: product's 2 s waiting for a call that never finishes.
+DRAIN_OUTLASTED_S = 0.25
 
 
 #: Every address a child here reads or writes, each a writable setpoint. The
-#: ``SLOW:``, ``GONE:``, ``LOST:``, ``BUG:`` and ``WEDGE:`` ones misbehave before the mock
-#: serves them.
+#: ``SLOW:``, ``BRIEF:``, ``GONE:``, ``LOST:``, ``BUG:`` and ``WEDGE:`` ones misbehave before
+#: the mock serves them.
 SERVED = (
+    "BRIEF:SP",
     "BUG:X",
     "GONE:X",
     "LOST:X",
@@ -208,10 +220,36 @@ def asyncio_errors(caplog):
     return collected
 
 
-def _abandon(pid: int) -> None:
-    """Kill a child left holding a hung call, so teardown skips the 2 s disconnect bound.
+def _bound_the_drain(monkeypatch, seconds: float) -> list[float]:
+    """Give a child the pool stops *seconds* to finish its calls in flight.
 
-    Closing over a hung call is test_close_with_a_call_in_flight_fails_it_as_stopped's subject.
+    The pool stops a healthy child by asking it to disconnect and waiting ``ack_timeout``
+    (the proxy's default, 2 s) for the acknowledgement, which the child sends once its calls
+    in flight are done. Only that default changes: a caller that names a bound keeps it.
+
+    Returns the bounds applied, one per disconnect that took the default. A test asserts on
+    it, so a stop that names its own bound fails the test instead of quietly waiting 2 s.
+    """
+    real = ConnectorHostProxy.disconnect
+    applied: list[float] = []
+
+    async def bounded(self, *, ack_timeout: float | None = None) -> None:
+        if ack_timeout is None:
+            ack_timeout = seconds
+            applied.append(seconds)
+        await real(self, ack_timeout=ack_timeout)
+
+    monkeypatch.setattr(ConnectorHostProxy, "disconnect", bounded)
+    return applied
+
+
+def _abandon(pid: int) -> None:
+    """Kill a child left holding a hung call, so its pool's close does not wait on the call.
+
+    A test that leaves a call hung kills the child so teardown skips the 2 s disconnect bound:
+    closing over a hung call is test_close_with_a_call_in_flight_fails_it_as_stopped's subject.
+    That test also kills the child when its own close outlasts its guard, so a close that
+    ignores the bound fails the test rather than hanging its teardown.
     """
     with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGKILL)
@@ -1172,20 +1210,58 @@ async def test_disconnect_during_a_start_waits_for_it_and_leaves_no_child_runnin
     assert len(spawns) == 1
 
 
-async def test_close_with_a_call_in_flight_fails_it_as_stopped(pools):
+async def test_close_lets_a_call_in_flight_finish_and_the_child_exit_on_its_own(
+    pools, writable, spawns, monkeypatch
+):
+    applied = _bound_the_drain(monkeypatch, DRAIN_FITS_S)
+    # Exiting after the ack may outlast min(grace_s, _REAP_WINDOW_S) under --cov or load: widen it.
+    monkeypatch.setattr(process_module, "_REAP_WINDOW_S", DRAIN_FITS_S)
+    section, config_file, log = writable
+    pool = pools(section, config_file=config_file, terminate_grace_s=DRAIN_FITS_S)
+    live = await pool.connector("live")
+    writing = asyncio.create_task(live.write_channel("BRIEF:SP", 1.0, timeout=OK_TIMEOUT_S))
+    # The child logs the write as it starts it: the call is running in the child.
+    await async_wait_until(lambda: log.exists() and log.read_text(), what="the write starting")
+    # Still running when the stop is asked for, so only the child's drain can let it finish.
+    assert not writing.done()
+
+    await pool.close()
+
+    assert applied == [DRAIN_FITS_S]
+
+    # The write ran to the end and its own result reached the caller ...
+    result = await asyncio.wait_for(writing, OK_TIMEOUT_S)
+    assert (result.channel_address, result.value_written) == ("BRIEF:SP", 1.0)
+    assert result.outcome is WriteOutcome.CONFIRMED
+    # ... before the child acknowledged the disconnect and exited by itself, not by a signal.
+    assert spawns[0][1].returncode == 0
+
+
+async def test_close_with_a_call_in_flight_fails_it_as_stopped(pools, spawns, monkeypatch):
+    applied = _bound_the_drain(monkeypatch, DRAIN_OUTLASTED_S)
     pool = pools(_section(SLOW))
     live = await pool.connector("live")
     pid = live.pid
     hung = asyncio.create_task(live.read_channel("SLOW:X"))
     await asyncio.sleep(0.2)
 
-    await pool.close()
+    # The call outlasts the bound, and close returns all the same.
+    try:
+        await asyncio.wait_for(pool.close(), OK_TIMEOUT_S)
+    except TimeoutError:
+        # A close that ignores the bound waits on the hung call for good, and so would
+        # the fixture's teardown: put the child down so the test fails rather than hangs.
+        _abandon(pid)
+        raise
+    assert applied == [DRAIN_OUTLASTED_S]
 
     with pytest.raises(ConnectorHostLostError) as caught:
         await asyncio.wait_for(hung, 10.0)
     assert not isinstance(caught.value, ConnectorHostUnresponsiveError)
     assert caught.value.cause == "stopped"
     assert not pid_alive(pid)
+    # The pool put the child down: it did not exit by itself.
+    assert spawns[0][1].returncode < 0
 
 
 async def test_the_pool_refuses_a_second_event_loop(pools):

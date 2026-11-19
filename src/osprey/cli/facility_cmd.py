@@ -1138,7 +1138,11 @@ def import_relations(
 
 @facility.group("panels")
 def panels_group() -> None:
-    """Write operator screens from the built facility, and check a written set."""
+    """Write operator screens from the built facility, and check a written set.
+
+    Experimental: the commands, the rule tables and the screens may change in any
+    release.
+    """
 
 
 def _panel_views() -> tuple[str, ...]:
@@ -1205,8 +1209,8 @@ def _panel_draw(tables: Path, draw_file: Path | None):
         raise click.exceptions.Exit(1) from error
 
 
-def _no_card_terms(row: Any) -> str:
-    """The terms a ``no_cards.csv`` row matches devices by, as one line."""
+def _card_rule_terms(row: Any) -> str:
+    """The terms a ``cards.csv`` row selects devices by, as one line."""
     terms = [f"class {row.cls}"]
     if row.under:
         terms.append(f"under {row.under}")
@@ -1349,8 +1353,8 @@ def panels_write(
             FRONT_READING,
             FRONT_STATED,
             HOP_FOUND,
+            STRIP_BY_PLACE,
             STRIP_NOWHERE,
-            STRIP_ON_RAFT,
             STRIP_PLACED,
             chain_states,
             front_states,
@@ -1362,7 +1366,7 @@ def panels_write(
             total = sum(where.values())
             report(
                 f"  strip {recipe_name}: {where[STRIP_PLACED]} / {total} placed, "
-                f"{where[STRIP_ON_RAFT]} on a raft, {where[STRIP_NOWHERE]} not stated"
+                f"{where[STRIP_BY_PLACE]} by their place, {where[STRIP_NOWHERE]} not stated"
             )
 
         for chain, states in sorted(chain_states(graph, devices).items()):
@@ -1456,8 +1460,8 @@ def panels_check(
     counted = ", ".join(f"{cls} {n}" for cls, n in loose.items()) or "none"
     report(f"pictures, parts not placed: {counted}")
     from osprey.facility.panels.describe import (
-        no_card_counts,
-        no_card_takes,
+        card_counts,
+        card_rule_counts,
         press_counts,
         tile_less,
     )
@@ -1472,13 +1476,14 @@ def panels_check(
     )
     bare_classes, bare = tile_less(graph, devices)
     report(f"default card without tiles: {bare_classes} classes, {bare} devices")
-    taken, ownerless = no_card_counts(graph)
+    cardless, ownerless, by_default = card_counts(graph)
     report(
-        f"no card (no_cards.csv): {taken} devices, {taken - ownerless} drawn on their "
-        f"owner's card, {ownerless} with no owner stated (no index entry)"
+        f"no card: {cardless} devices, {cardless - ownerless} drawn on their owner's card, "
+        f"{ownerless} with no owner stated (no index entry)"
     )
-    for number, (row, n) in enumerate(no_card_takes(graph), start=1):
-        report(f"  no_cards.csv row {number} ({_no_card_terms(row)}): {n} devices")
+    report(f"  by default (no channel, no drawing): {by_default} devices")
+    for number, (row, n) in enumerate(card_rule_counts(graph), start=1):
+        report(f"  cards.csv row {number}, {row.action} ({_card_rule_terms(row)}): {n} devices")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

@@ -943,27 +943,36 @@ jobs:
       run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
 
   build-boot-smoke:
-    name: Preset Build + MCP Boot — ${{ matrix.preset }}
+    # Only a cell off 3.11 names its Python, so the 3.11 cells keep their check names.
+    name: Preset Build + MCP Boot — ${{ matrix.case }}${{ matrix.python-version != '3.11' && format(' (Python {0})', matrix.python-version) || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        preset: [hello-world, demo]
+        # A preset each, and demo with the orbit-bump app turned on: the one full install with an app.
+        # Every case runs on 3.11. The orbit-bump install, the one that installs an app's wheel beside
+        # osprey, runs on 3.12 as well, the Python the unit shards run on pull requests.
+        case: [hello-world, demo, demo-orbit-bump]
+        python-version: ['3.11']
+        include:
+          - case: demo-orbit-bump
+            python-version: '3.12'
 
     steps:
     - *checkout-full-history
 
-    - *install-uv
+    - *install-uv-matrix-python
 
     - *sync-dev-deps
 
-    - name: Run the build + MCP boot smoke for the preset
+    - name: Run the build + MCP boot smoke for the case
       env:
-        PRESET: ${{ matrix.preset }}
+        CASE: ${{ matrix.case }}
         # Over /tmp's tmpfs quota otherwise; see "Run unit tests".
         TMPDIR: ${{ runner.temp }}
-      run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
+      # The brackets match the case's test ids exactly: "demo" alone also matches "demo-orbit-bump".
+      run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "[$CASE]"
 
   agentic-per-preset:
     name: Preset Agentic Flow — ${{ matrix.preset }}

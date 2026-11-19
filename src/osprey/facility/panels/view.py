@@ -678,12 +678,15 @@ class CardHead:
         description: The recipe's sentence, its relation slots filled.
         default: The card is drawn with the default recipe (its class has no row).
         nowhere: The recipe draws a strip, and where the device sits is not stated.
+        by_whole: ``(place, whole)`` when the device has no place of its own and
+            stands where its whole is (an accepted ``part_of``); else ``None``.
     """
 
     kind: str
     description: str | None
     default: bool = True
     nowhere: bool = False
+    by_whole: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -809,7 +812,7 @@ class CardStrip:
     Attributes:
         window: The stretch drawn, ``(from, to)`` in m.
         members: The things on it, by ``s_m``.
-        bracket: Where the device is when only its raft (or chamber) is placed:
+        bracket: Where the device is when only a place around it is placed:
             ``(from, to, label)`` in m; ``None`` when the device is placed.
         caption: The line under it, or ``None``.
     """

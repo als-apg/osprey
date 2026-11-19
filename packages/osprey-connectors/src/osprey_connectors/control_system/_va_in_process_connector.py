@@ -397,7 +397,7 @@ class VAInProcessConnector(ControlSystemConnector):
                 | frozenset(view.status_addresses().values())
                 | {
                     address
-                    for signals in view.ioc_health_by_model().values()
+                    for signals in view.server_health_by_model().values()
                     for address in signals.values()
                 }
             )
@@ -631,11 +631,11 @@ class VAInProcessConnector(ControlSystemConnector):
         return self._composite
 
     def _answering(self, address: str) -> Composite:
-        """The composite, once ``address`` is served and its simulated IOC is not stopped.
+        """The composite, once ``address`` is served and its simulated server is not stopped.
 
         Raises:
             ChannelNotFoundError: ``address`` is not a channel of the facility.
-            ChannelUnreachableError: A scenario's ``stopped_servers`` stops the IOC
+            ChannelUnreachableError: A scenario's ``stopped_servers`` stops the server
                 serving ``address``: the channel gives no answer.
             ConnectorUnavailableError: The connector is not connected.
         """
@@ -711,7 +711,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
-            ChannelUnreachableError: A scenario stops the channel's simulated IOC.
+            ChannelUnreachableError: A scenario stops the channel's simulated server.
         """
         await asyncio.sleep(self._response_delay)
         self._sync()
@@ -804,15 +804,15 @@ class VAInProcessConnector(ControlSystemConnector):
             )
         self._sync()
         if channel_address in self._composite.stopped():
-            # As on the wire: a stopped IOC's channel never connects, so nothing is sent.
-            logger.warning(f"In-process write failed: {channel_address}: its IOC is stopped")
+            # As on the wire: a stopped server's channel never connects, so nothing is sent.
+            logger.warning(f"In-process write failed: {channel_address}: its server is stopped")
             return channel_address, ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
                 error_message=(
                     f"Failed to write to channel '{channel_address}': no value was sent "
-                    f"({ChannelUnreachableError(channel_address)}: its simulated IOC is stopped)"
+                    f"({ChannelUnreachableError(channel_address)}: its simulated server is stopped)"
                 ),
             )
         if self._composite.supported_variables[channel_address].read_only:
@@ -985,9 +985,9 @@ class VAInProcessConnector(ControlSystemConnector):
         """Subscribe to a channel; the callback fires after a tick or a write.
 
         A channel of the facility is served by this process, so it drops only
-        while a scenario's ``stopped_servers`` stops its simulated IOC, as a
-        channel of a stopped IOC does on the wire: ``on_connection`` is told
-        the channel's state before this returns -- ``False`` when its IOC is
+        while a scenario's ``stopped_servers`` stops its simulated server, as a
+        channel of a stopped server does on the wire: ``on_connection`` is told
+        the channel's state before this returns -- ``False`` when its server is
         stopped, and the subscription then waits -- and told again on every
         stop and restart. The first callback after a restart carries the
         channel's current value.
@@ -1019,7 +1019,7 @@ class VAInProcessConnector(ControlSystemConnector):
         addresses = sorted({subscription.address for subscription in self._subscriptions.values()})
         if not addresses or self._composite is None:
             return {}
-        # A stopped IOC's channel gives no answer, so its subscription is quiet.
+        # A stopped server's channel gives no answer, so its subscription is quiet.
         stopped = self._composite.stopped()
         return {
             address: self._held_value(address) for address in addresses if address not in stopped

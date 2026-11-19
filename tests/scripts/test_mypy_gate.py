@@ -8,7 +8,9 @@ refused rather than judged.
 
 from __future__ import annotations
 
+import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -147,4 +149,41 @@ def test_the_gate_checks_the_declared_trees() -> None:
         "packages/osprey-connectors/src",
         "packages/osprey-optimizer/src",
         "packages/pyaml-cs-osprey/src",
+        "tests/type_contracts",
     ]
+
+
+_CONTRACTS = "tests/type_contracts"
+_INLINE_FLAG = "# mypy: warn-unused-ignores"
+
+
+def test_the_type_contracts_stay_enforced() -> None:
+    """What `tests/type_contracts/` relies on to prove anything, held here.
+
+    Each negative case there is a ``# type: ignore[arg-type]`` that must stay used,
+    and it is also the only guard against ``PlanSpec`` resolving to ``Any``. That holds
+    while mypy checks the file and reports an unused ignore in it. The directory is a
+    declared target, and every contract file turns the unused-ignore warning on with
+    its own inline flag, which mypy applies over the config file's settings, global
+    or per module. An ignore that lists ``unused-ignore`` would switch its case off.
+    """
+    with gate.PYPROJECT.open("rb") as handle:
+        mypy_config = tomllib.load(handle)["tool"]["mypy"]
+    directory = gate.REPO_ROOT / _CONTRACTS
+
+    assert (directory / "planspec_render.py").is_file(), "the PlanSpec.render contract is gone"
+    assert _CONTRACTS in mypy_config["files"], f"{_CONTRACTS} is not a type-check target"
+
+    ignore_codes = re.compile(r"#\s*type:\s*ignore\[([^\]]*)\]")
+    for path in sorted(directory.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        text = path.read_text()
+        inline = [line for line in text.splitlines() if line.startswith("# mypy:")]
+        assert inline == [_INLINE_FLAG], (
+            f"{path.name} must carry exactly the inline config {_INLINE_FLAG!r}, found {inline}"
+        )
+        for codes in ignore_codes.findall(text):
+            assert "unused-ignore" not in {code.strip() for code in codes.split(",")}, (
+                f"{path.name} lists unused-ignore in an ignore, which switches that case off"
+            )

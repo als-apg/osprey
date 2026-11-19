@@ -78,7 +78,7 @@ class ProviderRegistration:
 
     module_path: str
     class_name: str
-    name: str | None = None  # Provider name for config-driven filtering
+    name: str | None = None  # The name the provider resolves by
 
 
 @dataclass

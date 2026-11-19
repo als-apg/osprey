@@ -9,7 +9,9 @@ line number), then handed to the code that owns it:
   parse to the targets they name and resolve in the example facility; the
   ``regenerate_indexes`` snippet runs and leaves a bundle ``check_indexes``
   passes; the "conventional starting shape" tree names the index file the
-  regenerator writes and the example bundle's directories.
+  regenerator writes and the example bundle's directories; the Images example
+  holds the three embed forms, each resolving with alt text to the figure the
+  example bundle ships, which the concept the page names embeds.
 * ``how-to/build-profiles.rst``: every path of the ``build/`` tree is on disk
   after a real ``osprey build`` of the demo preset, and every
   facility output that build's main render writes is on the tree.
@@ -61,6 +63,11 @@ from osprey.facility.settings import VOCABULARY_SOURCE
 from osprey.facility.views import VIEWS
 from osprey.facility.views.benchmarks import QUERY_SOURCES
 from osprey.services.facility_knowledge.okf import index as okf_index
+from osprey.services.facility_knowledge.okf.assets import (
+    concept_dir,
+    lookup_asset,
+    scan_image_embeds,
+)
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
 from osprey.services.facility_knowledge.okf.paths import concept_id_of_link
@@ -385,6 +392,27 @@ def test_starting_shape_tree_names_the_index_file_and_the_example_directories() 
     assert "index.md" in paths, "the bundle root holds an index"
     top_dirs = {rel.rstrip("/") for rel in paths if rel.endswith("/") and rel.count("/") == 1}
     assert top_dirs == {path.name for path in _EXAMPLE_BUNDLE.iterdir() if path.is_dir()}
+
+
+def test_images_example_embeds_the_shipped_figure() -> None:
+    figure = "devices/figures/bpm-button-pickups.png"
+    text = _block(OKF_PAGE, "markdown", "bpm-button-pickups.png")
+    # The block reads as written on a page of ``devices/``, as the page says.
+    source_dir = concept_dir(_EXAMPLE_BUNDLE, "devices/bpm")
+    embeds = scan_image_embeds(text, source_dir)
+    assert [embed.target for embed in embeds] == ["figures/bpm-button-pickups.png"]
+    (embed,) = embeds
+    assert (embed.outcome, embed.path) == ("bundle", figure)
+    assert embed.alt
+    assert lookup_asset(_EXAMPLE_BUNDLE, figure).type == "png"
+
+    # The page names the example concept and the path the target resolves to,
+    # and that concept embeds the figure.
+    page = _folded(_page_text(OKF_PAGE))
+    assert "``devices/bpm`` concept embeds a figure" in page
+    assert f"here to ``{figure}``" in page
+    bpm = OKFDocument.parse((_EXAMPLE_BUNDLE / "devices" / "bpm.md").read_text(encoding="utf-8"))
+    assert figure in {embed.path for embed in scan_image_embeds(bpm.body, source_dir)}
 
 
 # -- how-to/build-profiles.rst --------------------------------------------------

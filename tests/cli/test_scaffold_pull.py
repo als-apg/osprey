@@ -172,6 +172,7 @@ DEMO_PULLABLE = [
     "data/facility/decks/",
     "data/facility/knowledge/",
     "data/facility/knowledge/devices/",
+    "data/facility/knowledge/devices/figures/",
     "data/facility/knowledge/physics/",
     "data/facility/knowledge/procedures/",
     "data/facility/knowledge/references/",
@@ -222,6 +223,7 @@ DEMO_PULLABLE = [
     "data/facility/documents.yaml",
     "data/facility/identity.yaml",
     "data/facility/knowledge/devices/bpm.md",
+    "data/facility/knowledge/devices/figures/bpm-button-pickups.png",
     "data/facility/knowledge/devices/index.md",
     "data/facility/knowledge/devices/ion-pump.md",
     "data/facility/knowledge/index.md",
@@ -410,9 +412,13 @@ def test_list_pullable_paths_rejects_an_unknown_subtree(demo: PresetData) -> Non
 
 #: The knowledge base as the demo template ships it, pinned so a
 #: skeleton pull and a full pull are both anchored to real numbers: 23 Markdown
-#: documents, of which 6 are the ``index.md`` files that carry the structure.
+#: documents, of which 6 are the ``index.md`` files that carry the structure,
+#: and 1 figure a concept embeds. Knowledge content is not Markdown only: a
+#: bundle image is content like the concept that shows it.
 KNOWLEDGE_MARKDOWN_FILES = 23
 KNOWLEDGE_INDEX_FILES = 6
+KNOWLEDGE_IMAGE_FILES = 1
+KNOWLEDGE_FILES = KNOWLEDGE_MARKDOWN_FILES + KNOWLEDGE_IMAGE_FILES
 
 
 def _by_action(actions: list[PullAction]) -> dict[str, list[PullAction]]:
@@ -434,8 +440,12 @@ def test_plan_pull_counts_match_the_packaged_knowledge_base(
     assert (
         len([entry for entry in markdown if entry.endswith("/index.md")]) == KNOWLEDGE_INDEX_FILES
     )
-    # Nothing else is in there, so "every file" and "every .md" are the same set.
-    assert [entry for entry in listed if not entry.endswith("/")] == markdown
+    files = [entry for entry in listed if not entry.endswith("/")]
+    images = [entry for entry in files if entry.endswith(".png")]
+    assert len(images) == KNOWLEDGE_IMAGE_FILES
+    # Nothing else is in there: every file is a document or a figure.
+    assert sorted(files) == sorted(markdown + images)
+    assert len(files) == KNOWLEDGE_FILES
 
 
 def test_plan_pull_of_the_knowledge_base_writes_only_the_indexes(
@@ -454,7 +464,9 @@ def test_plan_pull_of_the_knowledge_base_writes_only_the_indexes(
     assert sorted(grouped) == ["skipped", "written"]
     assert len(grouped["written"]) == KNOWLEDGE_INDEX_FILES
     assert all(action.source.name == "index.md" for action in grouped["written"])
-    assert len(grouped["skipped"]) == KNOWLEDGE_MARKDOWN_FILES - KNOWLEDGE_INDEX_FILES
+    # The figure is content too, so it stays behind with the demo concepts.
+    assert len(grouped["skipped"]) == KNOWLEDGE_FILES - KNOWLEDGE_INDEX_FILES
+    assert any(action.source.suffix == ".png" for action in grouped["skipped"])
     assert all("--with-content" in action.reason for action in grouped["skipped"])
 
 
@@ -471,8 +483,9 @@ def test_plan_pull_with_content_writes_every_knowledge_document(
     )
 
     assert sorted(_by_action(plan)) == ["written"]
-    assert len(plan) == KNOWLEDGE_MARKDOWN_FILES
-    assert all(action.target.suffix == ".md" for action in plan)
+    assert len(plan) == KNOWLEDGE_FILES
+    suffixes = sorted(action.target.suffix for action in plan)
+    assert suffixes == [".md"] * KNOWLEDGE_MARKDOWN_FILES + [".png"] * KNOWLEDGE_IMAGE_FILES
 
 
 def test_plan_pull_mirrors_the_template_relative_path_under_the_repo(
@@ -588,7 +601,7 @@ def test_plan_pull_refuses_a_symlinked_target_directory(demo: PresetData, tmp_pa
     )
 
     assert sorted(_by_action(plan)) == ["refused"]
-    assert len(plan) == KNOWLEDGE_MARKDOWN_FILES
+    assert len(plan) == KNOWLEDGE_FILES
     assert "symlink" in plan[0].reason
     # Planning is pure: nothing reached the directory the link points at.
     assert list(elsewhere.iterdir()) == []
@@ -706,7 +719,9 @@ def test_apply_pull_of_the_knowledge_base_writes_only_the_indexes(
 
     applied = apply_pull(plan, repo_root=tmp_path, with_content=False)
 
-    written = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*.md"))
+    written = sorted(
+        path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*") if path.is_file()
+    )
     assert len(written) == KNOWLEDGE_INDEX_FILES
     assert all(entry.endswith(f"/{_INDEX_NAME}") for entry in written)
     assert len(applied) == KNOWLEDGE_INDEX_FILES
@@ -772,9 +787,10 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
 
     applied = apply_pull(plan, repo_root=tmp_path, with_content=True)
 
-    written = sorted(tmp_path.rglob("*.md"))
-    assert len(applied) == KNOWLEDGE_MARKDOWN_FILES
-    assert len(written) == KNOWLEDGE_MARKDOWN_FILES
+    written = sorted(path for path in tmp_path.rglob("*") if path.is_file())
+    assert len(applied) == KNOWLEDGE_FILES
+    assert len(written) == KNOWLEDGE_FILES
+    assert len([path for path in written if path.suffix == ".png"]) == KNOWLEDGE_IMAGE_FILES
     for path in written:
         relative = path.relative_to(tmp_path)
         assert path.read_bytes() == packaged(demo, relative).read_bytes()
@@ -950,11 +966,9 @@ def test_pulling_the_knowledge_base_writes_only_the_indexes(runner: CliRunner, r
     written = _markdown(repo)
     assert len(written) == KNOWLEDGE_INDEX_FILES
     assert all(entry.endswith(f"/{_INDEX_NAME}") for entry in written)
+    assert list(repo.rglob("*.png")) == []
     assert result.output.count("✓") == KNOWLEDGE_INDEX_FILES
-    assert (
-        f"{KNOWLEDGE_MARKDOWN_FILES - KNOWLEDGE_INDEX_FILES} knowledge documents skipped"
-        in result.output
-    )
+    assert f"{KNOWLEDGE_FILES - KNOWLEDGE_INDEX_FILES} knowledge documents skipped" in result.output
     assert "--with-content" in result.output
     assert "rebuilt" in result.output
 
@@ -967,6 +981,8 @@ def test_pulling_the_knowledge_base_with_content_writes_every_document(
 
     assert result.exit_code == 0, result.output
     assert len(_markdown(repo)) == KNOWLEDGE_MARKDOWN_FILES
+    figures = sorted(path.relative_to(repo).as_posix() for path in repo.rglob("*.png"))
+    assert figures == ["data/facility/knowledge/devices/figures/bpm-button-pickups.png"]
     assert "skipped" not in result.output
 
 

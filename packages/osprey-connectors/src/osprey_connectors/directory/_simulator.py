@@ -1,13 +1,13 @@
-"""The virtual accelerator's directory of PVs, answered from the build's simulator view.
+"""The virtual accelerator's directory of channels, answered from the build's simulator view.
 
 The view is read once, on the first call that answers, and held for the life of
 the backend; a view it could not read is tried again on the next call. Each row
-is a channel of the view, or a status or IOC health address the simulator serves
-beside the channels. The IOC of a row is ``sim-<model>``, the served physics
+is a channel of the view, or a status or server health address the simulator serves
+beside the channels. The server of a row is ``sim-<model>``, the served physics
 model that owns the address, else ``sim-texture``, as the composite routes it.
 
-Its servers are those IOCs: every served physics model's and the texture's, each
-listed even when it serves no PV. The listing reads the view alone, so an IOC a
+Its servers are those: every served physics model's and the texture's, each
+listed even when it serves no channel. The listing reads the view alone, so a server a
 scenario stops is still listed: the directory says what exists, not what answers.
 
 A search means what it means on ChannelFinder. Words match descriptions first and
@@ -116,7 +116,7 @@ def _served_record(address: str, server: str, signal: str) -> DirectoryRecord:
 
 
 def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
-    """Every PV of ``view``, sorted by name."""
+    """Every channel of ``view``, sorted by name."""
     physics = {model.name for model in view.physics_models()}
     records = {}
     for address in view.channels():
@@ -124,7 +124,7 @@ def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
         records[address] = _channel_record(channel, channel_server(channel.owner, physics))
     for model, address in view.status_addresses().items():
         records[address] = _served_record(address, model_server(model), STATUS_SIGNAL)
-    for model, signals in view.ioc_health_by_model().items():
+    for model, signals in view.server_health_by_model().items():
         for signal, address in signals.items():
             records[address] = _served_record(address, model_server(model), signal)
     return dict(sorted(records.items()))
@@ -196,10 +196,10 @@ def _searched(query: DirectoryQuery) -> str:
 
 
 class SimulatorDirectory(ChannelDirectory):
-    """Every PV the virtual accelerator serves, from the simulator view under ``project_dir``."""
+    """Every channel the virtual accelerator serves, from the simulator view under ``project_dir``."""
 
     _records_read: Mapping[str, DirectoryRecord] | None = None
-    _iocs_read: frozenset[str] = frozenset()
+    _servers_read: frozenset[str] = frozenset()
 
     def _records(self) -> Mapping[str, DirectoryRecord] | Unavailable:
         if self._records_read is not None:
@@ -209,12 +209,12 @@ class SimulatorDirectory(ChannelDirectory):
         try:
             view = SimulatorView.of_project(self.project_dir)
             records = _read_records(view)
-            iocs = served_servers(model.name for model in view.physics_models())
+            servers = served_servers(model.name for model in view.physics_models())
         except NoSimulatorView as absent:
             return Unavailable(str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:
             return Unavailable(f"the simulator view cannot be read: {failure}")
-        self._records_read, self._iocs_read = records, iocs
+        self._records_read, self._servers_read = records, servers
         return records
 
     @override
@@ -298,7 +298,7 @@ class SimulatorDirectory(ChannelDirectory):
             ServerRow(
                 name=name, host=_HOST, channel_count=counts[name], inactive_count=inactive[name]
             )
-            for name in sorted(self._iocs_read | {name for name in counts if name})
+            for name in sorted(self._servers_read | {name for name in counts if name})
         ]
 
     @override

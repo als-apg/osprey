@@ -40,7 +40,6 @@ CHANNEL_PARAM = "channel"
 #: What the root names itself, so a reader can tell a relay from another service.
 SERVICE_NAME = "osprey-alarm-relay"
 
-_SETTINGS_KEY = "channel_directory.alarm_state.settings"
 _MALFORMED = Unavailable("malformed response")
 _NOT_A_RELAY = Unavailable(f"the url does not answer as an {SERVICE_NAME}")
 _IN_TREE = frozenset({"yes", "no", "unknown"})
@@ -114,7 +113,9 @@ class RelayAlarmState(AlarmState):
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         if transport is None:
-            transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_SETTINGS_KEY)
+            transport = ReadOnlyTransport(
+                spec.settings, self.ALLOWED_REQUESTS, where=spec.settings_key
+            )
         self._transport = transport
 
     @override

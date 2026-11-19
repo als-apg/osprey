@@ -4,6 +4,7 @@ This module extracts keywords and generates summaries from logbook entries
 to enable keyword search and improve retrieval quality.
 """
 
+import contextlib
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -104,7 +105,10 @@ class SemanticProcessorModule(BaseEnhancementModule):
         names an embedding endpoint and is not a stand-in for it.  ``model.model_id``
         is a model id the provider serves, taken verbatim; omitted, the
         deployment's main model answers (looked up at the first call, see
-        :meth:`_completion_model_config`).
+        :meth:`_completion_model_config`). Configuring imports the provider's
+        class, so the first health check or completion pays only for its
+        network call; a provider that does not resolve is reported by that
+        call, not here.
 
         ``max_input_chars`` bounds how much of an entry reaches the model. It is
         a facility's to set: how long a logbook entry runs, and how big a
@@ -140,6 +144,15 @@ class SemanticProcessorModule(BaseEnhancementModule):
                 f"an integer >= 1 (got {max_input_chars!r})"
             )
         self._max_input_chars = max_input_chars
+
+        # The provider's class is imported here, not in the first health check
+        # or completion: that import costs seconds of CPU, and a check awaited
+        # under a timeout must spend its budget on the network. A provider that
+        # does not resolve is left for that first call to report.
+        from osprey.models.provider_registry import get_provider_registry
+
+        with contextlib.suppress(Exception):
+            get_provider_registry().get_provider(provider)
 
     async def enhance(
         self,

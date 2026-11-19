@@ -75,8 +75,9 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["card_recipes.csv"]) == (
         "class,under,devices,recipe,description,channels_cols,source"
     )
-    assert ",".join(COLUMNS["no_cards.csv"]) == (
-        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source,when,attribute"
+    assert ",".join(COLUMNS["cards.csv"]) == (
+        "action,class,under,devices,attribute,when,owner_relation,owner_direction,owner_to,"
+        "reason,source"
     )
     assert ",".join(COLUMNS["fronts.csv"]) == (
         "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"
@@ -100,7 +101,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "chains.csv",
             "symbols.csv",
             "fronts.csv",
-            "no_cards.csv",
+            "cards.csv",
         }
     )
 

@@ -94,7 +94,13 @@ beforeAll(async () => {
   localStorage.clear();
   vi.stubGlobal('ResizeObserver', FakeResizeObserver);
   vi.stubGlobal('marked', { parse: (/** @type {string} */ md) => md });
-  vi.stubGlobal('DOMPurify', { sanitize: (/** @type {string} */ html) => html });
+  // A pass-through sanitiser with DOMPurify's hook API: the panel renders
+  // markdown only through a DOMPurify that has hooks.
+  vi.stubGlobal('DOMPurify', {
+    sanitize: (/** @type {string} */ html) => html,
+    addHook: () => {},
+    removeHook: () => {},
+  });
   vi.stubGlobal('fetch', vi.fn(fakeFetch));
   location.hash = '#devices/bpm';
   await import('../../../src/osprey/interfaces/okf_panel/static/js/app.js');

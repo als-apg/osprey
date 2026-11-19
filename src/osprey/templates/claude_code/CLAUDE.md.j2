@@ -54,7 +54,7 @@ do not attempt their work with your own tools.
 {% endif -%}
 {%- if facility_knowledge_enabled %}
 - **facility-knowledge** — Looks up facility-specific documented knowledge: subsystem descriptions, device specifications, operational procedures, safety rules, physics references, and terminology.
-  For ANY question about documented facility content — procedures, subsystem descriptions, device specs, safety rules, or facility-specific terminology — delegate to **facility-knowledge**. Do NOT call `list_concepts`, `read_concept`, or `search` yourself; use **facility-knowledge** to retrieve and synthesize bundle content.
+  For ANY question about documented facility content — procedures, subsystem descriptions, device specs, safety rules, or facility-specific terminology — delegate to **facility-knowledge**. Do NOT call `list_concepts`, `read_concept`, or `search` yourself; use **facility-knowledge** to retrieve and synthesize bundle content. You may call `view_asset` yourself with an image path **facility-knowledge** returned; finding images stays delegated.
 {%- if pyat_specialist_enabled %}
   Documented vs. computed: a *documented* design fact or piece of terminology — a nominal value, a naming convention, "what does X mean" — comes from **facility-knowledge** (it wins whenever the knowledge bundle carries the value). Anything that requires *computing* on the lattice model — orbit, tunes, optics functions, response matrices — goes to **pyat-specialist**, not here.
 {%- endif %}
