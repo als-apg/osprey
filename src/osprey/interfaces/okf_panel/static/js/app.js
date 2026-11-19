@@ -527,10 +527,16 @@ function requireEl(id) {
     });
   }
 
+  // The reading pane shows what it was asked for last. Each load takes the next
+  // token and draws only while it still holds the latest: a load answered after
+  // a later one (the boot overview after a citation's concept) is dropped.
+  let readerLoad = 0;
+
   /**
    * @param {string} id
    */
   async function loadConcept(id) {
+    const token = ++readerLoad;
     enterView('knowledge');
     knowledgeLoc = id;
     showContentsFor('page');
@@ -541,9 +547,10 @@ function requireEl(id) {
     try {
       resp = await fetch('/api/concept?id=' + encodeURIComponent(id));
     } catch {
-      renderLoadFailure('The page did not load', retry);
+      if (token === readerLoad) renderLoadFailure('The page did not load', retry);
       return;
     }
+    if (token !== readerLoad) return;
 
     if (resp.status === 404) {
       showReaderState({
@@ -563,6 +570,7 @@ function requireEl(id) {
         /* unreadable: reported below */
       }
     }
+    if (token !== readerLoad) return;
     if (!doc) {
       renderLoadFailure('The page did not load', retry);
       return;
@@ -634,6 +642,7 @@ function requireEl(id) {
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
+    const token = ++readerLoad;
     enterView('knowledge');
     knowledgeLoc = STRUCTURE_MARKER;
     showContentsFor('browse');
@@ -647,9 +656,12 @@ function requireEl(id) {
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
-      renderLoadFailure('The overview did not load', () => loadStructure(opts));
+      if (token === readerLoad) {
+        renderLoadFailure('The overview did not load', () => loadStructure(opts));
+      }
       return;
     }
+    if (token !== readerLoad) return;
 
     delete readerEl.dataset.conceptId;
     readerEl.innerHTML = '';
