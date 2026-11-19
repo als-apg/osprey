@@ -465,6 +465,8 @@ def _number_or_none(value: Any) -> float | None:
 #: How a channel is drawn when ``record_types.csv`` says nothing: by its role in
 #: the facility file (a setpoint is an entry beside its readback, a readback a value).
 _ROLE_DRAWN: Mapping[str, DrawnAs] = MappingProxyType({"setpoint": "setpoint", "readback": "value"})
+#: The ``record_types.csv`` column an empty value of which means the role's drawing.
+_DRAWN_AS_COLUMN = f"{RECORD_TYPES} drawn_as"
 #: The evidence of a pair the facility file states (a setpoint channel's ``pair``).
 FACILITY_PAIR = "the facility file"
 
@@ -475,16 +477,18 @@ _DEFAULT_SHOWN: Mapping[str, str] = MappingProxyType(
 )
 
 
-def signal_role(cls: str, channel: Channel) -> ChannelRole | None:
+def signal_role(cls: str, channel: Channel, ruled: bool = False) -> ChannelRole | None:
     """The role a channel plays on its device when no ``channel_roles.csv`` row names
     it: its stated ``signal``, shown by how it is drawn (an entry for a setpoint, a
-    word for a state, a value), with nothing else stated; ``None`` for a channel
-    with no signal or one drawn otherwise. It is no press: the card offers its
+    word for a state, a lamp for a state *ruled* by health rows, a value), with
+    nothing else stated; ``None`` for a channel with no signal or one drawn otherwise. It is no press: the card offers its
     channel as the channels no row names are offered (a choice of stated words,
     an action, an entry)."""
     shown = _DEFAULT_SHOWN.get(channel.drawn_as or "")
     if channel.signal is None or shown is None:
         return None
+    if shown == "word" and ruled:  # its health rows say what each state means
+        shown = "lamp"
     return ChannelRole(
         cls, channel.signal, channel.name, "device", shown, None, None, None, None,
         "stated", None, None, None, stated=False,
@@ -543,6 +547,9 @@ class PanelGraph:
         }
         #: Per table, the rows that only restate what the facility file says.
         self.redundant: dict[str, int] = {}
+        #: Per ``table column``: the rows whose value in it is the default, while
+        #: another column of the row is read (the row stays, the value may go).
+        self.redundant_columns: dict[str, int] = {}
         for key, thing in self._things.items():
             if thing.id in short:
                 if short[thing.id] == thing.short_name:
@@ -749,14 +756,17 @@ class PanelGraph:
             row = types.get(name)
             names = sorted(str(alias) for alias in record.get("names") or ())
             default = _ROLE_DRAWN.get(_text(record.get("role")) or "")
-            if row is not None and row.drawn_as == default:
-                self.redundant[RECORD_TYPES] = self.redundant.get(RECORD_TYPES, 0) + 1
+            if row is not None and row.drawn_as is not None and row.drawn_as == default:
+                # the record type is still read: only the column may go
+                self.redundant_columns[_DRAWN_AS_COLUMN] = (
+                    self.redundant_columns.get(_DRAWN_AS_COLUMN, 0) + 1
+                )
             paired = _text(record.get("pair"))
-            if paired not in (None, name) and record.get("role") == "setpoint":
+            if paired is not None and paired != name and record.get("role") == "setpoint":
                 self._stated_pairs[name] = paired
             channel = Channel(
                 name=name,
-                drawn_as=row.drawn_as if row is not None else default,
+                drawn_as=row.drawn_as if row is not None and row.drawn_as else default,
                 writable=record.get("role") == "setpoint",
                 alias=names[0] if names else None,
                 thing=holder[1] if holder is not None else None,
@@ -919,7 +929,11 @@ class PanelGraph:
             if readback in self._channel
         }
         for pair in tables.pairs:
-            if self._stated_pairs.get(pair.setpoint) == pair.readback:
+            if (
+                self._stated_pairs.get(pair.setpoint) == pair.readback
+                and pair.basis == "stated"
+                and not pair.source
+            ):  # its basis and source are read (inferred mark, sourced): only then
                 self.redundant[PAIRS] = self.redundant.get(PAIRS, 0) + 1
             if pair.source in self._excluded_documents:
                 continue
@@ -1612,19 +1626,24 @@ class PanelGraph:
         for channel in self.channels(device_id, "device"):
             if channel.thing != device_id or channel.name in taken:
                 continue
-            role = signal_role(self.thing(device_id, "device").cls or "", channel)
+            role = self._signal_role(self.thing(device_id, "device").cls or "", channel)
             if role is not None:
                 found.append(RoleHit(role, channel.name, device_id))
         return found
 
+    def _signal_role(self, cls: str, channel: Channel) -> ChannelRole | None:
+        """:func:`signal_role`, a state with health rows shown as a lamp."""
+        return signal_role(cls, channel, ruled=bool(self._rules.get(channel.name)))
+
     def redundant_rows(self) -> dict[str, int]:
-        """Per table, how many rows only restate what the facility file says: a
-        ``pairs.csv`` row its channel's ``pair`` states, a ``names.csv`` short name
-        that is the record's ``label``, a ``record_types.csv`` ``drawn_as`` that is
-        the role's, and a ``channel_roles.csv`` row of scope ``device`` stating
-        nothing but what every channel it takes gives by default (its ``signal``
-        as the role, shown as :func:`signal_role` shows it). A deployment can
-        delete them."""
+        """Per table, how many rows only restate what the facility file says, no
+        column of them read for anything else: a ``pairs.csv`` row its channel's
+        ``pair`` states, of basis ``stated`` and with no source; a ``names.csv``
+        short name that is the record's ``label``; and a ``channel_roles.csv`` row of
+        scope ``device`` stating nothing but what every channel it takes gives by
+        default (its ``signal`` as the role, shown as :func:`signal_role` shows it).
+        A deployment can delete them. A row of which only one value is the default
+        is counted in :attr:`redundant_columns` instead."""
         verdicts: dict[ChannelRole, bool] = {}
         for thing in self._things.values():
             if thing.kind != "device" or not self._roles_of.get(thing.cls or ""):
@@ -1633,7 +1652,7 @@ class PanelGraph:
                 row = hit.role
                 if row.scope != "device":
                     continue
-                default = signal_role(row.cls, self._channel[hit.channel])
+                default = self._signal_role(row.cls, self._channel[hit.channel])
                 same = (
                     default is not None
                     and default.role == row.role

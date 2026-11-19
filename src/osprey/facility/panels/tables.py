@@ -492,7 +492,7 @@ STANDINGS: tuple[str, ...] = ("accepted", "contested", "superseded")
 _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         POSITIONS: ("thing", "frame", "basis"),
-        RECORD_TYPES: ("channel", "record_type", "drawn_as", "basis"),
+        RECORD_TYPES: ("channel", "record_type", "basis"),
         PAIRS: ("setpoint", "readback", "basis"),
         HEALTH: ("channel", "value", "state", "basis"),
         EXCLUDED: ("kind", "id"),
@@ -647,11 +647,12 @@ class Pose:
 
 @dataclass(frozen=True)
 class RecordType:
-    """One row of ``record_types.csv``."""
+    """One row of ``record_types.csv``; an empty ``drawn_as`` is the drawing of the
+    channel's role (a setpoint as an entry, a readback as a value)."""
 
     channel: str
     record_type: str
-    drawn_as: DrawnAs
+    drawn_as: DrawnAs | None
     basis: Basis
     source: str | None
     revision: str | None

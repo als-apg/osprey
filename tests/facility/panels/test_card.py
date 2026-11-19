@@ -2467,3 +2467,26 @@ def test_a_channels_signal_never_turns_its_stated_words_into_a_typed_entry(tmp_p
     kinds = {c.channel: g.kind for g in operate.groups for c in g.controls}
     assert kinds["XR01-IP1:Mode-Sel"] == "choice"
     assert kinds["XR01-IP1:Size-SP"] == "entry"
+
+
+def test_a_state_its_health_rows_rule_is_a_lamp_by_default(tmp_path) -> None:
+    """With no role row, a state channel's signal plays its role as a lamp when
+    health rows say what its states mean, else as a word; a row overrides."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def shown(tables) -> str:
+        graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+        (hit,) = [h for h in graph.roles("XR01:IP1") if h.channel == "XR01-IP1:State-Sts"]
+        return hit.role.shown_as
+
+    ruled = copy_tables(tmp_path / "ruled")
+    assert shown(ruled) == "lamp"  # the fixture's health rows rule it
+    unruled = copy_tables(tmp_path / "unruled")
+    header = (unruled / "health.csv").read_text().splitlines()[0]
+    (unruled / "health.csv").write_text(header + "\n")
+    assert shown(unruled) == "word"
+    (ruled / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,status,*:State-Sts,device,word,,,,,stated,S,,\n"
+    )
+    assert shown(ruled) == "word"  # a row overrides

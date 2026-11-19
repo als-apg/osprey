@@ -263,7 +263,8 @@ def test_pair_comes_from_the_table_only(panel_graph: PanelGraph) -> None:
     by_signal = panel_graph.pair("XR01-QD1:Current-SP")  # the build pairs it by signal
     assert by_signal is not None and by_signal.evidence == FACILITY_PAIR
     assert panel_graph.pair("XR01-QF1:Current-RB") is None
-    assert panel_graph.redundant.get("pairs.csv") == 2  # rows that restate the file
+    # each row states a source or an inferred basis the screens read: none restates it
+    assert panel_graph.redundant.get("pairs.csv") is None
 
 
 def test_an_excluded_document_drops_what_it_sources(tmp_path: Path, panel_facility: Path) -> None:

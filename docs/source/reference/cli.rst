@@ -1456,15 +1456,22 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    else its ``label``, else the last ``:``- or ``/``-separated part of its id, a
    channel is drawn by its ``role`` (a setpoint as an entry
    beside its readback, a readback as a value; ``record_types.csv`` names its
-   record type and any other drawing), and a channel on a device that states a
+   record type and, where its ``drawn_as`` is not empty, any other drawing), and a channel on a device that states a
    ``signal`` plays that signal as its role on the device's card, shown as an
-   entry, a word or a value by how it is drawn (``channel_roles.csv`` names
+   entry, a word or a value by how it is drawn, a state that ``health.csv`` rows
+   rule as a lamp; such a role says what the channel is, never how it is pressed:
+   a writable channel no row names is offered as any such channel is (a choice
+   of its stated words, an action, an entry) (``channel_roles.csv`` names
    walked scopes, labels, presses and channels with no signal; a row's stated
    ``label`` is the word the card shows for the channel on every tile, value row
    and group title, and stays in front of what tells two channels of one role
    apart, while a choice's or an action's label is the word on its press). ``check``
    prints one ``redundant: <table>: <n> rows`` line per table whose rows only
-   restate the facility file or these defaults, so a deployment can delete them.
+   restate the facility file or these defaults with no column of them read for
+   anything else (a ``pairs.csv`` row of basis ``stated`` and no source), so a
+   deployment can delete them, and one ``redundant: record_types.csv drawn_as``
+   line for the rows whose ``drawn_as`` is their role's: their record type is
+   read, so the row stays and only that value may be left empty.
    The tables: ``positions.csv``
    (where a thing sits), ``record_types.csv``, ``pairs.csv``,
    ``panels/health.csv`` (the state a channel's value means: ``normal``,
