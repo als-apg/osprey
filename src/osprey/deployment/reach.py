@@ -110,6 +110,7 @@ from osprey.deployment.web_terminals.roster import (
 from osprey.optimizer_connection import DEFAULT_OPTIMIZER_PORT, optimizer_url
 from osprey.port_layout import resolve_port_base
 from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.server_fleet_connection import fleet_url
 
 __all__ = [
     "Consumer",
@@ -610,6 +611,23 @@ def _panel_url_resolves(panel_id: str) -> Predicate:
         return bool(dotted_get(config, f"web.panels.{panel_id}.url"))
 
     return _resolves
+
+
+def _fleet_on(config: Mapping[str, Any]) -> bool:
+    # fleet_url's own predicate: the fleet is on exactly when it resolves a URL.
+    return fleet_url(config) is not None
+
+
+def _fleet_worker_on(config: Mapping[str, Any]) -> bool:
+    return _fleet_on(config) and "dispatch_worker" in _deployed_services(config)
+
+
+def _fleet_dial(config: Mapping[str, Any]) -> Dial | None:
+    # Resolved the way every consumer resolves it (fleet_url): SERVER_FLEET_URL
+    # in the process environment wins over the config's port, as it does for
+    # the other *_url resolvers, so a shell exporting it moves this dial too.
+    url = fleet_url(config)
+    return _host_port(url, 80) if url else None
 
 
 def _always(_config: Mapping[str, Any]) -> bool:
@@ -1238,6 +1256,32 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         projected=(ProjectedKey("services.optimizer.port", gate=_optimizer_server_on),),
         note="optimizer_url dials the published port on loopback",
     ),
+    # The server fleet service (``channel_directory.fleet``): its readers are the
+    # web terminals' server_fleet tool and Channels panel, and the dispatch
+    # worker's same tool. fleet_url always answers while the fleet is on (an
+    # env URL, the configured port, else the layout slot), so a deploying
+    # render without the service is refused rather than left dialing nothing.
+    "server_fleet": ReachContract(
+        service="server_fleet",
+        consumers=(
+            Consumer(
+                name="server fleet readers in the web terminals (server_fleet tool, Channels panel)",
+                switch_key="channel_directory.fleet",
+                is_on=_fleet_on,
+                resolves=_always,
+                dial=_fleet_dial,
+            ),
+            Consumer(
+                name="server fleet reader in the dispatch worker (server_fleet tool)",
+                switch_key="channel_directory.fleet",
+                is_on=_fleet_worker_on,
+                resolves=_always,
+                dial=_fleet_dial,
+            ),
+        ),
+        projected=(ProjectedKey("services.server_fleet.port", gate=_fleet_on),),
+        note="fleet_url dials SERVER_FLEET_URL, else the published port on loopback",
+    ),
     **_outbound_only_contracts(),
 }
 
@@ -1485,10 +1529,16 @@ def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = No
     which a ``--runtime-root`` render's own ``project_root`` does not name —
     and otherwise resolved from the config the way every bind source is.
 
+    A fourth refuses a server fleet service on the host network beside a
+    bridged dispatch worker (:func:`fleet_network_errors`): the worker's
+    loopback is its own container's, so no address reaches the service.
+
     Returns:
         One error per unresolvable consumer whose contract refuses, naming
         the switch and the key — or the service — that fixes it; one per
-        entitled shared path that is not there, naming the key.
+        entitled shared path that is not there, naming the key; one for a
+        host-network fleet service beside a bridged worker, naming both
+        network keys.
     """
     errors: list[str] = []
     deployed = _deployed_services(config)
@@ -1517,6 +1567,7 @@ def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = No
                 f"client would dial the port a deployed `{contract.service}` publishes and "
                 f"find nothing listening. Deploy it{elsewhere}, or switch the consumer off."
             )
+    errors.extend(fleet_network_errors(config))
     for shared in SHARED_PATHS:
         if not shared.gate(config):
             continue
@@ -1530,3 +1581,32 @@ def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = No
                 f"directory. Put it there, or point {shared.config_key} at where it is."
             )
     return errors
+
+
+def _on_host_network(config: Mapping[str, Any], service: str) -> bool:
+    return bool(dotted_get(config, f"services.{service}.network") == "host")
+
+
+def fleet_network_errors(config: Mapping[str, Any]) -> list[str]:
+    """Refuse a server fleet service on the host network beside a bridged dispatch worker.
+
+    On the host network the service binds loopback, the host's own; a worker
+    on the compose bridge has a loopback of its own and no compose name to
+    dial the service by, so its server_fleet tool could never reach it. Every
+    other combination resolves: both bridged, the worker dials the service's
+    compose name (``SERVER_FLEET_URL``); the worker on the host, loopback.
+
+    Returns:
+        One error naming both keys, or none.
+    """
+    deployed = _deployed_services(config)
+    if "server_fleet" not in deployed or "dispatch_worker" not in deployed:
+        return []
+    if not _on_host_network(config, "server_fleet") or _on_host_network(config, "dispatch_worker"):
+        return []
+    return [
+        "services.server_fleet.network is `host` but services.dispatch_worker.network is "
+        "the compose bridge: the server fleet service binds the host's loopback there, "
+        "which a bridged worker cannot reach. Put services.dispatch_worker.network on "
+        "`host` too, or take services.server_fleet.network off `host`."
+    ]

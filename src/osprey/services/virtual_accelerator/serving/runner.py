@@ -42,6 +42,24 @@ anything else, which is served next as it was queued, so nothing is served
 out of its arrival order. A merged pass that fails is rolled back and its
 writes are served one cycle each, so every put gets its own verdict.
 
+**Stopped IOCs.** The addresses of the simulated IOCs the composite's active
+scenarios stop (``stopped_servers``) are withheld on both transports, as a
+stopped IOC withholds them: on Channel Access the server no longer answers a
+search for them and drops every channel already attached, so a held client
+sees its channel disconnect and a read of it fails as unreachable; on
+PVAccess the shared PV is closed, so a read waits and times out. Nothing is
+posted for them meanwhile, and no frozen value stands in. When the scenario
+ends they are served again with their current value, posted on both
+transports by the pass that notices. The change is noticed by the next
+publishing pass, a tick at the latest. Channel Access records are dropped
+and rebuilt on the server's own thread, between two of its processing
+calls; the pass waits for that swap and takes the new stopped set only once
+it is done, so a swap that fails or does not run in time fails the pass and
+the next pass makes the whole change again. A put whose pass completes after
+its record was dropped is not completed: the record, and with it the
+client's channel, is gone, so the driver skips the post and the completion
+of a name it no longer serves.
+
 Every model access happens on the run loop's thread. The composite is not
 thread-safe, so a model RPC call taken on a p4p worker thread is answered by
 a job the run loop runs, never on the thread that received it; that rule is
@@ -52,9 +70,10 @@ kept by the RPC handler,
 from __future__ import annotations
 
 import logging
+import queue
 import threading
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from functools import partial
 from pathlib import Path
 from queue import Empty
@@ -84,9 +103,9 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
     event_addresses,
     fast_addresses,
-    ioc_health_addresses,
     pass_readback,
     periodic_addresses,
+    server_health_addresses,
     write_records,
 )
 
@@ -103,6 +122,9 @@ SCHEDULER_THREAD = "osprey-va-timed-passes"
 #: How many values one slice of a pass's post carries in a view with a timed
 #: channel: few enough that a slice posts well inside the default fast period.
 POST_SLICE = 2000
+
+#: How long a pass waits for the CA server's thread to swap a stopped IOC's records.
+_CA_JOB_TIMEOUT_S = 5.0
 
 
 class ModelRunner(Runner):
@@ -147,6 +169,38 @@ class ModelRunner(Runner):
     #: Whether a sliced post is under way, so a timed pass run between its
     #: slices posts whole.
     _slicing: bool = False
+    #: The addresses withheld because their simulated IOC is stopped.
+    _stopped: frozenset[str] = frozenset()
+
+    # The stock driver comes with the CA extra; a stand-in runner without it serves no CA.
+    if getattr(Runner, "CaDriver", None) is not None:
+
+        class CaDriver(Runner.CaDriver):
+            """The stock driver, quiet for a name whose record a stopped IOC dropped.
+
+            A put whose pass completes after its record was dropped would post to
+            and complete a record that is gone; its client's channel went with
+            the record, so there is nothing to tell it.
+            """
+
+            def _dropped(self, reason: str) -> bool:
+                from pcaspy.driver import manager  # type: ignore[import-not-found]
+
+                return reason not in manager.pvs[self.port]
+
+            def setParam(self, reason: str, value: Any, timestamp: Any = None) -> None:
+                if not self._dropped(reason):
+                    super().setParam(reason, value, timestamp)
+
+            def updatePV(self, reason: str) -> None:
+                if not self._dropped(reason):
+                    super().updatePV(reason)
+
+            def callbackPV(self, reason: str) -> None:
+                if not self._dropped(reason):
+                    super().callbackPV(reason)
+
+        ca_driver_cls = CaDriver
 
     def __init__(
         self,
@@ -199,7 +253,7 @@ class ModelRunner(Runner):
         self._health_file = health_file
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
-        self._ioc_health = ioc_health_addresses(view)
+        self._server_health = server_health_addresses(view)
         texture_reach = getattr(composite, "texture_reach", None)
         self._setting_records = write_records(
             view, texture_reach() if callable(texture_reach) else {}
@@ -222,6 +276,11 @@ class ModelRunner(Runner):
         self._scheduler: threading.Thread | None = None
         self._scheduler_stop: threading.Event | None = None
         self._rearm = threading.Event()
+        self._stopped = frozenset()
+        #: Jobs the Channel Access server's thread runs between processing calls.
+        self._ca_jobs: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
+        #: A dropped Channel Access record's database entry, by name, to rebuild it from.
+        self._ca_dropped: dict[str, Any] = {}
         config = apply_safety(Runner.generate_config(composite, prefix=""), view)
         if tick_interval_s is not None:
             config["tick_interval_s"] = tick_interval_s
@@ -480,7 +539,21 @@ class ModelRunner(Runner):
             self._cycle_requested_names = requested
 
     def _post_slice(self, values: dict[str, Any], ts: float, forced: frozenset[str]) -> None:
-        """Post ``values`` through the base class, forcing ``forced``; record them as served."""
+        """Post ``values`` through the base class, forcing ``forced``; record them as served.
+
+        A stopped IOC's addresses are left out; those whose IOC is no longer
+        stopped are served again first and posted, forced, with their current
+        value.
+        """
+        restarted = self._follow_stopped()
+        if restarted:
+            current = self.model.get(sorted(restarted))
+            values = {**values, **current}
+            forced = forced | restarted
+            self._cycle_requested_names = (*self._cycle_requested_names, *restarted)
+        if self._stopped:
+            values = {name: value for name, value in values.items() if name not in self._stopped}
+            forced = forced - self._stopped
         self._forced = forced
         try:
             Runner._post_outputs(self, values, ts)
@@ -502,6 +575,126 @@ class ModelRunner(Runner):
         if fast_due:
             self._fast_sliced_at = self._fast_posted_at
         return posted
+
+    def _read_stopped(self) -> frozenset[str]:
+        """The served addresses whose simulated IOC an active scenario stops; none for a model without."""
+        stopped = getattr(self.model, "stopped", None)
+        if not callable(stopped):
+            return frozenset()
+        names: frozenset[str] = frozenset(stopped())
+        return names.intersection(self.model.supported_variables)
+
+    def _follow_stopped(self) -> frozenset[str]:
+        """Withhold the newly stopped addresses, serve the restarted ones again; the restarted.
+
+        The Channel Access swap runs first, and the stopped set is taken only
+        once it has: a swap that raises leaves the runner on the old set, so
+        the next pass makes the whole change again.
+
+        Raises:
+            RuntimeError: The Channel Access server's thread did not run the
+                swap in time; the swap will not run late.
+        """
+        stopped = self._read_stopped()
+        if stopped == self._stopped:
+            return frozenset()
+        newly, restarted = stopped - self._stopped, self._stopped - stopped
+        if self.ca_server is not None:
+            prefix = self.config.get("prefix", "")
+            self._on_ca_thread(partial(self._swap_ca_records, prefix, newly, restarted))
+        self._stopped = stopped
+        for name in sorted(newly):
+            pv = self.pvs.get(name)
+            if pv is not None:
+                pv.close()
+        for name in sorted(restarted):
+            pv = self.pvs.get(name)
+            if pv is not None:
+                pv.open(self._generate_value(name, self.model.get(name)))
+        self._served = {
+            name: value for name, value in self._served.items() if name not in restarted
+        }
+        LOG.info("Stopped IOC addresses withheld: %d (%d restarted)", len(stopped), len(restarted))
+        return restarted
+
+    def _swap_ca_records(
+        self, prefix: str, dropped: frozenset[str], rebuilt: frozenset[str]
+    ) -> None:
+        """Drop the ``dropped`` names' CA records, detaching their clients; rebuild ``rebuilt``.
+
+        Runs on the CA server's thread. A dropped record's attached channels
+        are disconnected by the server library as the record is destroyed,
+        and a search for its name finds nothing: the server answers a search
+        from ``manager.pvf``, which no longer holds it. Each step is
+        idempotent, so a swap made again after a failed pass ends the same.
+        """
+        from pcaspy.driver import SimplePV, manager
+
+        for name in sorted(dropped):
+            if name not in self.ca_pvs:
+                continue
+            record = manager.pvf.pop(f"{prefix}{self.ca_pvs[name]}", None)
+            if record is None:
+                continue
+            manager.pvs[record.info.port].pop(record.info.reason, None)
+            self._ca_dropped[name] = record.info
+            del record
+        for name in sorted(rebuilt):
+            info = self._ca_dropped.pop(name, None)
+            if info is None:
+                continue
+            record = SimplePV(f"{prefix}{self.ca_pvs[name]}", info)
+            manager.pvf[record.name] = record
+            manager.pvs[info.port][info.reason] = record
+
+    def _on_ca_thread(self, job: Callable[[], None]) -> None:
+        """Run ``job`` on the CA server's thread and wait for it; raise what it raised.
+
+        Raises:
+            RuntimeError: The job did not start within ``_CA_JOB_TIMEOUT_S``;
+                it is cancelled, so it never runs late.
+        """
+        done = threading.Event()
+        gate = threading.Lock()
+        outcome: dict[str, Any] = {"cancelled": False, "error": None}
+
+        def run() -> None:
+            with gate:
+                if outcome["cancelled"]:
+                    return
+                try:
+                    job()
+                except BaseException as exc:
+                    outcome["error"] = exc
+                finally:
+                    done.set()
+
+        self._ca_jobs.put(run)
+        if not done.wait(_CA_JOB_TIMEOUT_S):
+            # Taken while a started job runs, so after it either the job is
+            # done or it has not started and never will.
+            with gate:
+                if not done.is_set():
+                    outcome["cancelled"] = True
+                    raise RuntimeError(
+                        "The Channel Access server did not run a record swap in time"
+                    )
+        if outcome["error"] is not None:
+            raise outcome["error"]
+
+    def _run_pcaspy(self) -> None:
+        """Run the CA server, and between its processing calls the jobs queued for its thread."""
+        while True:
+            self.ca_server.process(0.1)
+            while True:
+                try:
+                    job = self._ca_jobs.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    job()
+                except Exception:  # a job reports its own failure to its waiter
+                    LOG.exception("A Channel Access record swap failed")
 
     def _ca_forced_names(self) -> Collection[str]:
         """The names this post forces a Channel Access event for: set per post, else none."""
@@ -690,7 +883,7 @@ class ModelRunner(Runner):
         channel keeps the char array.
         """
         super()._add_pv(pv, var, ro, prefix, handler)
-        if var.name in self._ioc_health and isinstance(var, StrVariable) and pv in self.pvdb:
+        if var.name in self._server_health and isinstance(var, StrVariable) and pv in self.pvdb:
             self.pvdb[pv] = {"type": "string", "asyn": True}
 
     def _create_model_info(self) -> None:

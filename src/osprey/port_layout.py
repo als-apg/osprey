@@ -213,6 +213,9 @@ LAYOUT: tuple[PortSlot, ...] = (
     PortSlot("optimizer", 82, "services", "services.optimizer.port"),
     # The OPTIMIZER panel's sidecar, beside the service it relays to.
     PortSlot("optimizer_web", 83, "services", "services.optimizer_web.port"),
+    # The server fleet service: serves each target's liveness snapshot, read-only,
+    # on loopback (``osprey.server_fleet_connection`` resolves its URL).
+    PortSlot("server_fleet", 84, "services", "services.server_fleet.port"),
     # Virtual-accelerator instance n >= 2, at index n - 2. Instance 1 is the
     # Channel Access exception and is not in the block at all.
     PortSlot("va_standin", 90, "services", "services.live_standin.port"),

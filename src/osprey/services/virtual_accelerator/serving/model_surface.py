@@ -2,7 +2,7 @@
 
 A composite's served side is the address set its simulator view's
 ``addresses.json`` lists: its ``channels``, its ``status`` addresses and its
-``ioc_health`` addresses, a view without that field serving none of them.
+``server_health`` addresses, a view without that field serving none of them.
 Clients reach those through the control-system surface -- Channel Access,
 and PVA for the same address -- exactly as they reach any other channel.
 Every other name the surface answers for is a variable of one of the
@@ -426,16 +426,15 @@ def served_addresses(view: SimulatorView) -> list[str]:
     """Every address a server of ``view`` serves, in the order ``info`` lists them.
 
     The view's channels, then its status addresses, then its IOC health
-    addresses, each model's together. A view without the ``ioc_health`` field,
-    or from a connectors release without its accessor, serves none of the last.
+    addresses, each model's together. A view without the ``server_health``
+    field serves none of the last.
     """
-    ioc_health = getattr(view, "ioc_health_by_model", None)
     return [
         *view.channels(),
         *(str(address) for address in view.document(ADDRESSES_FILE)["status"]),
         *(
             address
-            for signals in (ioc_health() if ioc_health is not None else {}).values()
+            for signals in view.server_health_by_model().values()
             for address in signals.values()
         ),
     ]

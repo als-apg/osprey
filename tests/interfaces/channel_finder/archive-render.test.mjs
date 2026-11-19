@@ -5,6 +5,7 @@
  *   npx vitest run tests/interfaces/channel_finder/archive-render.test.mjs
  */
 
+import './epics-words.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, describe } from 'vitest';
@@ -32,8 +33,8 @@ const APPLIANCE = {
   outcome: 'found',
   source: { target: 'live', service: 'epics_archiver', label: 'epics_archiver', rehearsal: false },
   archived: { count: null, of: 4750, reason: 'this archiver does not report what it holds' },
-  by_ioc: [],
-  by_ioc_reason: 'this archiver does not report what it holds',
+  by_server: [],
+  by_server_reason: 'this archiver does not report what it holds',
   newest_sample: null,
   oldest_sample: null,
   freshness_bound_s: null,
@@ -97,11 +98,11 @@ describe('coverage', () => {
       ['sim-BR', '2,350', '2,341', '9', ''],
     ]);
     const links = [...rows[0].querySelectorAll('a')].map((a) => a.getAttribute('href'));
-    expect(links).toEqual(['#/ioc/sim-SR', '#/allpvs?ioc=sim-SR&archived=no']);
+    expect(links).toEqual(['#/server/sim-SR', '#/channels?server=sim-SR&archived=no']);
   });
 
   test('an IOC with every PV archived has no not-archived link', () => {
-    const summary = { ...OWN, by_ioc: [{ ioc: 'sim-LTB', pvs: 4, archived: 4 }] };
+    const summary = { ...OWN, by_server: [{ server: 'sim-LTB', channels: 4, archived: 4 }] };
     const row = parse(pageHtml(summary, NOW)).querySelector('[data-card="coverage"] tbody tr');
     expect([...(row?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['sim-LTB']);
   });
@@ -109,7 +110,7 @@ describe('coverage', () => {
   test('IOC names are text, never markup', () => {
     const summary = {
       ...OWN,
-      by_ioc: [{ ioc: '<img src=x onerror=alert(1)>', pvs: 1, archived: 0 }],
+      by_server: [{ server: '<img src=x onerror=alert(1)>', channels: 1, archived: 0 }],
     };
     const box = parse(pageHtml(summary, NOW));
     expect(box.querySelector('img')).toBeNull();

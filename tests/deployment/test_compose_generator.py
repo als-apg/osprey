@@ -2286,11 +2286,15 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
+    # The demo preset turns the server fleet view on (`channel_directory.fleet`), and
+    # the plan-stack pins leave it as the preset ships it, so its fleet
+    # service runs on the project image beside the agent record.
     assert container_lifecycle._deployed_project_image_services(dict(config)) == [
+        "server_fleet",
         "agent_record",
     ], (
-        "on the project image the plan-stack lanes deploy only the always-deployed "
-        f"agent record: {config.get('deployed_services')}"
+        "on the project image the plan-stack lanes deploy only the preset's server fleet "
+        f"service and the always-deployed agent record: {config.get('deployed_services')}"
     )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------

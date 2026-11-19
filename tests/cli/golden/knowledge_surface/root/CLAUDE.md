@@ -54,14 +54,15 @@ do not attempt their work with your own tools.
 
 ## Control-System Directory
 
-The directory is the control system's own list of every channel and IOC, beside the curated channels. Its tools: `active_alarms`, `alarm_config`, `alarm_state`, `directory_properties`, `directory_search`, `ioc_record`, `pv_record`.
+The directory is the control system's own list of every channel and the server serving it, beside the curated channels. Its tools: `active_alarms`, `alarm_config`, `alarm_state`, `channel_record`, `directory_properties`, `directory_search`, `server_fleet`, `server_record`.
 
 - Check the curated channels first (through **channel-finder**, which searches the directory when they do not answer).
 - Directory names are the control system's own, not curated: say so when you report one.
 - A "no_match" answer is not evidence that a channel does not exist; "unavailable" means the directory did not answer.
 - Build queries only from the user's words or property values the directory listed.
-- Whether an IOC is alive, and its engineer: `ioc_record` names its health channels; read them with `channel_read`. An advancing HEARTBEAT means alive.
-- To show a channel or IOC, call `open_panel` with the result's `links.panel`. It opens the page in a new split tile, or focuses it when it is already on screen.
+- Which servers are down, and the fleet by host or class: `server_fleet` lists every server of the session's target with its state.
+- Whether a server is alive, and its engineer: `server_record` carries its state in "fleet"; do not read its heartbeat. "unreached" and "unknown" mean the state is not known, not that the server stopped.
+- To show a channel or server, call `open_panel` with the result's `links.panel`. It opens the page in a new split tile, or focuses it when it is already on screen.
 
 ## Measurements
 

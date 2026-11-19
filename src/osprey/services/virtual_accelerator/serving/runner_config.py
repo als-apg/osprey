@@ -26,7 +26,7 @@ fails at start instead.
 ``periodic`` and the IOC health addresses that move with time alone, which a
 write pass leaves for the next periodic pass.
 
-:func:`ioc_health_addresses` names every IOC health address of the view, so
+:func:`server_health_addresses` names every IOC health address of the view, so
 the runner can serve a text one on Channel Access as the string record it
 stands in for.
 
@@ -56,14 +56,12 @@ import math
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from osprey_connectors.simulation.view import PERIODIC, REFRESH, SETPOINT
-
-try:
-    from osprey_connectors.simulation.view import PERIODIC_IOC_HEALTH
-except ImportError:  # a connectors release whose view names no IOC health signals
-    from osprey_connectors.simulation.view import PERIODIC as _FLOOR_STAND_IN  # noqa: F401
-
-    PERIODIC_IOC_HEALTH = ()  # type: ignore[assignment]
+from osprey_connectors.simulation.view import (
+    PERIODIC,
+    PERIODIC_SERVER_HEALTH,
+    REFRESH,
+    SETPOINT,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
@@ -76,9 +74,9 @@ __all__ = [
     "apply_safety",
     "event_addresses",
     "fast_addresses",
-    "ioc_health_addresses",
     "pass_readback",
     "periodic_addresses",
+    "server_health_addresses",
     "setting_records",
     "write_records",
 ]
@@ -170,7 +168,7 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
     """The addresses only a periodic pass publishes, across every model of the view.
 
     Args:
-        view: The simulator view; one from before ``ioc_health_by_model`` names
+        view: The simulator view; one that lists no ``server_health`` names
             no IOC health address.
 
     Returns:
@@ -179,9 +177,9 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
     """
     return _refreshing(view, PERIODIC) | {
         address
-        for signals in _ioc_health_by_model(view).values()
+        for signals in view.server_health_by_model().values()
         for signal, address in signals.items()
-        if signal in PERIODIC_IOC_HEALTH
+        if signal in PERIODIC_SERVER_HEALTH
     }
 
 
@@ -194,25 +192,21 @@ def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
     )
 
 
-def ioc_health_addresses(view: SimulatorView) -> frozenset[str]:
+def server_health_addresses(view: SimulatorView) -> frozenset[str]:
     """Every IOC health address of the view, across every model.
 
     Args:
-        view: The simulator view; one from before ``ioc_health_by_model`` names
+        view: The simulator view; one that lists no ``server_health`` names
             no IOC health address.
 
     Returns:
-        The ``ioc_health`` addresses the view lists.
+        The ``server_health`` addresses the view lists.
     """
     return frozenset(
-        address for signals in _ioc_health_by_model(view).values() for address in signals.values()
+        address
+        for signals in view.server_health_by_model().values()
+        for address in signals.values()
     )
-
-
-def _ioc_health_by_model(view: SimulatorView) -> Mapping[str, Mapping[str, str]]:
-    """The view's IOC health addresses, ``{model: {signal: address}}``; none from an older view."""
-    ioc_health = getattr(view, "ioc_health_by_model", None)
-    return ioc_health() if ioc_health is not None else {}
 
 
 def fast_addresses(view: SimulatorView) -> frozenset[str]:

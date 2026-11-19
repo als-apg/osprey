@@ -321,13 +321,13 @@ HOST_SERVERS = (
     "graph",
     "bluesky",
     "health",
-    "pv-directory",
+    "channel-directory",
 )
 # Which host servers each shared login keeps; every other host server is switched off.
 APP_SERVERS_ON = {
     "logbook": {"osprey_workspace", "ariel", "graph"},
     "knowledge": {"osprey_workspace", "osprey_facility_knowledge", "channel-finder", "graph"},
-    "channel-finder": {"osprey_workspace", "channel-finder", "pv-directory"},
+    "channel-finder": {"osprey_workspace", "channel-finder", "channel-directory"},
 }
 
 
@@ -1492,6 +1492,9 @@ class TestDemoTiersAndApps:
             "bluesky": {"port": host["services"]["bluesky"]["port"]},
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
+            # The demo turns the server fleet on; the tier's `server_fleet` tool
+            # dials the host's fleet service.
+            "server_fleet": {"port": host["services"]["server_fleet"]["port"]},
         }
         assert "archiver_recorder" in host["services"]
         assert config["services"]["qmd"]["port"] == QMD_DEFAULT_PORT
@@ -1656,14 +1659,14 @@ class TestDemoTiersAndApps:
         self, built_layered_stack: Path
     ) -> None:
         """The channel-finder login is the hierarchical, file-based channel
-        finder plus the PV directory it keeps: no graph — the store is not
+        finder plus the channel directory it keeps: no graph — the store is not
         dialled and the server is not rendered — no logbook, no control system.
         """
         project = _render_dir(built_layered_stack, "channel-finder")
         assert project.is_dir(), "the channel-finder login was never rendered"
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
-        assert set(servers) == {"channel-finder", "osprey_workspace", "pv-directory"}
+        assert set(servers) == {"channel-finder", "osprey_workspace", "channel-directory"}
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         assert config["channel_finder"]["pipeline_mode"] == "hierarchical"
         assert config["web"]["default_panel"] == "channel-finder"

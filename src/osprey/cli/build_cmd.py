@@ -93,6 +93,7 @@ from .build_injectors import (
     _inject_optimizer,
     _inject_optimizer_web,
     _inject_profile_services,
+    _inject_server_fleet,
     _inject_slack_bridge,
     _inject_teams_bridge,
     _inject_va,
@@ -5342,6 +5343,9 @@ def _inject_services(
     if build_profile.va_archiver is not None:
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
+    # Follows the config rather than a profile block: channel_directory.fleet.
+    if _inject_server_fleet(project_path):
+        injected.append("server fleet")
 
     _declare_bundled_host_bindings(
         project_path, profile_dir, {**(build_profile.services or {}), **app_services}

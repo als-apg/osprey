@@ -5,6 +5,7 @@
  * Event-emitter pattern: views subscribe to state changes.
  */
 
+import { useWords } from './labels.js';
 import { familyOf } from './route.js';
 
 /** @typedef {(data: any) => void} StateListener */
@@ -17,10 +18,14 @@ import { familyOf } from './route.js';
  */
 
 /**
- * The scope descriptor of GET /api/info: present only when the `pv_directory`
+ * The scope descriptor of GET /api/info: present only when the `channel_directory`
  * section is configured.
+ * `words` holds each control target's words for a channel and a server, and
+ * `target` names the target whose words the panel shows now.
  * @typedef {{
  *   label: string,
+ *   target?: string,
+ *   words?: Record<string, import('./labels.js').ServedWords>,
  *   configured_services: ('alarm_log'|'alarm_state'|'put_log'|'archive'|'logbook')[],
  *   canopy: boolean,
  *   ariel: boolean,
@@ -69,11 +74,14 @@ class ChannelFinderState {
     this.selection = new Set();
 
     // Set by app.js on each /api/info fetch; null when the section is not
-    // configured, and the allpvs, pv and ioc routes then do not exist.
+    // configured, and the channels, pv and ioc routes then do not exist.
+    // Setting it shows the words of its target (labels.js).
     /** @type {DirectoryDescriptor|null} */
-    this.directory = null;
+    this._directory = null;
 
     // Events: `curatedResults` (CuratedResults) after every curated search,
+    // `directoryWords` (string, the target) when an answer comes from another
+    // target than the one whose words were shown,
     // `directoryLabel` (string) after each All PVs page, `alarmCounts`
     // (ActiveAlarms) after each read of the alarm route, `replaceRoute` (Route)
     // when a mounted view states the route it now shows; the router writes it
@@ -82,6 +90,32 @@ class ChannelFinderState {
     this.on('directoryLabel', (label) => {
       if (this.directory) this.directory = { ...this.directory, label };
     });
+  }
+
+  // ---- The directory descriptor and its words ----
+
+  /** @returns {DirectoryDescriptor|null} */
+  get directory() {
+    return this._directory;
+  }
+
+  /** @param {DirectoryDescriptor|null} descriptor */
+  set directory(descriptor) {
+    this._directory = descriptor;
+    if (descriptor?.words && descriptor.target) useWords(descriptor.words[descriptor.target]);
+  }
+
+  /**
+   * Show the words of *target*, the target an answer came from, when it is not
+   * the one shown; emits `directoryWords` when the words move.
+   * @param {string|null|undefined} target
+   */
+  followTarget(target) {
+    const descriptor = this._directory;
+    if (!descriptor?.words || !target || target === descriptor.target) return;
+    if (!(target in descriptor.words)) return;
+    this.directory = { ...descriptor, target, label: descriptor.words[target].directory };
+    this.emit('directoryWords', target);
   }
 
   // ---- Event Emitter ----
@@ -148,7 +182,7 @@ class ChannelFinderState {
    */
   setActiveView(view) {
     this.activeView = view;
-    if (familyOf(view) !== 'allpvs') this.selection.clear();
+    if (familyOf(view) !== 'channels') this.selection.clear();
     this.emit('viewChanged', view);
   }
 }

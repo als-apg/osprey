@@ -22,7 +22,7 @@ pytest.importorskip("osprey_connectors.service_answers")
 from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
-from osprey.services.pv_directory import service
+from osprey.services.channel_directory import service
 from osprey_connectors import control_context
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source
@@ -128,7 +128,7 @@ def _config(tmp_path: Path, **extra: Any) -> dict[str, Any]:
         },
         "control_system": VA_BUILD,
         "services": {"virtual_accelerator": {"port": 5064}},
-        "pv_directory": {},
+        "channel_directory": {},
     }
     config.update(extra)
     return config
@@ -165,9 +165,9 @@ def test_the_route_answers_the_shared_fixtures_shape(start, tmp_path: Path) -> N
     shared = json.loads(_FIXTURE.read_text(encoding="utf-8"))["archive"]
     assert _shape(answer) == _shape(shared)
     assert answer["archived"] == {"count": 2, "of": 3}
-    assert answer["by_ioc"] == [
-        {"ioc": "sim-SR", "pvs": 2, "archived": 1},
-        {"ioc": "sim-BR", "pvs": 1, "archived": 1},
+    assert answer["by_server"] == [
+        {"server": "sim-SR", "channels": 2, "archived": 1},
+        {"server": "sim-BR", "channels": 1, "archived": 1},
     ]
     assert answer["newest_sample"] == "2026-11-12T08:00:04+00:00"
     assert answer["configuration"] == {

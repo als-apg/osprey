@@ -66,6 +66,7 @@ from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_error
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
+from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
 from osprey_connectors.simulation.values import is_waveform
 
 __all__ = [
@@ -2217,6 +2218,7 @@ class _Records:
                 yield from self._scenario_noise(name, files, str(address), entry)
             yield from self._still(name, files, scenario)
             yield from self._channel_faults(name, files, scenario.get("channel_faults"))
+            yield from self._stopped_servers(name, files, scenario.get("stopped_servers"))
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
@@ -2367,6 +2369,42 @@ class _Records:
                     files,
                     f"`{slot}` is `{word}` on a {role} channel",
                     "`stuck` faults a setpoint, `frozen` a reading, `disconnected` any channel",
+                )
+
+    def _stopped_servers(
+        self, name: str, files: list[str], block: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``stopped_servers``: each the name of a simulated IOC the facility can serve.
+
+        Which models a render serves is the render's to know, so a name of a
+        model it leaves unserved is refused there (``views/simulator.py``).
+        """
+        if block is None:
+            return
+        if not isinstance(block, list) or not all(isinstance(ioc, str) for ioc in block):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`stopped_servers` is {block!r}, not a list of simulated IOC names",
+                f"write `stopped_servers: [sim-<model>, ...]` or `[{TEXTURE_SERVER}]`",
+            )
+            return
+        known = served_servers(
+            model_name
+            for model_name, model in self.index.models.items()
+            if model.get("engine") not in (None, "texture")
+        )
+        for ioc in block:
+            if ioc not in known:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`stopped_servers` names `{ioc}`, which no simulated IOC is",
+                    "write one of " + ", ".join(f"`{served}`" for served in sorted(known)),
                 )
 
     def _scenario_noise(

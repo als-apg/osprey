@@ -951,6 +951,14 @@ classes:
           writes; `frozen` holds a reading at the value it served when the
           scenario became active; `disconnected` reads not-a-number with an
           undefined alarm and holds writes.
+      stopped_servers:
+        range: string
+        multivalued: true
+        list_elements_ordered: true
+        description: >-
+          Simulated IOCs (`sim-<model>`, `sim-texture`) stopped while the
+          scenario is active: none of their channels answers a reader, the one
+          exception to the rule that a simulated read always answers.
       archiver:
         range: Any
         multivalued: true

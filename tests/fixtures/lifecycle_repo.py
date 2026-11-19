@@ -681,14 +681,18 @@ config:
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
 
-  # ── PV directory ───────────────────────────────────────────────────────────
+  # ── channel directory ───────────────────────────────────────────────────────────
   # The All PVs view and the agent's PV record tools. With no `type` they list
   # the simulator's channels and IOC health PVs; `alarm_state.replay_file`
-  # plays a packaged alarm feed. Off: `osprey set config.pv_directory=null`,
-  # or `pv_directory: null` in a profile that extends this one.
-  pv_directory:
+  # plays a packaged alarm feed. Off: `osprey set config.channel_directory=null`,
+  # or `channel_directory: null` in a profile that extends this one.
+  channel_directory:
     alarm_state:
       replay_file: demo:example-alarms
+    # server fleet: the IOCs view and the agent's `server_fleet` tool. 10 s is the
+    # shortest period allowed (twice the 5 s VA read bound). Off: `fleet: null`.
+    fleet:
+      period_s: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
@@ -1884,7 +1888,7 @@ config:
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
   # Channel records and alarms are the `channel-finder` login's.
-  claude_code.servers.pv-directory.enabled: false
+  claude_code.servers.channel-directory.enabled: false
   # The facility knowledge bundle answers "how is the machine documented"; that
   # is the `knowledge` login's question, not this one's.
   claude_code.servers.osprey_facility_knowledge.enabled: false
@@ -2000,7 +2004,7 @@ config:
   # The logbook is the `logbook` login's.
   claude_code.servers.ariel.enabled: false
   # Channel records and alarms are the `channel-finder` login's.
-  claude_code.servers.pv-directory.enabled: false
+  claude_code.servers.channel-directory.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
   # (the bundle), `channel-finder` and `graph` (the store both read). The event
   # dispatcher renders only with the EVENTS panel, which no shared login carries.

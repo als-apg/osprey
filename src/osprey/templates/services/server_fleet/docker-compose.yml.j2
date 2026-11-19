@@ -1,0 +1,68 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+-#}
+{#- The server fleet service: one refresher per refreshed control target, and the
+    snapshots they write, served read-only on `GET /v1/snapshot`
+    (`python -m osprey.services.channel_directory.fleet`). Rendered only when the
+    build injected it, which it does exactly when `channel_directory.fleet` is set;
+    it is then a `deployed_services` entry like the virtual accelerator.
+-#}
+{%- import "services/_network_axis.j2" as net -%}
+{%- import "services/_env_axis.j2" as hostenv -%}
+{%- set svc = (services | default({}, true)).server_fleet | default({}, true) %}
+{%- set on_host = (svc.network | default('bridge', true)) == 'host' %}
+{%- set fleet_port = svc.port | default(osprey_ports.server_fleet, true) %}
+{#- Loopback on the host network, where the port is the host's own; every
+    interface of the container's own namespace on the bridge, where the only
+    published door is the loopback port below. #}
+{%- set fleet_bind = '127.0.0.1' if on_host else '0.0.0.0' %}
+
+services:
+  server-fleet:
+    # The PROJECT image `osprey up` builds; services.server_fleet.image or
+    # OSPREY_WORKER_IMAGE overrides it.
+    # No `build:` block: a second build of the same tag would race the first.
+    image: ${OSPREY_WORKER_IMAGE:-{{ svc.image | default(osprey_images.worker) }}}
+    container_name: {{ osprey_labels.project_name }}-server-fleet
+    # A shell, so the bind address is read from SERVER_FLEET_BIND below and the
+    # address the service binds is the one its host-binding declaration names.
+    command: ["sh", "-c", "exec python -m osprey.services.channel_directory.fleet --host \"$${SERVER_FLEET_BIND}\" --port {{ fleet_port }}"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+    env_file:
+{%- for env_chain_file in osprey_env_chain | default([]) %}
+      - {{ env_chain_file }}
+{%- endfor %}
+    environment:
+      SERVER_FLEET_BIND: "{{ fleet_bind }}"
+      # The STAGED config.yml bind-mounted below: on the bridge its deployed
+      # machines' gateways name their compose services.
+      OSPREY_CONFIG: {{ osprey_container_project_dir }}/build/config.yml
+      OSPREY_PROJECT_DIR: {{ osprey_container_project_dir }}
+      SERVER_FLEET_STATE_DIR: {{ osprey_container_state_dir }}/server-fleet
+      # WHO this service's reads are recorded as.
+      OSPREY_AUDIT_IDENTITY: server-fleet
+      OSPREY_SPOOL_DIR: {{ osprey_container_spool_dir }}/server-fleet
+      OSPREY_STATE_DIR: {{ osprey_container_state_dir }}/server-fleet
+      TZ: {{ system.timezone }}
+{{- hostenv.passthrough(svc) }}
+{{- net.ports(svc, ['127.0.0.1:' ~ fleet_port ~ ':' ~ fleet_port]) }}
+    volumes:
+      - ./build/services/server_fleet/config.yml:{{ osprey_container_project_dir }}/build/config.yml:ro
+      # Its own spool and state subdirectories, and only its own.
+      - {{ osprey_spool_mount_source }}/server-fleet:{{ osprey_container_spool_dir }}/server-fleet
+      - {{ osprey_state_zone_mount_source }}/server-fleet:{{ osprey_container_state_dir }}/server-fleet
+{{- net.network(svc) }}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ fleet_port }}/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+{{ net.network_declaration(svc) }}

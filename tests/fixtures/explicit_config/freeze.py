@@ -542,11 +542,12 @@ def _is_service_copy(relative: Path) -> bool:
 def _is_bridged_target_driver(root: Mapping[str, Any], context: Path) -> bool:
     """Whether the build readdresses the copy staged into service *context*.
 
-    True for a container that drives the target, is not on the host network,
-    and stages the root flatten (not the tiered worker's tier render).
+    True for a container that drives or reads the target, is not on the host
+    network, and stages the root flatten (not the tiered worker's tier render).
     """
     from osprey.deployment.compose_generator import (
         SERVICE_ROLE_DRIVES_TARGET,
+        SERVICE_ROLE_READS_TARGET,
         _stages_runtime_config,
         service_role,
     )
@@ -555,9 +556,10 @@ def _is_bridged_target_driver(root: Mapping[str, Any], context: Path) -> bool:
     block = (root.get("services") or {}).get(key)
     if isinstance(block, Mapping) and block.get("network") == "host":
         return False
-    return service_role(root, key, SERVICE_ROLE_DRIVES_TARGET) and _stages_runtime_config(
-        root, str(context)
+    reaches_target = service_role(root, key, SERVICE_ROLE_DRIVES_TARGET) or service_role(
+        root, key, SERVICE_ROLE_READS_TARGET
     )
+    return reaches_target and _stages_runtime_config(root, str(context))
 
 
 def split_login_tiers(document: Mapping[str, Any]) -> tuple[dict[str, Any], Any]:

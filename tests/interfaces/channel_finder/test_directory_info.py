@@ -1,4 +1,4 @@
-"""The Channels panel's PV directory state: the ``/api/info`` descriptor and the mount.
+"""The Channels panel's channel directory state: the ``/api/info`` descriptor and the mount.
 
 Every test runs the real lifespan against a config, with the real
 ``DirectoryService`` behind it. The section's absence is today's panel exactly;
@@ -7,10 +7,8 @@ a malformed section is today's panel with a warning.
 
 from __future__ import annotations
 
-import importlib
 import json
 import logging
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -26,7 +24,8 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.channel_finder import directory_api
 from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
-from osprey.services.pv_directory import _connectors, service
+from osprey.services.channel_directory import _connectors, service
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS, NEUTRAL_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord
 from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
@@ -36,19 +35,6 @@ from osprey_connectors.service_answers import Source
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 
 VA_BUILD = {"type": "virtual_accelerator"}
 LIVE_BUILD = {"type": "epics"}
@@ -133,7 +119,7 @@ def _config(
     if control_system == VA_BUILD:
         config["services"] = {"virtual_accelerator": {"port": 5064}}
     if section is not None:
-        config["pv_directory"] = section
+        config["channel_directory"] = section
     config.update(extra)
     return config
 
@@ -176,7 +162,7 @@ def test_without_the_section_the_info_payload_is_unchanged(start) -> None:
 
 def test_a_null_section_is_an_absent_one(start) -> None:
     config = _config(VA_BUILD, None)
-    config["pv_directory"] = None
+    config["channel_directory"] = None
     with start(config) as (app, client):
         assert "directory" not in client.get("/api/info").json()
         assert _directory_paths(app) == []
@@ -191,7 +177,7 @@ def test_a_malformed_section_warns_and_serves_todays_panel(start, caplog) -> Non
         assert _directory_paths(app) == []
         assert client.get("/api/directory/probe").status_code == 404
     warnings = [r.getMessage() for r in caplog.records if r.name == _APP_LOGGER]
-    assert any("pv_directory.settings.url" in message for message in warnings)
+    assert any("channel_directory.settings.url" in message for message in warnings)
 
 
 # -- configured ----------------------------------------------------------------
@@ -209,6 +195,12 @@ def test_the_descriptor_is_present_when_configured(start) -> None:
 
     assert info["directory"] == {
         "label": "All PVs",
+        "target": "va",
+        "words": {
+            "live": NEUTRAL_WORDS.as_json(),
+            "va": EPICS_WORDS.as_json(),
+            "standin": EPICS_WORDS.as_json(),
+        },
         "configured_services": [],
         "canopy": False,
         "ariel": False,
@@ -216,7 +208,28 @@ def test_the_descriptor_is_present_when_configured(start) -> None:
     assert info["pipeline_type"] == "in_context"
 
 
-def test_the_label_is_all_pvs_on_every_target_whatever_answers(start, record: _Record) -> None:
+def test_the_descriptor_serves_each_targets_words(start, record: _Record) -> None:
+    config = _config({"type": "tango"}, LABELLED)
+    config["services"] = {"virtual_accelerator": {"port": 5064}}
+    with start(config) as (_app, client):
+        on_live = client.get("/api/info").json()["directory"]
+        record.move("va", 1)
+        on_va = client.get("/api/info").json()["directory"]
+
+    assert (on_live["target"], on_live["label"]) == ("live", "Attributes")
+    assert on_live["words"]["live"] == {
+        "channel": "attribute",
+        "channels": "attributes",
+        "server": "device server",
+        "servers": "device servers",
+        "directory": "Attributes",
+        "servers_view": "Device servers",
+    }
+    assert (on_va["target"], on_va["label"]) == ("va", "All PVs")
+    assert on_va["words"] == on_live["words"]
+
+
+def test_the_label_is_all_channels_on_every_target_whatever_answers(start, record: _Record) -> None:
     config = _config(LIVE_BUILD, LABELLED)
     config["services"] = {"virtual_accelerator": {"port": 5064}}
     with start(config) as (_app, client):
@@ -227,12 +240,12 @@ def test_the_label_is_all_pvs_on_every_target_whatever_answers(start, record: _R
         assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
 
 
-def test_a_va_only_section_at_live_is_labelled_all_pvs(start, record: _Record) -> None:
+def test_a_va_only_section_at_live_is_labelled_in_the_neutral_words(start, record: _Record) -> None:
     record.move("live", 1)
 
     info = _info(start, _config(VA_BUILD, {}))
 
-    assert info["directory"]["label"] == "All PVs"
+    assert info["directory"]["label"] == "Channels"
 
 
 def test_configured_services_follow_the_section(start, tmp_path: Path) -> None:
@@ -295,29 +308,6 @@ def test_ariel_needs_the_panel_and_a_section(start) -> None:
     assert _info(start, no_section)["directory"]["ariel"] is False
 
 
-# -- the floor -----------------------------------------------------------------
-
-
-@pytest.fixture()
-def floor() -> Iterator[None]:
-    """The shim and the service re-imported with the PV directory modules unimportable."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        importlib.reload(service)
-        yield
-    importlib.reload(_connectors)
-    importlib.reload(service)
-
-
-@pytest.mark.usefixtures("floor")
-def test_on_the_floor_the_label_is_all_pvs(start) -> None:
-    with start(_config(VA_BUILD, {})) as (app, client):
-        assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
-        assert _directory_paths(app) == ["/api/directory/probe"]
-
-
 # -- the shared routes fixture -------------------------------------------------
 
 
@@ -336,6 +326,7 @@ def test_the_fixture_names_every_json_panel_route() -> None:
         "alarms",
         "archive",
         "values",
+        "fleet",
     }
 
 
@@ -362,7 +353,7 @@ def test_the_fixture_search_is_a_directory_page() -> None:
         rehearsal=served["rehearsal"],
     )
     rebuilt = DirectoryPage(**{**page, "source": source, "rows": rows})
-    payload = _connectors.as_payload(rebuilt)
+    payload = _connectors.as_payload(rebuilt, {served["target"]: EPICS_WORDS})
     payload["rows"] = [
         service._served_row(row, served["origin"], states, held)
         for row, served in zip(rows, page["rows"], strict=True)
