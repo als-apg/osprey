@@ -216,13 +216,12 @@ def _ariel_store_config(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tup
 
 def _ariel_mcp_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``mcp_server.ariel.server_context`` — the config every ARIEL MCP tool holds."""
-    import osprey_connectors.workspace
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
     raw = {**CONFIG, "ariel": dict(_ARIEL_SECTION)}
     monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **k: dict(raw))
     monkeypatch.setattr(
-        osprey_connectors.workspace, "resolve_config_path", lambda *a, **k: tmp_path / "config.yml"
+        "osprey_connectors.config.locate_config", lambda *a, **k: tmp_path / "config.yml"
     )
     context = ARIELContext()
     context.initialize()

@@ -20,12 +20,8 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.config_paths import loaded_or_empty
-from osprey_connectors.workspace import (
-    agent_data_base_dir,
-    anchored_path,
-    repo_root_for_config,
-    resolve_config_path,
-)
+from osprey_connectors.config import locate_config
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
 
 logger = logging.getLogger("osprey.mcp_server.tools.setup")
 
@@ -304,7 +300,7 @@ async def setup_inspect() -> str:
         JSON object with all configuration sections.
     """
     try:
-        config_path = resolve_config_path()
+        config_path = locate_config()
         project_root = config_path.parent
         claude_dir = project_root / ".claude"
 
@@ -576,7 +572,7 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
         if is_protected_key(file, key_path):
             await _refuse_protected_key(file, key_path)
 
-        project_root = resolve_config_path().parent
+        project_root = locate_config().parent
         file_path = project_root / file
 
         if not file_path.exists():

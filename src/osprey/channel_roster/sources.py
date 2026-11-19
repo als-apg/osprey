@@ -9,7 +9,7 @@ facility has one enumeration of its own channels whoever asks.
 
 The render root is the directory holding the ``config.yml`` in play:
 ``config_dir`` when the config records one (:func:`_render_dir`), else the
-parent of :func:`osprey_connectors.workspace.resolve_config_path`.
+parent of :func:`osprey_connectors.config.locate_config`.
 
 :func:`read_facility_roster` turns the file's channel records into the
 roster's. Membership is the ``channels`` list verbatim --- the addresses a
@@ -94,7 +94,7 @@ def _render_dir(config: dict) -> Path | None:
     ``config.yml`` this process runs against --- ``OSPREY_CONFIG`` when set,
     else ``build/config.yml`` under the working directory when that file
     exists, else the working directory itself
-    (:func:`osprey_connectors.workspace.resolve_config_path`).
+    (:func:`osprey_connectors.config.locate_config`).
 
     Deliberately NOT the ``project_root`` rung of
     :func:`~osprey.deployment.compose_generator._render_anchor_dir`:
@@ -125,9 +125,9 @@ def facility_file_path(config: dict) -> Path:
     """
     render_dir = _render_dir(config)
     if render_dir is None:
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import locate_config
 
-        render_dir = Path(resolve_config_path()).parent
+        render_dir = Path(locate_config()).parent
     return render_dir / FACILITY_FILE
 
 

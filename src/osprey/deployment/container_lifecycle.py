@@ -5537,7 +5537,7 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
     What a relative ``services.graphdb.ttl_path`` resolves against — see
     :func:`_graphdb_ttl_text`. Derived from the project root the deploy was
     handed rather than from
-    :func:`osprey_connectors.workspace.resolve_config_path`, which falls back
+    :func:`osprey_connectors.config.locate_config`, which falls back
     to the process working directory: a deploy driven with ``--repo`` from
     somewhere else would otherwise resolve the corpus against whatever
     directory the operator happened to be standing in.

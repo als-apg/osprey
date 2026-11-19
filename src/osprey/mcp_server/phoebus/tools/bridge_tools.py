@@ -118,14 +118,10 @@ from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agen
 from osprey.utils.config_paths import loaded_or_empty
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import write_switch
+from osprey_connectors.config import locate_config
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import baseline_target
-from osprey_connectors.workspace import (
-    agent_data_base_dir,
-    anchored_path,
-    resolve_config_path,
-    resolve_project_root,
-)
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path, resolve_project_root
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus")
 
@@ -380,7 +376,7 @@ def _panel_resource(name: str, panels: dict) -> str | None:
             if candidate.exists():
                 resource = str(candidate)
             else:
-                config_path = resolve_config_path()
+                config_path = locate_config()
                 if config_path.exists():
                     resource = str((config_path.parent / builtin_relative).resolve())
                 else:
@@ -391,7 +387,7 @@ def _panel_resource(name: str, panels: dict) -> str | None:
 
     # Resolve relative non-URL config paths against the config file's directory.
     if not resource.startswith("file:") and not Path(resource).is_absolute():
-        config_path = resolve_config_path()
+        config_path = locate_config()
         if config_path.exists():
             resource = str((config_path.parent / resource).resolve())
 
@@ -412,7 +408,7 @@ def _display_key(value: str) -> str:
         text = urllib.request.url2pathname(urllib.parse.urlparse(text).path)
     path = Path(text).expanduser()
     if not path.is_absolute():
-        path = resolve_config_path().parent / path
+        path = locate_config().parent / path
     return str(path.resolve())
 
 

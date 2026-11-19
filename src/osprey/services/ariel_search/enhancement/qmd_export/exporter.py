@@ -69,7 +69,7 @@ def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path
             ``enhancement_modules.qmd_export.mirror_path``.
         config_dir: Directory containing ``config.yml``; the project root is
             derived from it. When omitted it is derived from
-            :func:`osprey_connectors.workspace.resolve_config_path`, which falls
+            :func:`osprey_connectors.config.locate_config`, which falls
             back to the process CWD when ``OSPREY_CONFIG`` is unset.
 
     Returns:

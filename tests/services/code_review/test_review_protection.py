@@ -317,7 +317,7 @@ def test_agent_tool_may_still_write_where_the_guard_says(tool_name, deployment, 
 def patch_tool(deployment):
     """``setup_patch`` aimed at the deployment's rendered config."""
     with (
-        patch(f"{SETUP_MOD}.resolve_config_path", return_value=deployment / RENDERED_CONFIG),
+        patch(f"{SETUP_MOD}.locate_config", return_value=deployment / RENDERED_CONFIG),
         patch(f"{SETUP_MOD}.notify_agent_activity_async"),
     ):
         yield get_tool_fn(setup_tools.setup_patch)

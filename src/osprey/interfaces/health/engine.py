@@ -226,9 +226,9 @@ class HealthCheckEngine:
             if self._config_path is not None:
                 config_path = Path(self._config_path)
             else:
-                from osprey_connectors.workspace import resolve_config_path
+                from osprey_connectors.config import locate_config
 
-                config_path = resolve_config_path()
+                config_path = locate_config()
         except Exception:
             return None
         return config_path.parent / ".mcp.json"

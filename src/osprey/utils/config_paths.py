@@ -38,7 +38,7 @@ back and nothing mounts it, which is why the argument above does not apply.
 
 Note that :func:`osprey.cli.project_utils.resolve_config_path` is a *different*
 function that happens to share a name with the workspace helper used below; the
-one consulted here is :func:`osprey_connectors.workspace.resolve_config_path`, which
+one consulted here is :func:`osprey_connectors.config.locate_config`, which
 answers "which ``config.yml`` is this process running against".
 """
 
@@ -156,9 +156,9 @@ def resolve_config_dir() -> Path | None:
         take the caller down.
     """
     try:
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import locate_config
 
-        return Path(resolve_config_path()).parent
+        return Path(locate_config()).parent
     except Exception:
         return None
 
@@ -199,7 +199,7 @@ def resolve_config_relative_path(value: str | Path, config_dir: Path | None = No
             config themselves should pass its parent; the project root is
             derived from it here (:func:`project_root_for_config_dir`). When
             omitted it is derived from
-            :func:`osprey_connectors.workspace.resolve_config_path`, which falls
+            :func:`osprey_connectors.config.locate_config`, which falls
             back to the process CWD when ``OSPREY_CONFIG`` is unset.
 
     Returns:
@@ -227,7 +227,7 @@ def resolve_render_relative_path(value: str | Path, config_dir: Path | None = No
     Args:
         value: The configured value, as read from the config file.
         config_dir: Directory containing ``config.yml``. When omitted it is
-            derived from :func:`osprey_connectors.workspace.resolve_config_path`,
+            derived from :func:`osprey_connectors.config.locate_config`,
             which falls back to the process CWD when ``OSPREY_CONFIG`` is unset.
 
     Returns:

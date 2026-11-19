@@ -15,7 +15,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
-from osprey_connectors.workspace import resolve_config_path
+from osprey_connectors.config import locate_config
 
 logger = logging.getLogger("osprey.mcp_server.tools.facility_description")
 
@@ -54,7 +54,7 @@ async def facility_description() -> str:
     try:
         from osprey.facility.views.facts import FACTS_PAGE
 
-        project_root = resolve_config_path().parent
+        project_root = locate_config().parent
         facility_file = project_root / ".claude" / "rules" / "facility.md"
         generated_source = f"data/{FACTS_PAGE}"
 

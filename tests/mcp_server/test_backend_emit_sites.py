@@ -1334,7 +1334,7 @@ def setup_project(tmp_path):
         '      "env": {\n        "API_KEY": "sk-live-credential"\n'
         "      }\n    }\n  }\n}\n"
     )
-    with patch(f"{_SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
+    with patch(f"{_SETUP_MOD}.locate_config", return_value=tmp_path / "config.yml"):
         yield tmp_path
 
 

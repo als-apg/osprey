@@ -632,7 +632,7 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     ``osprey up`` minted -- the same two sources a deployed MCP server reads.
 
     ``OSPREY_CONFIG`` is the variable that repoints the framework's config
-    loader (``osprey_connectors.workspace.resolve_config_path``); ``CONFIG_FILE``
+    loader (``osprey_connectors.config.locate_config``); ``CONFIG_FILE``
     is deliberately NOT read there, and is set alongside it only because the
     limits database resolves relative to it. Setting one and not the other is
     the trap this comment exists to stop: with only ``CONFIG_FILE`` set, lane

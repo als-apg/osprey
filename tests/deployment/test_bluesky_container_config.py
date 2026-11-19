@@ -5,7 +5,7 @@ image mounts the project's ``config.yml`` at one path and names it twice:
 ``CONFIG_FILE`` for the readers that take that name (the default config
 singleton, the limits validator, the sidecar's ``/channels`` route) and
 ``OSPREY_CONFIG`` for the framework's own loader
-(:func:`osprey_connectors.workspace.resolve_config_path`), which never reads
+(:func:`osprey_connectors.config.locate_config`), which never reads
 ``CONFIG_FILE``. Those images run from ``WORKDIR /app`` and the config is mounted
 under ``/app/project``, so a container handed only ``CONFIG_FILE`` loads nothing
 through the framework loader: no ``bluesky.plan_module``, no preset plan

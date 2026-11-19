@@ -89,7 +89,7 @@ services:
       # convention.
       CONFIG_FILE: /app/project/config.yml
       # The same file for the framework's own config loader
-      # (osprey_connectors.workspace.resolve_config_path), which reads this
+      # (osprey_connectors.config.locate_config), which reads this
       # variable and never CONFIG_FILE. Without it the loader looks in the
       # working directory, finds nothing, and every key this container reads
       # through it (bluesky.plan_module, bluesky.plan_dirs,

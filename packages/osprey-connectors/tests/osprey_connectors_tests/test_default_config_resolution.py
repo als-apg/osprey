@@ -23,10 +23,9 @@ import pytest
 from osprey.utils.config_paths import loaded_or_empty
 from osprey_connectors import connector_types
 from osprey_connectors.archiver import ChannelArchive
-from osprey_connectors.config import active_config, current_config, get_config_value
+from osprey_connectors.config import active_config, current_config, get_config_value, locate_config
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_targets import service_targets
-from osprey_connectors.workspace import resolve_config_path
 
 ARCHIVER_URL = "https://archiver.example.org:8443"
 
@@ -92,7 +91,7 @@ def test_the_default_config_is_the_one_resolve_config_path_names(project):
 
     loaded = current_config()
 
-    assert loaded.path == resolve_config_path()
+    assert loaded.path == locate_config()
     assert loaded.raw_tree() == loaded_or_empty()
 
 

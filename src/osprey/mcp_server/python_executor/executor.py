@@ -495,10 +495,10 @@ def resolve_secret_roots(project_root: Path | None = None) -> tuple[Path, ...]:
     Returns:
         Absolute, resolved paths — de-duplicated, order preserved.
     """
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
-    return tuple(dict.fromkeys((root.resolve(), resolve_config_path().resolve().parent)))
+    return tuple(dict.fromkeys((root.resolve(), locate_config().resolve().parent)))
 
 
 def resolve_agent_interpreter(project_root: Path | None = None) -> Path:

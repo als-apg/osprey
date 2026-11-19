@@ -669,13 +669,12 @@ def test_relative_bundle_path_resolves_against_config_dir(monkeypatch, tmp_path)
     (Regression for the review finding: MCP/CLI resolve it this way; the panel
     must agree or a valid relative bundle_path silently yields an empty tab.)
     """
-    import osprey_connectors.workspace as workspace
 
     config_yml = tmp_path / "config.yml"
     config_yml.write_text("", encoding="utf-8")
     _write_min_concept(tmp_path / "kb", "devices/bpm")
     # app.py imports resolve_config_path lazily from this module → patch here.
-    monkeypatch.setattr(workspace, "resolve_config_path", lambda: config_yml)
+    monkeypatch.setattr("osprey_connectors.config.locate_config", lambda: config_yml)
 
     c = TestClient(create_app("kb"))  # relative
     assert c.get("/health").json()["configured"] is True

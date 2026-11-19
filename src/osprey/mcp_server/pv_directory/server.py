@@ -138,9 +138,9 @@ def register_tools(server: FastMCP, context: ToolContext) -> list[str]:
 
 def _rendered_config() -> tuple[dict[str, Any], Path]:
     from osprey.utils.config_paths import loaded_or_empty
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
-    return loaded_or_empty(), resolve_config_path().parent
+    return loaded_or_empty(), locate_config().parent
 
 
 def create_server() -> FastMCP:

@@ -23,13 +23,13 @@ import pytest
 
 from osprey.utils.config_paths import loaded_or_empty
 from osprey.utils.workspace import repo_root_for_agent_data
+from osprey_connectors.config import locate_config
 from osprey_connectors.testing import clear_config_state
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
     rendered_config_path,
     resolve_agent_data_root,
-    resolve_config_path,
     resolve_path,
     resolve_project_root,
     resolve_shared_data_root,
@@ -57,25 +57,25 @@ class TestResolveConfigPath:
     def test_uses_osprey_config_env_when_set(self, tmp_path, monkeypatch):
         cfg = tmp_path / "custom.yml"
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_config_path() == cfg
+        assert locate_config() == cfg
 
     def test_prefers_the_render_when_standing_in_a_repo(self, tmp_path, monkeypatch):
         """A repo root with a build in it resolves to the rendered config."""
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         _write_repo(tmp_path, "project_root: /somewhere\n")
         monkeypatch.chdir(tmp_path)
-        assert resolve_config_path() == tmp_path / RENDERED_CONFIG_RELPATH
+        assert locate_config() == tmp_path / RENDERED_CONFIG_RELPATH
 
     def test_defaults_to_cwd_config_yml(self, tmp_path, monkeypatch):
         """No render below cwd: the container shape, and the not-found report."""
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.chdir(tmp_path)
-        assert resolve_config_path() == tmp_path / "config.yml"
+        assert locate_config() == tmp_path / "config.yml"
 
     def test_expands_shell_variables(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MY_PROJECT_DIR", str(tmp_path))
         monkeypatch.setenv("OSPREY_CONFIG", "$MY_PROJECT_DIR/config.yml")
-        assert resolve_config_path() == tmp_path / "config.yml"
+        assert locate_config() == tmp_path / "config.yml"
 
 
 class TestRenderedConfigPath:

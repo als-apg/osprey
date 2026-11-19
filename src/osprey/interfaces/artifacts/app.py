@@ -1048,12 +1048,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # `config.yml` INSIDE the agent-data root — no layout has ever written one
     # there, so the `exists()` gate below was always false and the gallery
     # silently never loaded a custom declaration. `OSPREY_CONFIG` is set on every
-    # launch path that starts this app, and resolve_config_path falls back to
+    # launch path that starts this app, and locate_config falls back to
     # the render zone beneath the cwd otherwise.
     try:
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import locate_config
 
-        config_path = resolve_config_path()
+        config_path = locate_config()
         if config_path.exists():
             from osprey_connectors.config import install_config, load_config
 

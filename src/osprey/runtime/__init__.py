@@ -365,15 +365,13 @@ async def _pooled_connector_locked(target: str | None) -> "ControlSystem":
             f"{', '.join(repr(name) for name in CONTROL_TARGETS)}, spelled exactly."
         )
     if _connector_pool is None:
+        from osprey_connectors.config import locate_config
         from osprey_connectors.ipc import ConnectorHostPool
-        from osprey_connectors.workspace import resolve_config_path
 
         options: dict[str, Any] = (
             {} if _pool_start_timeout_s is None else {"start_timeout_s": _pool_start_timeout_s}
         )
-        _connector_pool = ConnectorHostPool(
-            section, config_file=str(resolve_config_path()), **options
-        )
+        _connector_pool = ConnectorHostPool(section, config_file=str(locate_config()), **options)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)
 

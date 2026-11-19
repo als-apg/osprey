@@ -45,7 +45,7 @@ def disk_signature(config_path: str | Path | None) -> tuple[Any, ...]:
     exactly the way an edit to ``.env`` does.
 
     Resolves *config_path* (or the CLI default via
-    :func:`osprey_connectors.workspace.resolve_config_path` when ``None``) and
+    :func:`osprey_connectors.config.locate_config` when ``None``) and
     returns the per-file :func:`stat_signature` values the breaker/validity
     checks compare across cycles as one opaque tuple. A changed tuple forces a
     refresh regardless of age.
@@ -53,9 +53,9 @@ def disk_signature(config_path: str | Path | None) -> tuple[Any, ...]:
     if config_path is not None:
         path = Path(config_path)
     else:
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import locate_config
 
-        path = resolve_config_path()
+        path = locate_config()
     # Same rule as `loader.HealthConfigLoader.load` — deliberately, and
     # through the same helper. A signature that stats different files
     # than the loader watches is a cache that never invalidates.

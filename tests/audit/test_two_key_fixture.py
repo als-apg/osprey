@@ -406,7 +406,7 @@ class TestTheSetupPatchToolRecordsPerKey:
             )
         )
         with mock_patch(
-            "osprey.mcp_server.workspace.tools.setup.resolve_config_path",
+            "osprey.mcp_server.workspace.tools.setup.locate_config",
             return_value=tmp_path / "config.yml",
         ):
             yield tmp_path

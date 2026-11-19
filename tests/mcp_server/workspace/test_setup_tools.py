@@ -118,7 +118,7 @@ def project_dir(tmp_path):
 def _patch_config_path(project_dir: Path):
     """Return a context manager that patches resolve_config_path to return project_dir."""
     return patch(
-        "osprey.mcp_server.workspace.tools.setup.resolve_config_path",
+        "osprey.mcp_server.workspace.tools.setup.locate_config",
         return_value=project_dir / "config.yml",
     )
 
@@ -237,7 +237,7 @@ async def test_inspect_workspace_is_the_repos_agent_data_root(tmp_path):
     fn = _get_setup_inspect()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.setup.resolve_config_path",
+            "osprey.mcp_server.workspace.tools.setup.locate_config",
             return_value=tmp_path / "build" / "config.yml",
         ),
         _patch_load_config(config),

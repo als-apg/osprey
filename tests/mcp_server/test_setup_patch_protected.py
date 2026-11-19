@@ -79,7 +79,7 @@ def render(tmp_path):
         )
         + "\n"
     )
-    with patch(f"{SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
+    with patch(f"{SETUP_MOD}.locate_config", return_value=tmp_path / "config.yml"):
         yield tmp_path
 
 
