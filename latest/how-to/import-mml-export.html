@@ -749,7 +749,28 @@ each setpoint with the one readback on the same device whose signal names the
 same quantity, so a field without a signal stays unpaired. A family whose
 devices hold one coil per plane maps its current fields to the plane-qualified
 signals (<code class="docutils literal notranslate"><span class="pre">current_x_setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">current_x_readback</span></code>, <code class="docutils literal notranslate"><span class="pre">current_y_setpoint</span></code>,
-<code class="docutils literal notranslate"><span class="pre">current_y_readback</span></code>), so the build pairs each coil with its own readback.
+<code class="docutils literal notranslate"><span class="pre">current_y_readback</span></code>), so the build pairs each coil with its own readback.</p>
+<p>One family entry serves every model that carries the family, but a field can
+carry a current in one model and another quantity in the next. A field’s
+<code class="docutils literal notranslate"><span class="pre">by_model</span></code> answers its signal for those models, keyed by the model’s system
+token as under <code class="docutils literal notranslate"><span class="pre">models</span></code>; <code class="docutils literal notranslate"><span class="pre">null</span></code> gives that model’s channels no signal:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">families</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">QF</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">fields</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Setpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Power-supply current setpoint per magnet.</span>
+<span class="w">        </span><span class="nt">provenance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">stated</span>
+<span class="w">        </span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">current_setpoint</span>
+<span class="w">        </span><span class="nt">by_model</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">TL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">      </span><span class="c1"># this model states the field as a gradient</span>
+</pre></div>
+</div>
+<p>The draft reads each model’s units on its own: the <code class="docutils literal notranslate"><span class="pre">signal</span></code> is the one most
+models give, and <code class="docutils literal notranslate"><span class="pre">by_model</span></code> lists only the models that differ. The mapping
+check, and with it the import, stops when a field gives a current signal to a
+model whose units for the field are not a current, and names the <code class="docutils literal notranslate"><span class="pre">by_model</span></code>
+answer to add. Any answer for the model settles it, even one that keeps the
+current where the export’s units are out of date.
 Each device carries the export’s <code class="docutils literal notranslate"><span class="pre">Position</span></code> as <code class="docutils literal notranslate"><span class="pre">s</span></code> with its <code class="docutils literal notranslate"><span class="pre">model</span></code>, and
 the build stops (<code class="docutils literal notranslate"><span class="pre">place-conflict</span></code>) when a wired device’s deck disagrees.</p>
 <p><code class="docutils literal notranslate"><span class="pre">imported/mml/rows.json</span></code> records which device each export <code class="docutils literal notranslate"><span class="pre">DeviceList</span></code> row
