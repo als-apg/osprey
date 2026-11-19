@@ -5,8 +5,8 @@ Write Safety
 
 The records and verdicts a write passes before anything is put: the read-only
 run, the write switch, a program's bounded write authorization, held sessions,
-the refusal words, which machine a write lands on, and waiting for a readback
-to settle. :doc:`/architecture/safety-chain` describes how they fit together.
+the refusal words, which machine a write lands on, waiting for a readback
+to settle, and firing a command until its status reports the act over. :doc:`/architecture/safety-chain` describes how they fit together.
 
 .. automodule:: osprey_connectors.posture_env
 
@@ -23,3 +23,5 @@ to settle. :doc:`/architecture/safety-chain` describes how they fit together.
 .. automodule:: osprey_connectors.write_target
 
 .. automodule:: osprey_connectors.settle
+
+.. automodule:: osprey_connectors.command
