@@ -573,6 +573,22 @@ def test_writable_and_value_range_come_from_the_limits_records(
             assert channel["writable"] is False, channel["address"]
 
 
+def test_a_stated_writable_setpoint_without_bounds_is_writable_in_the_view(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    paddle = "BR:DIAG:TV:01:PADDLE:SP"
+    facility = copy.deepcopy(built_demo.facility)
+    facility["limits"]["records"].append({"address": paddle, "writable": True, "confirm": False})
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
+
+    channel = _channel(_view(render_dir, VARIABLES), paddle)
+
+    assert (channel["value_type"], channel["role"]) == ("bool", "setpoint")
+    assert (channel["writable"], channel["value_range"]) == (True, None)
+
+
 @pytest.mark.parametrize(
     ("config", "writable"),
     [(_limits("optional"), True), (_limits("exclusive"), False), ({}, False)],

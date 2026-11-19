@@ -34,9 +34,14 @@ BEAM = "SR:BEAM:CURRENT"
 SLOTS = ("min_value", "max_value", "max_step", "writable", "confirm")
 
 
-def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict[str, Any]:
+def _doc(
+    channels: dict[str, str],
+    records: list[dict[str, Any]] | None,
+    value_type: str | None = None,
+) -> dict[str, Any]:
+    typed = {} if value_type is None else {"value_type": value_type}
     doc: dict[str, Any] = {
-        "channels": [{"id": id_, "role": role} for id_, role in channels.items()]
+        "channels": [{"id": id_, "role": role, **typed} for id_, role in channels.items()]
     }
     if records is not None:
         doc["limits"] = {"records": records}
@@ -47,14 +52,16 @@ def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict
 
 
 @pytest.mark.parametrize(
-    ("role", "record", "entry"),
+    ("value_type", "role", "record", "entry"),
     [
         (
+            "float",
             "setpoint",
             {"min_value": 0.0, "max_value": 5.0},
             {"min_value": 0.0, "max_value": 5.0, "writable": True, "confirm": True},
         ),
         (
+            "float",
             "setpoint",
             {"min_value": 0.0, "max_value": 5.0, "max_step": 0.5, "confirm": False},
             {
@@ -66,29 +73,51 @@ def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict
             },
         ),
         (
+            "float",
             "setpoint",
             {"min_value": 0.0, "max_value": 5.0, "writable": False},
             {"min_value": 0.0, "max_value": 5.0, "writable": False, "confirm": True},
         ),
-        ("setpoint", {"max_value": 5.0}, {"max_value": 5.0, "writable": False, "confirm": True}),
-        ("setpoint", {"min_value": 0.0}, {"min_value": 0.0, "writable": False, "confirm": True}),
-        ("setpoint", {}, {"writable": False, "confirm": True}),
-        ("setpoint", {"writable": False}, {"writable": False, "confirm": True}),
         (
+            "float",
+            "setpoint",
+            {"max_value": 5.0},
+            {"max_value": 5.0, "writable": False, "confirm": True},
+        ),
+        (
+            "float",
+            "setpoint",
+            {"min_value": 0.0},
+            {"min_value": 0.0, "writable": False, "confirm": True},
+        ),
+        ("float", "setpoint", {}, {"writable": False, "confirm": True}),
+        ("float", "setpoint", {"writable": False}, {"writable": False, "confirm": True}),
+        (
+            "float",
             "readback",
             {"min_value": 0.0, "max_value": 5.0},
             {"min_value": 0.0, "max_value": 5.0, "writable": False, "confirm": True},
         ),
-        ("readback", {"writable": False}, {"writable": False, "confirm": True}),
-        ("setpoint", {"writable": True}, {"writable": False, "confirm": True}),
+        ("float", "readback", {"writable": False}, {"writable": False, "confirm": True}),
+        ("float", "setpoint", {"writable": True}, {"writable": False, "confirm": True}),
+        ("bool", "setpoint", {}, {"writable": False, "confirm": True}),
+        ("bool", "setpoint", {"writable": False}, {"writable": False, "confirm": True}),
+        ("bool", "readback", {"writable": True}, {"writable": False, "confirm": True}),
     ],
 )
 def test_a_record_resolves_to_one_entry(
-    role: str, record: dict[str, Any], entry: dict[str, Any]
+    value_type: str, role: str, record: dict[str, Any], entry: dict[str, Any]
 ) -> None:
-    document = limits_document(FacilityRecords(_doc({"A:B": role}, [{"address": "A:B", **record}])))
+    doc = _doc({"A:B": role}, [{"address": "A:B", **record}], value_type)
 
-    assert document == {"_version": "4.0", "A:B": entry}
+    assert limits_document(FacilityRecords(doc)) == {"_version": "4.0", "A:B": entry}
+
+
+@pytest.mark.parametrize("value_type", ["bool", "enum", "string", "waveform"])
+def test_a_stated_writable_makes_a_setpoint_without_bounds_writable(value_type: str) -> None:
+    doc = _doc({"A:GO": "setpoint"}, [{"address": "A:GO", "writable": True}], value_type)
+
+    assert limits_document(FacilityRecords(doc))["A:GO"] == {"writable": True, "confirm": True}
 
 
 def test_a_channel_without_a_record_has_no_entry() -> None:
@@ -213,6 +242,50 @@ class TestTheCorrectorSetpointHasNoRecord:
         with pytest.raises(ChannelLimitsViolationError) as refusal:
             validator.validate(CORR, 5.5)
         assert refusal.value.violation_type == "MAX_EXCEEDED"
+
+
+# --- a bool command setpoint --------------------------------------------------------
+
+PADDLE = "BR:DIAG:TV:01:PADDLE:SP"
+
+
+@pytest.mark.slow
+class TestABoolCommandUnderExclusive:
+    def test_a_stated_writable_record_passes_the_validator(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        record = {"address": PADDLE, "writable": True, "confirm": False}
+        validator = validator_under(
+            monkeypatch, render_limits(tmp_path, "demo", added=[record]), "exclusive"
+        )
+
+        validator.validate(PADDLE, 1)
+        validator.validate(PADDLE, "TRUE")
+        assert validator.resolve_confirm(PADDLE) is False
+
+    @pytest.mark.parametrize(
+        ("added", "refusal"),
+        [
+            ([], "UNLISTED_CHANNEL"),
+            ([{"address": PADDLE, "confirm": False}], "READ_ONLY_CHANNEL"),
+            ([{"address": PADDLE, "writable": False}], "READ_ONLY_CHANNEL"),
+        ],
+        ids=["no-record", "confirm-only", "writable-false"],
+    )
+    def test_it_is_refused_without_a_stated_writable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        added: list[dict[str, Any]],
+        refusal: str,
+    ) -> None:
+        validator = validator_under(
+            monkeypatch, render_limits(tmp_path, "demo", added=added), "exclusive"
+        )
+
+        with pytest.raises(ChannelLimitsViolationError) as refused:
+            validator.validate(PADDLE, 1)
+        assert refused.value.violation_type == refusal
 
 
 # --- the database path -------------------------------------------------------------
