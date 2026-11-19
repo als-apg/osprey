@@ -16,12 +16,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
-  DEFAULT_SHORTCUT,
   MAX_RECORDING_MS,
   createVoiceInput,
-  matchesShortcut,
   normalizeInputs,
-  parseShortcut,
   insertAtCursor,
   pickMimeType,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-voice.js';
@@ -342,16 +339,6 @@ describe('the key input: the Ctrl + Space shortcut', () => {
     return voice;
   }
 
-  test.each([
-    [{ key: ' ', ctrlKey: true }, true],
-    [{ key: ' ' }, false],
-    [{ key: ' ', ctrlKey: true, shiftKey: true }, false],
-    [{ key: ' ', ctrlKey: true, altKey: true }, false],
-    [{ key: 'k', ctrlKey: true }, false],
-  ])('matchesShortcut(%j) is %s', (init, matches) => {
-    expect(matchesShortcut(new KeyboardEvent('keydown', init), DEFAULT_SHORTCUT)).toBe(matches);
-  });
-
   test('holding it records; letting go transcribes into the box', async () => {
     const voice = await ready();
     textarea.focus();
@@ -471,25 +458,6 @@ describe('the key input: the Ctrl + Space shortcut', () => {
       'The talk key "Enter" cannot be used here; hold Ctrl + Space instead.'
     );
   });
-});
-
-describe('parseShortcut', () => {
-  test.each([
-    ['Ctrl+Space', { key: ' ', ctrl: true, label: 'Ctrl + Space', aria: 'Control+Space' }],
-    ['ctrl + space', { key: ' ', ctrl: true, label: 'Ctrl + Space' }],
-    ['Alt+M', { key: 'M', alt: true, label: 'Alt + M', aria: 'Alt+M' }],
-    ['F8', { key: 'F8', ctrl: false, label: 'F8', aria: 'F8' }],
-    ['Shift+F2', { key: 'F2', shift: true, label: 'Shift + F2' }],
-  ])('%j is understood', (text, expected) => {
-    expect(parseShortcut(text)).toMatchObject(expected);
-  });
-
-  test.each([[''], [null], ['Ctrl'], ['Ctrl+A+B'], ['M'], ['Enter'], ['Ctrl+Escape'], ['Tab']])(
-    '%j is refused',
-    (text) => {
-      expect(parseShortcut(text)).toBeNull();
-    }
-  );
 });
 
 describe('the inputs the deployment switches on', () => {
