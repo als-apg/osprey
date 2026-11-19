@@ -732,6 +732,7 @@ class NamingSeam:
     call is replaced. Each call waits ``delay_s`` (settable at any time), then
     answers ``titles[prompt]`` when given, else ``"Named: <first words>"``;
     with ``fail`` set it raises instead, as an unreachable provider does.
+    The prompt is the text the namer put between its ``<message>`` tags.
     ``calls`` lists the prompts asked about.
     """
 
@@ -742,7 +743,9 @@ class NamingSeam:
         self.calls: list[str] = []
 
     async def complete(self, *, chat_request: Any, **kwargs: Any) -> str:
-        prompt = chat_request.messages[-1].content
+        turn = chat_request.messages[-1].content
+        tagged = re.search(r"<message>\n(.*)\n</message>", turn, re.DOTALL)
+        prompt = tagged.group(1) if tagged else turn
         self.calls.append(prompt)
         if self.delay_s > 0:
             await asyncio.sleep(self.delay_s)
