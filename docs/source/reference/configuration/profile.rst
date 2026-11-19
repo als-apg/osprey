@@ -731,9 +731,11 @@ Each entry under ``mcp_servers:`` takes these keys:
        when it is in ``permissions.ask``, or in ``permissions.allow`` with a
        destructive marker in its name. ``[]`` declares that no tool writes;
        absent leaves gating to the server's ``hooks`` and ``permissions``.
-       A list beside the ``writes_check`` preset is refused. The build never
-       asks the server for its tool list, so a name it does not serve is not
-       caught.
+       A list beside the ``writes_check`` preset is refused, as is a write tool
+       named like a framework tool the write hooks recognise by name
+       (``execute``, ``execute_file``, ``pyaml_measure``, ``channel_write``,
+       ``queue_*``). The build never asks the server for its tool list, so a
+       name it does not serve is not caught.
    * - ``condition``
      - absent
      - A render-context key that must be truthy for the server to render. A

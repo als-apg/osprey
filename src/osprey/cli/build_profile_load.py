@@ -1932,6 +1932,12 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             url = f"http://localhost:{port}/mcp"
         if not url and not command:
             raise BuildProfileError(f"MCP server '{name}' must have either 'command' or 'url'")
+        if writes is not None:
+            from osprey.registry.mcp import reserved_write_tool_refusal
+
+            refusal = reserved_write_tool_refusal(name, tuple(writes), perms)
+            if refusal is not None:
+                raise BuildProfileError(refusal)
         mcp_servers[name] = McpServerDef(
             command=command,
             args=sdef.get("args", []),

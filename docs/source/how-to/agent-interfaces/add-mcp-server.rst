@@ -94,7 +94,10 @@ own to edit:
    ``hooks: {pre_tool_use: [<preset>, ...]}`` attaches a hook preset (such as
    ``approval``) to every tool of the server. ``writes:`` lists the server's
    write tools by bare name; the build gates each one with the writes-check and
-   approval hooks, and a read-only run blocks them. A key the entry does not
+   approval hooks, and a read-only run blocks them. A write tool may not take
+   the name of a framework tool the write hooks recognise by name
+   (``execute``, ``execute_file``, ``pyaml_measure``, ``channel_write``, or any
+   ``queue_*`` name); the build refuses it. A key the entry does not
    define is ignored with a warning that names the release from which it is
    refused.
 

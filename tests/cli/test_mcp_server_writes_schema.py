@@ -101,6 +101,26 @@ def test_malformed_writes_is_a_build_error_naming_the_server(writes, fragment):
 
 
 @pytest.mark.parametrize(
+    ("server", "fragment"),
+    [
+        (_server(writes=["set_magnet", "execute"]), "writes entry 'execute'"),
+        (_server(writes=["queue_start"]), "writes entry 'queue_start'"),
+        (
+            _server(writes=["set_magnet"], permissions={"ask": ["pyaml_measure"]}),
+            "permissions entry 'pyaml_measure'",
+        ),
+    ],
+)
+def test_a_write_tool_with_a_reserved_name_is_a_build_error(server, fragment):
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(_raw(server))
+    message = str(excinfo.value)
+    assert "'facility'" in message
+    assert fragment in message
+    assert "reserves" in message
+
+
+@pytest.mark.parametrize(
     "hooks",
     [
         ["approval"],

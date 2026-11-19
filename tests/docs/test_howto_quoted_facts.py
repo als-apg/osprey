@@ -27,6 +27,7 @@ import pytest
 import yaml
 
 from osprey.agent_runner.write_tools import _custom_server_side_effect_tools
+from osprey.apps.rules import HOOK_DISPATCHED_TOOLS, QUEUE_TOOL_PREFIX
 from osprey.cli.build_posture_check import CODE_REVIEW_HOOKS, check_code_review
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import load_profile
@@ -177,6 +178,13 @@ def test_a_read_only_run_blocks_the_tools_a_server_lists_under_writes(tmp_path: 
     blocked = _custom_server_side_effect_tools(tmp_path)
     assert "mcp__my-server__set_value" in blocked
     assert "mcp__my-server__read_data" not in blocked
+
+
+def test_the_reserved_write_tool_names_the_page_lists_are_the_refused_ones():
+    page = " ".join(ADD_SERVER_PAGE.read_text().split())
+    sentence = page[page.index("A write tool may not take") :].split("the build refuses it")[0]
+    listed = re.findall(r"``([a-z_*]+)``", sentence)
+    assert listed == [*HOOK_DISPATCHED_TOOLS, f"{QUEUE_TOOL_PREFIX}*"]
 
 
 # ---------------------------------------------------------------------------

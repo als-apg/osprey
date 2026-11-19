@@ -448,6 +448,57 @@ class TestResolveServers:
         assert any("osprey_approval.py" in c for c in commands)
         assert any("osprey_writes_check.py" in c for c in commands)
 
+    @pytest.mark.parametrize(
+        ("tool", "reserved"),
+        [
+            ("execute", "built-in tool"),
+            ("execute_file", "built-in tool"),
+            ("pyaml_measure", "built-in tool"),
+            ("channel_write", "built-in tool"),
+            ("queue_add", "queue_*"),
+            ("queue_start", "queue_*"),
+            ("queue_flush", "queue_*"),
+        ],
+    )
+    def test_a_write_tool_with_a_reserved_name_is_refused(self, tool, reserved):
+        """The write hooks recognise the framework's tools on the bare name, so a
+        facility write tool spelled the same is refused instead of gated as one."""
+        cfg = {"servers": {"magnets": {"command": "x", "writes": ["set_current", tool]}}}
+        with pytest.raises(ValueError) as excinfo:
+            resolve_servers(cfg, _base_ctx())
+        message = str(excinfo.value)
+        assert "'magnets' writes entry" in message
+        assert repr(tool) in message
+        assert reserved in message
+
+    def test_a_reserved_name_in_the_write_window_is_refused(self):
+        """An undeclared ``permissions.ask`` tool is gated as a write, so the same
+        name rule holds for it."""
+        cfg = {
+            "servers": {
+                "magnets": {
+                    "command": "x",
+                    "writes": ["set_current"],
+                    "permissions": {"ask": ["mcp__magnets__execute"]},
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="'magnets' permissions entry 'execute'"):
+            resolve_servers(cfg, _base_ctx())
+
+    def test_a_write_tool_with_a_free_name_is_gated(self):
+        cfg = {
+            "servers": {
+                "magnets": {"command": "x", "writes": ["set_current", "execute_ramp"]},
+            }
+        }
+        servers = resolve_servers(cfg, _base_ctx())
+        magnets = next(s for s in servers if s["name"] == "magnets")
+        assert [r["matcher"] for r in magnets["hooks_pre"]] == [
+            "mcp__magnets__set_current",
+            "mcp__magnets__execute_ramp",
+        ]
+
     def test_custom_server_invalid_preset_warns(self, caplog):
         """Unknown hook preset logs a warning and is skipped."""
         ctx = _base_ctx()
