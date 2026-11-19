@@ -945,11 +945,15 @@ name = "The connector package's top-level modules, in layers"
 # record `control_context` parses, and `control_context` takes its root and
 # posture grammar from `posture_store`; `workspace` loads config through
 # `config`'s singleton, and `config` resolves paths through `workspace`.
+#
+# `command` fires a command through any control-system connector and compares
+# its status by the control-system contract's own rule, so it sits above them.
 type = "layers"
 layers = [
     "osprey_connectors.ipc",
     "osprey_connectors.factory",
     "osprey_connectors.archiver",
+    "osprey_connectors.command",
     "osprey_connectors.control_system",
     "osprey_connectors.alarm_log | osprey_connectors.put_log",
     "osprey_connectors.alarm_state",
