@@ -38,6 +38,20 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.archiver.ArchiverMetadata": (
         "an archiver's get_metadata answers in this type"
     ),
+    "osprey_connectors.command.CommandAct": "a caller describes the command it fires in this type",
+    "osprey_connectors.command.CommandBusyError": (
+        "a caller tells a command refused while its status is not idle from the others"
+    ),
+    "osprey_connectors.command.CommandNoEffectError": (
+        "a caller tells a command whose status never left idle from the others"
+    ),
+    "osprey_connectors.command.CommandStatusError": (
+        "a caller tells a status that cannot be watched from the others"
+    ),
+    "osprey_connectors.command.CommandTimeoutError": (
+        "a caller tells a command that did not finish in its bound from the others"
+    ),
+    "osprey_connectors.command.fire": "a caller fires a command channel and waits for its status",
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
