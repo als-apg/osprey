@@ -320,3 +320,63 @@ def test_beside_an_accepted_claim_a_contested_one_is_named_not_used(tmp_path) ->
     assert found.in_force.id == "ig/QF1/bench"  # the newest accepted, not the newer contested
     row = calibration_row(graph, "XR01:QF1", found.kind)
     assert row.state == "contested" and row.note.startswith("contested, not in force: -5.5 T")
+
+
+def test_a_cell_of_several_live_numbers_is_as_tall_as_its_lines(panel_graph) -> None:
+    from dataclasses import replace
+
+    view = calibration_overview(panel_graph, "XR-QUAD", "current_offset")
+    channels = ("XR01-QF1:Current-SP",) * 4  # a tuple of four numbers
+
+    def widen(item):
+        if not isinstance(item, Grid):
+            return item
+        rows = tuple(
+            replace(
+                row,
+                cells=tuple(
+                    replace(c, calibration=replace(c.calibration, channels=channels))
+                    for c in row.cells
+                ),
+            )
+            for row in item.rows
+        )
+        return replace(item, rows=rows)
+
+    sections = tuple(replace(s, items=tuple(widen(i) for i in s.items)) for s in view.sections)
+    doc = stub_render(replace(view, sections=sections), panel_graph)
+    fields = [n["geometry"] for n in nodes(doc) if n["type"].startswith("pv-")]
+    boxes = [
+        n["geometry"]
+        for n in nodes(doc)
+        if n["type"] == "rectangle" and n["props"].get("lineStyle") in ("solid", "dashed")
+    ]
+    for f in fields:  # every number inside its cell's box
+        assert any(
+            b["x"] <= f["x"] and f["y"] >= b["y"] and f["y"] + f["height"] <= b["y"] + b["height"]
+            for b in boxes
+        ), f
+    legend = next(n for n in nodes(doc) if n["props"].get("text") == "design only")
+    assert legend["geometry"]["y"] >= max(f["y"] + f["height"] for f in fields)
+
+
+def test_a_long_basis_and_date_wrap_whole_instead_of_being_cut(panel_graph) -> None:
+    from dataclasses import replace
+
+    view = device_card(panel_graph, "XR01:QF1")
+    chip = "survey · laser tracker over the whole girder"
+    date = "Friday, August 14, 2026"
+
+    def long(item):
+        if not isinstance(item, Calibrations):
+            return item
+        rows = (replace(item.rows[0], chip=chip, date=date), *item.rows[1:])
+        return replace(item, rows=rows)
+
+    sections = tuple(replace(s, items=tuple(long(i) for i in s.items)) for s in view.sections)
+    doc = stub_render(replace(view, sections=sections), panel_graph)
+    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
+    assert not [t for t in texts if t.endswith("…") and (t[:6] in chip or t[:6] in date)]
+    joined = " ".join(texts)
+    for word in ("laser", "girder", "August", "2026"):
+        assert word in joined
