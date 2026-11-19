@@ -1107,7 +1107,12 @@ def test_follows_says_for_each_pair_whether_the_simulation_follows_it(
 
     follows = _view(built_demo.build_dir, FOLLOWS)
     channels = {str(c["id"]): c for c in built_demo.facility["channels"]}
-    expected = [follow._asdict() for follow in pair_follows(channels)]
+    expected = [
+        {key: value for key, value in follow._asdict().items() if value is not None}
+        for follow in pair_follows(channels)
+    ]
+    assert {pair.get("copy") for pair in expected} <= {"value", None}
+    assert all(("copy" in pair) == (pair["follow"] != "not followed") for pair in expected)
     assert follows["schema"] == "osprey.facility.follows/1"
     assert follows["pairs"] == expected
     assert follows["totals"] == {
@@ -1121,6 +1126,59 @@ def test_follows_says_for_each_pair_whether_the_simulation_follows_it(
         assert _channel(variables, pair["setpoint"])["pair"] == followed.get(
             pair["setpoint"], pair["setpoint"]
         )
+
+
+def _a_command_status_pair(built: BuiltProject) -> tuple[str, str]:
+    """A followed two-state setpoint and readback of the demo that no other seed or scenario names."""
+    channels = {str(c["id"]): c for c in built.facility["channels"]}
+    named = json.dumps(
+        [c.get("simulation") for c in built.facility["channels"]]
+        + list(built.facility.get("scenarios", []))
+    )
+
+    def keep(sp: str, rb: str) -> bool:
+        return channels[sp].get("value_type") == "bool" and sp not in named and rb not in named
+
+    return _a_followed_pair_where(built, keep)
+
+
+def _a_followed_pair_where(built: BuiltProject, keep: Any) -> tuple[str, str]:
+    from osprey.facility.pairing import FOLLOWED_DEFAULT, pair_follows
+
+    channels = {str(c["id"]): c for c in built.facility["channels"]}
+    return next(
+        (follow.setpoint, follow.readback)
+        for follow in pair_follows(channels)
+        if follow.follow == FOLLOWED_DEFAULT and keep(follow.setpoint, follow.readback)
+    )
+
+
+def test_a_setpoint_of_other_labels_is_followed_by_index_into_the_texture(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    from osprey_connectors.simulation.texture import TextureModel
+
+    setpoint, readback = _a_command_status_pair(built_demo)
+    variables, follows = _render_follows(
+        tmp_path,
+        built_demo,
+        {
+            setpoint: {"options": ["Clear", "Set"], "simulation": None},
+            readback: {"options": ["Off", "On"], "simulation": {"follows": setpoint}},
+        },
+    )
+    entry = next(p for p in follows["pairs"] if p["readback"] == readback)
+    assert (entry["follow"], entry["copy"]) == ("seed", "index")
+    assert entry["labels"] == [["Clear", "Off"], ["Set", "On"]]
+    assert _channel(variables, setpoint)["pair"] == readback
+
+    seeds = _view(tmp_path / "render", SEEDS)
+    # A command may be read-only in the demo's limits; the copy is under test, not the limit.
+    _channel(variables, setpoint)["writable"] = True
+    model = TextureModel(variables, seeds)
+    assert model.get([setpoint, readback]) == {setpoint: "Clear", readback: "Off"}
+    model.set({setpoint: "Set"})
+    assert model.get([setpoint, readback]) == {setpoint: "Set", readback: "On"}
 
 
 def test_a_readback_seed_following_none_stops_the_simulation_following_it(

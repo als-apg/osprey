@@ -180,6 +180,69 @@ def test_a_readback_seed_naming_its_setpoint_makes_the_pair_followed() -> None:
     assert simulated_pairs(channels) == {"RB": "SP"}
 
 
+def _index_follow(setpoint: dict[str, Any]) -> Any:
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", **setpoint),
+        **_rb(
+            "STS",
+            "power_on_status",
+            value_type="enum",
+            options=["Off", "On"],
+            simulation={"follows": "CMD"},
+        ),
+    }
+    (follow,) = pair_follows(channels)
+    return follow, simulated_pairs(channels)
+
+
+def test_a_seed_follows_a_labelled_setpoint_of_other_labels_by_index() -> None:
+    follow, simulated = _index_follow({"value_type": "bool", "options": ["Clear", "Set"]})
+    assert (follow.follow, follow.copy) == (FOLLOWED_SEED, "index")
+    assert follow.labels == [["Clear", "Off"], ["Set", "On"]]
+    assert follow.why == "the readback's seed follows this setpoint; the state is copied by index"
+    assert simulated == {"STS": "CMD"}
+
+
+def test_a_seed_follows_a_number_setpoint_by_index() -> None:
+    follow, simulated = _index_follow({"value_type": "float"})
+    assert (follow.follow, follow.copy) == (FOLLOWED_SEED, "index")
+    assert follow.labels == [[0, "Off"], [1, "On"]]
+    assert simulated == {"STS": "CMD"}
+
+
+@pytest.mark.parametrize(
+    ("setpoint", "why"),
+    [
+        (
+            {"value_type": "enum", "options": ["A", "B", "C"]},
+            "the setpoint and the readback hold different numbers of labels",
+        ),
+        ({"value_type": "string"}, "the setpoint holds neither labels nor a number"),
+    ],
+    ids=["label-count", "string"],
+)
+def test_a_seed_cannot_follow_by_index_without_a_state_for_each_label(
+    setpoint: dict[str, Any], why: str
+) -> None:
+    follow, simulated = _index_follow(setpoint)
+    assert (follow.follow, follow.copy, follow.why) == (NOT_FOLLOWED, None, why)
+    assert simulated == {}
+
+
+def test_without_a_seed_differing_labels_are_not_followed() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", value_type="bool", options=["Clear", "Set"]),
+        **_rb("STS", "power_on_status", value_type="bool", options=["Off", "On"]),
+    }
+    (follow,) = pair_follows(channels)
+    assert (follow.follow, follow.copy) == (NOT_FOLLOWED, None)
+
+
+def test_a_followed_pair_of_one_type_copies_its_value() -> None:
+    (follow,) = pair_follows({**_sp("SP", pair="RB"), **_rb("RB")})
+    assert (follow.follow, follow.copy, follow.labels) == (FOLLOWED_DEFAULT, "value", None)
+
+
 def test_a_command_pairs_with_its_status_of_another_type() -> None:
     channels = {
         **_sp("CMD", "power_on_command", value_type="enum", options=["Idle", "On", "Off"]),

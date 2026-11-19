@@ -656,14 +656,28 @@ its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``.
 ``follows: <setpoint>`` makes the copy where the default does not, and
 ``follows: none`` stops it where the default makes it. A followed readback
 starts at its setpoint's value and takes each write at once, with its own noise
-and drift on top. The build stops with ``seed-invalid`` when ``follows`` sits
-on a channel no setpoint names, on a readback several setpoints name, names a
-setpoint whose ``pair`` is another channel, or names a setpoint of another
-type. It stops too when a followed readback's seed gives it a value of its own
-(``topoff``, ``topoff_lifetime``, ``linear`` or ``pulse``): a write to the
-setpoint would replace that value, so state ``follows: none`` on it. The simulator view's ``follows.json`` lists every pair with whether the
-simulation follows it (``default``, ``seed`` or ``not followed``) and why, and
-counts each.
+and drift on top.
+
+A labelled readback (``bool`` or ``enum``) may follow a setpoint of another
+type through ``follows: <setpoint>``, and then takes the state of the same
+index. From a labelled setpoint of as many labels, ``Clear / Set`` into
+``Off / On`` copies ``Set`` as ``On``. From a setpoint that holds a number,
+``1`` (or ``1.0``) holds the readback's second label, and a fraction or a number
+past its labels is refused and holds nothing. The default never copies by
+index: only a seed asks for it.
+
+The build stops with ``seed-invalid`` when ``follows`` sits on a channel no
+setpoint names, on a readback several setpoints name, names a setpoint whose
+``pair`` is another channel, or names a setpoint it cannot copy: one of another
+type into an unlabelled readback, one with a different number of labels, or one
+that holds neither labels nor a number. It stops when a number setpoint's start
+value is no index of the readback's labels. It stops too when a followed
+readback's seed gives it a value of its own (``topoff``, ``topoff_lifetime``,
+``linear`` or ``pulse``): a write to the setpoint would replace that value, so
+state ``follows: none`` on it. The simulator view's ``follows.json`` lists every
+pair with whether the simulation follows it (``default``, ``seed`` or
+``not followed``), why, and for a followed pair how it copies (``value`` or
+``index``, with the label of each index), and counts each.
 
 .. code-block:: yaml
 

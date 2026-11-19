@@ -50,8 +50,11 @@ from osprey.facility.errors import (
     quoted_slots,
 )
 from osprey.facility.pairing import (
+    COPY_INDEX,
     FOLLOWS_NONE,
     NOT_FOLLOWED,
+    index_copy,
+    labels_of,
     must_agree,
     pair_follows,
     same_type,
@@ -1809,17 +1812,17 @@ class _Records:
             pair = str(channel.get("pair", address))
             if pair != address:
                 named.setdefault(pair, []).append(address)
-        followed = {
-            follow.readback: follow.setpoint
-            for follow in pair_follows(self.index.channels)
-            if follow.follow != NOT_FOLLOWED
-        }
+        follows = pair_follows(self.index.channels)
+        followed = {f.readback: f.setpoint for f in follows if f.follow != NOT_FOLLOWED}
+        by_index = {f.readback for f in follows if f.copy == COPY_INDEX}
         for pair, setpoints in sorted(named.items()):
             for address in setpoints:
                 channel = self.index.channels[address]
                 yield from self._pair(address, channel, pair, simulated=pair in followed)
         yield from self._follows(named)
         yield from self._followed_own_values(followed)
+        for readback in sorted(by_index):
+            yield from self._index_start(followed[readback], readback)
 
     def _followed_own_values(self, followed: Mapping[str, str]) -> Iterator[FacilityBuildError]:
         """A readback the simulation follows takes its setpoint's value, so its seed
@@ -1864,11 +1867,9 @@ class _Records:
                 problem = f"`follows` names {follows}, whose `pair` is not {address}"
                 remedy = f"name {setpoints[0]}, whose `pair` is {address}, or `none`"
             elif not same_type(self.index.channels[follows], channel):
-                problem = (
-                    f"`follows` names {follows}, which holds values of another type; "
-                    "the simulation copies the setpoint's value"
+                problem, remedy = _follows_across_types(
+                    follows, self.index.channels[follows], address, channel
                 )
-                remedy = f"give {follows} and {address} one type, or remove `follows`"
             if problem is not None and remedy is not None:
                 yield self._error(
                     "seed-invalid", "channel", address, self._seed_files(channel), problem, remedy
@@ -1972,6 +1973,48 @@ class _Records:
                 self._seed_files(self.index.channels[readback]),
                 derived=_derived_pair(self.index.channels[setpoint]),
             )
+
+    def _start_value(self, address: str) -> tuple[Any, bool]:
+        """A channel's start value from its seed, else its type's zero; and whether it was read."""
+        seed = self.index.channels[address].get("simulation")
+        if isinstance(seed, dict) and "nominal" in seed:
+            value, refused = self._coerce(address, seed["nominal"])
+            return value, refused is None
+        from osprey_connectors.simulation.values import zero
+
+        channel = self.index.channels[address]
+        return zero(self._type(address), channel.get("options"), channel.get("shape")), True
+
+    def _index_start(self, setpoint: str, readback: str) -> Iterator[FacilityBuildError]:
+        """A readback copied by index starts at the state its setpoint's start value names."""
+        if setpoint in self.index.wired or readback in self.index.wired:
+            return
+        if setpoint in self.broken or readback in self.broken:
+            return
+        theirs, read = self._start_value(setpoint)
+        if not read:
+            return
+        labels = labels_of(self.index.channels[readback]) or []
+        mine = labels_of(self.index.channels[setpoint])
+        index = mine.index(str(theirs)) if mine is not None else _as_index(theirs, len(labels))
+        files = self._seed_files(self.index.channels[readback])
+        if index is None:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                readback,
+                files,
+                f"the start value {theirs} of {setpoint} is no index of {readback}'s "
+                f"{len(labels)} labels",
+                f"start {setpoint} at an integer from 0 to {len(labels) - 1}",
+            )
+            return
+        seed = self.index.channels[readback].get("simulation")
+        if not isinstance(seed, dict) or "nominal" not in seed:
+            return
+        own, refused = self._coerce(readback, seed["nominal"])
+        if refused is None and own != labels[index]:
+            yield paired_nominal_error(readback, seed["nominal"], setpoint, labels[index], files)
 
     # --- tolerance -----------------------------------------------------------------
 
@@ -2863,6 +2906,44 @@ def _locked(record: Mapping[str, Any]) -> bool:
         record.get("writable") is False
         or record.get("min_value") is None
         or record.get("max_value") is None
+    )
+
+
+def _as_index(value: Any, count: int) -> int | None:
+    """``value`` as an index of ``count`` labels: an integral, finite number in range."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not math.isfinite(value) or not float(value).is_integer():
+        return None
+    index = int(value)
+    return index if 0 <= index < count else None
+
+
+def _follows_across_types(
+    setpoint: str, mine: Mapping[str, Any], readback: str, theirs: Mapping[str, Any]
+) -> tuple[str | None, str | None]:
+    """The refusal of ``follows`` across types, or ``(None, None)`` when the state copies by index."""
+    labels, _why = index_copy(mine, theirs)
+    if labels is not None:
+        return None, None
+    own = labels_of(theirs)
+    if own is None:
+        return (
+            f"`follows` names {setpoint}, which holds values of another type; "
+            "the simulation copies the setpoint's value",
+            f"give {setpoint} and {readback} one type, or remove `follows`",
+        )
+    other = labels_of(mine)
+    if other is not None:
+        return (
+            f"`follows` names {setpoint}, which holds {len(other)} labels to {readback}'s "
+            f"{len(own)}; the state is copied by index",
+            f"give {setpoint} and {readback} as many labels, or remove `follows`",
+        )
+    return (
+        f"`follows` names {setpoint}, which holds neither labels nor a number; the state "
+        "is copied by index",
+        f"give {setpoint} labels or a number type, or remove `follows`",
     )
 
 
