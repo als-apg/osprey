@@ -279,10 +279,13 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
     shutil.copytree(PANELS_DIR, tables)
     from osprey.facility.panels.tables import COLUMNS
 
-    (tables / "channel_roles.csv").write_text(  # a row stating what its signal gives anyway
-        ",".join(COLUMNS["channel_roles.csv"])
-        + "\nQuadrupole,current_readback,*:Current-RB,device,value,,,,,stated,S,1,l\n"
-    )
+    roles_header = ",".join(COLUMNS["channel_roles.csv"])
+    restating = "Quadrupole,current_readback,*:Current-RB,device,value,,,,,stated,S,1,l"
+    # drawn as its signal's default is, but a stated entry is a press, and a default
+    # role is none: without the row the card loses the entry
+    pressing = "Quadrupole,current_setpoint,*:Current-SP,device,entry,,,,,stated,S,1,l"
+    # last: without it, its channel plays the same role in the same place of the order
+    (tables / "channel_roles.csv").write_text(f"{roles_header}\n{pressing}\n{restating}\n")
 
     def run(verb: str, *args: str) -> Result:
         return CliRunner().invoke(
@@ -328,11 +331,13 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
             cells[2] = ""
         kept.append(",".join(cells))
     (tables / "record_types.csv").write_text("\n".join(kept) + "\n")
+    (tables / "channel_roles.csv").write_text(f"{roles_header}\n{pressing}\n")
     again = str(tmp_path / "again")
     assert run("write", "--out", again).exit_code == 0
     result = run("check", "--out", again)
     assert "redundant: pairs.csv" not in result.output
     assert "redundant: record_types.csv" not in result.output
+    assert "redundant: channel_roles.csv" not in result.output
 
     def screens(root: str) -> dict[str, str]:
         """Every screen, its stamp of the facility and tables masked."""
@@ -344,3 +349,8 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
         }
 
     assert screens(again) == screens(out)
+    # the row the note does not name: deleting it changes the screens
+    (tables / "channel_roles.csv").write_text(f"{roles_header}\n")
+    without = str(tmp_path / "without")
+    assert run("write", "--out", without).exit_code == 0
+    assert screens(without) != screens(out)

@@ -61,6 +61,7 @@ from osprey.facility import FACILITY_FILE
 from osprey.facility.panels.tables import (
     CALIBRATION_BASES,
     CHANNEL_ROLES,
+    CONTROLS,
     CURVE_PREFIX,
     NAMES,
     PAIRS,
@@ -475,6 +476,20 @@ FACILITY_PAIR = "the facility file"
 _DEFAULT_SHOWN: Mapping[str, str] = MappingProxyType(
     {"setpoint": "entry", "state": "word", "value": "value"}
 )
+
+
+def _role_reading(hits: list[RoleHit]) -> tuple[tuple[Any, ...], ...]:
+    """What a card reads of a device's role hits, in order: each hit's channel,
+    owner, port and join, and its row's role, drawing, unit, scale, label and, for
+    a press, its value, basis and whether a row states it."""
+    return tuple(
+        (
+            h.channel, h.owner, h.port, h.join, h.role.role, h.role.shown_as, h.role.unit,
+            h.role.scale, h.role.label, h.role.press_value,
+            (h.role.basis, h.role.stated) if h.role.shown_as in CONTROLS else None,
+        )
+        for h in hits
+    )  # fmt: skip
 
 
 def signal_role(cls: str, channel: Channel, ruled: bool = False) -> ChannelRole | None:
@@ -1621,7 +1636,11 @@ class PanelGraph:
         Raises:
             KeyError: No such device.
         """
-        found = self._table_roles(device_id)
+        return self._roles(device_id)
+
+    def _roles(self, device_id: str, skip: ChannelRole | None = None) -> list[RoleHit]:
+        """:meth:`roles`, the ``channel_roles.csv`` row *skip* left out."""
+        found = self._table_roles(device_id, skip)
         taken = {hit.channel for hit in found}
         for channel in self.channels(device_id, "device"):
             if channel.thing != device_id or channel.name in taken:
@@ -1639,12 +1658,14 @@ class PanelGraph:
         """Per table, how many rows only restate what the facility file says, no
         column of them read for anything else: a ``pairs.csv`` row its channel's
         ``pair`` states, of basis ``stated`` and with no source; a ``names.csv``
-        short name that is the record's ``label``; and a ``channel_roles.csv`` row of
-        scope ``device`` stating nothing but what every channel it takes gives by
-        default (its ``signal`` as the role, shown as :func:`signal_role` shows it).
-        A deployment can delete them. A row of which only one value is the default
-        is counted in :attr:`redundant_columns` instead."""
+        short name that is the record's ``label``; and a ``channel_roles.csv`` row
+        without which every device it matches plays the same roles, in the same
+        order, with all a card reads of them the same (:func:`_role_reading`): a
+        press, which no default gives, never is. A deployment can delete them. A
+        row of which only one value is the default is counted in
+        :attr:`redundant_columns` instead."""
         verdicts: dict[ChannelRole, bool] = {}
+        matched: dict[int, tuple[ChannelRole, set[str]]] = {}
         for thing in self._things.values():
             if thing.kind != "device" or not self._roles_of.get(thing.cls or ""):
                 continue
@@ -1660,16 +1681,24 @@ class PanelGraph:
                     and not (row.unit or row.scale or row.press_value is not None or row.label)
                 )
                 verdicts[row] = verdicts.get(row, True) and same
+                matched.setdefault(id(row), (row, set()))[1].add(thing.id)
+        for row, devices in matched.values():
+            if verdicts.get(row):  # the cheap test passed: the exact one decides
+                verdicts[row] = all(
+                    _role_reading(self._roles(d)) == _role_reading(self._roles(d, row))
+                    for d in sorted(devices)
+                )
         found = dict(self.redundant)
         roles = sum(verdicts.values())
         if roles:
             found[CHANNEL_ROLES] = roles
         return found
 
-    def _table_roles(self, device_id: str) -> list[RoleHit]:
-        """The role hits ``channel_roles.csv`` gives a device (:meth:`roles`)."""
+    def _table_roles(self, device_id: str, skip: ChannelRole | None = None) -> list[RoleHit]:
+        """The role hits ``channel_roles.csv`` gives a device (:meth:`roles`), the row
+        *skip* left out."""
         thing = self.thing(device_id, "device")
-        rows = self._roles_of.get(thing.cls or "", [])
+        rows = [r for r in self._roles_of.get(thing.cls or "", []) if r is not skip]
         if not rows:
             return []
         edges = self.neighbours(device_id, "device")

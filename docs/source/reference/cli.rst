@@ -1468,7 +1468,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    apart, while a choice's or an action's label is the word on its press). ``check``
    prints one ``redundant: <table>: <n> rows`` line per table whose rows only
    restate the facility file or these defaults with no column of them read for
-   anything else (a ``pairs.csv`` row of basis ``stated`` and no source), so a
+   anything else (a ``pairs.csv`` row of basis ``stated`` and no source; a
+   ``channel_roles.csv`` row without which every device it matches plays the same
+   roles in the same order, read the same, so never a press), so a
    deployment can delete them, and one ``redundant: record_types.csv drawn_as``
    line for the rows whose ``drawn_as`` is their role's: their record type is
    read, so the row stays and only that value may be left empty.
