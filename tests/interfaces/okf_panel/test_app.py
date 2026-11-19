@@ -673,7 +673,7 @@ def test_relative_bundle_path_resolves_against_config_dir(monkeypatch, tmp_path)
     config_yml = tmp_path / "config.yml"
     config_yml.write_text("", encoding="utf-8")
     _write_min_concept(tmp_path / "kb", "devices/bpm")
-    # app.py imports resolve_config_path lazily from this module → patch here.
+    # app.py imports locate_config lazily from this module → patch here.
     monkeypatch.setattr("osprey_connectors.config.locate_config", lambda: config_yml)
 
     c = TestClient(create_app("kb"))  # relative

@@ -9,7 +9,7 @@ malformed section never reaches a session.
 
 The file is read here, uncached, rather than through ``load_config``: an edit
 must reach the next review, and a defect in some other section is not this
-feature's concern. It is not read through ``load_osprey_config`` either, which
+feature's concern. It is not read through ``loaded_or_empty`` either, which
 would turn a broken file into "off".
 """
 

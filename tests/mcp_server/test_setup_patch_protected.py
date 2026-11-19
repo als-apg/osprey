@@ -55,7 +55,7 @@ def _get_setup_patch():
 def render(tmp_path):
     """A render holding both patchable files, with the config path pinned.
 
-    ``resolve_config_path`` is patched in the tool's own namespace (the tool
+    ``locate_config`` is patched in the tool's own namespace (the tool
     resolves the project root as its parent), so the test never has to stand up
     a real repo. Audit entries land in the test's own spool.
     """

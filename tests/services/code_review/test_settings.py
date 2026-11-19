@@ -64,7 +64,7 @@ MALFORMED_ENABLED_SECTIONS = [
 
 @pytest.fixture
 def config_file(tmp_path, monkeypatch) -> Path:
-    """A config path ``resolve_config_path`` answers with; the file is not written yet."""
+    """A config path ``locate_config`` answers with; the file is not written yet."""
     path = tmp_path / "config.yml"
     monkeypatch.setenv("OSPREY_CONFIG", str(path))
     return path

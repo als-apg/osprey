@@ -3,7 +3,7 @@
 The artifact gallery is a long-lived daemon serving the shared
 ``_agent_data/artifacts/`` store. If an MCP server roots its ArtifactStore at
 the session-relocated path (``OSPREY_SESSION_ID`` appends
-``sessions/<id>/`` in ``resolve_agent_data_root``), everything the session
+``sessions/<id>/`` in ``session_agent_data_root``), everything the session
 saves lands in a store the gallery never reads — artifacts silently vanish
 from the UI. Session attribution belongs in the index
 (``ArtifactEntry.session_id``), never in the store path

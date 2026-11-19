@@ -373,7 +373,7 @@ def test_a_failing_append_is_recorded(spool: Path, monkeypatch):
 
 def test_an_unresolvable_root_returns_none(monkeypatch):
 
-    def boom(config=None):  # noqa: ARG001 - mirrors resolve_project_root
+    def boom(config=None):  # noqa: ARG001 - mirrors process_repo_root
         raise RuntimeError("no root")
 
     monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", boom)

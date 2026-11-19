@@ -383,7 +383,7 @@ def _old_homes(section: object) -> list[tuple[str, object]]:
     return homes
 
 
-def archiver_settings_errors(section: object) -> list[str]:
+def _old_archiver_settings_errors(section: object) -> list[str]:
     """The build lint as ``archiver_selection.archiver_settings_errors`` spelled it at H2."""
     if not isinstance(section, dict):
         return []
@@ -413,9 +413,9 @@ def archiver_settings_errors(section: object) -> list[str]:
 
 @pytest.mark.parametrize("section", ARCHIVER_SECTIONS)
 def test_the_archiver_section_names_what_the_build_lint_names(section):
-    assert list(ArchiverSection.read(copy.deepcopy(section)).problems) == archiver_settings_errors(
-        section
-    )
+    assert list(
+        ArchiverSection.read(copy.deepcopy(section)).problems
+    ) == _old_archiver_settings_errors(section)
 
 
 def test_the_archiver_section_keeps_where_its_settings_are_written():

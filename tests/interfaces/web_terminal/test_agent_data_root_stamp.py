@@ -99,7 +99,7 @@ def shared_root(tmp_path, monkeypatch):
     Rebinding the resolver, not stamping the variable, for two reasons — the
     first of which makes the choice mandatory rather than merely preferable:
 
-    * ``resolve_agent_data_root`` (``operator_session.py``) imports
+    * ``shared_data_root`` (``operator_session.py``) imports
       ``process_agent_data_root`` at call time and never reads
       ``OSPREY_AGENT_DATA_ROOT`` at all. A stamp would not reach it, so the
       root these spawn seams report would still be the real repo's.
@@ -297,7 +297,7 @@ class TestTheStampTravelsWithTheSessionKey:
             )
 
     def test_the_root_is_the_shared_one_not_the_session_scoped_one(self, client, shared_root):
-        """``resolve_agent_data_root`` answers the SHARED root on purpose: the
+        """``shared_data_root`` answers the SHARED root on purpose: the
         state file and the posture store span sessions, and a path carrying
         ``sessions/<OSPREY_SESSION_ID>`` could not be reproduced by a reader
         outside the session's own environment.

@@ -43,7 +43,7 @@ def project_dir(tmp_path):
     the wrong zone still passed.
 
     Returns the RENDER directory — which is what ``setup_inspect`` computes as
-    its ``project_root`` (``resolve_config_path().parent``), so the fixture's
+    its ``project_root`` (``locate_config().parent``), so the fixture's
     return value and the tool's own notion of the project agree. The repo root
     is its parent.
 
@@ -116,7 +116,7 @@ def project_dir(tmp_path):
 
 
 def _patch_config_path(project_dir: Path):
-    """Return a context manager that patches resolve_config_path to return project_dir."""
+    """Return a context manager that patches locate_config to return project_dir."""
     return patch(
         "osprey.mcp_server.workspace.tools.setup.locate_config",
         return_value=project_dir / "config.yml",

@@ -754,7 +754,7 @@ class TestPutProtectedDocumentDiff:
         nothing therefore compares equal.
 
         It is inert, and the route's own note spells out why:
-        ``simulation.state_dir`` is read through ``dotted_config_str``, which
+        ``simulation.state_dir`` is read through ``LoadedConfig.simulation_state_dir``, which
         answers ``None`` for anything that is not a non-empty string, so a block
         there reads as unset and the runtime takes the default the absent key
         already gave.

@@ -21,7 +21,7 @@ def archiver_settings_key(section: object) -> str:
     return archiver_selection.archiver_settings_key(ArchiverSection.read(section))
 
 
-def archiver_settings_errors(section: object) -> list[str]:
+def section_problems(section: object) -> list[str]:
     """The build's lint: the section's problems, as it reads them."""
     return list(ArchiverSection.read(section).problems)
 
@@ -116,32 +116,30 @@ class TestArchiverSettingsErrors:
     """The build's lint over a rendered ``archiver:`` section."""
 
     def test_a_block_keyed_by_the_dotted_path_is_named(self):
-        assert archiver_settings_errors({"type": "a.b.C", "a.b.C": {"s": 1}}) == [
+        assert section_problems({"type": "a.b.C", "a.b.C": {"s": 1}}) == [
             "`a.b.C:` under `archiver:` is a block no archiver reads; the selected "
             "archiver, a.b.C, takes its settings from `archiver.settings`"
         ]
 
     def test_a_block_keyed_by_the_last_path_segment_is_named(self):
-        (error,) = archiver_settings_errors({"type": "a.b.C", "C": {"s": 1}})
+        (error,) = section_problems({"type": "a.b.C", "C": {"s": 1}})
         assert "`C:`" in error
 
     def test_a_misspelled_builtin_block_is_named(self):
-        (error,) = archiver_settings_errors(
-            {"type": "epics_archiver", "epcis_archiver": {"url": "u"}}
-        )
+        (error,) = section_problems({"type": "epics_archiver", "epcis_archiver": {"url": "u"}})
         assert "`epcis_archiver:`" in error
 
     def test_both_spellings_at_once_are_named(self):
         section = {"type": "epics_archiver", "settings": {}, "epics_archiver": {"url": "u"}}
         with pytest.raises(ValueError) as refusal:
             resolve_archiver_settings(section)
-        assert archiver_settings_errors(section) == [str(refusal.value)]
+        assert section_problems(section) == [str(refusal.value)]
 
     def test_a_settings_value_that_is_not_a_block_is_named(self):
         section = {"type": "a.b.C", "settings": "x"}
         with pytest.raises(ValueError) as refusal:
             resolve_archiver_settings(section)
-        assert archiver_settings_errors(section) == [str(refusal.value)]
+        assert section_problems(section) == [str(refusal.value)]
 
     @pytest.mark.parametrize(
         "section",
@@ -156,10 +154,10 @@ class TestArchiverSettingsErrors:
         ],
     )
     def test_what_a_reader_takes_passes(self, section):
-        assert archiver_settings_errors(section) == []
+        assert section_problems(section) == []
 
     def test_a_scalar_is_not_a_block(self):
-        assert archiver_settings_errors({"type": "a.b.C", "url": "x"}) == []
+        assert section_problems({"type": "a.b.C", "url": "x"}) == []
 
 
 def test_the_known_archiver_names_are_the_factory_builtins():

@@ -151,14 +151,14 @@ def shared_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     Three seams, all of them read during the lifespan rather than by the test:
 
-    * ``resolve_agent_data_root`` is what ``_launch_sidecar`` hands the sidecar
+    * ``shared_data_root`` is what ``_launch_sidecar`` hands the sidecar
       as its shared root, so repointing it puts ``notebooks/`` and the sidecar's
       persistent state under *tmp_path* instead of the developer's own
       ``var/agent_data``. It is imported inside the function, so the seam is the
       attribute on its own module.
     * ``OSPREY_CONFIG`` only has to be SET — the sidecar's preflight refuses to
       launch without it and reads nothing out of it.
-    * ``routes.websocket`` binds ``resolve_agent_data_root`` with a
+    * ``routes.websocket`` binds ``shared_data_root`` with a
       module-level ``from ... import``, so the name it calls is its own and the
       patch on ``operator_session`` never reaches it. That is the root
       ``write_binding`` writes under; unpatched it derives the cwd, dropping

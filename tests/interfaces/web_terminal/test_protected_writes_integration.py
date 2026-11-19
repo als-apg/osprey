@@ -708,7 +708,7 @@ def mcp_render(tmp_path):
 
     Mirrors ``tests/mcp_server/test_setup_patch_protected.py``: the tool
     resolves its project root as the config file's parent, so pinning
-    ``resolve_config_path`` is the whole setup.
+    ``locate_config`` is the whole setup.
     """
     (tmp_path / "config.yml").write_text(
         yaml.dump(
