@@ -120,9 +120,9 @@ def resolve_agent_data_root(app: Any = None) -> str:
         An absolute path as a string, ready to be stamped into a child env.
     """
     try:
-        from osprey_connectors.workspace import resolve_shared_data_root
+        from osprey.utils.config_paths import process_agent_data_root
 
-        return str(resolve_shared_data_root())
+        return str(process_agent_data_root())
     except Exception:  # a spawn must not fail on a config load
         state = getattr(app, "state", None)
         fallback = getattr(state, "workspace_dir", None) or Path.cwd()
@@ -223,7 +223,7 @@ def build_operator_child_env(
     not at all, and a test pins that.
 
     The same key is also stamped as ``OSPREY_SESSION_ID``, which is what
-    :func:`osprey_connectors.workspace.resolve_agent_data_root` reads to scope
+    :func:`osprey.utils.config_paths.session_agent_data_root` reads to scope
     a child's execution root to ``sessions/<key>`` — where the python and
     sandbox executors put their run directories. One key, one root: a
     conversation is one session whichever surface is showing it, so the chat

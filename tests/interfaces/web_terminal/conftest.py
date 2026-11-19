@@ -38,7 +38,7 @@ reads ``agent_data.base_dir`` anchored on the project root and never consults
 ``OSPREY_AGENT_DATA_ROOT``. ``tests/interfaces/conftest.py::_agent_data_root_in_tmp``
 stamps that variable for every test in this tree, and it moves the
 control-context record only. A test that needs its own store patches
-``osprey_connectors.workspace.resolve_shared_data_root``, the name the lifespan
+``osprey.utils.config_paths.process_agent_data_root``, the name the lifespan
 imports at call time, as :func:`isolated_app` does. A lifespan left unpatched
 resolves the store to the checkout's ``var/agent_data``;
 ``tests/conftest.py::agent_data_never_the_checkout`` diverts that to one
@@ -389,7 +389,7 @@ def isolated_app(tmp_path) -> Callable[[], AbstractContextManager[TestClient]]:
             )
             stack.enter_context(
                 patch(
-                    "osprey_connectors.workspace.resolve_shared_data_root",
+                    "osprey.utils.config_paths.process_agent_data_root",
                     return_value=agent_data_root,
                 )
             )

@@ -151,9 +151,8 @@ def test_read_draft_resolves_dir_without_dict_injection(tmp_path, monkeypatch):
     test patches the underlying resolver instead, exercising the exact code
     path production runs through.
     """
-    import osprey_connectors.workspace as ws_mod
 
-    monkeypatch.setattr(ws_mod, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr("osprey.utils.config_paths.process_agent_data_root", lambda: tmp_path)
 
     # No NameError, no crash — just a clean "not found".
     assert read_draft("draft-0000000dead0") is None

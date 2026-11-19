@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.config_paths import loaded_or_empty
+from osprey.utils.config_paths import loaded_or_empty, session_agent_data_root
 from osprey.utils.workspace import repo_root_for_agent_data
 from osprey_connectors.config import locate_config
 from osprey_connectors.testing import clear_config_state
@@ -29,7 +29,6 @@ from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
     rendered_config_path,
-    resolve_agent_data_root,
     resolve_path,
     resolve_project_root,
     resolve_shared_data_root,
@@ -218,12 +217,12 @@ class TestResolveAgentDataRoot:
         """The property the split turns on: data lands beside ``build/``, not in it."""
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_agent_data_root() == (tmp_path / "var" / "agent_data").resolve()
+        assert session_agent_data_root() == (tmp_path / "var" / "agent_data").resolve()
 
     def test_default_base_dir_is_the_state_zone(self, tmp_path, monkeypatch):
         cfg = _write_repo(tmp_path, f"project_root: {tmp_path}\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_agent_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
+        assert session_agent_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
 
     def test_configured_project_root_wins_over_the_config_location(self, tmp_path, monkeypatch):
         """A container config names the runtime root; the build path it came from is stale."""
@@ -233,36 +232,36 @@ class TestResolveAgentDataRoot:
             tmp_path, f"project_root: {runtime_root}\nagent_data:\n  base_dir: var/agent_data\n"
         )
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_agent_data_root() == (runtime_root / "var" / "agent_data").resolve()
+        assert session_agent_data_root() == (runtime_root / "var" / "agent_data").resolve()
 
     def test_custom_base_dir(self, tmp_path, monkeypatch):
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: custom/data\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_agent_data_root() == (tmp_path / "custom" / "data").resolve()
+        assert session_agent_data_root() == (tmp_path / "custom" / "data").resolve()
 
     def test_absolute_base_dir_is_left_alone(self, tmp_path, monkeypatch):
         elsewhere = tmp_path / "elsewhere"
         cfg = _write_repo(tmp_path, f"agent_data:\n  base_dir: {elsewhere}\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_agent_data_root() == elsewhere.resolve()
+        assert session_agent_data_root() == elsewhere.resolve()
 
     def test_defaults_when_no_config(self, tmp_path, monkeypatch):
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.chdir(tmp_path)
-        assert resolve_agent_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
+        assert session_agent_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
 
     def test_session_id_appends_isolation_path(self, tmp_path, monkeypatch):
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         monkeypatch.setenv("OSPREY_SESSION_ID", "sess-123")
         expected = (tmp_path / "var" / "agent_data").resolve() / "sessions" / "sess-123"
-        assert resolve_agent_data_root() == expected
+        assert session_agent_data_root() == expected
 
     def test_no_session_id_has_no_sessions_segment(self, tmp_path, monkeypatch):
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
-        assert "sessions" not in resolve_agent_data_root().parts
+        assert "sessions" not in session_agent_data_root().parts
 
 
 class TestResolveSharedDataRoot:

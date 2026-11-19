@@ -236,7 +236,7 @@ def _writers(hub, key: str) -> Iterator[object]:
     artifact_store.reset_artifact_store()
     with (
         mock.patch(
-            "osprey_connectors.workspace.resolve_shared_data_root", return_value=hub.project_dir
+            "osprey.utils.config_paths.process_agent_data_root", return_value=hub.project_dir
         ),
         mock.patch.dict("os.environ", {"OSPREY_SESSION_ID": key}),
     ):

@@ -58,9 +58,7 @@ def _groups_of(
     """Load the hub with `stored` seeded; the group of Events and Bluesky, and all groups."""
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    shared_root = patch(
-        "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace
-    )
+    shared_root = patch("osprey.utils.config_paths.process_agent_data_root", return_value=workspace)
     # Events is a URL-backed custom panel, as the demo preset has it.
     panels = [
         {"id": "events", "label": "Events", "url": "http://127.0.0.1:9/dashboard"},

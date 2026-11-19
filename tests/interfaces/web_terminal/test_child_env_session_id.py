@@ -42,7 +42,8 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
 )
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import _control_state, testing, workspace
+from osprey.utils.config_paths import session_agent_data_root
+from osprey_connectors import _control_state, testing
 from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
@@ -67,7 +68,7 @@ def shared_root(tmp_path, monkeypatch):
     monkeypatch.delenv(SESSION_ID_ENV, raising=False)
     with (
         patch(
-            "osprey_connectors.workspace.resolve_shared_data_root",
+            "osprey.utils.config_paths.process_agent_data_root",
             return_value=root,
         ),
         patch.object(_control_state, "resolve_shared_data_root", return_value=root),
@@ -166,7 +167,7 @@ class TestBothSurfacesResolveOneRoot:
 
         A flip tears one child down and starts the other under the same key.
         Resolved from either child's environment,
-        :func:`osprey_connectors.workspace.resolve_agent_data_root` has to name
+        :func:`osprey.utils.config_paths.session_agent_data_root` has to name
         the same directory, or the conversation's execution artefacts land in
         two places.
         """
@@ -188,7 +189,7 @@ class TestBothSurfacesResolveOneRoot:
         """Resolve the execution root a child holding *env* would see."""
         with (
             patch("osprey.utils.config_paths.loaded_or_empty", return_value={}),
-            patch.object(workspace, "resolve_project_root", return_value=project_root),
+            patch("osprey.utils.config_paths.process_repo_root", return_value=project_root),
             patch.dict(
                 os.environ,
                 {SESSION_ID_ENV: env[SESSION_ID_ENV]} if SESSION_ID_ENV in env else {},
@@ -197,7 +198,7 @@ class TestBothSurfacesResolveOneRoot:
         ):
             if SESSION_ID_ENV not in env:
                 os.environ.pop(SESSION_ID_ENV, None)
-            return workspace.resolve_agent_data_root()
+            return session_agent_data_root()
 
 
 # --------------------------------------------------------------------------- #

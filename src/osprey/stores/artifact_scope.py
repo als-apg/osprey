@@ -231,9 +231,9 @@ def _read_pointer(launch: str, root: Path | None) -> str | None:
         return None
     try:
         if root is None:
-            from osprey_connectors.workspace import resolve_shared_data_root
+            from osprey.utils.config_paths import process_agent_data_root
 
-            root = resolve_shared_data_root()
+            root = process_agent_data_root()
         text = (Path(root) / CLI_POINTER_DIR / launch).read_text(encoding="utf-8")
     except Exception:
         logger.debug("No readable CLI transcript pointer for launch %s", launch, exc_info=True)

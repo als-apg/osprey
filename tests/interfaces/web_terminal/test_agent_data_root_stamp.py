@@ -131,7 +131,7 @@ def shared_root(tmp_path, monkeypatch):
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
     with (
         patch(
-            "osprey_connectors.workspace.resolve_shared_data_root",
+            "osprey.utils.config_paths.process_agent_data_root",
             return_value=root,
         ),
         patch.object(_control_state, "resolve_shared_data_root", return_value=root),
@@ -311,7 +311,7 @@ class TestTheStampTravelsWithTheSessionKey:
         so the stamp does too and writer and readers stay on ONE directory.
         """
         with patch(
-            "osprey_connectors.workspace.resolve_shared_data_root",
+            "osprey.utils.config_paths.process_agent_data_root",
             side_effect=RuntimeError("no config"),
         ):
             env = _pty_env(client, SESSION_A)

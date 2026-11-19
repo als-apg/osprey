@@ -372,7 +372,7 @@ class TestSharedPanelTokenOnLaunch:
             patch.object(launcher, "_is_running", return_value=True),
             patch("uvicorn.run"),
             patch(
-                "osprey_connectors.workspace.resolve_shared_data_root",
+                "osprey.utils.config_paths.process_agent_data_root",
                 return_value="/the/data/root",
             ),
             patch(

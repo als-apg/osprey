@@ -38,14 +38,14 @@ _MIME_MAP = {
 def _artifacts_dir() -> Path:
     """The directory the artifact store writes into.
 
-    Derived, never spelled: :func:`osprey_connectors.workspace.resolve_shared_data_root`
+    Derived, never spelled: :func:`osprey.utils.config_paths.process_agent_data_root`
     is the same agent-data root the store resolves, and ``artifacts`` is the
     store's own subdirectory (``ArtifactStore._subdir``). A second hand-built
     join is exactly how this endpoint came to read a directory nothing writes.
     """
-    from osprey_connectors.workspace import resolve_shared_data_root
+    from osprey.utils.config_paths import process_agent_data_root
 
-    return resolve_shared_data_root() / "artifacts"
+    return process_agent_data_root() / "artifacts"
 
 
 def _get_pending_store(request: Request):

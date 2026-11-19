@@ -397,7 +397,7 @@ def module_environment(tmp_path_factory, endpoints):
         patch_env.setenv("OSPREY_CONFIG", str(written))
         patch_env.delenv("OSPREY_EXECUTION_MODE", raising=False)
         patch_env.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
-        patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
+        patch_env.setattr(target_state, "process_agent_data_root", lambda: root)
         testing.invalidate_cache()
         write_control_context(
             root,

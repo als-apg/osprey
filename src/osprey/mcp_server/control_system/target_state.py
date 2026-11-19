@@ -20,10 +20,10 @@ The file lives at::
 
     <repo_root>/<agent_data_base_dir>/control_target/<identity>/server_<server_pid>.json
 
-resolved here through :func:`osprey_connectors.workspace.resolve_shared_data_root`
+resolved here through :func:`osprey.utils.config_paths.process_agent_data_root`
 — that is ``project_root`` (the deployment repo holding ``profile.yml``) joined
 with ``agent_data.base_dir``, defaulting to ``var/agent_data``. The *shared*
-root, deliberately, not :func:`~osprey_connectors.workspace.resolve_agent_data_root`:
+root, deliberately, not :func:`~osprey.utils.config_paths.session_agent_data_root`:
 the session-scoped root appends ``sessions/<OSPREY_SESSION_ID>``, which a reader
 outside the server's environment cannot reproduce.
 
@@ -195,12 +195,12 @@ from pathlib import Path
 from typing import Any, Final
 
 from osprey.audit.posture import posture_session
+from osprey.utils.config_paths import process_agent_data_root
 from osprey_connectors import control_context, write_switch
 from osprey_connectors.connector_types import ControlTarget, is_control_target
 from osprey_connectors.control_context import ServerReport, SwitchProgress, SwitchProgressStatus
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import evolve, parse_instant
-from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
 
@@ -360,7 +360,7 @@ def state_dir() -> Path:
 
     Unset — a CLI run, a dispatch worker, a server outside any web session —
     is the old derivation unchanged, so a caller that patches
-    ``resolve_shared_data_root`` still sees exactly what it patched. The config
+    ``process_agent_data_root`` still sees exactly what it patched. The config
     half stays HERE and is deliberately not delegated: this function raises
     where the store reader answers ``None``, and the web terminal's switch
     route turns that raise into its ``store_unavailable`` 503.
@@ -369,7 +369,7 @@ def state_dir() -> Path:
     if bound is not None:
         return bound
     stamped = write_switch.stamped_agent_data_root()
-    root = stamped if stamped is not None else resolve_shared_data_root()
+    root = stamped if stamped is not None else process_agent_data_root()
     return root / CONTROL_STATE_DIR_NAME / acting_identity()
 
 

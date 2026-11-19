@@ -166,7 +166,7 @@ def test_initialize_workspace_singletons(tmp_path):
     with (
         patch("osprey.stores.artifact_store.initialize_artifact_store") as init,
         patch(
-            "osprey_connectors.workspace.resolve_shared_data_root", return_value=tmp_path
+            "osprey.utils.config_paths.process_agent_data_root", return_value=tmp_path
         ) as resolve,
     ):
         startup.initialize_workspace_singletons()

@@ -24,7 +24,7 @@ container is handed to read. Anchored on the render, the qmd exporter wrote
 empty tree — and a render's readers opened the image's baked bundle at
 ``build/data/...`` while the deployment's live bundle was mounted at
 ``data/...`` one directory over. Same rule as
-:func:`osprey_connectors.workspace.resolve_project_root` and every other
+:func:`osprey.utils.config_paths.process_repo_root` and every other
 relative path the runtime resolves.
 
 One key is the deliberate exception, through :func:`resolve_render_relative_path`:

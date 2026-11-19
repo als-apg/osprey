@@ -56,7 +56,7 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
         The hub's base URL.
     """
     shared_root = patch(
-        "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace_dir
+        "osprey.utils.config_paths.process_agent_data_root", return_value=workspace_dir
     )
     with hub_server(workspace_dir, shared_root) as (base_url, _app):
         yield base_url

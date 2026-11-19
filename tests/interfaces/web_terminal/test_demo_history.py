@@ -121,7 +121,7 @@ class Deployment:
         app_mod = "osprey.interfaces.web_terminal.app"
         patches = (
             patch(
-                "osprey_connectors.workspace.resolve_shared_data_root",
+                "osprey.utils.config_paths.process_agent_data_root",
                 return_value=self.agent_data,
             ),
             patch(f"{app_mod}._load_panel_config", return_value=(set(), [], None)),

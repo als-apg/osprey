@@ -522,7 +522,7 @@ def module_environment(tmp_path_factory):
     root = tmp_path_factory.mktemp("standin-state") / "var" / "agent_data"
     (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+        patch.setattr(target_state, "process_agent_data_root", lambda: root)
         patch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
         testing.invalidate_cache()
         write_control_context(

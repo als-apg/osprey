@@ -209,10 +209,10 @@ def _panel_auth_headers() -> dict[str, str]:
 def _project_panel_token() -> str | None:
     """The panel token this project's launcher-less processes share, if one exists."""
     from osprey.interfaces.web_auth import read_project_panel_token
-    from osprey_connectors.workspace import resolve_shared_data_root
+    from osprey.utils.config_paths import process_agent_data_root
 
     try:
-        return read_project_panel_token(resolve_shared_data_root())
+        return read_project_panel_token(process_agent_data_root())
     except Exception as exc:
         logger.debug("No shared panel token: the project data root did not resolve (%s)", exc)
         return None

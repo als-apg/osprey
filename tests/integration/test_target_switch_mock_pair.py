@@ -196,7 +196,7 @@ def state_root(tmp_path, monkeypatch):
     writes, and the limits violation below is raised one layer under the
     write guard, which only an allowed write reaches.
     """
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
     isolate_verdict_environment(monkeypatch, tmp_path)
     harness_write_control_context(tmp_path, owned_by=None, switch={"live": "on", "va": "on"})
     testing.invalidate_cache()

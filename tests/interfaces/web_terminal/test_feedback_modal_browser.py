@@ -134,7 +134,7 @@ def _hub_server(workspace_dir: Path, data_root: Path) -> Iterator[str]:
     """
     with hub_server(
         workspace_dir,
-        patch("osprey_connectors.workspace.resolve_shared_data_root", return_value=data_root),
+        patch("osprey.utils.config_paths.process_agent_data_root", return_value=data_root),
     ) as (base_url, _app):
         yield base_url
 

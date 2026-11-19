@@ -76,7 +76,7 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     The web terminal stores a file the operator attaches under
     ``<agent-data root>/uploads`` and hands the agent its absolute path, with the
     root anchored on the repo root the config's ``project_root`` names
-    (:func:`osprey_connectors.workspace.resolve_shared_data_root`). settings.json
+    (:func:`osprey.utils.config_paths.process_agent_data_root`). settings.json
     allows the agent to read exactly that directory, so the rule has to name the
     directory the stored paths are under, and a rule relative to the render would
     not: the agent runs in ``build/``, the uploads sit beside it.

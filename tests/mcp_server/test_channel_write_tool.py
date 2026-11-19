@@ -1329,7 +1329,7 @@ def _prepare_split_posture(tmp_path, monkeypatch, target):
     (tmp_path / "config.yml").write_text(config_text)
     root = tmp_path / "var" / "agent_data"
     isolate_verdict_environment(monkeypatch, root)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: root)
     # The target the tool builds its validator from is the deployment's, read
     # off the control-context record; the report carries the display metadata.
     # Its switch is on, so the write verdict lets the call reach the limits.

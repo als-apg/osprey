@@ -323,14 +323,13 @@ class Project:
 @pytest.fixture(params=["named-spool", "project-fallback"])
 def project(request, tmp_path, monkeypatch, spool_zone) -> Iterator[Project]:
     """A project at ``<tmp>/project``; the spool named by a launcher, or not."""
-    import osprey_connectors.workspace as workspace
 
     root = tmp_path / "project"
     root.mkdir()
     (root / "profile.yml").write_text("name: writer-inventory\n", encoding="utf-8")
     monkeypatch.chdir(root)
     monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
-    monkeypatch.setattr(workspace, "resolve_project_root", lambda config=None: root)
+    monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", lambda config=None: root)
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(root))
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root))
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root / "var" / "agent_data"))

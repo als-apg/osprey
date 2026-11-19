@@ -102,10 +102,9 @@ async def artifact_register(
                 # hands out repo-root-relative pointers. A relative path the
                 # agent produced therefore resolved one zone too deep here —
                 # and only in containers, where the two coincide, did it work.
-                from osprey.utils.config_paths import loaded_or_empty
-                from osprey_connectors.workspace import resolve_project_root
+                from osprey.utils.config_paths import process_repo_root
 
-                source = resolve_project_root(loaded_or_empty()) / source
+                source = process_repo_root() / source
             entry = store.save_from_path(
                 source_path=source,
                 title=title,

@@ -355,17 +355,17 @@ def _repo_root() -> Path:
     """The deployment repo root this process belongs to.
 
     Resolved the way every runtime path is anchored
-    (:func:`osprey_connectors.workspace.resolve_project_root`), and accepted
+    (:func:`osprey.utils.config_paths.process_repo_root`), and accepted
     only when it holds the repo's ``profile.yml`` or a rendered config: that
     resolver ends in the working directory when nothing else answers, and a
     guarded-run directory planted wherever a process was started would be one
     no other process of the deployment finds.
     """
-    from osprey.utils.config_paths import loaded_or_empty
+    from osprey.utils.config_paths import process_repo_root
     from osprey.utils.workspace import PROFILE_FILENAME
-    from osprey_connectors.workspace import rendered_config_path, resolve_project_root
+    from osprey_connectors.workspace import rendered_config_path
 
-    root = resolve_project_root(loaded_or_empty())
+    root = process_repo_root()
     markers = (root / PROFILE_FILENAME, rendered_config_path(root), root / "config.yml")
     if not any(marker.is_file() for marker in markers):
         raise GuardedRunDirError(

@@ -266,7 +266,7 @@ def deployment(tmp_path, monkeypatch):
         # ``target_state``'s own root helper, the record through the
         # ``OSPREY_AGENT_DATA_ROOT`` stamp. Anchoring one and not the other is
         # how a lane test reads whatever record this machine last left behind.
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
         isolate_verdict_environment(monkeypatch, tmp_path)
         on = switch if switch is not None else tuple(t for t in (baseline, second) if t)
         write_control_context(tmp_path, target=baseline, switch=dict.fromkeys(on, "on"))

@@ -576,18 +576,18 @@ class ServerLauncher:
 
                 if self._share_panel_token:
                     from osprey.interfaces.web_auth import share_panel_token_with_project
-                    from osprey_connectors.workspace import resolve_shared_data_root
+                    from osprey.utils.config_paths import process_agent_data_root
 
                     # Before the app is built: building it settles the credentials.
-                    share_panel_token_with_project(resolve_shared_data_root())
+                    share_panel_token_with_project(process_agent_data_root())
 
                 if self._pass_workspace:
-                    from osprey_connectors.workspace import resolve_shared_data_root
+                    from osprey.utils.config_paths import process_agent_data_root
 
                     # Launched servers are daemons serving the shared store (they
                     # may be auto-launched from a session-scoped MCP process on
                     # first artifact save).
-                    app = self._app_factory(workspace_root=resolve_shared_data_root())
+                    app = self._app_factory(workspace_root=process_agent_data_root())
                 else:
                     app = self._app_factory()
                 uvicorn.run(app, host=host, port=port, log_level="warning")

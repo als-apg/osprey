@@ -239,7 +239,7 @@ def _hub(tmp_path: Path) -> Iterator[Hub]:
         )
         stack.enter_context(
             patch(
-                "osprey_connectors.workspace.resolve_shared_data_root",
+                "osprey.utils.config_paths.process_agent_data_root",
                 return_value=tmp_path / "agent_data",
             )
         )

@@ -1923,9 +1923,9 @@ def _create_lifespan(
         # start records. Feedback is not a store here: a submission is an entry
         # in the agent record.
         try:
-            from osprey_connectors.workspace import resolve_shared_data_root
+            from osprey.utils.config_paths import process_agent_data_root
 
-            shared_data_root = resolve_shared_data_root()
+            shared_data_root = process_agent_data_root()
         except Exception:  # never let config load block startup
             shared_data_root = workspace_dir
             logger.warning(

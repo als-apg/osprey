@@ -108,7 +108,7 @@ def deployment(tmp_path, monkeypatch):
         # The control-context record lives under the agent-data root; stamping
         # that at tmp_path is what keeps one test's deployment out of another's,
         # and out of whatever record this machine happens to be carrying.
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
         isolate_verdict_environment(monkeypatch, tmp_path)
         testing.invalidate_cache()
 

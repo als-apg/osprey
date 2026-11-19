@@ -161,7 +161,7 @@ def _prepare(tmp_path, monkeypatch, *, session=None, config=_CONFIG):
         monkeypatch.delenv(POSTURE_SESSION_ENV_VAR, raising=False)
     else:
         monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, session)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: root)
     # The real machine is named only so the write verdict can answer for a
     # record on ``live``. Serving stays in process, as for a simulator-only
     # deployment: the binding checks are the subject here, and a connector-host

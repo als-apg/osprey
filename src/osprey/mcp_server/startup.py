@@ -106,10 +106,10 @@ def initialize_workspace_singletons() -> None:
     """
     from osprey.mcp_server.artifact_activity import register_artifact_activity_listeners
     from osprey.stores.artifact_store import initialize_artifact_store
-    from osprey_connectors.workspace import resolve_shared_data_root
+    from osprey.utils.config_paths import process_agent_data_root
 
     with startup_timer("workspace_singletons"):
-        initialize_artifact_store(workspace_root=resolve_shared_data_root())
+        initialize_artifact_store(workspace_root=process_agent_data_root())
         register_artifact_activity_listeners()
 
 

@@ -1399,8 +1399,8 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     """
     import osprey.infrastructure.server_launcher as launcher
     from osprey.stores.artifact_store import ArtifactStore
+    from osprey.utils.config_paths import process_agent_data_root
     from osprey_connectors.testing import clear_config_state
-    from osprey_connectors.workspace import resolve_shared_data_root
 
     config_path = tmp_path / "config.yml"
     config_path.write_text(
@@ -1418,7 +1418,7 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
 
     saved = [
         entry
-        for entry in ArtifactStore(workspace_root=resolve_shared_data_root()).list_entries()
+        for entry in ArtifactStore(workspace_root=process_agent_data_root()).list_entries()
         if entry.tool_source == "osprey_approval"
     ]
     assert len(saved) == 1, "the review notebook was not saved"

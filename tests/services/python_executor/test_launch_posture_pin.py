@@ -237,7 +237,7 @@ class TestMarkerCarriesThePin:
         from osprey.mcp_server.control_system import target_state
 
         root = tmp_path / "var" / "agent_data"
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: root)
         monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
         (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
 

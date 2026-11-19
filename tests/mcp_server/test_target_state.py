@@ -112,7 +112,7 @@ class TestPathContract:
         """A session child's stamped root decides, so its reports land beside its record."""
         stamped = tmp_path / "stamped"
         monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path / "config")
 
         assert target_state.state_dir() == (
             stamped / target_state.CONTROL_STATE_DIR_NAME / acting_identity()
@@ -122,7 +122,7 @@ class TestPathContract:
         """Not just the directory: what a reader globs for is under it too."""
         stamped = tmp_path / "stamped"
         monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path / "config")
 
         target_state.write_server_record(server_pid=4321)
 

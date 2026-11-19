@@ -369,12 +369,13 @@ async def test_cli_lists_from_the_store_roots_pointer(
     store, list_tool, cli_session, tmp_path, monkeypatch
 ):
     """The default agent-data root differs from the store's: the store root's pointer wins."""
-    from osprey_connectors import workspace
 
     elsewhere = tmp_path / "elsewhere"
     (elsewhere / "cli-transcripts").mkdir(parents=True)
     (elsewhere / "cli-transcripts" / cli_session.launch).write_text(OTHER_KEY + "\n")
-    monkeypatch.setattr(workspace, "resolve_shared_data_root", lambda *a, **k: elsewhere)
+    monkeypatch.setattr(
+        "osprey.utils.config_paths.process_agent_data_root", lambda *a, **k: elsewhere
+    )
 
     mine = _plot(store, "Mine", session_id=f"cli:{cli_session.transcript}")
     _plot(store, "Elsewhere", session_id=f"cli:{OTHER_KEY}")

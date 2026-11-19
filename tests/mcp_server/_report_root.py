@@ -39,5 +39,5 @@ def state_root(tmp_path, monkeypatch):
     monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
     return tmp_path

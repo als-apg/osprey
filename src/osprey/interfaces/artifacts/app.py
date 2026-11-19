@@ -1037,9 +1037,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         unregister_artifact_delete_listener,
         unregister_artifact_listener,
     )
-    from osprey_connectors.workspace import resolve_shared_data_root
+    from osprey.utils.config_paths import process_agent_data_root
 
-    data_root: Path = workspace_root if workspace_root is not None else resolve_shared_data_root()
+    data_root: Path = workspace_root if workspace_root is not None else process_agent_data_root()
     store = ArtifactStore(workspace_root=data_root)
 
     # Prime config and load the declared extension types (if available).

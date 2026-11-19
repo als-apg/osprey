@@ -988,7 +988,7 @@ def hermetic_hub(
                 # what the tree lists.
                 stack.enter_context(
                     mock.patch(
-                        "osprey_connectors.workspace.resolve_shared_data_root",
+                        "osprey.utils.config_paths.process_agent_data_root",
                         return_value=project_dir,
                     )
                 )

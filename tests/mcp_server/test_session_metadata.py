@@ -35,7 +35,7 @@ def fake_project(tmp_path, monkeypatch):
     # The metadata gatherer resolves the repo root directly, rather than
     # inferring it from the agent-data root's position, so that is the seam.
     monkeypatch.setattr(
-        "osprey_connectors.workspace.resolve_project_root",
+        "osprey.utils.config_paths.process_repo_root",
         lambda config=None: tmp_path,
     )
 

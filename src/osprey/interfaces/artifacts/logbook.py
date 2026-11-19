@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from osprey.mcp_server.session import gather_session_metadata
-from osprey_connectors.workspace import resolve_shared_data_root
+from osprey.utils.config_paths import process_agent_data_root
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
 
@@ -633,7 +633,7 @@ async def submit(req: SubmitRequest):
     """Submit the composed entry as an ARIEL draft."""
     try:
         draft_id = f"draft-{uuid.uuid4().hex[:12]}"
-        drafts_dir = resolve_shared_data_root() / "drafts"
+        drafts_dir = process_agent_data_root() / "drafts"
         drafts_dir.mkdir(parents=True, exist_ok=True)
 
         draft_data: dict[str, Any] = {

@@ -225,7 +225,7 @@ class TestLogbookSubmit:
 
     def test_submit_creates_draft(self, app_client, tmp_path):
         """Draft JSON written to workspace/drafts/."""
-        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
+        with patch(f"{_MODULE}.process_agent_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={
@@ -253,7 +253,7 @@ class TestLogbookSubmit:
 
     def test_submit_returns_ariel_url(self, app_client, tmp_path):
         """Response includes ARIEL URL with draft_id."""
-        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
+        with patch(f"{_MODULE}.process_agent_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={"subject": "Test", "details": "Details."},
@@ -274,7 +274,7 @@ class TestLogbookSubmit:
         must be origin-relative to load through the proxy.
         """
         monkeypatch.delenv("ARIEL_WEB_URL", raising=False)
-        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
+        with patch(f"{_MODULE}.process_agent_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={"subject": "Test", "details": "Details."},
@@ -287,7 +287,7 @@ class TestLogbookSubmit:
 
     def test_submit_creates_metadata_json_attachment(self, app_client, tmp_path):
         """Submit creates a metadata.json file and includes it in attachment_paths."""
-        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
+        with patch(f"{_MODULE}.process_agent_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={

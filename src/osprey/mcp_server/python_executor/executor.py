@@ -371,10 +371,9 @@ def _resolve_project_root() -> Path:
     exactly one level below it, which stopped being true when it moved under
     ``var/`` and was never true for a project that relocated it.
     """
-    from osprey.utils.config_paths import loaded_or_empty
-    from osprey_connectors.workspace import resolve_project_root
+    from osprey.utils.config_paths import process_repo_root
 
-    return resolve_project_root(loaded_or_empty())
+    return process_repo_root()
 
 
 def resolve_protected_roots(
@@ -536,9 +535,9 @@ def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
 
 def _create_execution_folder() -> Path:
     """Create a folder under the workspace, named for the facility-zone start time."""
-    from osprey_connectors.workspace import resolve_agent_data_root
+    from osprey.utils.config_paths import session_agent_data_root
 
-    base = resolve_agent_data_root() / "data" / "python_executions"
+    base = session_agent_data_root() / "data" / "python_executions"
     base.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(facility_timezone()).strftime("%Y%m%d_%H%M%S")

@@ -518,9 +518,9 @@ async def run_dispatch(
     # the variable absent rather than empty, so the readers below derive the
     # directory themselves instead of resolving against a path of no name.
     try:
-        from osprey_connectors.workspace import resolve_shared_data_root
+        from osprey.utils.config_paths import process_agent_data_root
 
-        sdk_env[OSPREY_AGENT_DATA_ROOT] = str(resolve_shared_data_root())
+        sdk_env[OSPREY_AGENT_DATA_ROOT] = str(process_agent_data_root())
     except Exception:  # a dispatch must not fail on a config load
         logger.warning(
             "Could not resolve the agent-data root for the dispatch agent's environment; "

@@ -715,10 +715,9 @@ class TestAppLifecycle:
     def test_create_app_without_a_root_serves_the_shared_data_root(self, tmp_path, monkeypatch):
         """With no root passed, the gallery, its store and the focus file all use
         the deployment's shared agent-data root."""
-        import osprey_connectors.workspace as workspace_module
 
         shared = tmp_path / "shared"
-        monkeypatch.setattr(workspace_module, "resolve_shared_data_root", lambda: shared)
+        monkeypatch.setattr("osprey.utils.config_paths.process_agent_data_root", lambda: shared)
 
         client = TestClient(create_app())
         entry = _save_text_artifact(client.app.state.artifact_store)

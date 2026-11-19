@@ -367,7 +367,7 @@ def state_root(tmp_path, monkeypatch):
     inherit the same owner the parent derives under. Every switch starts off;
     :func:`arm` turns machines on.
     """
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
     isolate_verdict_environment(monkeypatch, tmp_path)
     testing.invalidate_cache()
     yield tmp_path

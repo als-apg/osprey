@@ -317,7 +317,7 @@ async def test_the_record_does_not_move_when_the_session_switches(
     moment the bridge grows a read of session state, which is the failure mode
     the split exists to prevent.
     """
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
     deployment(control_system_type="epics", targets={"bluesky": "live"})
 
     target_state.write_server_record()
