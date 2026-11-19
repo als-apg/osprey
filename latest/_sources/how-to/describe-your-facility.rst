@@ -242,6 +242,14 @@ refused:
    - name: taper_setpoint
      aliases: [gap taper]
      description: Commanded gap difference between an undulator's two ends.
+   - name: bootloader_version_readback
+     description: Bootloader version a controller reports.
+     nameplate: true
+
+``nameplate: true`` marks a signal that names the unit it is read from rather
+than its state; a device card shows such a signal with what the device is,
+never as a key tile. The vocabulary's own ``model_readback``,
+``serial_number_readback`` and ``firmware_version_readback`` are marked so.
 
 Layers
 ======

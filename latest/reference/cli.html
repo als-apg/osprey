@@ -1747,13 +1747,18 @@ beam frame, else its <code class="docutils literal notranslate"><span class="pre
 and assume nothing (the devices with no model count as one more model), so
 two rings each have their own; a tie goes to the frame with the most such
 rows of all devices; a frame where fewer are stated is a local frame; one strip keeps to the beam path most of its
-devices are on, the others wait in its tray, and a stretch across a ring’s
+devices are on, the others wait in its tray (a device’s card says which
+position it uses and where it is read from, and gives the facility file’s
+<code class="docutils literal notranslate"><span class="pre">s</span></code> beside a pose that differs from it by more than 1 cm), and a stretch across a ring’s
 start is drawn in one piece; a card’s strip window reads on across the start
 the same way. A ring is a model the facility file marks <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, at its
 <code class="docutils literal notranslate"><span class="pre">length</span></code>, and a beam frame takes the length of its model), <code class="docutils literal notranslate"><span class="pre">rack</span></code> (a rack elevation, chassis at their
 unit; a half-width unit, whose <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claim states <code class="docutils literal notranslate"><span class="pre">side</span></code> <code class="docutils literal notranslate"><span class="pre">L</span></code> or
 <code class="docutils literal notranslate"><span class="pre">R</span></code>, fills that half, two halves of one unit side by side), <code class="docutils literal notranslate"><span class="pre">rollup</span></code> (the health of a place and everything in it, level by
-level) and <code class="docutils literal notranslate"><span class="pre">checkout</span></code> (every setpoint beside its readback).</p>
+level; a place with at least two children along a beam path the facility
+file marks <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, going round it (no gap between their positions half
+the ring or more, so one sector’s places are no ring), draws them as arcs of
+a ring, in beam order) and <code class="docutils literal notranslate"><span class="pre">checkout</span></code> (every setpoint beside its readback).</p>
 <p>Every screen but the home leads back to it first in its crumbs, then out
 through the places around it (to each place’s view where it has one). The
 ways down meet at a device’s card: by place (a place view’s racks open their
@@ -1773,12 +1778,36 @@ light shows the value its card’s first key tile shows. A device whose card
 lists counts rather than its channels gets a roll-up of its own, paged at
 400 rule-bearing channels, which its node in the place roll-up opens: every
 rule-bearing channel is read by exactly one roll-up page.</p>
-<p>The rule tables are CSV files, each held to its header: <code class="docutils literal notranslate"><span class="pre">positions.csv</span></code>
-(where a thing sits), <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code> (each channel’s record type and
-how a screen draws it), <code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code> (the readback a setpoint is shown
-beside) and <code class="docutils literal notranslate"><span class="pre">panels/health.csv</span></code> (the state a channel’s value means: <code class="docutils literal notranslate"><span class="pre">normal</span></code>,
+<p>The rule tables are CSV files, each held to its header, and each may be
+absent. What the facility file states is the default, and a table states
+only what it does not: a setpoint’s readback is its channel’s <code class="docutils literal notranslate"><span class="pre">pair</span></code>
+(<code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code> names others), a thing’s short name what <code class="docutils literal notranslate"><span class="pre">names.csv</span></code> states,
+else its <code class="docutils literal notranslate"><span class="pre">label</span></code>, else the last <code class="docutils literal notranslate"><span class="pre">:</span></code>- or <code class="docutils literal notranslate"><span class="pre">/</span></code>-separated part of its id, a
+channel is drawn by its <code class="docutils literal notranslate"><span class="pre">role</span></code> (a setpoint as an entry
+beside its readback, a readback as a value; <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code> names its
+record type and, where its <code class="docutils literal notranslate"><span class="pre">drawn_as</span></code> is not empty, any other drawing), and a channel on a device that states a
+<code class="docutils literal notranslate"><span class="pre">signal</span></code> plays that signal as its role on the device’s card, shown as an
+entry, a word or a value by how it is drawn, a state that <code class="docutils literal notranslate"><span class="pre">panels/health.csv</span></code> rows
+rule as a lamp; such a role says what the channel is, never how it is pressed:
+a writable channel no row names is offered as any such channel is (a choice
+of its stated words, an action, an entry) (<code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> names
+walked scopes, labels, presses and channels with no signal; a row’s stated
+<code class="docutils literal notranslate"><span class="pre">label</span></code> is the word the card shows for the channel on every tile, value row
+and group title, and stays in front of what tells two channels of one role
+apart, while a choice’s or an action’s label is the word on its press). <code class="docutils literal notranslate"><span class="pre">check</span></code>
+prints one <code class="docutils literal notranslate"><span class="pre">redundant:</span> <span class="pre">&lt;table&gt;:</span> <span class="pre">&lt;n&gt;</span> <span class="pre">rows</span></code> line per table whose rows only
+restate the facility file or these defaults with no column of them read for
+anything else (a <code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code> row of basis <code class="docutils literal notranslate"><span class="pre">stated</span></code> and no source; a
+<code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row without which every device it matches plays the same
+roles in the same order, read the same, so never a press), so a
+deployment can delete them, and one <code class="docutils literal notranslate"><span class="pre">redundant:</span> <span class="pre">record_types.csv</span> <span class="pre">drawn_as</span></code>
+line for the rows whose <code class="docutils literal notranslate"><span class="pre">drawn_as</span></code> is their role’s: their record type is
+read, so the row stays and only that value may be left empty.
+The tables: <code class="docutils literal notranslate"><span class="pre">positions.csv</span></code>
+(where a thing sits), <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code>,
+<code class="docutils literal notranslate"><span class="pre">panels/health.csv</span></code> (the state a channel’s value means: <code class="docutils literal notranslate"><span class="pre">normal</span></code>,
 <code class="docutils literal notranslate"><span class="pre">warn</span></code>, <code class="docutils literal notranslate"><span class="pre">bad</span></code>; a value no row names is <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, and one that two
-sources give two states is <code class="docutils literal notranslate"><span class="pre">disagree</span></code>) must be there;
+sources give two states is <code class="docutils literal notranslate"><span class="pre">disagree</span></code>),
 <code class="docutils literal notranslate"><span class="pre">excluded.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">names.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code>,
 <code class="docutils literal notranslate"><span class="pre">probe_pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibration_kinds.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibrations.csv</span></code>,
 <code class="docutils literal notranslate"><span class="pre">calibration_curves.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">state_labels.csv</span></code> (the word each value of a
@@ -1798,8 +1827,12 @@ row that takes a device wins),
 the device or an earlier hop, keeps the things its <code class="docutils literal notranslate"><span class="pre">to</span></code> filter takes, and
 shows its roles in the block; a hop that reaches nothing is a dashed “not
 stated” block, two answers are stacked as contested) and <code class="docutils literal notranslate"><span class="pre">symbols.csv</span></code> (how
-a card’s strip draws a device of a class: a symbol and a lane above, on or
-below the beam pipe) may be absent. A strip section draws the devices of its
+every strip, a card’s and a place’s, draws a device of a class, optionally
+only those whose id matches a pattern: one of the drawing’s symbols and a
+lane above, on or below the beam pipe; a place’s strip has one lane off the
+beam; a class no row names is not drawn on a strip). <code class="docutils literal notranslate"><span class="pre">draw.json</span></code> keeps
+only <code class="docutils literal notranslate"><span class="pre">colours</span></code> and <code class="docutils literal notranslate"><span class="pre">annotate</span></code> (both keyed by symbol) and
+<code class="docutils literal notranslate"><span class="pre">write_under</span></code>; a rack is a place some <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claim gives a unit in. A strip section draws the devices of its
 classes within its window of the device along the beam, to scale, each with
 the value of the section’s role (a window of 3 m either side when the section
 states none); a device placed only by a place around it is drawn in a dashed
@@ -1906,7 +1939,10 @@ device with no card and no owner found gets no screen and no entry: a related
 card names it without a link. <code class="docutils literal notranslate"><span class="pre">check</span></code> counts the devices with no card, those
 the default alone leaves without one, and how many devices each row decides. A device card is drawn:
 its title line, up to five key tiles (the <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code> rows of view
-<code class="docutils literal notranslate"><span class="pre">card</span></code> whose <code class="docutils literal notranslate"><span class="pre">level</span></code> names its recipe, else its roles; a tile’s measure is
+<code class="docutils literal notranslate"><span class="pre">card</span></code> whose <code class="docutils literal notranslate"><span class="pre">level</span></code> names its recipe, else its roles, but never a role
+whose word is a <code class="docutils literal notranslate"><span class="pre">nameplate</span></code> signal, which says what the device is, not how
+it is (a <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row giving the channel another word overrides
+it); a tile’s measure is
 <code class="docutils literal notranslate"><span class="pre">value</span></code> or <code class="docutils literal notranslate"><span class="pre">word</span></code> of the role’s first channel, or over every channel of
 the role on the device <code class="docutils literal notranslate"><span class="pre">count_true</span></code> shown “k of N”, <code class="docutils literal notranslate"><span class="pre">max</span></code> or <code class="docutils literal notranslate"><span class="pre">sum</span></code>, a
 dash and “one of N has no value” while any member has none), its relations as
