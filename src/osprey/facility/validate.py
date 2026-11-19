@@ -385,6 +385,25 @@ def signal_roles(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
     return frozenset(names)
 
 
+def nameplate_signals(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
+    """The signal roles marked ``nameplate``: a signal that names the unit it is read
+    from (its model, serial number, firmware version) rather than its state.
+
+    Args:
+        signals: ``signals.yaml``'s records (the facility document's ``signals``).
+
+    Returns:
+        The vocabulary's marked signal roles joined with the facility's.
+    """
+    names = {str(role["name"]) for role in vocabulary()["signal_roles"] if role.get("nameplate")}
+    names.update(
+        str(row["name"])
+        for row in signals
+        if isinstance(row.get("name"), str) and row.get("nameplate") is True
+    )
+    return frozenset(names)
+
+
 def relation_types() -> dict[str, dict[str, Any]]:
     """The vocabulary's relation types, keyed by name.
 

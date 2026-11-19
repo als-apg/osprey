@@ -1155,9 +1155,6 @@ CARD_SECTIONS: Mapping[str, str] = MappingProxyType(
 #: The most key tiles a card shows, and how many the default recipe takes from roles.
 MAX_TILES = 5
 DEFAULT_TILES = 4
-#: Roles that say what the device is rather than how it is: drawn in its own chain
-#: block, never as a tile. Words of the role vocabulary the facility writes.
-IDENTITY_ROLES = ("model", "serial", "firmware")
 #: The default recipe's chain: the relations of the device, each a block (a dashed
 #: "not stated" one where the device has none), with the word its block carries
 #: and the word on the arrow from the device's side.
@@ -1321,7 +1318,8 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
             break
         first = found[0].role
         if (
-            role in (*IDENTITY_ROLES, INTERNAL_ROLE)
+            role in graph.identity
+            or role == INTERNAL_ROLE
             or first.shown_as in CONTROLS
             or len(found) != 1
         ):
@@ -1407,7 +1405,8 @@ def _default_chain(
                 _relation_block(graph, index, edge, word, word)
                 for edge in _one_per_thing([e for e in edges[kind] if e.outgoing is outgoing])
             )
-    identity = [h for h in hits if h.role.role in IDENTITY_ROLES and h.owner == thing.id]
+    # a role of a nameplate signal says what the device is: its own block, no tile
+    identity = [h for h in hits if h.role.role in graph.identity and h.owner == thing.id]
     rows = tuple(
         BlockRow(h.role.role, h.channel, shown_as="value", words=_words(graph, h.channel))
         for h in identity
@@ -2086,7 +2085,7 @@ def recipe_chain(
         if h.owner == thing.id and h.role.role not in shown_roles
         and played[h.role.role] == 1
         and h.role.shown_as in ("value", "word", "lamp")
-        and h.role.role not in (*IDENTITY_ROLES, INTERNAL_ROLE)
+        and h.role.role not in graph.identity and h.role.role != INTERNAL_ROLE
     ][:FOCUS_ROWS]  # fmt: skip
     labels = [_row_word(h.role) for h in mine]
     focus_rows = tuple(

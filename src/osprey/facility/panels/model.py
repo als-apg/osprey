@@ -92,6 +92,7 @@ from osprey.facility.panels.tables import (
 )
 from osprey.facility.records import FacilityRecords
 from osprey.facility.relations import END_KINDS, end_identity
+from osprey.facility.validate import nameplate_signals
 
 __all__ = [
     "CalibrationState",
@@ -561,6 +562,10 @@ class PanelGraph:
             if row.document not in self._excluded_documents
         }
         #: Per table, the rows that only restate what the facility file says.
+        #: The signal roles that name a unit rather than its state (a ``nameplate``
+        #: signal of the vocabulary or ``signals.yaml``): a role of one of these
+        #: words says what a device is, never how it is.
+        self.identity: frozenset[str] = nameplate_signals(records.document.get("signals") or ())
         self.redundant: dict[str, int] = {}
         #: Per ``table column``: the rows whose value in it is the default, while
         #: another column of the row is read (the row stays, the value may go).

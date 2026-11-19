@@ -2490,3 +2490,41 @@ def test_a_state_its_health_rows_rule_is_a_lamp_by_default(tmp_path) -> None:
         ROLES_HEADER + "Pump,status,*:State-Sts,device,word,,,,,stated,S,,\n"
     )
     assert shown(ruled) == "word"  # a row overrides
+
+
+def test_a_nameplate_signal_says_what_a_device_is_and_is_no_key_tile(tmp_path) -> None:
+    """A role of a signal the facility marks ``nameplate`` (it names the unit, as a
+    firmware version does) is never a key tile; unmarked, the same channel is one;
+    a row that gives the channel another role word overrides the mark."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    firmware = "XR01-IP1:Firmware-RB"
+
+    def facility(marked: bool):
+        def change(document) -> None:
+            signal = {"name": "firmware_version_readback", "description": "Firmware version."}
+            if marked:
+                signal["nameplate"] = True
+            document.setdefault("signals", []).append(signal)
+            document["channels"].append(
+                {"id": firmware, "on": {"device": "XR01:IP1"}, "role": "readback",
+                 "signal": "firmware_version_readback"}
+            )  # fmt: skip
+
+        return write_fixture_facility(tmp_path / f"f-{marked}.json", change)
+
+    def tiles(graph) -> set[str]:
+        view = device_card(graph, "XR01:IP1")
+        return {i.channel for s in view.sections for i in s.items if isinstance(i, KeyTile)}
+
+    tables = copy_tables(tmp_path / "panels")
+    marked = load_graph(facility(True), tables)
+    assert "firmware_version_readback" in marked.identity
+    assert firmware not in tiles(marked)
+    assert firmware in tiles(load_graph(facility(False), tables))
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,firmware,*:Firmware-RB,device,value,,,,,stated,S,,\n"
+    )
+    assert firmware in tiles(load_graph(facility(True), tables))  # a row's word decides

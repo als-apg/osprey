@@ -1525,6 +1525,7 @@ class FacilitySignal(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
+    nameplate: Optional[bool] = Field(default=None, description="""True for a signal that names the unit it is read from rather than its state (its model, serial number, firmware version): read once, never a live quantity.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal']} })
 
 
 class Provenance(ConfiguredBaseModel):
