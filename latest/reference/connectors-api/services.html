@@ -503,9 +503,13 @@ passes the same keywords to every backend of a kind.</p>
 a string stays what the service answered, as the service recorded it.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.service_answers.BackendSpec">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.service_answers.</span></span><span class="sig-name descname"><span class="pre">BackendSpec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">settings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rehearsal</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/service_answers.html#BackendSpec"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.service_answers.</span></span><span class="sig-name descname"><span class="pre">BackendSpec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">settings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rehearsal</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">section</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'channel_directory'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/service_answers.html#BackendSpec"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>One backend to build; <code class="docutils literal notranslate"><span class="pre">service_targets</span></code> makes these from the config.</p>
+<p><code class="docutils literal notranslate"><span class="pre">section</span></code> is the config key the spec was read under: <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code>,
+or <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> from a config that still spells the section that way. It
+says where the spec came from, not what it builds, so two specs that differ
+only in it are equal.</p>
 <dl class="field-list simple">
 </dl>
 <dl class="py attribute">
@@ -533,9 +537,22 @@ a string stays what the service answered, as the service recorded it.</p>
 <span class="sig-name descname"><span class="pre">rehearsal</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.rehearsal" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.service_answers.BackendSpec.section">
+<span class="sig-name descname"><span class="pre">section</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'channel_directory'</span></span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.section" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey_connectors.service_answers.BackendSpec.settings_key">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">settings_key</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.settings_key" title="Link to this definition">#</a></dt>
+<dd><p>The config key of <code class="docutils literal notranslate"><span class="pre">settings</span></code>, as a settings error names it.</p>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;section&gt;.settings</span></code> for the directory and <code class="docutils literal notranslate"><span class="pre">&lt;section&gt;.&lt;kind&gt;.settings</span></code>
+for the kinds beneath it, with the section spelled as the config spelled it.</p>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.service_answers.BackendSpec.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">settings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rehearsal</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.__init__" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">settings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rehearsal</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">section</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'channel_directory'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.__init__" title="Link to this definition">#</a></dt>
 <dd><dl class="field-list simple">
 </dl>
 </dd></dl>
@@ -546,7 +563,7 @@ a string stays what the service answered, as the service recorded it.</p>
 <dt class="sig sig-object py" id="osprey_connectors.service_answers.HistoryPage">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.service_answers.</span></span><span class="sig-name descname"><span class="pre">HistoryPage</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outcome</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rows</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">truncated</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">retention_known</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/service_answers.html#HistoryPage"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.service_answers.HistoryPage" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">_RowT</span></code>]</p>
-<p>Logged rows of one PV. No rows means nothing was logged, not that nothing happened.</p>
+<p>Logged rows of one channel. No rows means nothing was logged, not that nothing happened.</p>
 <p><code class="docutils literal notranslate"><span class="pre">rows</span></code> are the records of the kind that answered.</p>
 <dl class="field-list simple">
 </dl>
@@ -686,7 +703,7 @@ factory reaches from their type names.</p>
 <dt class="sig sig-object py" id="osprey_connectors.directory.ChannelDirectory">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.directory.</span></span><span class="sig-name descname"><span class="pre">ChannelDirectory</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spec</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">project_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">seams</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/directory/_contract.html#ChannelDirectory"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.directory.ChannelDirectory" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">_Backend</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
-<p>Search the control system’s own directory of PVs.</p>
+<p>Search the control system’s own directory of channels.</p>
 <dl class="field-list simple">
 </dl>
 <dl class="py property">
@@ -721,7 +738,7 @@ factory reaches from their type names.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.directory.ChannelDirectory.describe">
 <span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">describe</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deadline</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/directory/_contract.html#ChannelDirectory.describe"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.directory.ChannelDirectory.describe" title="Link to this definition">#</a></dt>
-<dd><p>The record of the PV called exactly <em>name</em>, or <code class="docutils literal notranslate"><span class="pre">NOT_LISTED</span></code>.</p>
+<dd><p>The record of the channel called exactly <em>name</em>, or <code class="docutils literal notranslate"><span class="pre">NOT_LISTED</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.directory.DirectoryRecord" title="osprey_connectors.directory._contract.DirectoryRecord"><em>DirectoryRecord</em></a> | <em>Literal</em>[Outcome.NOT_LISTED] | ~osprey_connectors.service_answers.Unavailable</p>
@@ -747,6 +764,20 @@ factory reaches from their type names.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>list[str] | <a class="reference internal" href="#osprey_connectors.service_answers.Unavailable" title="osprey_connectors.service_answers.Unavailable"><em>Unavailable</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.directory.ChannelDirectory.list_servers">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">list_servers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">deadline</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/directory/_contract.html#ChannelDirectory.list_servers"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.directory.ChannelDirectory.list_servers" title="Link to this definition">#</a></dt>
+<dd><p>Every server the directory lists, one row each, unique by name.</p>
+<p>The list is complete or not given: a deadline miss or a page-through cut
+short answers <code class="docutils literal notranslate"><span class="pre">Unavailable</span></code>, never part of the list. A backend that
+cannot list its servers keeps this default, which says so.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[<a class="reference internal" href="#osprey_connectors.directory.ServerRow" title="osprey_connectors.directory._contract.ServerRow"><em>ServerRow</em></a>] | <a class="reference internal" href="#osprey_connectors.service_answers.Unavailable" title="osprey_connectors.service_answers.Unavailable"><em>Unavailable</em></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -901,7 +932,7 @@ tuples and <code class="docutils literal notranslate"><span class="pre">properti
 <dt class="sig sig-object py" id="osprey_connectors.directory.DirectoryRecord">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.directory.</span></span><span class="sig-name descname"><span class="pre">DirectoryRecord</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">row</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">properties</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/directory/_contract.html#DirectoryRecord"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.directory.DirectoryRecord" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>One PV in full. Every property is optional and a string, as measured.</p>
+<p>One channel in full. Every property is optional and a string, as measured.</p>
 <dl class="field-list simple">
 </dl>
 <dl class="py attribute">
@@ -983,6 +1014,46 @@ type. <code class="docutils literal notranslate"><span class="pre">last_announce
 
 </dd></dl>
 
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey_connectors.directory.ServerRow">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.directory.</span></span><span class="sig-name descname"><span class="pre">ServerRow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">host</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel_count</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inactive_count</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/directory/_contract.html#ServerRow"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.directory.ServerRow" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>One server process, as the directory lists it: an EPICS IOC, a Tango device server.</p>
+<p><code class="docutils literal notranslate"><span class="pre">name</span></code> is the value the directory’s rows carry in <code class="docutils literal notranslate"><span class="pre">server</span></code>, <code class="docutils literal notranslate"><span class="pre">host</span></code> the
+machine it runs on (<code class="docutils literal notranslate"><span class="pre">None</span></code> when the directory does not say), <code class="docutils literal notranslate"><span class="pre">channel_count</span></code>
+how many channels the directory lists for it and <code class="docutils literal notranslate"><span class="pre">inactive_count</span></code> how many
+of those it marks <code class="docutils literal notranslate"><span class="pre">Inactive</span></code>.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.directory.ServerRow.name">
+<span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.directory.ServerRow.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.directory.ServerRow.host">
+<span class="sig-name descname"><span class="pre">host</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.directory.ServerRow.host" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.directory.ServerRow.channel_count">
+<span class="sig-name descname"><span class="pre">channel_count</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey_connectors.directory.ServerRow.channel_count" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.directory.ServerRow.inactive_count">
+<span class="sig-name descname"><span class="pre">inactive_count</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey_connectors.directory.ServerRow.inactive_count" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.directory.ServerRow.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">host</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel_count</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inactive_count</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.directory.ServerRow.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 <p id="module-osprey_connectors.alarm_state">What is alarming now, per the <code class="docutils literal notranslate"><span class="pre">AlarmState</span></code> contract.</p>
 <p>The backends are the underscore-private modules beside this one, which the
 factory reaches from their type names.</p>
@@ -990,7 +1061,7 @@ factory reaches from their type names.</p>
 <dt class="sig sig-object py" id="osprey_connectors.alarm_state.AlarmConfigRecord">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.alarm_state.</span></span><span class="sig-name descname"><span class="pre">AlarmConfigRecord</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">in_tree</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">guidance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">displays</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">latching</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/alarm_state/_contract.html#AlarmConfigRecord"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.alarm_state.AlarmConfigRecord" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>One PV’s place in the alarm tree.</p>
+<p>One channel’s place in the alarm tree.</p>
 <dl class="field-list simple">
 </dl>
 <dl class="py attribute">
@@ -1115,7 +1186,7 @@ answers at once.</p>
 <dt class="sig sig-object py" id="osprey_connectors.alarm_state.AlarmStateRecord">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.alarm_state.</span></span><span class="sig-name descname"><span class="pre">AlarmStateRecord</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">severity</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">latched</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">acknowledged</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/alarm_state/_contract.html#AlarmStateRecord"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.alarm_state.AlarmStateRecord" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>What one PV’s alarm is now. The backend alone sets <code class="docutils literal notranslate"><span class="pre">stale</span></code>; others pass it on.</p>
+<p>What one channel’s alarm is now. The backend alone sets <code class="docutils literal notranslate"><span class="pre">stale</span></code>; others pass it on.</p>
 <dl class="field-list simple">
 </dl>
 <dl class="py attribute">
@@ -1426,7 +1497,7 @@ property. <code class="docutils literal notranslate"><span class="pre">field</sp
 </dd></dl>
 
 <p id="module-osprey_connectors.service_targets">Which source answers each directory section on each control target, in one place.</p>
-<p>A deployment carries <strong>one</strong> <code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> block and a session can be pointed
+<p>A deployment carries <strong>one</strong> <code class="docutils literal notranslate"><span class="pre">channel_directory:</span></code> block and a session can be pointed
 at up to three machines. A section answers only from the machine the session is
 on, so <a class="reference internal" href="#osprey_connectors.service_targets.service_targets" title="osprey_connectors.service_targets.service_targets"><code class="xref py py-func docutils literal notranslate"><span class="pre">service_targets()</span></code></a> says which source that is per target, and a
 reader holding <code class="docutils literal notranslate"><span class="pre">None</span></code> says “not available for this target”: never another
@@ -1470,6 +1541,10 @@ passed verbatim: only the framework reads its <code class="docutils literal notr
 that is not a mapping, or a <code class="docutils literal notranslate"><span class="pre">type</span></code> or <code class="docutils literal notranslate"><span class="pre">replay_file</span></code> that is not a non-blank
 string, names no source; refusing such a block at build is <code class="docutils literal notranslate"><span class="pre">resolve_section</span></code>’s
 job in the framework.</p>
+<p>The block was first released as <code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code>, and a framework release from
+before the rename still hands the config over with that key. So a config that
+has no <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> key is read under <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code>, and each spec
+carries the key it was read under, which is the one its settings errors name.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.service_targets.service_targets">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.service_targets.</span></span><span class="sig-name descname"><span class="pre">service_targets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/service_targets.html#service_targets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.service_targets.service_targets" title="Link to this definition">#</a></dt>
@@ -1477,7 +1552,7 @@ job in the framework.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>config</strong> (<em>object</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: not the
-<code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> section, because the <code class="docutils literal notranslate"><span class="pre">va</span></code> half turns on whether
+<code class="docutils literal notranslate"><span class="pre">channel_directory:</span></code> section, because the <code class="docutils literal notranslate"><span class="pre">va</span></code> half turns on whether
 the deployment built a simulator. Anything that is not a mapping
 has no section.</p>
 </dd>
@@ -1547,6 +1622,8 @@ section, every entry is <code class="docutils literal notranslate"><span class="
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.service_answers.BackendSpec.target"><code class="docutils literal notranslate"><span class="pre">BackendSpec.target</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.service_answers.BackendSpec.settings"><code class="docutils literal notranslate"><span class="pre">BackendSpec.settings</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.service_answers.BackendSpec.rehearsal"><code class="docutils literal notranslate"><span class="pre">BackendSpec.rehearsal</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.service_answers.BackendSpec.section"><code class="docutils literal notranslate"><span class="pre">BackendSpec.section</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.service_answers.BackendSpec.settings_key"><code class="docutils literal notranslate"><span class="pre">BackendSpec.settings_key</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.service_answers.BackendSpec.__init__"><code class="docutils literal notranslate"><span class="pre">BackendSpec.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -1588,6 +1665,7 @@ section, every entry is <code class="docutils literal notranslate"><span class="
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ChannelDirectory.describe"><code class="docutils literal notranslate"><span class="pre">ChannelDirectory.describe()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ChannelDirectory.property_names"><code class="docutils literal notranslate"><span class="pre">ChannelDirectory.property_names()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ChannelDirectory.property_values"><code class="docutils literal notranslate"><span class="pre">ChannelDirectory.property_values()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ChannelDirectory.list_servers"><code class="docutils literal notranslate"><span class="pre">ChannelDirectory.list_servers()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ChannelDirectory.probe"><code class="docutils literal notranslate"><span class="pre">ChannelDirectory.probe()</span></code></a></li>
 </ul>
 </li>
@@ -1634,6 +1712,14 @@ section, every entry is <code class="docutils literal notranslate"><span class="
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.DirectoryRow.host"><code class="docutils literal notranslate"><span class="pre">DirectoryRow.host</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.DirectoryRow.last_announced"><code class="docutils literal notranslate"><span class="pre">DirectoryRow.last_announced</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.DirectoryRow.__init__"><code class="docutils literal notranslate"><span class="pre">DirectoryRow.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ServerRow"><code class="docutils literal notranslate"><span class="pre">ServerRow</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ServerRow.name"><code class="docutils literal notranslate"><span class="pre">ServerRow.name</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ServerRow.host"><code class="docutils literal notranslate"><span class="pre">ServerRow.host</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ServerRow.channel_count"><code class="docutils literal notranslate"><span class="pre">ServerRow.channel_count</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ServerRow.inactive_count"><code class="docutils literal notranslate"><span class="pre">ServerRow.inactive_count</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.directory.ServerRow.__init__"><code class="docutils literal notranslate"><span class="pre">ServerRow.__init__()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.alarm_state.AlarmConfigRecord"><code class="docutils literal notranslate"><span class="pre">AlarmConfigRecord</span></code></a><ul class="visible nav section-nav flex-column">

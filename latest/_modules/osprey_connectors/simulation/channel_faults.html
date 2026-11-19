@@ -451,7 +451,10 @@
 <span class="sd">  readback is the disconnected reading. A setpoint with no readback of its</span>
 <span class="sd">  own reads its demand and reports the condition itself.</span>
 
-<span class="sd">No fault withholds a reply: a read always answers.</span>
+<span class="sd">No fault withholds a reply: a read always answers. The one exception is a</span>
+<span class="sd">scenario&#39;s ``stopped_servers`` (:mod:`~osprey_connectors.simulation.servers`):</span>
+<span class="sd">every channel of a stopped server gives no answer while the scenario is</span>
+<span class="sd">active, and answers again, with its current value, once it is not.</span>
 
 <span class="sd">The module imports only the standard library, so the build&#39;s validator and</span>
 <span class="sd">the composite share one table.</span>

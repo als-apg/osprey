@@ -489,6 +489,7 @@
     <span class="s2">&quot;OUTPUT&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PERIODIC&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PERIODIC_IOC_HEALTH&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;PERIODIC_SERVER_HEALTH&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PLANES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;READBACK&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REFRESH&quot;</span><span class="p">,</span>
@@ -496,6 +497,7 @@
     <span class="s2">&quot;SCENARIOS_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCENARIOS_SCHEMA&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SERVED_SIGNAL_PROPERTY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SERVER_HEALTH_SIGNALS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCHEMAS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SEEDS_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SEEDS_SCHEMA&quot;</span><span class="p">,</span>
@@ -581,12 +583,16 @@
 <span class="n">HEARTBEAT</span> <span class="o">=</span> <span class="s2">&quot;HEARTBEAT&quot;</span>
 <span class="n">UPTIME</span> <span class="o">=</span> <span class="s2">&quot;UPTIME&quot;</span>
 <span class="n">ENGINEER</span> <span class="o">=</span> <span class="s2">&quot;ENGINEER&quot;</span>
-<span class="c1">#: The signals of a model&#39;s IOC health addresses, ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;``,</span>
+<span class="c1">#: The signals of a model&#39;s server health addresses, ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;``,</span>
 <span class="c1">#: in the order a view lists them.</span>
-<span class="n">IOC_HEALTH_SIGNALS</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">,</span> <span class="n">ENGINEER</span><span class="p">)</span>
-<span class="c1">#: The IOC health signals each periodic pass publishes.</span>
-<span class="n">PERIODIC_IOC_HEALTH</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">)</span>
-<span class="c1">#: The directory property the simulator sets on each status and IOC health row,</span>
+<span class="n">SERVER_HEALTH_SIGNALS</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">,</span> <span class="n">ENGINEER</span><span class="p">)</span>
+<span class="c1">#: The server health signals each periodic pass publishes.</span>
+<span class="n">PERIODIC_SERVER_HEALTH</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">)</span>
+<span class="c1">#: The name :data:`SERVER_HEALTH_SIGNALS` was first released under.</span>
+<span class="n">IOC_HEALTH_SIGNALS</span> <span class="o">=</span> <span class="n">SERVER_HEALTH_SIGNALS</span>
+<span class="c1">#: The name :data:`PERIODIC_SERVER_HEALTH` was first released under.</span>
+<span class="n">PERIODIC_IOC_HEALTH</span> <span class="o">=</span> <span class="n">PERIODIC_SERVER_HEALTH</span>
+<span class="c1">#: The directory property the simulator sets on each status and server health row,</span>
 <span class="c1">#: valued with that row&#39;s signal; channel rows carry none.</span>
 <span class="n">SERVED_SIGNAL_PROPERTY</span> <span class="o">=</span> <span class="s2">&quot;signal&quot;</span>
 
@@ -1039,37 +1045,52 @@
         <span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="SimulatorView.ioc_health_by_model">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">ioc_health_by_model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Each listed model&#39;s IOC health addresses by signal, ``{model: {signal: address}}``.</span>
+<div class="viewcode-block" id="SimulatorView.server_health_by_model">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.server_health_by_model">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">server_health_by_model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Each listed model&#39;s server health addresses by signal, ``{model: {signal: address}}``.</span>
 
 <span class="sd">        An address is ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;`` with ``&lt;signal&gt;`` one of</span>
-<span class="sd">        :data:`IOC_HEALTH_SIGNALS`; each model&#39;s signals keep the list&#39;s order.</span>
-<span class="sd">        ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from</span>
-<span class="sd">        a build without it yields an empty mapping. Unlike the status</span>
+<span class="sd">        :data:`SERVER_HEALTH_SIGNALS`; each model&#39;s signals keep the list&#39;s order.</span>
+<span class="sd">        The list is read from ``server_health``, or from ``ioc_health``, the key</span>
+<span class="sd">        it was first written under, when the document has no ``server_health``.</span>
+<span class="sd">        Both are optional under :data:`ADDRESSES_SCHEMA`: a view from a build</span>
+<span class="sd">        that wrote neither yields an empty mapping. Unlike the status</span>
 <span class="sd">        addresses, it lists the ``texture`` model too.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ViewSchemaError: a listed entry is not such an address.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">listed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ioc_health&quot;</span><span class="p">,</span> <span class="p">())</span>
+        <span class="n">document</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="s2">&quot;server_health&quot;</span> <span class="k">if</span> <span class="s2">&quot;server_health&quot;</span> <span class="ow">in</span> <span class="n">document</span> <span class="k">else</span> <span class="s2">&quot;ioc_health&quot;</span>
+        <span class="n">listed</span> <span class="o">=</span> <span class="n">document</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;server_health&quot;</span><span class="p">,</span> <span class="n">document</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ioc_health&quot;</span><span class="p">,</span> <span class="p">()))</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">listed</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">MappingProxyType</span><span class="p">({})</span>
         <span class="n">prefix</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="si">}</span><span class="s2">:SIM:&quot;</span>
         <span class="n">by_model</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">listed</span><span class="p">:</span>
             <span class="n">model</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">signal</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span><span class="o">.</span><span class="n">removeprefix</span><span class="p">(</span><span class="n">prefix</span><span class="p">)</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">model</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">)</span> <span class="ow">or</span> <span class="n">signal</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">IOC_HEALTH_SIGNALS</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="ow">not</span> <span class="n">model</span>
+                <span class="ow">or</span> <span class="ow">not</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="n">signal</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">SERVER_HEALTH_SIGNALS</span>
+            <span class="p">):</span>
                 <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">ADDRESSES_FILE</span><span class="si">}</span><span class="s2"> lists </span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> under ioc_health, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">ADDRESSES_FILE</span><span class="si">}</span><span class="s2"> lists </span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> under </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">, &quot;</span>
                     <span class="sa">f</span><span class="s2">&quot;which is not </span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">&lt;model&gt;:&lt;signal&gt; with &lt;signal&gt; one of &quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">IOC_HEALTH_SIGNALS</span><span class="p">)</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">SERVER_HEALTH_SIGNALS</span><span class="p">)</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
                 <span class="p">)</span>
             <span class="n">by_model</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="p">{})[</span><span class="n">signal</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">MappingProxyType</span><span class="p">(</span>
             <span class="p">{</span><span class="n">model</span><span class="p">:</span> <span class="n">MappingProxyType</span><span class="p">(</span><span class="n">signals</span><span class="p">)</span> <span class="k">for</span> <span class="n">model</span><span class="p">,</span> <span class="n">signals</span> <span class="ow">in</span> <span class="n">by_model</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
         <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.ioc_health_by_model">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ioc_health_by_model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;:meth:`server_health_by_model`, under the name it was first released with.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_health_by_model</span><span class="p">()</span></div>
 
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]:</span>

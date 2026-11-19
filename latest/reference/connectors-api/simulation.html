@@ -967,8 +967,7 @@ is <code class="docutils literal notranslate"><span class="pre">setpoint</span><
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">IOC_HEALTH_SIGNALS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME',</span> <span class="pre">'ENGINEER')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS" title="Link to this definition">#</a></dt>
-<dd><p>The signals of a model’s IOC health addresses, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code>,
-in the order a view lists them.</p>
+<dd><p>The name <a class="reference internal" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS" title="osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS"><code class="xref py py-data docutils literal notranslate"><span class="pre">SERVER_HEALTH_SIGNALS</span></code></a> was first released under.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -980,7 +979,13 @@ in the order a view lists them.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">PERIODIC_IOC_HEALTH</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH" title="Link to this definition">#</a></dt>
-<dd><p>The IOC health signals each periodic pass publishes.</p>
+<dd><p>The name <a class="reference internal" href="#osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH" title="osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH"><code class="xref py py-data docutils literal notranslate"><span class="pre">PERIODIC_SERVER_HEALTH</span></code></a> was first released under.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">PERIODIC_SERVER_HEALTH</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH" title="Link to this definition">#</a></dt>
+<dd><p>The server health signals each periodic pass publishes.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -1012,8 +1017,15 @@ under the facility tree and under the view alike.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.SERVED_SIGNAL_PROPERTY">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">SERVED_SIGNAL_PROPERTY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'signal'</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.SERVED_SIGNAL_PROPERTY" title="Link to this definition">#</a></dt>
-<dd><p>The directory property the simulator sets on each status and IOC health row,
+<dd><p>The directory property the simulator sets on each status and server health row,
 valued with that row’s signal; channel rows carry none.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">SERVER_HEALTH_SIGNALS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME',</span> <span class="pre">'ENGINEER')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS" title="Link to this definition">#</a></dt>
+<dd><p>The signals of a model’s server health addresses, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code>,
+in the order a view lists them.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -1531,13 +1543,15 @@ the view’s file-name constants.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">
-<span class="sig-name descname"><span class="pre">ioc_health_by_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.ioc_health_by_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model" title="Link to this definition">#</a></dt>
-<dd><p>Each listed model’s IOC health addresses by signal, <code class="docutils literal notranslate"><span class="pre">{model:</span> <span class="pre">{signal:</span> <span class="pre">address}}</span></code>.</p>
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.server_health_by_model">
+<span class="sig-name descname"><span class="pre">server_health_by_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.server_health_by_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.server_health_by_model" title="Link to this definition">#</a></dt>
+<dd><p>Each listed model’s server health addresses by signal, <code class="docutils literal notranslate"><span class="pre">{model:</span> <span class="pre">{signal:</span> <span class="pre">address}}</span></code>.</p>
 <p>An address is <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code> with <code class="docutils literal notranslate"><span class="pre">&lt;signal&gt;</span></code> one of
-<a class="reference internal" href="#osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS" title="osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS"><code class="xref py py-data docutils literal notranslate"><span class="pre">IOC_HEALTH_SIGNALS</span></code></a>; each model’s signals keep the list’s order.
-<code class="docutils literal notranslate"><span class="pre">ioc_health</span></code> is optional under <code class="xref py py-data docutils literal notranslate"><span class="pre">ADDRESSES_SCHEMA</span></code>: a view from
-a build without it yields an empty mapping. Unlike the status
+<a class="reference internal" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS" title="osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS"><code class="xref py py-data docutils literal notranslate"><span class="pre">SERVER_HEALTH_SIGNALS</span></code></a>; each model’s signals keep the list’s order.
+The list is read from <code class="docutils literal notranslate"><span class="pre">server_health</span></code>, or from <code class="docutils literal notranslate"><span class="pre">ioc_health</span></code>, the key
+it was first written under, when the document has no <code class="docutils literal notranslate"><span class="pre">server_health</span></code>.
+Both are optional under <code class="xref py py-data docutils literal notranslate"><span class="pre">ADDRESSES_SCHEMA</span></code>: a view from a build
+that wrote neither yields an empty mapping. Unlike the status
 addresses, it lists the <code class="docutils literal notranslate"><span class="pre">texture</span></code> model too.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
@@ -1545,6 +1559,17 @@ addresses, it lists the <code class="docutils literal notranslate"><span class="
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p><em>Mapping</em>[str, <em>Mapping</em>[str, str]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">
+<span class="sig-name descname"><span class="pre">ioc_health_by_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.ioc_health_by_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model" title="Link to this definition">#</a></dt>
+<dd><p><a class="reference internal" href="#osprey_connectors.simulation.view.SimulatorView.server_health_by_model" title="osprey_connectors.simulation.view.SimulatorView.server_health_by_model"><code class="xref py py-meth docutils literal notranslate"><span class="pre">server_health_by_model()</span></code></a>, under the name it was first released with.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>Mapping</em>[str, <em>Mapping</em>[str, str]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2967,12 +2992,15 @@ setpoint holds its writes as <code class="docutils literal notranslate"><span cl
 readback is the disconnected reading. A setpoint with no readback of its
 own reads its demand and reports the condition itself.</p></li>
 </ul>
-<p>No fault withholds a reply: a read always answers.</p>
+<p>No fault withholds a reply: a read always answers. The one exception is a
+scenario’s <code class="docutils literal notranslate"><span class="pre">stopped_servers</span></code> (<code class="xref py py-mod docutils literal notranslate"><span class="pre">servers</span></code>):
+every channel of a stopped server gives no answer while the scenario is
+active, and answers again, with its current value, once it is not.</p>
 <p>The module imports only the standard library, so the build’s validator and
 the composite share one table.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none',</span> <span class="pre">'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'none',</span> <span class="pre">'readback'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint',</span> <span class="pre">'none',</span> <span class="pre">'readback'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
 <dd><p>Every channel fault, by its word.</p>
 </dd></dl>
 
@@ -3463,7 +3491,7 @@ status addresses, <code class="docutils literal notranslate"><span class="pre">&
 child’s own variables that no channel names (faults, optics) are reached as
 <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;/&lt;name&gt;</span></code> through <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.model_get" title="osprey_connectors.simulation.composite.Composite.model_get"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Composite.model_get()</span></code></a> and
 <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.model_set" title="osprey_connectors.simulation.composite.Composite.model_set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Composite.model_set()</span></code></a> only.</p>
-<p><strong>IOC health.</strong> <code class="docutils literal notranslate"><span class="pre">supported_variables</span></code> also holds the view’s <code class="docutils literal notranslate"><span class="pre">ioc_health</span></code>
+<p><strong>Server health.</strong> <code class="docutils literal notranslate"><span class="pre">supported_variables</span></code> also holds the view’s server health
 addresses, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code>, read-only and served for every model
 the view lists whether or not it is built: <code class="docutils literal notranslate"><span class="pre">HEARTBEAT</span></code> counts the whole seconds
 since the composite started, <code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> is those seconds, both on its clock, and
@@ -3619,7 +3647,7 @@ is failed and emits nothing.</p>
 <dl class="py property">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.supported_variables">
 <span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">supported_variables</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Variable</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.supported_variables" title="Link to this definition">#</a></dt>
-<dd><p>Every channel, status and IOC health address of the view, by address.</p>
+<dd><p>Every channel, status and server health address of the view, by address.</p>
 </dd></dl>
 
 <dl class="py property">
@@ -3647,6 +3675,21 @@ is failed and emits nothing.</p>
 on their level, each when no active scenario stills, freezes or
 disconnects it and its seed drift, a held coupling or a non-zero noise
 term moves it.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>frozenset[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.stopped">
+<span class="sig-name descname"><span class="pre">stopped</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.stopped"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.stopped" title="Link to this definition">#</a></dt>
+<dd><p>The addresses of the simulated servers the active scenarios stop.</p>
+<p>A reader of one of them gets no answer: the in-process connector
+raises, the served virtual accelerator withholds its reply. The
+composite itself still computes them, so a channel answers with its
+current value, never a frozen one, once its server is no longer stopped.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>frozenset[str]</p>
@@ -3745,10 +3788,10 @@ shaped like <code class="docutils literal notranslate"><span class="pre">t_s</sp
 <p>A texture channel returns the value the texture holds; a physics
 channel its child’s plain read; a setpoint the active scenarios hold
 the value last written to it; a faulted reading its unfaulted value;
-a status address its status; an IOC health address its value now.</p>
+a status address its status; a server health address its value now.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Channel, status or IOC health addresses.</p>
+<dd class="field-odd"><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Channel, status or server health addresses.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The value by address, in its stored representation.</p>
@@ -4249,10 +4292,12 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS"><code class="docutils literal notranslate"><span class="pre">IOC_HEALTH_SIGNALS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.MARKS"><code class="docutils literal notranslate"><span class="pre">MARKS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH"><code class="docutils literal notranslate"><span class="pre">PERIODIC_IOC_HEALTH</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH"><code class="docutils literal notranslate"><span class="pre">PERIODIC_SERVER_HEALTH</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.PLANES"><code class="docutils literal notranslate"><span class="pre">PLANES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.REFRESH"><code class="docutils literal notranslate"><span class="pre">REFRESH</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SCENARIOS_DIR"><code class="docutils literal notranslate"><span class="pre">SCENARIOS_DIR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SERVED_SIGNAL_PROPERTY"><code class="docutils literal notranslate"><span class="pre">SERVED_SIGNAL_PROPERTY</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS"><code class="docutils literal notranslate"><span class="pre">SERVER_HEALTH_SIGNALS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SCHEMAS"><code class="docutils literal notranslate"><span class="pre">SCHEMAS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SERVED_MODELS_FILE"><code class="docutils literal notranslate"><span class="pre">SERVED_MODELS_FILE</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.STATUS_SIGNAL"><code class="docutils literal notranslate"><span class="pre">STATUS_SIGNAL</span></code></a></li>
@@ -4317,6 +4362,7 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.physics_models"><code class="docutils literal notranslate"><span class="pre">SimulatorView.physics_models()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.channels"><code class="docutils literal notranslate"><span class="pre">SimulatorView.channels()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.status_addresses"><code class="docutils literal notranslate"><span class="pre">SimulatorView.status_addresses()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.server_health_by_model"><code class="docutils literal notranslate"><span class="pre">SimulatorView.server_health_by_model()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model"><code class="docutils literal notranslate"><span class="pre">SimulatorView.ioc_health_by_model()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.channel"><code class="docutils literal notranslate"><span class="pre">SimulatorView.channel()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.bindings"><code class="docutils literal notranslate"><span class="pre">SimulatorView.bindings()</span></code></a></li>
@@ -4462,6 +4508,7 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.models"><code class="docutils literal notranslate"><span class="pre">Composite.models</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.active"><code class="docutils literal notranslate"><span class="pre">Composite.active</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.moving"><code class="docutils literal notranslate"><span class="pre">Composite.moving()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.stopped"><code class="docutils literal notranslate"><span class="pre">Composite.stopped()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.texture_reach"><code class="docutils literal notranslate"><span class="pre">Composite.texture_reach()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.get"><code class="docutils literal notranslate"><span class="pre">Composite.get()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.readout_group"><code class="docutils literal notranslate"><span class="pre">Composite.readout_group()</span></code></a></li>

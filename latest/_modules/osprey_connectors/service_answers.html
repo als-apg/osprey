@@ -525,13 +525,30 @@
 <a class="viewcode-back" href="../../reference/connectors-api/services.html#osprey_connectors.service_answers.BackendSpec">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">BackendSpec</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;One backend to build; ``service_targets`` makes these from the config.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One backend to build; ``service_targets`` makes these from the config.</span>
+
+<span class="sd">    ``section`` is the config key the spec was read under: ``channel_directory``,</span>
+<span class="sd">    or ``pv_directory`` from a config that still spells the section that way. It</span>
+<span class="sd">    says where the spec came from, not what it builds, so two specs that differ</span>
+<span class="sd">    only in it are equal.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">kind</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;directory&quot;</span><span class="p">,</span> <span class="s2">&quot;alarm_log&quot;</span><span class="p">,</span> <span class="s2">&quot;alarm_state&quot;</span><span class="p">,</span> <span class="s2">&quot;put_log&quot;</span><span class="p">]</span>
     <span class="nb">type</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">target</span><span class="p">:</span> <span class="n">ControlTarget</span>
     <span class="n">settings</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span>
-    <span class="n">rehearsal</span><span class="p">:</span> <span class="nb">bool</span></div>
+    <span class="n">rehearsal</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;channel_directory&quot;</span><span class="p">,</span> <span class="n">compare</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">settings_key</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The config key of ``settings``, as a settings error names it.</span>
+
+<span class="sd">        ``&lt;section&gt;.settings`` for the directory and ``&lt;section&gt;.&lt;kind&gt;.settings``</span>
+<span class="sd">        for the kinds beneath it, with the section spelled as the config spelled it.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">block</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">section</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;directory&quot;</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">section</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">kind</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">block</span><span class="si">}</span><span class="s2">.settings&quot;</span></div>
 
 
 
@@ -539,7 +556,7 @@
 <a class="viewcode-back" href="../../reference/connectors-api/services.html#osprey_connectors.service_answers.HistoryPage">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">HistoryPage</span><span class="p">(</span><span class="n">Generic</span><span class="p">[</span><span class="n">_RowT</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Logged rows of one PV. No rows means nothing was logged, not that nothing happened.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Logged rows of one channel. No rows means nothing was logged, not that nothing happened.</span>
 
 <span class="sd">    ``rows`` are the records of the kind that answered.</span>
 <span class="sd">    &quot;&quot;&quot;</span>

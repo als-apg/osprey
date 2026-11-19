@@ -459,7 +459,7 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/services.html#osprey_connectors.alarm_state.AlarmStateRecord">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">AlarmStateRecord</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;What one PV&#39;s alarm is now. The backend alone sets ``stale``; others pass it on.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What one channel&#39;s alarm is now. The backend alone sets ``stale``; others pass it on.&quot;&quot;&quot;</span>
 
     <span class="n">severity</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -519,7 +519,7 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/services.html#osprey_connectors.alarm_state.AlarmConfigRecord">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">AlarmConfigRecord</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;One PV&#39;s place in the alarm tree.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One channel&#39;s place in the alarm tree.&quot;&quot;&quot;</span>
 
     <span class="n">in_tree</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;no&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">]</span>
     <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
