@@ -38,7 +38,9 @@ null); a setpoint without a record is writable only when the simulated
 target's limits mode is ``optional``, and every other channel without a record
 is not writable.
 
-``seeds.json`` maps each channel carrying a seed record to that record.
+``seeds.json`` maps each channel carrying a seed record to that record, less
+``follows``, which a setpoint's ``pair`` in ``variables.json`` already carries;
+a seed of ``follows`` alone is not listed.
 ``follows.json`` says for each pair, a setpoint whose ``pair`` names another
 channel, whether the simulation follows it: ``pairs`` lists ``{setpoint,
 readback, follow, why}`` sorted by readback, then setpoint, where ``follow`` is
@@ -362,11 +364,16 @@ def _model_entry(inputs: ViewInputs, model: Mapping[str, Any]) -> dict[str, Any]
 
 
 def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
-    seeds = {
-        str(channel["id"]): copy.deepcopy(channel["simulation"])
-        for channel in doc.get("channels", [])
-        if channel.get("simulation") is not None
-    }
+    # `follows` is decided at build time and carried by a setpoint's `pair` in
+    # variables.json; the runtime reads seeds for values and motion only.
+    seeds = {}
+    for channel in doc.get("channels", []):
+        seed = channel.get("simulation")
+        if seed is None:
+            continue
+        kept = {key: copy.deepcopy(value) for key, value in seed.items() if key != "follows"}
+        if kept:
+            seeds[str(channel["id"])] = kept
     return {"schema": SEEDS_SCHEMA, "seeds": seeds}
 
 

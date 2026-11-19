@@ -1140,6 +1140,36 @@ def test_a_readback_seed_following_none_stops_the_simulation_following_it(
     } in follows["pairs"]
 
 
+def test_seeds_leave_out_follows_which_the_pair_already_carries(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    readbacks = [
+        str(c["id"])
+        for c in built_demo.facility["channels"]
+        if c.get("role", "readback") == "readback"
+    ]
+    seeded = next(a for a in readbacks if _seed_of(built_demo, a) is not None)
+    unseeded = next(a for a in readbacks if _seed_of(built_demo, a) is None)
+    seed = _seed_of(built_demo, seeded)
+    _render_follows(
+        tmp_path,
+        built_demo,
+        {
+            seeded: {"simulation": {**seed, "follows": "none"}},
+            unseeded: {"simulation": {"follows": "none"}},
+        },
+    )
+    seeds = _view(tmp_path / "render", SEEDS)["seeds"]
+
+    assert seeds[seeded] == seed
+    assert unseeded not in seeds
+
+
+def _seed_of(built: BuiltProject, address: str) -> dict[str, Any] | None:
+    record = next(c for c in built.facility["channels"] if str(c["id"]) == address)
+    return record.get("simulation")
+
+
 def test_a_readback_seed_naming_its_setpoint_makes_the_simulation_follow_it(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
