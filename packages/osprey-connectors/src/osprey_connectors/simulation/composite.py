@@ -130,6 +130,7 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
+from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -416,6 +417,7 @@ class Composite(LUMEModel):
         self._moving: frozenset[str] = frozenset()
         self._held_writes: frozenset[str] = frozenset()
         self._faulted: dict[str, ChannelFault] = {}
+        self._stopped: frozenset[str] = frozenset()
         self._fault_severity: dict[str, str] = {}
         self._snapshot: dict[str, object] = {}
         self._texture_demands: dict[str, object] = {}
@@ -454,6 +456,13 @@ class Composite(LUMEModel):
             for signals in view.ioc_health_by_model().values()
             for signal, address in signals.items()
         }
+        #: Every address of the view, by the simulated IOC serving it.
+        self._ioc_addresses: dict[str, frozenset[str]] = server_addresses(
+            physics,
+            {address: str(record.get("owner")) for address, record in self._channels.items()},
+            view.status_addresses(),
+            view.ioc_health_by_model(),
+        )
 
         self._variables: dict[str, Variable] = {}
         for address in view.channels():
@@ -771,6 +780,7 @@ class Composite(LUMEModel):
         noise: dict[str, NoiseRecord] = {}
         still: set[str] = set()
         channel_faults: dict[str, str] = {}
+        stopped_servers: set[str] = set()
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
         for name in active:
@@ -790,6 +800,7 @@ class Composite(LUMEModel):
             noise.update(scenario.get("noise") or {})
             still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
+            stopped_servers.update(str(ioc) for ioc in scenario.get("stopped_servers") or ())
 
         resolved: dict[str, list[ResolvedCoupling]] = {}
         for address, terms in couple.items():
@@ -827,6 +838,19 @@ class Composite(LUMEModel):
             child.last_good = {}
             self._build(child)
         self._apply_channel_faults(channel_faults)
+        self._apply_stopped_servers(stopped_servers)
+
+    def _apply_stopped_servers(self, stopped_servers: set[str]) -> None:
+        """Stop the named simulated IOCs: none of their addresses answers a reader."""
+        stopped: set[str] = set()
+        for ioc in sorted(stopped_servers):
+            addresses = self._ioc_addresses.get(ioc)
+            if addresses is None:
+                logger.warning(f"Ignoring stopped IOC {ioc!r}: the view serves no such IOC")
+                continue
+            stopped.update(addresses)
+        self._stopped = frozenset(stopped)
+        self._moving = self._moving - self._stopped
 
     def _child_active(
         self,
@@ -916,6 +940,17 @@ class Composite(LUMEModel):
         """
         self._refresh()
         return self._moving
+
+    def stopped(self) -> frozenset[str]:
+        """The addresses of the simulated IOCs the active scenarios stop.
+
+        A reader of one of them gets no answer: the in-process connector
+        raises, the served virtual accelerator withholds its reply. The
+        composite itself still computes them, so a channel answers with its
+        current value, never a frozen one, once its IOC is no longer stopped.
+        """
+        self._refresh()
+        return self._stopped
 
     def texture_reach(self) -> dict[str, frozenset[str]]:
         """What a write to each settable texture channel can change, by address.

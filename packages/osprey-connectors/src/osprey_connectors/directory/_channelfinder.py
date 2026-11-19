@@ -21,12 +21,27 @@ description matched, each of those requests holding all the words. Only ``~name`
 is measured to AND when repeated, so the description search is one pattern and
 matches the words in the order given. A page belongs to the first search with rows,
 and the request it reports is every search that was sent, joined with `` · ``.
+
+Listing the IOCs reads every channel, so it cannot page by ``~from``: Elasticsearch
+refuses a page reaching past its result window (``index.max_result_window``,
+10,000 by default), and a facility directory holds more channels than that. This
+was not measured: no ChannelFinder holding more than 10,000 channels was reachable
+when this was written, so the ceiling is taken as present. The listing pages over
+the service's scroll route instead: ``scroll`` answers ``{id, channels}`` in name
+order and ``scroll/{id}`` continues after that id, with the same query each time.
+The scroll ends on an empty page, or on a page short of ``~size`` with no id; a
+short page that carries an id is continued, since how the route treats ``~size``
+was not measured either. The id travels as one percent-encoded path segment, and
+the transport refuses one holding ``/``, so a page ending on such a name answers
+``Unavailable`` rather than part of the list.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+import urllib.parse
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
@@ -41,12 +56,14 @@ from osprey_connectors.directory._contract import (
     DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
+    ServerRow,
 )
 from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
 
 _CHANNELS = "/resources/channels"
 _COUNT = "/resources/channels/count"
 _PROPERTIES = "/resources/properties"
+_SCROLL = "/resources/scroll"
 
 _MALFORMED = Unavailable("malformed response")
 
@@ -80,6 +97,8 @@ _DESCRIBE_SIZE = 100
 _VALUES_SIZE = 1000
 #: Rows read for a probe's newest announcement, since the service cannot sort by it.
 _PROBE_SAMPLE_SIZE = 20
+#: Channels per scroll page when listing the IOCs, inside the service's result window.
+_SCROLL_SIZE = 5000
 
 _SEPARATORS = str.maketrans(dict.fromkeys(",|;", "?"))
 
@@ -174,6 +193,27 @@ def _properties_of(channel: _Channel) -> dict[str, str]:
     }
 
 
+def _scroll_page(body: object) -> tuple[str | None, list[_Channel]] | Unavailable:
+    """The id to continue after and the channels of one scroll answer."""
+    if isinstance(body, Unavailable):
+        return body
+    if not isinstance(body, Mapping):
+        return _MALFORMED
+    after = body.get("id")
+    channels = _channels(body.get("channels"))
+    if isinstance(channels, Unavailable) or not (after is None or isinstance(after, str)):
+        return _MALFORMED
+    return after, channels
+
+
+def _main_host(seen: tuple[Counter[str], Counter[str]] | None) -> str | None:
+    """The host most channels name, active ones first; ties go to the first by name."""
+    if seen is None:
+        return None
+    counts = seen[0] or seen[1]
+    return min(counts, key=lambda host: (-counts[host], host))
+
+
 class ChannelFinderDirectory(ChannelDirectory):
     """Search a ChannelFinder service over its read routes.
 
@@ -190,6 +230,8 @@ class ChannelFinderDirectory(ChannelDirectory):
         ("GET", _COUNT),
         ("GET", _PROPERTIES),
         ("GET", "/resources/tags"),
+        ("GET", _SCROLL),
+        ("GET", f"{_SCROLL}/*"),
     )
 
     def __init__(
@@ -383,6 +425,62 @@ class ChannelFinderDirectory(ChannelDirectory):
         return sorted(
             value for value in values if value is not None and value.startswith(prefix or "")
         )
+
+    @override
+    async def list_servers(self, deadline: float) -> list[ServerRow] | Unavailable:
+        """Every IOC the channels name in ``iocName``, read over the scroll route.
+
+        A channel with no ``iocName`` belongs to no row. An IOC's host is the
+        ``hostName`` most of its active channels carry, of all its channels when
+        none is active, since an inactive channel keeps the host it was last on.
+        """
+        started = time.monotonic()
+        params: _Params = [("~name", "*"), ("~size", _SCROLL_SIZE)]
+        pvs: Counter[str] = Counter()
+        inactive: Counter[str] = Counter()
+        hosts: dict[str, tuple[Counter[str], Counter[str]]] = {}
+        path, seen = _SCROLL, 0
+        while True:
+            left = deadline - (time.monotonic() - started)
+            if left <= 0:
+                return Unavailable(
+                    f"listing the IOCs did not finish within {deadline:g} s ({seen} PVs read)"
+                )
+            page = _scroll_page(await self._get(path, params, left))
+            if isinstance(page, Unavailable):
+                return Unavailable(f"listing the IOCs stopped after {seen} PVs: {page.reason}")
+            after, channels = page
+            for found in channels:
+                properties = _properties_of(found)
+                ioc = properties.get(_ROW_FIELD_PROPERTIES["server"])
+                if ioc is None:
+                    continue
+                active = properties.get(_ROW_FIELD_PROPERTIES["status"]) != "Inactive"
+                pvs[ioc] += 1
+                inactive[ioc] += not active
+                host = properties.get(_ROW_FIELD_PROPERTIES["host"])
+                if host is not None:
+                    hosts.setdefault(ioc, (Counter(), Counter()))[0 if active else 1][host] += 1
+            seen += len(channels)
+            # The id ends the scroll, not a short page: the service may serve fewer
+            # than ``~size`` per page, so a short page with an id may have more after it.
+            if not channels or (not after and len(channels) < _SCROLL_SIZE):
+                break
+            next_path = f"{_SCROLL}/{urllib.parse.quote(after, safe='')}" if after else None
+            if next_path is None or next_path == path:
+                return Unavailable(
+                    f"listing the IOCs stopped after {seen} PVs: the scroll did not advance"
+                )
+            path = next_path
+        return [
+            ServerRow(
+                name=ioc,
+                host=_main_host(hosts.get(ioc)),
+                channel_count=pvs[ioc],
+                inactive_count=inactive[ioc],
+            )
+            for ioc in sorted(pvs)
+        ]
 
     @override
     async def probe(self, deadline: float) -> str | Unavailable:

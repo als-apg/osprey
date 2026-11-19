@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+import urllib.parse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,8 @@ CHANNELFINDER = (
 )
 ALARM_LOGGER = (("GET", "/"), ("GET", "/search/*"))
 PUT_LOG = (("POST", "/search"),)
+#: A prefix that admits POST, to show the percent-encoded segment is a GET's only.
+SCROLLS = (("POST", "/scroll/*"),)
 JSON = "application/json"
 
 
@@ -89,7 +92,7 @@ def service() -> Iterator[_Service]:
 
 def _transport(service: _Service, allowed=CHANNELFINDER, **settings) -> ReadOnlyTransport:
     return ReadOnlyTransport(
-        {"url": service.url, **settings}, allowed, where="pv_directory.settings"
+        {"url": service.url, **settings}, allowed, where="channel_directory.settings"
     )
 
 
@@ -110,7 +113,7 @@ def _serving(do_get: Callable[[BaseHTTPRequestHandler], None]) -> Iterator[ReadO
         yield ReadOnlyTransport(
             {"url": f"http://127.0.0.1:{server.server_address[1]}"},
             CHANNELFINDER,
-            where="pv_directory.settings",
+            where="channel_directory.settings",
         )
     finally:
         server.shutdown()
@@ -144,6 +147,19 @@ def _serving(do_get: Callable[[BaseHTTPRequestHandler], None]) -> Iterator[ReadO
         (ALARM_LOGGER, "GET", "/search/alarm#frag"),
         (ALARM_LOGGER, "GET", "/searching/alarm"),
         (ALARM_LOGGER, "GET", "/search/*"),
+        (ALARM_LOGGER, "GET", "/search/%2e"),
+        (ALARM_LOGGER, "GET", "/search/%2E%2e"),
+        (ALARM_LOGGER, "GET", "/search/."),
+        (ALARM_LOGGER, "GET", "/search/.."),
+        (ALARM_LOGGER, "GET", "/search/SR%2Fadmin"),
+        (ALARM_LOGGER, "GET", "/search/SR%5Cadmin"),
+        (ALARM_LOGGER, "GET", "/search/SR%00"),
+        (ALARM_LOGGER, "GET", "/search/SR%3"),
+        (ALARM_LOGGER, "GET", "/search/SR%zz"),
+        (ALARM_LOGGER, "GET", "/search/SR%FF"),
+        (ALARM_LOGGER, "GET", "/search/SR%3A/x"),
+        (ALARM_LOGGER, "GET", "/search/SR:PV"),
+        (SCROLLS, "POST", "/scroll/SR01%3ABPM.X"),
         (PUT_LOG, "GET", "/search"),
         (PUT_LOG, "POST", "/autocomplete"),
         (PUT_LOG, "POST", "/search/x"),
@@ -158,7 +174,9 @@ async def test_a_refused_request_never_reaches_the_network(service, allowed, met
 
 
 async def test_a_refusal_comes_before_a_broken_connection_block():
-    transport = ReadOnlyTransport({"headers": {}}, CHANNELFINDER, where="pv_directory.settings")
+    transport = ReadOnlyTransport(
+        {"headers": {}}, CHANNELFINDER, where="channel_directory.settings"
+    )
 
     answer = await transport.request("DELETE", "/resources/channels", deadline=5)
 
@@ -175,6 +193,9 @@ async def test_a_refusal_comes_before_a_broken_connection_block():
         (ALARM_LOGGER, "GET", "/", "/"),
         (ALARM_LOGGER, "GET", "/search/alarm", "/search/alarm"),
         (ALARM_LOGGER, "GET", "/search/alarm/config", "/search/alarm/config"),
+        (ALARM_LOGGER, "GET", "/search/SR01%3ABPM.X", "/search/SR01%3ABPM.X"),
+        (ALARM_LOGGER, "GET", "/search/a%2Eb~c", "/search/a%2Eb~c"),
+        (ALARM_LOGGER, "GET", "/search/%C3%A9", "/search/%C3%A9"),
         (PUT_LOG, "POST", "/search", "/search"),
     ],
 )
@@ -185,6 +206,18 @@ async def test_an_allowed_request_is_sent(service, allowed, method, path, sent):
 
     assert answer == []
     assert [(r["method"], r["target"]) for r in service.received] == [(method, sent)]
+
+
+async def test_a_pv_name_quoted_as_one_segment_is_sent_unchanged(service):
+    segment = urllib.parse.quote("SR01:BPM04999.X", safe="")
+    service.answer(f"/search/{segment}", 200, JSON, b"[]")
+
+    answer = await _transport(service, ALARM_LOGGER).request(
+        "GET", f"/search/{segment}", deadline=5
+    )
+
+    assert answer == []
+    assert [r["target"] for r in service.received] == ["/search/SR01%3ABPM04999.X"]
 
 
 # --- what is sent -------------------------------------------------------------------
@@ -395,7 +428,7 @@ async def test_a_body_dripped_past_the_deadline_times_out():
         transport = ReadOnlyTransport(
             {"url": f"http://127.0.0.1:{server.server_address[1]}"},
             CHANNELFINDER,
-            where="pv_directory.settings",
+            where="channel_directory.settings",
         )
         started = time.monotonic()
         answer = await transport.request("GET", "/resources/channels", deadline=0.3)
@@ -514,7 +547,7 @@ async def test_a_closed_port_is_unavailable():
     port = server.server_address[1]
     server.server_close()
     transport = ReadOnlyTransport(
-        {"url": f"http://127.0.0.1:{port}"}, CHANNELFINDER, where="pv_directory.settings"
+        {"url": f"http://127.0.0.1:{port}"}, CHANNELFINDER, where="channel_directory.settings"
     )
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
@@ -526,15 +559,18 @@ async def test_a_closed_port_is_unavailable():
 @pytest.mark.parametrize(
     ("settings", "named"),
     [
-        ({}, "pv_directory.settings.url"),
-        ({"url": "ftp://host"}, "pv_directory.settings.url"),
-        ({"url": "http://host", "verify": False, "headers": {}}, "pv_directory.settings.headers"),
+        ({}, "channel_directory.settings.url"),
+        ({"url": "ftp://host"}, "channel_directory.settings.url"),
+        (
+            {"url": "http://host", "verify": False, "headers": {}},
+            "channel_directory.settings.headers",
+        ),
         ({"url": "http://host", "auth": {"token_env": "UNSET_VAR_X"}}, "UNSET_VAR_X"),
         ({"url": "https://host", "tls": {"ca_bundle": "/no/such/ca.pem"}}, "tls.ca_bundle"),
     ],
 )
 async def test_a_block_that_cannot_be_used_is_unavailable_naming_the_key(settings, named):
-    transport = ReadOnlyTransport(settings, CHANNELFINDER, where="pv_directory.settings")
+    transport = ReadOnlyTransport(settings, CHANNELFINDER, where="channel_directory.settings")
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
@@ -560,7 +596,7 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
 
     answer = await _transport(service, auth=auth).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings`: the url or login cannot be sent")
+    assert answer == Unavailable("`channel_directory.settings`: the url or login cannot be sent")
     assert service.received == []
     assert "s3cret" not in caplog.text
 
@@ -576,11 +612,11 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
     ],
 )
 async def test_a_url_that_cannot_be_sent_is_unavailable_naming_the_block(url):
-    transport = ReadOnlyTransport({"url": url}, CHANNELFINDER, where="pv_directory.settings")
+    transport = ReadOnlyTransport({"url": url}, CHANNELFINDER, where="channel_directory.settings")
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings`: the url or login cannot be sent")
+    assert answer == Unavailable("`channel_directory.settings`: the url or login cannot be sent")
 
 
 async def test_a_refused_login_names_the_status_not_the_login(service, monkeypatch):
@@ -612,12 +648,14 @@ async def test_a_query_that_cannot_be_encoded_sends_nothing(service, monkeypatch
 @pytest.mark.parametrize("suffix", ["/?a=", "/?", "/#frag", "/#", "?a=1"])
 async def test_a_url_with_a_query_or_fragment_sends_nothing(service, suffix):
     transport = ReadOnlyTransport(
-        {"url": service.url + suffix}, CHANNELFINDER, where="pv_directory.settings"
+        {"url": service.url + suffix}, CHANNELFINDER, where="channel_directory.settings"
     )
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings.url` must not carry a query or fragment")
+    assert answer == Unavailable(
+        "`channel_directory.settings.url` must not carry a query or fragment"
+    )
     assert service.received == []
 
 

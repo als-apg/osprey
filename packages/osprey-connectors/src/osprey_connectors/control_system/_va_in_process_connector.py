@@ -48,6 +48,7 @@ import inspect
 import json
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict, TypeGuard
@@ -67,6 +68,7 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelNotFoundError,
+    ChannelUnreachableError,
     ConnectorUnavailableError,
     RefusalReason,
 )
@@ -303,6 +305,28 @@ def _mark(document: object, text: str) -> int | str:
     return (text or 0) if seq is None else seq
 
 
+@dataclass
+class _Subscription:
+    """One subscription: its channel, its callbacks, and whether it was last told connected."""
+
+    address: str
+    callback: Callable[[ChannelValue], object]
+    on_connection: Callable[[bool], None] | None
+    connected: bool
+
+
+def _tell_connection(
+    address: str, on_connection: Callable[[bool], None] | None, connected: bool
+) -> None:
+    """Tell a subscription's ``on_connection`` its channel's state; a raise is logged."""
+    if on_connection is None:
+        return
+    try:
+        on_connection(connected)
+    except Exception as exc:
+        logger.warning(f"In-process connection callback for {address} raised: {exc}")
+
+
 class VAInProcessConnector(ControlSystemConnector):
     """Serve the built facility's simulator view in process.
 
@@ -317,7 +341,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._composite: Composite | None = None
         self._records: dict[str, ChannelRecord] = {}
         self._served: frozenset[str] = frozenset()
-        self._subscriptions: dict[str, tuple[str, Callable[[ChannelValue], object]]] = {}
+        self._subscriptions: dict[str, _Subscription] = {}
         self._last_held: dict[str, object] = {}
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_s = 1.0
@@ -606,6 +630,20 @@ class VAInProcessConnector(ControlSystemConnector):
             raise ChannelNotFoundError(address)
         return self._composite
 
+    def _answering(self, address: str) -> Composite:
+        """The composite, once ``address`` is served and its simulated IOC is not stopped.
+
+        Raises:
+            ChannelNotFoundError: ``address`` is not a channel of the facility.
+            ChannelUnreachableError: A scenario's ``stopped_servers`` stops the IOC
+                serving ``address``: the channel gives no answer.
+            ConnectorUnavailableError: The connector is not connected.
+        """
+        composite = self._require(address)
+        if address in composite.stopped():
+            raise ChannelUnreachableError(address)
+        return composite
+
     def _wire(self, address: str, value: object) -> object:
         """A value as the wire carries it: a label as its index, a waveform as an array."""
         record = self._records.get(address)
@@ -645,7 +683,7 @@ class VAInProcessConnector(ControlSystemConnector):
         )
 
     def _reading(self, address: str, *, held: bool) -> ChannelValue:
-        composite = self._require(address)
+        composite = self._answering(address)
         stored: object = composite.held([address])[address] if held else composite.get(address)
         metadata = self._metadata(address, composite)
         if metadata.enum_labels is not None and stored in metadata.enum_labels:
@@ -657,7 +695,7 @@ class VAInProcessConnector(ControlSystemConnector):
         )
 
     def _held_value(self, address: str) -> object:
-        composite = self._require(address)
+        composite = self._answering(address)
         return self._wire(address, composite.held([address])[address])
 
     # -- reads -----------------------------------------------------------------
@@ -673,6 +711,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
+            ChannelUnreachableError: A scenario stops the channel's simulated IOC.
         """
         await asyncio.sleep(self._response_delay)
         self._sync()
@@ -710,9 +749,9 @@ class VAInProcessConnector(ControlSystemConnector):
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
         """
-        composite = self._require(channel_address)
+        self._require(channel_address)
         self._sync()
-        return self._metadata(channel_address, composite)
+        return self._metadata(channel_address, self._answering(channel_address))
 
     @override
     async def validate_channel(self, channel_address: str) -> bool:
@@ -764,6 +803,18 @@ class VAInProcessConnector(ControlSystemConnector):
                 error_message=str(unknown),
             )
         self._sync()
+        if channel_address in self._composite.stopped():
+            # As on the wire: a stopped IOC's channel never connects, so nothing is sent.
+            logger.warning(f"In-process write failed: {channel_address}: its IOC is stopped")
+            return channel_address, ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=(
+                    f"Failed to write to channel '{channel_address}': no value was sent "
+                    f"({ChannelUnreachableError(channel_address)}: its simulated IOC is stopped)"
+                ),
+            )
         if self._composite.supported_variables[channel_address].read_only:
             return channel_address, self._refused(
                 channel_address, value, f"Write to '{channel_address}' refused: {NOT_WRITABLE}"
@@ -933,26 +984,28 @@ class VAInProcessConnector(ControlSystemConnector):
     ) -> str:
         """Subscribe to a channel; the callback fires after a tick or a write.
 
-        A channel of the facility is served by this process and never drops, so
-        ``on_connection(True)`` comes once, before this returns, and ``False``
-        never does.
+        A channel of the facility is served by this process, so it drops only
+        while a scenario's ``stopped_servers`` stops its simulated IOC, as a
+        channel of a stopped IOC does on the wire: ``on_connection`` is told
+        the channel's state before this returns -- ``False`` when its IOC is
+        stopped, and the subscription then waits -- and told again on every
+        stop and restart. The first callback after a restart carries the
+        channel's current value.
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
         """
-        self._require(channel_address)
+        composite = self._require(channel_address)
         self._sync()
         sub_id = f"inprocess_{channel_address}_{id(callback)}"
-        self._subscriptions[sub_id] = (channel_address, callback)
-        self._last_held[channel_address] = self._held_value(channel_address)
+        connected = channel_address not in composite.stopped()
+        self._subscriptions[sub_id] = _Subscription(
+            channel_address, callback, on_connection, connected
+        )
+        if connected:
+            self._last_held[channel_address] = self._held_value(channel_address)
         logger.debug(f"In-process subscription created: {sub_id}")
-        if on_connection is not None:
-            try:
-                on_connection(True)
-            except Exception as exc:
-                logger.warning(
-                    f"In-process connection callback for {channel_address} raised: {exc}"
-                )
+        _tell_connection(channel_address, on_connection, connected)
         return sub_id
 
     @override
@@ -963,10 +1016,14 @@ class VAInProcessConnector(ControlSystemConnector):
             logger.debug(f"In-process subscription removed: {subscription_id}")
 
     def _subscribed_held(self) -> dict[str, object]:
-        addresses = sorted({address for address, _ in self._subscriptions.values()})
+        addresses = sorted({subscription.address for subscription in self._subscriptions.values()})
         if not addresses or self._composite is None:
             return {}
-        return {address: self._held_value(address) for address in addresses}
+        # A stopped IOC's channel gives no answer, so its subscription is quiet.
+        stopped = self._composite.stopped()
+        return {
+            address: self._held_value(address) for address in addresses if address not in stopped
+        }
 
     async def _notify(self, before: Mapping[str, object] | None = None) -> None:
         """Fire each subscription whose held value changed or whose channel moves under the active scenarios."""
@@ -974,6 +1031,15 @@ class VAInProcessConnector(ControlSystemConnector):
             return
         previous = self._last_held if before is None else before
         now = self._subscribed_held()
+        stopped = self._composite.stopped()
+        for address in stopped:
+            # Forgotten while stopped, so the first answer after a restart fires.
+            self._last_held.pop(address, None)
+        for subscription in list(self._subscriptions.values()):
+            connected = subscription.address not in stopped
+            if connected != subscription.connected:
+                subscription.connected = connected
+                _tell_connection(subscription.address, subscription.on_connection, connected)
         moving = self._composite.moving()
         due = {
             address
@@ -981,7 +1047,8 @@ class VAInProcessConnector(ControlSystemConnector):
             if address in moving or not values_match(previous.get(address), value)
         }
         self._last_held.update(now)
-        for address, callback in list(self._subscriptions.values()):
+        for subscription in list(self._subscriptions.values()):
+            address, callback = subscription.address, subscription.callback
             if address not in due:
                 continue
             try:

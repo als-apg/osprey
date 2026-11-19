@@ -42,6 +42,7 @@ from osprey_connectors.directory import (
     DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
+    ServerRow,
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec as Spec
@@ -64,6 +65,7 @@ REPLAY_FILE = Path(__file__).parents[1] / "alarm_state" / "fixtures" / "old-feed
 CF_CHANNELS = "/resources/channels"
 CF_COUNT = "/resources/channels/count"
 CF_PROPERTIES = "/resources/properties"
+CF_SCROLL = "/resources/scroll"
 
 Record = namedtuple("Record", "key value")
 Answer = Callable[[str, str, Any], Any]
@@ -270,10 +272,11 @@ _HTTP_ANSWERS: dict[str, dict[str, Answer]] = {
                 CF_CHANNELS: _fixture("channels.json"),
                 CF_COUNT: _fixture("count.json"),
                 CF_PROPERTIES: _fixture("properties.json"),
+                CF_SCROLL: {"id": None, "channels": _fixture("channels.json")},
             },
             [],
         ),
-        _by_path({CF_COUNT: 0}, []),
+        _by_path({CF_COUNT: 0, CF_SCROLL: {"id": None, "channels": []}}, []),
     ),
     "phoebus_alarm_logger": _http_answers(
         _by_path(
@@ -457,6 +460,7 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
             ("describe", await backend.describe(pv, deadline)),
             ("property_names", await backend.property_names(deadline)),
             ("property_values", await backend.property_values("iocName", "rf", deadline)),
+            ("list_servers", await backend.list_servers(deadline)),
             ("probe", await backend.probe(deadline)),
         ]
     if case.kind in ("alarm_log", "put_log"):
@@ -488,6 +492,7 @@ _RETURNS: dict[str, tuple[type, ...]] = {
     "describe": (DirectoryRecord, Outcome, Unavailable),
     "property_names": (list, Unavailable),
     "property_values": (list, Unavailable),
+    "list_servers": (list, Unavailable),
     "probe": (str, Unavailable),
     "history": (HistoryPage,),
     "config_for": (AlarmConfigRecord, Unavailable),
@@ -564,6 +569,112 @@ async def test_an_exact_name_not_held_is_not_listed_and_a_search_without_rows_is
     assert (by_name.outcome, by_name.rows) == (Outcome.NO_MATCH, [])
 
 
+# --- listing the servers ----------------------------------------------------------
+
+#: The mode each directory backend lists its servers in; one without a listing is absent.
+_LISTING_MODE = {"channelfinder": "recorded", "simulator_view": "view"}
+LISTING_CASES = tuple(case for case in DIRECTORY_CASES if case.id in _LISTING_MODE)
+
+
+def _every_row(answer: Any) -> list[ServerRow]:
+    assert isinstance(answer, list), answer
+    assert all(isinstance(row, ServerRow) for row in answer), answer
+    return answer
+
+
+@pytest.mark.parametrize("case", LISTING_CASES, ids=_ids(LISTING_CASES))
+async def test_the_server_list_has_one_row_per_name_and_counts_that_are_never_negative(
+    case, tmp_path, monkeypatch
+):
+    built = await _build(case, _LISTING_MODE[case.id], tmp_path, monkeypatch)
+
+    rows = _every_row(await built.backend.list_servers(DEADLINE))
+
+    names = [row.name for row in rows]
+    assert rows
+    assert len(names) == len(set(names)), names
+    assert all(row.name for row in rows), rows
+    for row in rows:
+        assert isinstance(row.channel_count, int) and not isinstance(row.channel_count, bool), row
+        assert isinstance(row.inactive_count, int) and not isinstance(row.inactive_count, bool)
+        assert row.channel_count >= 0, row
+        assert 0 <= row.inactive_count <= row.channel_count, row
+        assert row.host is None or isinstance(row.host, str), row
+    built.assert_read_only()
+
+
+@pytest.mark.parametrize("case", LISTING_CASES, ids=_ids(LISTING_CASES))
+async def test_the_server_list_holds_every_server_the_backends_own_search_names(
+    case, tmp_path, monkeypatch
+):
+    built = await _build(case, _LISTING_MODE[case.id], tmp_path, monkeypatch)
+    if case.http:
+        # The recorded count stands for a larger directory; here the directory is the
+        # recorded channels, so the search can read all of it in one page.
+        channels = _fixture("channels.json")
+        built.transport._answer = _by_path(
+            {
+                CF_CHANNELS: channels,
+                CF_COUNT: len(channels),
+                CF_SCROLL: {"id": None, "channels": channels},
+            },
+            [],
+        )
+
+    page = await built.backend.search(DirectoryQuery(page_size=10_000), DEADLINE)
+    rows = _every_row(await built.backend.list_servers(DEADLINE))
+
+    assert page.outcome is Outcome.FOUND, page
+    assert not page.truncated, page
+    listed = {row.name: row for row in rows}
+    searched: dict[str, list[DirectoryRow]] = {}
+    for found in page.rows:
+        if found.server:
+            searched.setdefault(found.server, []).append(found)
+    assert searched, page.rows
+    assert set(searched) <= set(listed), (sorted(searched), sorted(listed))
+    for server, found in searched.items():
+        # A listing counts every PV the directory holds for the server, so never fewer
+        # than one search names, nor fewer inactive ones.
+        inactive = sum(row.status == "Inactive" for row in found)
+        assert listed[server].channel_count >= len(found), (server, listed[server])
+        assert listed[server].inactive_count >= inactive, (server, listed[server])
+    built.assert_read_only()
+
+
+async def test_a_directory_that_cannot_list_its_servers_answers_unavailable_never_empty(
+    tmp_path, monkeypatch
+):
+    built = await _build(CASES[2], "memory", tmp_path, monkeypatch)
+
+    answer = await built.backend.list_servers(DEADLINE)
+
+    assert "list_servers" not in vars(MemoryDirectory)
+    assert isinstance(answer, Unavailable), answer
+    assert answer.reason
+
+
+@pytest.mark.parametrize(
+    ("case", "mode"),
+    [
+        pytest.param(case, mode, id=f"{case.id}-{mode}")
+        for case in LISTING_CASES
+        for mode in case.modes
+        if mode not in (_LISTING_MODE[case.id], "empty")
+    ],
+)
+async def test_a_directory_that_cannot_be_read_lists_no_servers_and_says_why(
+    case, mode, tmp_path, monkeypatch
+):
+    built = await _build(case, mode, tmp_path, monkeypatch)
+
+    answer = await built.backend.list_servers(DEADLINE)
+
+    assert isinstance(answer, Unavailable), (mode, answer)
+    assert answer.reason
+    built.assert_read_only()
+
+
 @pytest.mark.parametrize("case", HISTORY_CASES, ids=_ids(HISTORY_CASES))
 async def test_a_history_without_rows_is_no_match_never_not_listed(case, tmp_path, monkeypatch):
     built = await _build(case, "empty", tmp_path, monkeypatch)
@@ -614,6 +725,11 @@ async def test_a_spent_deadline_answers_without_raising(case, tmp_path, monkeypa
     if case.http:
         # A service backend has nothing to answer from but the service.
         for method, answer in answers:
+            if method == "list_servers":
+                # The listing spans many requests, so it names its own deadline.
+                assert isinstance(answer, Unavailable), answer
+                assert "within 0 s" in answer.reason, answer
+                continue
             assert (answer.reason or "").startswith("no answer within"), (method, answer)
         assert all(page.outcome is Outcome.UNAVAILABLE for page in _pages(answers))
 
@@ -798,6 +914,10 @@ async def test_a_login_page_reads_as_the_access_proxy_on_every_method(case, redi
         if isinstance(answer, DirectoryPage | HistoryPage):
             assert answer.outcome is Outcome.UNAVAILABLE, method
             assert answer.reason == LOGIN_PAGE_REASON, method
+        elif method == "list_servers":
+            # The listing says how far it got before the proxy answered.
+            assert isinstance(answer, Unavailable), answer
+            assert answer.reason.endswith(LOGIN_PAGE_REASON), answer
         else:
             assert answer == Unavailable(LOGIN_PAGE_REASON), method
     assert login_proxy.received

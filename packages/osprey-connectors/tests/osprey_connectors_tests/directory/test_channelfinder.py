@@ -646,6 +646,8 @@ class TestConstruction:
             ("GET", COUNT),
             ("GET", PROPERTIES),
             ("GET", "/resources/tags"),
+            ("GET", "/resources/scroll"),
+            ("GET", "/resources/scroll/*"),
         }
 
     async def test_a_login_page_reaches_the_page_as_its_reason(self):

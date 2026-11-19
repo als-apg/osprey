@@ -6,6 +6,10 @@ is a channel of the view, or a status or IOC health address the simulator serves
 beside the channels. The IOC of a row is ``sim-<model>``, the served physics
 model that owns the address, else ``sim-texture``, as the composite routes it.
 
+Its servers are those IOCs: every served physics model's and the texture's, each
+listed even when it serves no PV. The listing reads the view alone, so an IOC a
+scenario stops is still listed: the directory says what exists, not what answers.
+
 A search means what it means on ChannelFinder. Words match descriptions first and
 names only when no description matched, in any case; all of them must match. A
 word holding ``*`` or ``?`` and each term of ``DirectoryQuery.name`` match names as
@@ -16,6 +20,7 @@ globs, wrapped as ``*term*`` unless the term starts or ends with ``*``; a leadin
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from typing import Literal
 
@@ -27,8 +32,10 @@ from osprey_connectors.directory._contract import (
     DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
+    ServerRow,
 )
 from osprey_connectors.service_answers import Outcome, Unavailable
+from osprey_connectors.simulation.servers import channel_server, model_server, served_servers
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
@@ -43,8 +50,6 @@ from osprey_connectors.simulation.view import (
 
 _HOST = "virtual-accelerator"
 _REQUEST_PREFIX = "simulator data"
-#: The IOC of every channel no served physics model owns.
-_TEXTURE_IOC = "sim-texture"
 
 _OUTPUT_RECORD_TYPES = {
     "float": "ao",
@@ -116,13 +121,12 @@ def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
     records = {}
     for address in view.channels():
         channel = view.channel(address)
-        server = f"sim-{channel.owner}" if channel.owner in physics else _TEXTURE_IOC
-        records[address] = _channel_record(channel, server)
+        records[address] = _channel_record(channel, channel_server(channel.owner, physics))
     for model, address in view.status_addresses().items():
-        records[address] = _served_record(address, f"sim-{model}", STATUS_SIGNAL)
+        records[address] = _served_record(address, model_server(model), STATUS_SIGNAL)
     for model, signals in view.ioc_health_by_model().items():
         for signal, address in signals.items():
-            records[address] = _served_record(address, f"sim-{model}", signal)
+            records[address] = _served_record(address, model_server(model), signal)
     return dict(sorted(records.items()))
 
 
@@ -195,6 +199,7 @@ class SimulatorDirectory(ChannelDirectory):
     """Every PV the virtual accelerator serves, from the simulator view under ``project_dir``."""
 
     _records_read: Mapping[str, DirectoryRecord] | None = None
+    _iocs_read: frozenset[str] = frozenset()
 
     def _records(self) -> Mapping[str, DirectoryRecord] | Unavailable:
         if self._records_read is not None:
@@ -202,12 +207,15 @@ class SimulatorDirectory(ChannelDirectory):
         if self.project_dir is None:
             return Unavailable("no project directory to find the simulator view under")
         try:
-            self._records_read = _read_records(SimulatorView.of_project(self.project_dir))
+            view = SimulatorView.of_project(self.project_dir)
+            records = _read_records(view)
+            iocs = served_servers(model.name for model in view.physics_models())
         except NoSimulatorView as absent:
             return Unavailable(str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:
             return Unavailable(f"the simulator view cannot be read: {failure}")
-        return self._records_read
+        self._records_read, self._iocs_read = records, iocs
+        return records
 
     @override
     async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
@@ -276,6 +284,22 @@ class SimulatorDirectory(ChannelDirectory):
             record.properties[name] for record in records.values() if name in record.properties
         }
         return sorted(value for value in values if value.startswith(prefix or ""))
+
+    @override
+    async def list_servers(self, deadline: float) -> list[ServerRow] | Unavailable:
+        records = self._records()
+        if isinstance(records, Unavailable):
+            return records
+        counts = Counter(record.row.server for record in records.values())
+        inactive = Counter(
+            record.row.server for record in records.values() if record.row.status == "Inactive"
+        )
+        return [
+            ServerRow(
+                name=name, host=_HOST, channel_count=counts[name], inactive_count=inactive[name]
+            )
+            for name in sorted(self._iocs_read | {name for name in counts if name})
+        ]
 
     @override
     async def probe(self, deadline: float) -> str | Unavailable:
