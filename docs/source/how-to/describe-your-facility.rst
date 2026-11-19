@@ -156,6 +156,13 @@ address means anything to OSPREY. What a channel is comes from its fields:
        counts as done: ``{absolute: <x>}`` in the channel's unit or
        ``{relative: <fraction>}`` of its seed's ``nominal``. The setpoint and
        its readback must both state a ``unit``.
+   * - ``idle``
+     - On a readback a command pairs with, its status: what it reads while no
+       act runs. A label on a bool or enum channel, a number otherwise.
+       Several commands may share one status.
+   * - ``timeout_s``
+     - On a command whose status states ``idle``: the longest one act may
+       take, in seconds. A command and its status state the two together.
    * - ``on``
      - The one device or place the channel belongs to, ``{device: <id>}`` or
        ``{place: <id>}``. Absent, the channel belongs to nothing.
@@ -550,6 +557,7 @@ demo preset ships this one:
 A setpoint record with both ``min_value`` and ``max_value`` is writable within
 them; ``max_step`` bounds a single change; ``writable: false`` blocks every
 write; ``confirm: false`` turns off the re-read after a write.
+``confirm: true`` is refused on a command that states ``timeout_s``.
 ``writable: true`` on a float or int setpoint without both bounds stops the
 build. A bool, enum, string or waveform setpoint carries no bounds and is
 writable when its record says ``writable: true``. For such a channel the limits
