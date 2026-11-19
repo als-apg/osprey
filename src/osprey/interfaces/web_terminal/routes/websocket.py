@@ -53,8 +53,8 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
-    resolve_agent_data_root,
     session_hold_root_of,
+    shared_data_root,
     stamp_session_hold,
 )
 from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
@@ -495,7 +495,7 @@ def _build_extra_env(
     if session_key:
         extra_env[POSTURE_SOURCE_ENV] = POSTURE_SOURCE_LIVE
         extra_env[POSTURE_SESSION_ENV] = session_key
-        extra_env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(websocket.app)
+        extra_env[OSPREY_AGENT_DATA_ROOT] = shared_data_root(websocket.app)
         extra_env.update(terminal_session_env(session_key, os.environ))
     return extra_env
 

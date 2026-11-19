@@ -44,7 +44,7 @@ CSV = b"timestamp,value\n2026-10-22T12:00,3.1\n"
 def agent_root(tmp_path, monkeypatch) -> Path:
     root = tmp_path / "agent_data"
     root.mkdir()
-    monkeypatch.setattr(chat_attachments, "resolve_agent_data_root", lambda app=None: str(root))
+    monkeypatch.setattr(chat_attachments, "shared_data_root", lambda app=None: str(root))
     return root
 
 

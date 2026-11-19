@@ -62,7 +62,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
-    resolve_agent_data_root,
+    shared_data_root,
 )
 from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
@@ -302,7 +302,7 @@ class TestTheStampTravelsWithTheSessionKey:
         ``sessions/<OSPREY_SESSION_ID>`` could not be reproduced by a reader
         outside the session's own environment.
         """
-        assert resolve_agent_data_root(client.app) == str(shared_root)
+        assert shared_data_root(client.app) == str(shared_root)
         assert "sessions" not in Path(_pty_env(client, SESSION_A)[OSPREY_AGENT_DATA_ROOT]).parts
 
     def test_an_unresolvable_root_still_stamps_the_pair(self, client, workspace_dir):

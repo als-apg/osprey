@@ -296,8 +296,8 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     sidecar = None
     try:
         from osprey.interfaces.web_terminal.operator_session import (
-            resolve_agent_data_root,
             session_hold_root_of,
+            shared_data_root,
         )
         from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys
 
@@ -314,7 +314,7 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
             else {}
         )
         sidecar = factory(
-            Path(resolve_agent_data_root(app)),
+            Path(shared_data_root(app)),
             compute_url_prefix(),
             getattr(app.state, "web_theme_mode", None),
             **session_context,

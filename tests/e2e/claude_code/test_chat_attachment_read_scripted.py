@@ -69,7 +69,7 @@ def _agent_data_root(repo: Path) -> Path:
 
 def _store_png(root: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     """Store the PNG through the attachment route, as the composer does, into *root*."""
-    monkeypatch.setattr(chat_attachments, "resolve_agent_data_root", lambda app=None: str(root))
+    monkeypatch.setattr(chat_attachments, "shared_data_root", lambda app=None: str(root))
     app = FastAPI()
     app.include_router(router)
     with TestClient(app) as client:

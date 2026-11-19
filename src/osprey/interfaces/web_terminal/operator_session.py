@@ -88,13 +88,13 @@ POSTURE_SOURCE_LIVE = "live"
 _POSTURE_SOURCES = frozenset({POSTURE_SOURCE_SPAWN, POSTURE_SOURCE_LIVE, "app", "process"})
 
 
-def resolve_agent_data_root(app: Any = None) -> str:
+def shared_data_root(app: Any = None) -> str:
     """The agent-data root this server resolved, for the child's env stamp.
 
     One derivation for both spawn sites — this module already owns the posture
     markers they share, and a second copy of the resolution is exactly how two
     sites come to disagree. It answers the SHARED root (never
-    ``resolve_agent_data_root`` from the workspace module, which appends
+    ``osprey.utils.config_paths.session_agent_data_root``, which appends
     ``sessions/<OSPREY_SESSION_ID>``): the control-context record spans
     sessions, and a reader outside the session's environment could not
     reproduce a session-scoped path.
@@ -217,7 +217,7 @@ def build_operator_child_env(
 
     Stamped in the same breath, and for the same reason it must not be stamped
     separately, is :data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT` —
-    :func:`resolve_agent_data_root`'s answer. A session key tells a reader
+    :func:`shared_data_root`'s answer. A session key tells a reader
     *whose* posture applies; the root tells it which directory holds the
     answer. The two are one fact split in half, so they are set together or
     not at all, and a test pins that.
@@ -251,7 +251,7 @@ def build_operator_child_env(
             environment and no marker is added — nothing names a session for a
             reader to look up.
         app: The FastAPI app whose agent-data root the child is pointed at
-            (:func:`resolve_agent_data_root`). Stamped alongside *session_key*;
+            (:func:`shared_data_root`). Stamped alongside *session_key*;
             without an app the root falls back to the deployment derivation.
         posture_source: Which surface is spawning this child, from
             :data:`_POSTURE_SOURCES`. ``POST /api/chat`` passes
@@ -290,7 +290,7 @@ def build_operator_child_env(
     if session_key:
         env[POSTURE_SOURCE_ENV] = posture_source
         env[POSTURE_SESSION_ENV] = session_key
-        env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(app)
+        env[OSPREY_AGENT_DATA_ROOT] = shared_data_root(app)
         env["OSPREY_SESSION_ID"] = session_key
         env.update(terminal_session_env(session_key, env))
         stamp_session_hold(env, session_key, app)

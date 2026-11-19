@@ -509,9 +509,7 @@ class TestChatStreamRoute:
         so the sweep keeps them; the agent reads them from the conversation later."""
         from osprey.interfaces.web_terminal.routes import chat_attachments
 
-        monkeypatch.setattr(
-            chat_attachments, "resolve_agent_data_root", lambda app=None: str(tmp_path)
-        )
+        monkeypatch.setattr(chat_attachments, "shared_data_root", lambda app=None: str(tmp_path))
         chat = "aaaaaaaa-1111-2222-3333-444444444444"
         chat_dir = tmp_path / "uploads" / chat
         chat_dir.mkdir(parents=True)

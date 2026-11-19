@@ -65,7 +65,6 @@ def _launch(monkeypatch, tmp_path, *, session_writes: bool) -> dict:
     import dataclasses
 
     from osprey.interfaces.web_terminal import app as web_terminal_app
-    from osprey.interfaces.web_terminal import operator_session
     from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID, SIDECAR_PANELS
 
     entry = dataclasses.replace(
@@ -74,7 +73,10 @@ def _launch(monkeypatch, tmp_path, *, session_writes: bool) -> dict:
         session_writes=session_writes,
     )
     monkeypatch.setitem(SIDECAR_PANELS, CANOPY_PANEL_ID, entry)
-    monkeypatch.setattr(operator_session, "resolve_agent_data_root", lambda _app: str(tmp_path))
+    monkeypatch.setattr(
+        "osprey.interfaces.web_terminal.operator_session.shared_data_root",
+        lambda _app: str(tmp_path),
+    )
     _Recorded.calls = []
     hold_root = tmp_path / "holds"
     app = _app(
