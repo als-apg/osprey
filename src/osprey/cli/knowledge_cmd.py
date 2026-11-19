@@ -120,7 +120,7 @@ def validate(bundle: Path | None) -> None:
         and every directory holding concepts must have one.
       - each image a concept embeds must exist inside the bundle, be a
         picture, stay under the size limit, and have alt text.  A problem
-        is named in a warning, one line per image, and does not fail the
+        is named in a warning, one line per problem, and does not fail the
         bundle.
 
     All files are checked even if earlier failures are found.  A
