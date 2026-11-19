@@ -25,6 +25,7 @@ from osprey.interfaces.web_terminal.app import (
     create_app,
 )
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+from osprey.interfaces.web_terminal.panel_discovery import configured_panel_ids
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, JUPYTER_PANEL_ID, SIDECAR_PANELS
 from tests._live import wait_until
@@ -423,6 +424,24 @@ class TestLoadPanelConfig:
             enabled, custom, _default = _load_panel_config()
         assert enabled == UNIVERSAL_PANELS
         assert custom == []
+
+    @pytest.mark.parametrize(
+        "panels",
+        [
+            pytest.param({"mine": {"label": "M", "url": "http://x/"}}, id="dict-block-on"),
+            pytest.param({"mine": {"url": "http://x/", "enabled": False}}, id="block-off"),
+            pytest.param({"mine": True}, id="bare-true-custom"),
+            pytest.param({"ariel": {"enabled": True}}, id="builtin"),
+            pytest.param({}, id="empty"),
+        ],
+    )
+    def test_the_ids_discovery_treats_as_taken_are_the_custom_panels_the_config_yields(
+        self, panels
+    ):
+        config = {"web": {"panels": panels}}
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
+            _enabled, custom, _default = _load_panel_config()
+        assert {cp["id"] for cp in custom} == configured_panel_ids(config["web"])
 
 
 class TestAPanelIdMustBeSpellable:

@@ -9,10 +9,12 @@ opt-in) and **fail-closed** on any malformed/non-compliant bundle.
 Covers:
     - discover_panels: valid bundle found; missing root, non-panel dir,
       any validation error (the validator's own suite owns which errors
-      exist), built-in id collision, duplicate id, parent-relative entry, an
-      unreadable asset — each skipped without affecting the others.
+      exist), built-in id collision, duplicate id, configured id,
+      parent-relative entry, an unreadable asset — each refused with its
+      reasons without affecting the others.
     - apply_discovered_panels: gated off by default; on → appended to
-      custom_panels / visible_panels / discovered_panel_dirs; existing-id skip.
+      custom_panels / visible_panels / discovered_panel_dirs, every refusal
+      logged and recorded in refused_panels; existing-id skip.
     - The /panel-static/{id}/{path} serving route: entry served for bare path,
       asset served, unknown id / missing file / symlink-escape → 404; and
       GET /api/panels keeps a same-origin URL as-is while rewriting raw ones;
@@ -29,9 +31,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.design_system.panels.validator import validate_panel
 from osprey.interfaces.opaque_origin import OPAQUE_CSP
 from osprey.interfaces.web_terminal.panel_discovery import (
     DiscoveredPanel,
+    RefusedPanel,
     apply_build_panels,
     apply_discovered_panels,
     discover_panels,
@@ -61,6 +65,9 @@ _VALID_HTML = f"""<!DOCTYPE html>
 """
 
 
+_UNMARKED_HTML = _VALID_HTML.replace(' data-page-ready="pending"', "").replace(_MARK, "")
+
+
 def _write_panel(root, dirname, *, manifest, html=_VALID_HTML, entry="index.html"):
     """Create ``root/dirname`` with a manifest and (optionally) an entry file.
 
@@ -84,74 +91,165 @@ class TestDiscoverPanels:
     """The pure discovery scan — compliant bundles in, fail-closed on the rest."""
 
     def test_missing_root_returns_empty(self, tmp_path):
-        assert discover_panels(tmp_path / "does-not-exist") == []
+        result = discover_panels(tmp_path / "does-not-exist")
+        assert result.served == ()
+        assert result.refused == ()
 
     def test_valid_panel_is_discovered(self, tmp_path):
         _write_panel(tmp_path, "demo", manifest=_manifest())
-        result = discover_panels(tmp_path)
+        result = discover_panels(tmp_path).served
         assert len(result) == 1
         panel = result[0]
         assert isinstance(panel, DiscoveredPanel)
         assert (panel.id, panel.label, panel.entry) == ("demo", "Demo", "index.html")
         assert panel.directory == (tmp_path / "demo").resolve()
 
-    def test_a_panel_that_never_marks_itself_ready_is_not_served_and_is_named(
-        self, tmp_path, caplog
-    ):
-        unmarked = _VALID_HTML.replace(' data-page-ready="pending"', "").replace(_MARK, "")
-        _write_panel(tmp_path, "unmarked", manifest=_manifest(), html=unmarked)
-        with caplog.at_level(logging.WARNING):
-            result = discover_panels(tmp_path)
-        assert result == []
-        [record] = [r for r in caplog.records if "unmarked" in r.getMessage()]
-        assert "page-ready mark" in record.getMessage()
+    def test_a_panel_that_never_marks_itself_ready_is_not_served(self, tmp_path):
+        _write_panel(tmp_path, "unmarked", manifest=_manifest(), html=_UNMARKED_HTML)
+        result = discover_panels(tmp_path)
+        assert result.served == ()
+        [refused] = result.refused
+        assert refused.id == "unmarked"
+        assert "page-ready mark" in refused.findings[0].message
+
+    def test_a_refused_bundle_is_returned_with_the_validators_findings(self, tmp_path):
+        _write_panel(tmp_path, "unmarked", manifest=_manifest(), html=_UNMARKED_HTML)
+        result = discover_panels(tmp_path)
+        assert result.served == ()
+        [refused] = result.refused
+        assert refused.id == "unmarked"
+        [finding] = refused.findings
+        # The validator's own record, not a second judge's restatement of it.
+        assert finding == validate_panel(tmp_path / "unmarked")[0]
+
+    @pytest.mark.parametrize(
+        ("rule", "write"),
+        [
+            pytest.param(
+                "manifest_invalid",
+                lambda root: _write_panel(root, "bad", manifest="{ not valid json "),
+                id="malformed-manifest",
+            ),
+            pytest.param(
+                "entry_outside_bundle",
+                lambda root: _write_panel(
+                    root,
+                    "bad",
+                    manifest=_manifest(pid="esc", entry="../evil.html"),
+                    entry="../evil.html",
+                ),
+                id="entry-outside-bundle",
+            ),
+            pytest.param(
+                "id_reserved",
+                lambda root: _write_panel(root, "bad", manifest=_manifest(pid="artifacts")),
+                id="builtin-id",
+            ),
+            pytest.param(
+                "id_taken",
+                lambda root: (
+                    _write_panel(root, "a-first", manifest=_manifest(pid="dup")),
+                    _write_panel(root, "bad", manifest=_manifest(pid="dup")),
+                ),
+                id="duplicate-id",
+            ),
+            pytest.param(
+                "uninspectable",
+                lambda root: (
+                    _write_panel(root, "bad", manifest=_manifest(pid="bad")) / "styles.css"
+                ).write_bytes(b"\xff\xfe\xfa\xfb"),
+                id="non-utf8-asset",
+            ),
+        ],
+    )
+    def test_every_way_discovery_refuses_is_named(self, tmp_path, rule, write):
+        write(tmp_path)
+        result = discover_panels(tmp_path)
+        [refused] = result.refused
+        assert refused.id == "bad"
+        assert [str(f.rule) for f in refused.findings] == [rule]
+        if rule == "id_taken":
+            assert "'dup'" in refused.findings[0].message
+
+    def test_an_id_a_configured_panel_holds_is_refused(self, tmp_path):
+        _write_panel(tmp_path, "demo", manifest=_manifest())
+        result = discover_panels(tmp_path, taken={"demo"})
+        assert result.served == ()
+        [finding] = result.refused[0].findings
+        assert finding.rule == "id_taken"
+        assert "web.panels" in finding.message
+
+    def test_served_and_refused_together_are_every_bundle(self, tmp_path):
+        _write_panel(tmp_path, "good-a", manifest=_manifest(pid="good-a"))
+        _write_panel(tmp_path, "good-b", manifest=_manifest(pid="good-b"))
+        _write_panel(tmp_path, "bad-a", manifest=_manifest(pid="bad-a"), html=_UNMARKED_HTML)
+        _write_panel(tmp_path, "bad-b", manifest="{ broken ")
+        (tmp_path / "notapanel").mkdir()
+        result = discover_panels(tmp_path)
+        assert {p.id for p in result.served} | {r.id for r in result.refused} == {
+            "good-a",
+            "good-b",
+            "bad-a",
+            "bad-b",
+        }
+
+    def test_discovery_logs_nothing_of_its_own(self, tmp_path, caplog):
+        _write_panel(tmp_path, "unmarked", manifest=_manifest(), html=_UNMARKED_HTML)
+        with caplog.at_level(logging.DEBUG):
+            discover_panels(tmp_path)
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
 
     def test_dir_without_manifest_is_silently_skipped(self, tmp_path):
         (tmp_path / "notapanel").mkdir()
         (tmp_path / "notapanel" / "README.md").write_text("hi", encoding="utf-8")
-        assert discover_panels(tmp_path) == []
+        result = discover_panels(tmp_path)
+        assert result.served == ()
+        assert result.refused == ()
 
     def test_loose_file_in_root_is_ignored(self, tmp_path):
         (tmp_path / "stray.txt").write_text("x", encoding="utf-8")
         _write_panel(tmp_path, "demo", manifest=_manifest())
-        assert [p.id for p in discover_panels(tmp_path)] == ["demo"]
+        assert [p.id for p in discover_panels(tmp_path).served] == ["demo"]
 
-    def test_malformed_manifest_json_is_skipped_and_logged(self, tmp_path, caplog):
+    def test_malformed_manifest_json_is_refused(self, tmp_path):
         _write_panel(tmp_path, "broken", manifest="{ not valid json ")
-        with caplog.at_level(logging.WARNING):
-            result = discover_panels(tmp_path)
-        assert result == []
-        assert any("broken" in r.message for r in caplog.records)
+        result = discover_panels(tmp_path)
+        assert result.served == ()
+        assert [r.id for r in result.refused] == ["broken"]
 
     def test_builtin_id_collision_is_skipped(self, tmp_path):
         _write_panel(tmp_path, "arti", manifest=_manifest(pid="artifacts", label="X"))
-        assert discover_panels(tmp_path) == []
+        assert discover_panels(tmp_path).served == ()
 
-    def test_duplicate_ids_keep_first_and_log(self, tmp_path, caplog):
+    def test_duplicate_ids_keep_first_and_refuse_the_second(self, tmp_path):
         _write_panel(tmp_path, "a-first", manifest=_manifest(pid="dup", label="First"))
         _write_panel(tmp_path, "b-second", manifest=_manifest(pid="dup", label="Second"))
-        with caplog.at_level(logging.WARNING):
-            result = discover_panels(tmp_path)
+        result = discover_panels(tmp_path)
         # Sorted by dir name: "a-first" wins, "b-second" is dropped.
-        assert [p.label for p in result] == ["First"]
-        assert any("b-second" in r.message for r in caplog.records)
+        assert [p.label for p in result.served] == ["First"]
+        assert [r.id for r in result.refused] == ["b-second"]
 
     def test_one_bad_panel_does_not_break_the_good_ones(self, tmp_path):
         _write_panel(tmp_path, "good", manifest=_manifest(pid="good", label="Good"))
         _write_panel(tmp_path, "bad", manifest="{ broken ")
-        assert [p.id for p in discover_panels(tmp_path)] == ["good"]
+        assert [p.id for p in discover_panels(tmp_path).served] == ["good"]
 
     def test_non_utf8_asset_does_not_sink_good_panels(self, tmp_path):
         _write_panel(tmp_path, "aaa-good", manifest=_manifest(pid="good"))
         bad = _write_panel(tmp_path, "zzz-bad", manifest=_manifest(pid="bad"))
         (bad / "styles.css").write_bytes(b"\xff\xfe\xfa\xfb")
-        assert [p.id for p in discover_panels(tmp_path)] == ["good"]
+        assert [p.id for p in discover_panels(tmp_path).served] == ["good"]
 
     def test_parent_relative_entry_is_skipped(self, tmp_path):
         # entry with a '..' component: the bundle validates (the file exists and
         # is linked), but the entry-shape guard rejects it → not served.
-        _write_panel(tmp_path, "esc", manifest=_manifest(pid="esc", entry="../evil.html"))
-        assert discover_panels(tmp_path) == []
+        _write_panel(
+            tmp_path,
+            "esc",
+            manifest=_manifest(pid="esc", entry="../evil.html"),
+            entry="../evil.html",
+        )
+        assert discover_panels(tmp_path).served == ()
 
 
 def _fake_app(*, allow, project_cwd, custom=None, visible=None):
@@ -177,6 +275,60 @@ class TestApplyDiscoveredPanels:
         assert app.state.visible_panels == []
         assert app.state.discovered_panel_dirs == {}
 
+    def test_gate_off_records_no_refusal(self, tmp_path):
+        _write_panel(tmp_path / "panels", "unmarked", manifest=_manifest(), html=_UNMARKED_HTML)
+        app = _fake_app(allow=False, project_cwd=tmp_path)
+        assert apply_discovered_panels(app) == []
+        assert app.state.custom_panels == []
+        assert app.state.refused_panels == []
+
+    def test_a_refused_panel_is_logged_with_the_line_of_today(self, tmp_path, caplog):
+        _write_panel(tmp_path / "panels", "unmarked", manifest=_manifest(), html=_UNMARKED_HTML)
+        app = _fake_app(allow=True, project_cwd=tmp_path)
+        with caplog.at_level(logging.WARNING):
+            apply_discovered_panels(app)
+        [record] = [r for r in caplog.records if "unmarked" in r.getMessage()]
+        assert record.levelno == logging.WARNING
+        assert "is not served: 1 validation error(s)" in record.getMessage()
+        assert "page-ready mark" in record.getMessage()
+
+    def test_a_malformed_manifest_is_logged_naming_its_directory(self, tmp_path, caplog):
+        _write_panel(tmp_path / "panels", "broken", manifest="{ not valid json ")
+        app = _fake_app(allow=True, project_cwd=tmp_path)
+        with caplog.at_level(logging.WARNING):
+            apply_discovered_panels(app)
+        assert any(
+            "broken" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records
+        )
+
+    def test_a_duplicate_id_is_logged_naming_its_directory(self, tmp_path, caplog):
+        _write_panel(tmp_path / "panels", "a-first", manifest=_manifest(pid="dup"))
+        _write_panel(tmp_path / "panels", "b-second", manifest=_manifest(pid="dup"))
+        app = _fake_app(allow=True, project_cwd=tmp_path)
+        with caplog.at_level(logging.WARNING):
+            apply_discovered_panels(app)
+        [record] = [r for r in caplog.records if "b-second" in r.getMessage()]
+        assert record.levelno == logging.WARNING
+        assert "is not served: id 'dup' already discovered in another directory" in (
+            record.getMessage()
+        )
+
+    def test_gate_on_records_the_refused_panels(self, tmp_path):
+        _write_panel(tmp_path / "panels", "demo", manifest=_manifest())
+        _write_panel(
+            tmp_path / "panels", "unmarked", manifest=_manifest(pid="other"), html=_UNMARKED_HTML
+        )
+        app = _fake_app(allow=True, project_cwd=tmp_path)
+        assert [p.id for p in apply_discovered_panels(app)] == ["demo"]
+        [refused] = app.state.refused_panels
+        assert isinstance(refused, RefusedPanel)
+        assert refused.id == "unmarked"
+        entry = next(cp for cp in app.state.custom_panels if cp["id"] == "demo")
+        assert entry["url"] == "/panel-static/demo/"
+        assert entry["discovered"] is True
+        assert "demo" in app.state.visible_panels
+        assert isinstance(app.state.discovered_panel_dirs["demo"], DiscoveredPanel)
+
     def test_gate_on_wires_panel_into_state(self, tmp_path):
         _write_panel(tmp_path / "panels", "demo", manifest=_manifest())
         app = _fake_app(allow=True, project_cwd=tmp_path)
@@ -199,6 +351,7 @@ class TestApplyDiscoveredPanels:
         assert apply_discovered_panels(app) == []
         # The pre-existing registration is left untouched.
         assert [cp["label"] for cp in app.state.custom_panels] == ["Live"]
+        assert app.state.refused_panels[0].findings[0].rule == "id_taken"
 
 
 class TestApplyBuildPanels:
