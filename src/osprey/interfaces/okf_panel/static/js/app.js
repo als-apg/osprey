@@ -527,25 +527,33 @@ function requireEl(id) {
     });
   }
 
+  // The reading pane shows what it was asked for last. Each load takes the next
+  // token and draws only while it still holds the latest: a load answered after
+  // a later one (the boot overview after a citation's concept) is dropped.
+  let readerLoad = 0;
+
   /**
    * @param {string} id
    */
   async function loadConcept(id) {
+    const token = ++readerLoad;
     enterView('knowledge');
     knowledgeLoc = id;
     showContentsFor('page');
     showOpenPage({ id, title: conceptTitles.get(id) ?? id });
     showReaderState({ icon: 'refresh', message: 'Loading the page' });
     const retry = () => loadConcept(id);
-    let resp;
+    let resp = null;
+    let doc = null;
     try {
       resp = await fetch('/api/concept?id=' + encodeURIComponent(id));
+      if (resp.ok) doc = await resp.json();
     } catch {
-      renderLoadFailure('The page did not load', retry);
-      return;
+      /* no answer, or an unreadable one: reported below */
     }
+    if (token !== readerLoad) return;
 
-    if (resp.status === 404) {
+    if (resp?.status === 404) {
       showReaderState({
         icon: 'search',
         message: 'No concept has this id',
@@ -555,14 +563,6 @@ function requireEl(id) {
       return;
     }
 
-    let doc = null;
-    if (resp.ok) {
-      try {
-        doc = await resp.json();
-      } catch {
-        /* unreadable: reported below */
-      }
-    }
     if (!doc) {
       renderLoadFailure('The page did not load', retry);
       return;
@@ -634,6 +634,7 @@ function requireEl(id) {
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
+    const token = ++readerLoad;
     enterView('knowledge');
     knowledgeLoc = STRUCTURE_MARKER;
     showContentsFor('browse');
@@ -641,12 +642,15 @@ function requireEl(id) {
     showOpenPage(null);
     showReaderState({ icon: 'refresh', message: 'Loading the overview' });
 
-    let data;
+    let data = null;
     try {
       const resp = await fetch('/api/structure');
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      data = await resp.json();
+      if (resp.ok) data = await resp.json();
     } catch {
+      /* no answer, or an unreadable one: reported below */
+    }
+    if (token !== readerLoad) return;
+    if (!data) {
       renderLoadFailure('The overview did not load', () => loadStructure(opts));
       return;
     }
