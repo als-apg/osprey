@@ -511,16 +511,38 @@ def _agent_artifact_dir(artifact_dir: Path, repo_root: Path, base_dir: str) -> s
     return str(artifact_dir)
 
 
+# A closing head/body tag counts only outside raw-text elements and comments:
+# a page that inlines a library (Bokeh INLINE resources bundle DOMPurify, whose
+# source holds '<head></head><body>' in a string literal) would otherwise get
+# the snippet -- and its </script> -- spliced into the middle of that script,
+# ending it early and spilling the rest of the library onto the page as text.
+_SKIP_OR_CLOSE_TAG = re.compile(
+    r"<script\b.*?</script\s*>|<style\b.*?</style\s*>|<!--.*?-->"
+    r"|(?P<head></head\s*>)|(?P<body></body\s*>)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
-    """Inject an HTML snippet (CSS/JS) into HTML content, before </head>."""
+    """Inject an HTML snippet (CSS/JS) into HTML content, before </head>.
+
+    Falls back to before </body>, then to prepending. Tags inside <script>,
+    <style> or comments are ignored.
+    """
     html = html_bytes.decode("utf-8", errors="replace")
-    if "</head>" in html:
-        html = html.replace("</head>", snippet + "\n</head>", 1)
-    elif "</body>" in html:
-        html = html.replace("</body>", snippet + "\n</body>", 1)
-    else:
-        html = snippet + html
-    return html.encode("utf-8")
+    at: int | None = None
+    body_at: int | None = None
+    for m in _SKIP_OR_CLOSE_TAG.finditer(html):
+        if m.group("head"):
+            at = m.start()
+            break
+        if m.group("body") and body_at is None:
+            body_at = m.start()
+    if at is None:
+        at = body_at
+    if at is None:
+        return (snippet + html).encode("utf-8")
+    return (html[:at] + snippet + "\n" + html[at:]).encode("utf-8")
 
 
 class _SetInSession(BaseModel):

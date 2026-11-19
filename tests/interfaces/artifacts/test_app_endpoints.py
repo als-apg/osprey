@@ -671,6 +671,26 @@ def test_inject_snippet_without_head_or_body_prepends():
     assert result == b"<style>s</style><div>fragment</div>"
 
 
+def test_inject_snippet_skips_head_tag_inside_inline_script():
+    """Bokeh INLINE pages carry '<head></head>' inside bokeh.min.js (DOMPurify);
+    the snippet must land before the real </head>, not inside the script."""
+    page = (
+        b"<!DOCTYPE html><html><head><script>var t='<html><head></head><body>'+e;"
+        b"</script><style>/* </head> */</style><!-- </head> --></head>"
+        b"<body><script>x='</body>'</script></body></html>"
+    )
+    result = _inject_html_snippet(page, "<script>S</script>")
+    assert result.count(b"<script>S</script>") == 1
+    assert b"<!-- </head> --><script>S</script>\n</head>" in result
+    assert b"var t='<html><head></head><body>'+e;</script>" in result
+
+
+def test_inject_snippet_falls_back_to_real_body_end():
+    page = b"<div><script>x='</body>'</script></div></body>"
+    result = _inject_html_snippet(page, "<i>S</i>")
+    assert result == b"<div><script>x='</body>'</script></div><i>S</i>\n</body>"
+
+
 def test_sse_broadcaster_queue_bookkeeping():
     """Full queues drop events rather than raise; unsubscribing unknown or
     already-removed queues is a no-op."""
