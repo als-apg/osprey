@@ -537,6 +537,10 @@ class PanelGraph:
     Built by :func:`load_graph`; see the module docstring for what it leaves out.
     """
 
+    #: The write scope a write kept to ``write_under`` describes the graph under
+    #: (:func:`~osprey.facility.panels.emit.scoped`); ``None`` for the whole facility.
+    write_scope: Any = None
+
     def __init__(
         self,
         records: FacilityRecords,

@@ -823,3 +823,35 @@ def test_a_device_whose_card_lists_counts_has_a_paged_roll_up_that_reads_each_ru
     emit.write(graph, tmp_path / "out")
     problems = emit.check(graph, tmp_path / "out")
     assert not [p for p in problems if p.kind in ("unrolled", "over_budget", "missing")]
+
+
+def test_a_scoped_home_lists_only_the_scope_and_says_so(tmp_path):
+    from osprey.facility.panels.describe import home
+    from osprey.facility.panels.emit import scoped, write_scope
+    from osprey.facility.panels.view import Fact, Group
+
+    graph = graph_with_part(tmp_path)
+    view = home(scoped(graph, write_scope(graph, ("XR/XR01",))))
+    items = [i for s in view.sections for i in s.items]
+    (said,) = [i for i in items if isinstance(i, Fact)]
+    assert said.text == "keeps to XR/XR01; the screens outside it are not written"
+    chips = {n.label for i in items if isinstance(i, Group) for n in i.nodes}
+    assert "XR/XR01" in chips and "XR" not in chips  # the kept place stands at the top
+
+
+def test_a_scope_cuts_a_group_to_its_kept_members_and_writes_a_duplicate_once(tmp_path):
+    from osprey.facility.panels.describe import set_overview
+    from osprey.facility.panels.emit import scoped, write_scope
+
+    def per_sector(document) -> None:  # the facility's own set of XR01's quadrupoles
+        document["groups"].append({"id": "XR01-QUAD", "members": ["XR01:QF1", "XR01:QD1"]})
+
+    graph = graph_with_part(tmp_path, per_sector)
+    scope = write_scope(graph, ("XR/XR01",))
+    # XR-QUAD cut to XR01 holds what XR01-QUAD holds: the narrower one is written
+    assert "XR01-QUAD" in scope.groups and "XR-QUAD" not in scope.groups
+    only = write_scope(graph_with_part(tmp_path / "b"), ("XR/XR01",))
+    assert set(only.members["XR-QUAD"]) == {"XR01:QF1", "XR01:QD1"}  # cut, no duplicate
+    view = set_overview(scoped(graph_with_part(tmp_path / "c"), only), "XR-QUAD")
+    (grid,) = [i for s in view.sections if s.title == "members" for i in s.items]
+    assert {c.member.label for row in grid.rows for c in row.cells} == {"XR01:QF1", "XR01:QD1"}

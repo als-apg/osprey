@@ -48,6 +48,7 @@ Ownership
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -57,6 +58,7 @@ import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import layout
@@ -425,6 +427,10 @@ class Scope:
     groups: frozenset[str]
     #: The classes of the kept devices in no place.
     loose_classes: frozenset[str]
+    #: The places the write was asked to keep to.
+    under: tuple[str, ...] = ()
+    #: Each kept group's members cut to the kept devices, in the group's order.
+    members: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __call__(self, target: Target) -> bool:
         if target.view == "home":
@@ -471,12 +477,43 @@ def write_scope(graph: PanelGraph, places: Iterable[str]) -> Scope:
             loose.add(thing.id)
             classes.add(thing.cls or NO_CLASS)
     devices = placed | loose
+    cut: dict[str, tuple[str, ...]] = {}
+    whole: set[str] = set()  # the groups all of whose members are kept
+    for thing in graph.things():
+        if thing.kind != "group":
+            continue
+        members = [m.id for m in graph.members(thing.id)]
+        kept = tuple(m for m in members if m in devices or m in kept_places)
+        if kept:
+            cut[thing.id] = kept
+            if len(kept) == len(members):
+                whole.add(thing.id)
+    # a group cut to the same members as another is written once: the one the
+    # facility defined whole within the scope, else the first by id
+    by_members: dict[frozenset[str], list[str]] = {}
+    for group, kept in cut.items():
+        by_members.setdefault(frozenset(kept), []).append(group)
     groups = {
-        thing.id
-        for thing in graph.things()
-        if thing.kind == "group" and any(m.id in devices for m in graph.members(thing.id))
+        min(same, key=lambda group: (group not in whole, group)) for same in by_members.values()
     }
-    return Scope(frozenset(kept_places), frozenset(devices), frozenset(groups), frozenset(classes))
+    return Scope(
+        frozenset(kept_places),
+        frozenset(devices),
+        frozenset(groups),
+        frozenset(classes),
+        tuple(places),
+        MappingProxyType({group: cut[group] for group in sorted(groups)}),
+    )
+
+
+def scoped(graph: PanelGraph, scope: Scope) -> PanelGraph:
+    """*graph* as a write kept to *scope* describes it: each kept group holds only its
+    kept members (:attr:`Scope.members`), and the home and the not-placed indexes
+    list only what the scope keeps (the graph carries it as ``write_scope``)."""
+    out = copy.copy(graph)
+    out._members = {**graph._members, **scope.members}
+    out.write_scope = scope
+    return out
 
 
 # -- drawing --------------------------------------------------------------------------
@@ -641,6 +678,7 @@ def write(
     check_draw(graph, draw)
     if draw.write_under:
         scope = write_scope(graph, draw.write_under)
+        graph = scoped(graph, scope)
         given = only
         only = scope if given is None else (lambda t: scope(t) and given(t))
     out = Path(out)
@@ -956,6 +994,8 @@ def check(
     ids = screen_ids(found)
     wanted = {_path(t, ids): t for t in found}
     scope = write_scope(graph, draw.write_under) if draw.write_under else None
+    if scope is not None:
+        graph = scoped(graph, scope)
     listed = {e["file"]: e for e in index["screens"] if isinstance(e, dict) and "file" in e}
     outside = {e["file"] for e in index.get("outside", ()) if isinstance(e, dict) and "file" in e}
     problems.extend(
