@@ -56,10 +56,12 @@ import math
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-# ``PERIODIC_IOC_HEALTH`` is the name the connectors first released
-# ``PERIODIC_SERVER_HEALTH`` under. The connectors' public-names check counts
-# this import as that name's user, so it stays until the check lists the name.
-from osprey_connectors.simulation.view import PERIODIC, PERIODIC_IOC_HEALTH, REFRESH, SETPOINT
+from osprey_connectors.simulation.view import (
+    PERIODIC,
+    PERIODIC_SERVER_HEALTH,
+    REFRESH,
+    SETPOINT,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
@@ -177,7 +179,7 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
         address
         for signals in view.server_health_by_model().values()
         for signal, address in signals.items()
-        if signal in PERIODIC_IOC_HEALTH
+        if signal in PERIODIC_SERVER_HEALTH
     }
 
 

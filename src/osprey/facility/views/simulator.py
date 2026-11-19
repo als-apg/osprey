@@ -78,7 +78,6 @@ from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
     DECKS_DIR,
-    IOC_HEALTH_SIGNALS,
     SCENARIOS_DIR,
     SCENARIOS_FILE,
     SCENARIOS_SCHEMA,
@@ -86,6 +85,7 @@ from osprey_connectors.simulation.view import (
     SEEDS_SCHEMA,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    SERVER_HEALTH_SIGNALS,
     SETPOINT,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
@@ -249,9 +249,6 @@ def status_address(code: str, model: str) -> str:
     return f"{code}:SIM:{model}:STATUS"
 
 
-# ``IOC_HEALTH_SIGNALS`` is the name the connectors first released
-# ``SERVER_HEALTH_SIGNALS`` under. The connectors' public-names check counts
-# this import as that name's user, so it stays until the check lists the name.
 def server_health_addresses(code: str, model: str) -> list[str]:
     """The IOC health addresses the simulator serves for one model, texture included.
 
@@ -261,9 +258,9 @@ def server_health_addresses(code: str, model: str) -> list[str]:
 
     Returns:
         ``<code>:SIM:<model>:<signal>`` for each signal of the view's
-        ``IOC_HEALTH_SIGNALS``.
+        ``SERVER_HEALTH_SIGNALS``.
     """
-    return [f"{code}:SIM:{model}:{signal}" for signal in IOC_HEALTH_SIGNALS]
+    return [f"{code}:SIM:{model}:{signal}" for signal in SERVER_HEALTH_SIGNALS]
 
 
 def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
