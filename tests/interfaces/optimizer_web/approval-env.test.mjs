@@ -1,4 +1,4 @@
-/** Unit tests for the approval card's environment read (approval-env.js). */
+/** Unit tests for the review's environment read (approval-env.js). */
 
 import { test, expect } from 'vitest';
 

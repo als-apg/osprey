@@ -1,0 +1,137 @@
+/*
+ * OPTIMIZER panel: the settings of a stored config by section
+ * (config-sections.js), in the review and in the outcome of a run. Label and
+ * value rows; a value may carry its identifier and a flag. Tokens and the
+ * `--opt-` sizes of shell.css only.
+ */
+
+.opt-cfg-sec {
+  min-width: 0;
+}
+
+.opt-cfg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.opt-cfg-aside {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.opt-cfg-dl {
+  display: grid;
+  grid-template-columns: minmax(var(--opt-label-min-w), max-content) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.opt-cfg-dl dt {
+  color: var(--text-muted);
+}
+
+.opt-cfg-dl dd {
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.opt-cfg-dl dd.is-err > .opt-cfg-val {
+  color: var(--color-error);
+}
+
+.opt-cfg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.opt-cfg-raw {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.opt-cfg-clip {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.opt-cfg-flag {
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--color-warning);
+}
+
+.is-err > .opt-cfg-flag {
+  color: var(--color-error);
+}
+
+/* One knob: name and window, identifier and step. */
+.opt-cfg-knobs {
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-cfg-knob {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-2);
+  padding: var(--space-2) var(--space-1) var(--space-2) var(--space-2);
+  border-top: var(--opt-hairline) solid var(--surface-hairline);
+}
+
+.opt-cfg-knob:first-child {
+  border-top: 0;
+}
+
+.opt-cfg-knob.is-err {
+  box-shadow: inset var(--opt-rule) 0 0 var(--color-error);
+}
+
+.opt-cfg-knob.is-warn {
+  box-shadow: inset var(--opt-rule) 0 0 var(--color-warning);
+}
+
+.opt-cfg-knob-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.opt-cfg-knob-range {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.opt-cfg-knob-meta {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.opt-cfg-knob > .opt-cfg-flag {
+  grid-column: 1 / -1;
+  margin-top: var(--space-1);
+}

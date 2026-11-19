@@ -188,8 +188,7 @@
       "url": "https://cdn.plot.ly/plotly-3.3.1.min.js",
       "sha256": "e2b0f77ee8156ff9d525852fe4acb7bfe7d85e8a2e1da0523f6d16209b848968",
       "targets": [
-        "artifacts/static/js/vendor/",
-        "optimizer_web/panels/optimizer/vendor/"
+        "artifacts/static/js/vendor/"
       ]
     }
   ],

@@ -27,6 +27,8 @@ export const REVISION_HEADER = 'X-Config-Revision';
  * @property {any} data       Parsed JSON body, or null.
  * @property {string|null} revision  The `X-Config-Revision` header, when present.
  * @property {string|null} error     Operator-facing reason when `ok` is false.
+ * @property {string[]} issues  Each reason on its own when `ok` is false (one per
+ *   item of a 422 validation list, else `error` alone); empty when `ok` is true.
  */
 
 /**
@@ -56,27 +58,25 @@ export function withQuery(path, query) {
 }
 
 /**
- * One operator-facing sentence from an error body: FastAPI's `detail` string,
- * or the messages of a 422 validation list, or the status line.
+ * Each operator-facing reason in an error body: FastAPI's `detail` string, or
+ * one `loc: msg` per item of a 422 validation list, or the status line.
  *
  * @param {number} status
  * @param {any} data
- * @returns {string}
+ * @returns {string[]}
  */
-export function errorDetail(status, data) {
+export function errorIssues(status, data) {
   const detail = data && typeof data === 'object' ? data.detail : null;
-  if (typeof detail === 'string' && detail) return detail;
+  if (typeof detail === 'string' && detail) return [detail];
   if (Array.isArray(detail) && detail.length) {
-    return detail
-      .map((item) => {
-        const loc = Array.isArray(item?.loc)
-          ? item.loc.filter((/** @type {unknown} */ p) => p !== 'body').join('.')
-          : '';
-        return loc ? `${loc}: ${item?.msg ?? ''}` : String(item?.msg ?? JSON.stringify(item));
-      })
-      .join('; ');
+    return detail.map((item) => {
+      const loc = Array.isArray(item?.loc)
+        ? item.loc.filter((/** @type {unknown} */ p) => p !== 'body').join('.')
+        : '';
+      return loc ? `${loc}: ${item?.msg ?? ''}` : String(item?.msg ?? JSON.stringify(item));
+    });
   }
-  return `request failed (HTTP ${status})`;
+  return [`request failed (HTTP ${status})`];
 }
 
 /**
@@ -119,6 +119,19 @@ export function sessionOwner(result) {
 }
 
 /**
+ * The sidecar path of one stored run. A run id is `<environment>/<timestamp>`
+ * (`ResultInfo.run_id`); each part is one path segment.
+ *
+ * @param {string} runId
+ * @returns {string|null}  null for an id with no `/`
+ */
+export function resultPath(runId) {
+  const cut = runId.lastIndexOf('/');
+  if (cut <= 0 || cut === runId.length - 1) return null;
+  return `results/${seg(runId.slice(0, cut))}/${seg(runId.slice(cut + 1))}`;
+}
+
+/**
  * @param {{ prefix: string, fetchImpl?: typeof fetch }} options
  */
 export function createApi({ prefix, fetchImpl }) {
@@ -141,13 +154,8 @@ export function createApi({ prefix, fetchImpl }) {
     try {
       response = await doFetch(`${prefix}/${withQuery(path, query)}`, init);
     } catch {
-      return {
-        ok: false,
-        status: 0,
-        data: null,
-        revision: null,
-        error: 'the panel could not reach its sidecar',
-      };
+      const error = 'the panel could not reach its sidecar';
+      return { ok: false, status: 0, data: null, revision: null, error, issues: [error] };
     }
     let data = null;
     try {
@@ -156,12 +164,14 @@ export function createApi({ prefix, fetchImpl }) {
     } catch {
       data = null;
     }
+    const issues = response.ok ? [] : errorIssues(response.status, data);
     return {
       ok: response.ok,
       status: response.status,
       data,
       revision: response.headers.get(REVISION_HEADER),
-      error: response.ok ? null : errorDetail(response.status, data),
+      error: response.ok ? null : issues.join('; '),
+      issues,
     };
   }
 
@@ -184,6 +194,33 @@ export function createApi({ prefix, fetchImpl }) {
     put: (path, body) => request('PUT', path, { body }),
     /** The owner this session's writes carry, as the gate minted it ({@link sessionOwner}). */
     session: async () => sessionOwner(await request('GET', 'relay/session')),
+    /** `GET jobs`: every job that has not ended (drafts and the active run). */
+    jobs: () => request('GET', 'jobs'),
+    /** `GET results`: one `ResultInfo` per stored run. */
+    results: () => request('GET', 'results'),
+    /**
+     * `GET results/{env}/{timestamp}`: one stored run (`HistoricalRunDetails`).
+     *
+     * @param {string} runId  `ResultInfo.run_id`
+     * @returns {Promise<ApiResult>}
+     */
+    result: async (runId) => {
+      const path = resultPath(runId);
+      if (path) return request('GET', path);
+      const error = `no stored run ${runId}`;
+      return { ok: false, status: 0, data: null, revision: null, error, issues: [error] };
+    },
+    /**
+     * `GET environments/{name}/observables`: what the observables read now.
+     *
+     * @param {string} environment
+     * @param {readonly string[]} names
+     * @param {string} target
+     */
+    observables: (environment, names, target) =>
+      request('GET', `environments/${seg(environment)}/observables`, {
+        query: { names, target },
+      }),
   };
 }
 
@@ -197,14 +234,26 @@ export function createApi({ prefix, fetchImpl }) {
  * @param {Api} api
  * @param {string|null} jobId
  * @param {unknown} config
- * @returns {Promise<{ error: string|null, id: string|null, stored: any }>}
+ * @returns {Promise<{ error: string|null, issues: string[], id: string|null, stored: any,
+ *   revision: string|null }>}  `issues`: each reason of a refusal on its own (one per item of
+ *   a 422 list); `revision` is the `X-Config-Revision` of the read-back
  */
 export async function saveDraft(api, jobId, config) {
   const res = jobId
     ? await api.put(`relay/jobs/${seg(jobId)}/config`, config)
     : await api.post('relay/optimizations', config);
-  if (!res.ok) return { error: res.error || 'the draft was refused', id: null, stored: null };
+  if (!res.ok) {
+    const error = res.error || 'the draft was refused';
+    const issues = res.issues?.length ? res.issues : [error];
+    return { error, issues, id: null, stored: null, revision: null };
+  }
   const id = jobId || res.data?.job_id || null;
   const back = id ? await api.get(`jobs/${seg(id)}/config`) : null;
-  return { error: null, id, stored: back?.ok ? back.data : null };
+  return {
+    error: null,
+    issues: [],
+    id,
+    stored: back?.ok ? back.data : null,
+    revision: back?.ok ? back.revision : null,
+  };
 }

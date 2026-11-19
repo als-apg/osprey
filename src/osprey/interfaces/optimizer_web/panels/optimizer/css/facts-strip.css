@@ -1,0 +1,15 @@
+/*
+ * OPTIMIZER panel: the facts strip (facts-strip.js), the design system's
+ * status strip. It wraps in a narrow stage instead of cutting facts off.
+ * Tokens only.
+ */
+
+.opt-facts {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+  overflow: visible;
+}
+
+.opt-facts .osprey-fact:last-child {
+  border-right: 0;
+}

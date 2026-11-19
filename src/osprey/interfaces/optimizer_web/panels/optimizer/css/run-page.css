@@ -1,0 +1,408 @@
+/*
+ * OPTIMIZER panel: the run page (run-page.js, run-header.js, run-knobs.js).
+ * Tokens and the `--opt-` sizes of shell.css only. Its own classes start with
+ * `opt-rp-` (the runs list has `opt-run-`).
+ *
+ * The stage is a column: the run header (what happens now, Pause or Resume
+ * and Cancel, the progress line, the facts) stays put, and only the body
+ * under it scrolls, so the header stays in sight in any tile. A run that
+ * waits for its write approval wears the warning colour and has no chart.
+ */
+
+.opt-rp {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- The run header ---- */
+
+.opt-rp-head {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--opt-hairline) solid var(--surface-hairline);
+  background: var(--bg-panel);
+  container: opt-rp-head / inline-size;
+}
+
+.opt-rp-head[data-kind='waiting'] {
+  background: color-mix(in srgb, var(--color-warning) 7%, var(--bg-panel));
+  box-shadow: inset var(--opt-rule-wide) 0 0 var(--color-warning);
+}
+
+.opt-rp-text {
+  min-width: 0;
+}
+
+.opt-rp-now {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+/* A narrower header keeps the sentence on one line, so the chart under it
+   does not move from one evaluation to the next. */
+@container opt-rp-head (max-width: 840px) {
+  .opt-rp-now {
+    font-size: var(--text-xl);
+  }
+}
+
+/* Narrower still, the sentence may need two lines: it always has room for
+   two. */
+@container opt-rp-head (max-width: 600px) {
+  .opt-rp-now {
+    min-height: calc(2em * var(--leading-tight));
+  }
+}
+
+.opt-rp-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: calc(1em * var(--leading-tight));
+}
+
+.opt-rp-head[data-kind='waiting'] .opt-rp-mark {
+  color: var(--color-warning);
+}
+
+.opt-rp-dot {
+  width: var(--opt-dot);
+  height: var(--opt-dot);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  animation: opt-rp-pulse calc(var(--duration-slow) * 4) ease-in-out infinite;
+}
+
+.opt-rp-head[data-kind='paused'] .opt-rp-dot {
+  background: var(--color-warning);
+  animation: none;
+}
+
+.opt-rp-head[data-kind='cancelling'] .opt-rp-dot {
+  background: var(--text-muted);
+  animation: none;
+}
+
+.opt-rp-sentence {
+  min-width: 0;
+}
+
+.opt-rp-sub {
+  margin-top: var(--space-1);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.opt-rp-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* Pause and Resume take the same width, so Cancel never moves. */
+.osprey-btn.opt-rp-btn {
+  min-width: var(--opt-btn-min-w);
+  justify-content: center;
+}
+
+.opt-rp-bar,
+.opt-rp-facts,
+.opt-rp-refusal {
+  grid-column: 1 / -1;
+}
+
+.opt-rp-bar {
+  height: var(--opt-progress-h);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--neutral-tint-12);
+}
+
+.opt-rp-bar-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width var(--duration-base) var(--wt-ease-out);
+}
+
+.opt-rp-head[data-kind='paused'] .opt-rp-bar-fill,
+.opt-rp-head[data-kind='cancelling'] .opt-rp-bar-fill {
+  background: var(--text-muted);
+}
+
+.opt-rp-refusal:empty {
+  display: none;
+}
+
+/* The cancel confirmation (a body-level popover under Cancel). */
+.osprey-popover.opt-confirm {
+  width: var(--opt-confirm-w);
+  max-width: calc(100vw - 2 * var(--space-2));
+}
+
+.opt-confirm-text {
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+/* ---- The body: the chart, or the approval card ---- */
+
+.opt-rp-body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.opt-rp-body > * {
+  flex-shrink: 0;
+}
+
+.opt-rp-chart {
+  flex: 1 1 0;
+  min-height: var(--opt-chart-area-min-h);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.opt-chart-head {
+  flex: none;
+  min-height: var(--control-h-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.opt-chart-caption {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+}
+
+.opt-chart-title {
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.opt-chart-title > .osprey-aside {
+  margin-left: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.opt-chart-host {
+  flex: 1 1 0;
+  min-height: var(--opt-plot-min-h);
+  display: flex;
+  flex-direction: column;
+}
+
+/* While the run waits: the approval card and what the run does. */
+.opt-wait {
+  max-width: var(--opt-wait-max-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-4) var(--space-5);
+}
+
+.opt-wait > * {
+  flex-shrink: 0;
+}
+
+.opt-wait-card {
+  box-shadow: inset var(--opt-rule-wide) 0 0 var(--color-warning);
+}
+
+.opt-wait-card .osprey-card-head {
+  flex-wrap: nowrap;
+}
+
+.opt-wait-card .osprey-card-head .osprey-chip {
+  margin-left: auto;
+}
+
+.opt-wait-ic {
+  display: inline-flex;
+  color: var(--color-warning);
+}
+
+.opt-wait-steps {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: var(--space-5);
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+.opt-wait-steps b,
+.opt-rp-lead b {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.opt-wait-foot {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.opt-wait-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.opt-wait-lead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.opt-rp-lead {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+/* ---- The inspector: one card per knob, then the run's details ---- */
+
+.opt-kn-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* One knob card in the list (an `osprey-dev-table`): name and value, channel
+   and change, then the bar across the card. */
+.opt-kn {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name val'
+    'name delta'
+    'bar bar';
+  align-items: center;
+  gap: calc(var(--space-1) / 2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--opt-hairline) solid var(--surface-hairline);
+}
+
+.opt-kn:first-child {
+  border-top: 0;
+}
+
+.opt-kn > .opt-knob-name {
+  grid-area: name;
+  align-self: start;
+}
+
+.opt-kn-val {
+  grid-area: val;
+  justify-self: end;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.opt-kn-delta {
+  grid-area: delta;
+  justify-self: end;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.opt-kn-bar {
+  grid-area: bar;
+  min-width: 0;
+}
+
+.opt-rp-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.opt-rp-detail > .osprey-kicker {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.opt-rp-detail-text {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+.opt-rp-dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
+.opt-rp-dl dt {
+  color: var(--text-muted);
+}
+
+.opt-rp-dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.opt-rp-fold > .opt-rp-dl {
+  padding: var(--space-2) var(--space-1) 0;
+}
+
+@keyframes opt-rp-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opt-rp-dot {
+    animation: none;
+  }
+
+  .opt-rp-bar-fill {
+    transition: none;
+  }
+}

@@ -1,0 +1,39 @@
+/*
+ * OPTIMIZER panel: the review's inspector foot (review-view.js): the notices
+ * beside Start, the acknowledgement, what Start starts, and Start. The
+ * stage is draft-stage.css; the stored values are config-sections.css.
+ * Tokens only.
+ */
+
+.opt-review-foot {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.opt-ack {
+  color: var(--text-primary);
+}
+
+.opt-foot-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--text-muted);
+}
+
+.opt-foot-note b {
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+.opt-foot-note b.opt-live {
+  color: var(--color-error);
+}
+
+.opt-start-why {
+  color: var(--color-warning);
+}

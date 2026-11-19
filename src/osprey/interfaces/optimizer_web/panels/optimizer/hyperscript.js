@@ -61,7 +61,9 @@ export function replaceChildren(parent, ...children) {
 
 /**
  * Format a number for display: finite numbers to at most `digits` significant
- * figures, everything else as an em dash.
+ * figures, everything else as an em dash. A number whose integer part has
+ * more digits than `digits` keeps all of them: it is rounded to an integer
+ * (half away from zero), so a setpoint never loses an integer digit.
  *
  * @param {unknown} value
  * @param {number} [digits]
@@ -69,5 +71,7 @@ export function replaceChildren(parent, ...children) {
  */
 export function fmt(value, digits = 6) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const size = Math.abs(value);
+  if (size >= 10 ** digits) return String(Math.sign(value) * Math.round(size));
   return String(Number(value.toPrecision(digits)));
 }

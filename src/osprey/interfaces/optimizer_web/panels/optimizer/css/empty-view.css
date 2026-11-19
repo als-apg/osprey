@@ -1,0 +1,45 @@
+/*
+ * OPTIMIZER panel: the empty screen (empty-view.js): the centred state in the
+ * stage and "How a run works" in the inspector. Tokens and the `--opt-` sizes
+ * of shell.css only.
+ */
+
+.opt-how {
+  margin: 0;
+  padding: var(--space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  list-style: none;
+}
+
+.opt-how li {
+  display: grid;
+  grid-template-columns: var(--opt-step-badge) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.opt-how-n {
+  width: var(--opt-step-badge);
+  height: var(--opt-step-badge);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.opt-how b {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.opt-how p {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}

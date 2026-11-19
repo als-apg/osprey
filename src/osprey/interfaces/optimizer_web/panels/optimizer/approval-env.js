@@ -1,14 +1,14 @@
 // @ts-check
 /**
- * The approval card's own read of the stored draft's environment: details,
- * models and readbacks on the draft's own target, keyed by `approvalEnvKey`
- * and independent of the form's pickers.
+ * The review's own read of the stored draft's environment: details, models
+ * and readbacks on the draft's own target, keyed by `approvalEnvKey` and
+ * independent of the set-up's pickers.
  *
  * Readbacks are what the machine reads NOW, not part of the approved config:
  * while a draft waits they are refreshed on the poll (at most every
- * {@link READBACK_REFRESH_MS}) and written into the card's Readback cells in
- * place, so a refresh never rebuilds the card, never moves Start and never
- * touches the review state or the revision Start sends.
+ * {@link READBACK_REFRESH_MS}) and reach the review's stage through the
+ * store. A refresh never moves Start and never touches the review state or
+ * the revision Start sends.
  *
  * @module approval-env
  */
@@ -16,7 +16,7 @@
 import { readbackValues, seg } from './api-client.js';
 import { approvalEnvKey, startGate } from './approval-model.js';
 
-/** The fastest the approval card re-reads the machine while a draft waits. */
+/** The fastest the review re-reads the machine while a draft waits. */
 export const READBACK_REFRESH_MS = 5000;
 
 /**
@@ -32,7 +32,7 @@ export const READBACK_REFRESH_MS = 5000;
  * @returns {Promise<Record<string, number|null>|null>}  `null` when there is
  *   nothing to read or the read failed
  */
-export async function fetchApprovalReadbacks(api, config) {
+async function fetchApprovalReadbacks(api, config) {
   const names = config.variables || [];
   if (!config.environment_name || !config.control_target || !names.length) return null;
   const res = await api.get(`environments/${seg(config.environment_name)}/variables`, {
@@ -43,7 +43,7 @@ export async function fetchApprovalReadbacks(api, config) {
 }
 
 /**
- * Read everything the approval card shows about the draft's environment.
+ * Read everything the review shows about the draft's environment.
  *
  * @param {import('./api-client.js').Api} api
  * @param {OptimizationConfig} config
@@ -67,7 +67,7 @@ export async function fetchApprovalEnv(api, config, key) {
 }
 
 /**
- * Whether the poll should re-read the approval card's readbacks now: a
+ * Whether the poll should re-read the review's readbacks now: a
  * created draft whose environment read has landed, last read at least
  * {@link READBACK_REFRESH_MS} ago, with no readback read still in flight (a
  * slow machine read skips ticks rather than piling reads up) and no Start

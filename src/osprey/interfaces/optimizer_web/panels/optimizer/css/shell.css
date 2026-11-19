@@ -1,0 +1,256 @@
+/*
+ * OPTIMIZER panel: the frame (shell.js). Layout only, on the design system's
+ * primitives; every colour, size and spacing is a design-system token or an
+ * `--opt-` property from the `:root` block below.
+ *
+ * Toolbar over three zones: the runs list (260 px, panel-sidebar.js), the
+ * stage, and the inspector (340 px). Up to 1040 px the runs list is an
+ * overlay and the inspector a drawer over the stage, opened from an edge tab.
+ *
+ * Class prefix: `opt-`. One sheet per zone, shared component or view.
+ */
+
+/* The panel's own sizes. The design system has no token for them. This is the
+   one place where they are defined; every sheet uses them by name. A media or
+   container query cannot read a property, so those keep a raw width. */
+:root {
+  /* Line weights: a border or ring, a focus outline or tick, a heavy edge. */
+  --opt-hairline: 1px;
+  --opt-rule: 2px;
+  --opt-rule-wide: 3px;
+
+  /* Marks and swatches. */
+  --opt-dot: 8px;
+  --opt-dot-sm: 6px;
+  --opt-mark: 14px;
+  --opt-mark-sm: 12px;
+  --opt-step-badge: 22px;
+
+  /* The knob bar and the bars of progress. */
+  --opt-kbar-track-h: 6px;
+  --opt-kbar-now-h: 18px;
+  --opt-progress-h: 4px;
+  --opt-spark-h: 24px;
+
+  /* Zones, cards and rows. */
+  --opt-inspector-w: 340px;
+  --opt-insp-head-min-h: 52px;
+  --opt-pick-row-min-h: 36px;
+  --opt-confirm-w: 300px;
+  --opt-wait-max-w: 760px;
+  --opt-btn-min-w: 84px;
+  --opt-label-min-w: 84px;
+  --opt-obj-wide-basis: 180px;
+  --opt-cons-val-w: 64px;
+  --opt-evals-head-max-w: 140px;
+  --opt-knob-cols: minmax(120px, 190px) minmax(0, 1fr) minmax(96px, 136px);
+  --opt-measure: 78ch;
+
+  /* Chart and table areas. */
+  --opt-plot-min-h: 220px;
+  --opt-chart-area-min-h: 300px;
+  --opt-out-chart-min-h: 320px;
+  --opt-hist-pick-min-h: 240px;
+
+  /* Letter spacing of a table head. */
+  --opt-tracking: 0.06em;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.opt-app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
+.opt-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.opt-main {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  /* Clip, not hide: the closed drawer sits off to the right, and a hidden
+     overflow could still be scrolled sideways (focus, scroll into view). */
+  overflow: clip;
+}
+
+.opt-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.opt-inspector {
+  flex: none;
+  width: var(--opt-inspector-w);
+  min-height: 0;
+  border-left: var(--opt-hairline) solid var(--surface-hairline);
+  background: var(--bg-panel);
+}
+
+.opt-main > .osprey-edge-tab {
+  display: none;
+}
+
+.osprey-icon-btn.opt-only-narrow {
+  display: none;
+}
+
+/* A tile up to 1040 px: the inspector is a drawer over the stage. A view
+   whose header must stay in sight sets --opt-drawer-top (shell.setDrawerTop). */
+@container panel (max-width: 1040px) {
+  .opt-main > .osprey-edge-tab {
+    display: flex;
+    margin: var(--space-2) var(--space-2) var(--space-2) 0;
+  }
+
+  .osprey-icon-btn.opt-only-narrow {
+    display: inline-grid;
+  }
+
+  .opt-inspector {
+    position: absolute;
+    top: var(--opt-drawer-top, 0);
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-sticky);
+    width: min(var(--opt-inspector-w), calc(100% - var(--space-7)));
+    box-shadow: var(--shadow-panel);
+    transform: translateX(100%);
+    visibility: hidden;
+    transition:
+      transform var(--duration-base) var(--wt-ease-out),
+      visibility 0s linear var(--duration-base);
+  }
+
+  .opt-main[data-drawer='open'] > .opt-inspector {
+    transform: none;
+    visibility: visible;
+    transition: transform var(--duration-base) var(--wt-ease-out);
+  }
+}
+
+/* ---- Toolbar ---- */
+
+.opt-target-slot {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.opt-target {
+  gap: var(--space-1);
+}
+
+.opt-target[data-target='live'] {
+  font-weight: var(--weight-semibold);
+}
+
+.opt-target:focus-visible {
+  outline: var(--opt-rule) solid var(--color-accent);
+  outline-offset: var(--opt-hairline);
+}
+
+.opt-primary-slot {
+  display: inline-flex;
+}
+
+.opt-primary-slot:empty {
+  display: none;
+}
+
+.opt-banner {
+  flex: none;
+  margin: var(--space-2) var(--space-4) 0;
+}
+
+/* ---- Stage: what a view puts in it ---- */
+
+/* A scrolling column: its blocks keep their height and the column scrolls. */
+.opt-stage-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4) var(--space-5);
+}
+
+.opt-stage-scroll > *,
+.opt-insp-body > * {
+  flex-shrink: 0;
+}
+
+/* A block that fills the stage, such as a centred state. */
+.opt-stage-fill {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+}
+
+/* ---- Inspector (shell.fillInspector) ---- */
+
+.opt-insp-head {
+  flex: none;
+  min-height: var(--opt-insp-head-min-h);
+}
+
+.opt-insp-head .osprey-card-title {
+  white-space: nowrap;
+}
+
+.opt-insp-desc {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.opt-grow {
+  flex: 1 1 auto;
+}
+
+.opt-insp-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+}
+
+.opt-insp-foot {
+  flex: none;
+}
+
+/* A plain sentence in a zone. */
+.opt-note {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+}
+
+/* A section label (or any block) flush with its column: no side padding. */
+.opt-flush {
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opt-inspector {
+    transition: none;
+  }
+}

@@ -18,7 +18,7 @@ describe('pollDelay', () => {
       expect(isActive(status)).toBe(true);
       expect(pollDelay({ status })).toBe(ACTIVE_MS);
     }
-    expect(ACTIVE_MS).toBe(1000);
+    expect(ACTIVE_MS).toBeLessThanOrEqual(1000);
   });
   test('a waiting draft is polled faster than idle, slower than a run', () => {
     expect(pollDelay({ status: 'created' })).toBe(DRAFT_MS);

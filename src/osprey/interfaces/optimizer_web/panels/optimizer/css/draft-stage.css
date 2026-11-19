@@ -1,0 +1,232 @@
+/*
+ * OPTIMIZER panel: the stage of a draft in set-up and review (draft-stage.js):
+ * the sentence of what the run does, the objective card and the knob table.
+ * Also the small text styles the set-up and the review share. Tokens and the
+ * `--opt-` sizes of shell.css only.
+ */
+
+/* ---- Shared text ---- */
+
+.opt-raw {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.opt-quiet {
+  color: var(--text-muted);
+}
+
+.opt-text {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+.opt-text.opt-quiet {
+  color: var(--text-muted);
+}
+
+.opt-strong {
+  color: var(--text-primary);
+}
+
+.opt-right {
+  text-align: right;
+}
+
+.opt-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--weight-semibold);
+  color: var(--color-error);
+}
+
+.opt-flag {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--color-warning);
+}
+
+.opt-flag.is-err {
+  color: var(--color-error);
+}
+
+.opt-flag .osprey-ic {
+  flex: none;
+  margin-top: calc(var(--space-1) / 2);
+}
+
+/* ---- What the run does ---- */
+
+.opt-lead-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.opt-lead-block > .osprey-banner {
+  margin-bottom: var(--space-2);
+}
+
+.opt-lead-block .opt-lead {
+  max-width: var(--opt-measure);
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+}
+
+.opt-lead-block .opt-lead b {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.opt-lead-block .opt-lead b.opt-live {
+  font-weight: var(--weight-semibold);
+  color: var(--color-error);
+}
+
+.opt-lead-block .opt-lead.opt-quiet {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+/* ---- The objective ---- */
+
+.opt-obj-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3) var(--space-6);
+}
+
+.opt-obj-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.opt-obj-wide {
+  flex: 1 1 var(--opt-obj-wide-basis);
+}
+
+.opt-obj-name {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.opt-obj-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.opt-obj-goal.is-down .osprey-ic {
+  transform: rotate(180deg);
+}
+
+.opt-big {
+  font-family: var(--font-mono);
+  font-size: var(--text-3xl);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+.opt-big-unit {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.opt-objective .opt-cons-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+/* ---- The knobs: name, bar, window ---- */
+
+.opt-knobs {
+  display: flex;
+  flex-direction: column;
+  container: opt-knobs / inline-size;
+}
+
+.opt-knobs-head {
+  gap: var(--space-2);
+}
+
+.opt-knobs-head .osprey-aside {
+  min-width: 0;
+}
+
+.opt-knob-row {
+  display: grid;
+  grid-template-columns: var(--opt-knob-cols);
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0 var(--space-2) var(--space-2);
+  border-top: var(--opt-hairline) solid var(--surface-hairline);
+}
+
+.opt-knob-row.is-head {
+  padding: var(--space-1) 0 var(--space-1) var(--space-2);
+  border-top: 0;
+}
+
+/* A problem marks its row with a bar, so every row keeps its columns. */
+.opt-knob-row.is-err {
+  box-shadow: inset var(--opt-rule) 0 0 var(--color-error);
+}
+
+.opt-knob-row.is-warn {
+  box-shadow: inset var(--opt-rule) 0 0 var(--color-warning);
+}
+
+.opt-knob-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.opt-knob-vals {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+/* A narrow stage: the bar goes under the name and the window. */
+@container opt-knobs (max-width: 520px) {
+  .opt-knob-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: var(--space-1);
+  }
+
+  .opt-knob-row > .opt-kbar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .opt-knob-row.is-head > :nth-child(2) {
+    display: none;
+  }
+}

@@ -310,11 +310,18 @@ describe('runControls', () => {
 });
 
 describe('authorizationNote', () => {
-  test('awaiting asks for the web-terminal approval, naming the request', () => {
-    expect(authorizationNote({ state: 'awaiting', id: 'req-9' })).toEqual({
-      tone: 'warn',
-      text: 'Waiting for write approval: approve the request in the web terminal (request req-9).',
+  test('awaiting names who approves, where, and the request', () => {
+    const note = authorizationNote({
+      state: 'awaiting',
+      id: '6eba4cee973a4d23b1f47454bf1a9f79',
+      owner: 'carol',
     });
+    expect(note?.tone).toBe('warn');
+    expect(note?.text).toContain('until carol approves');
+    expect(note?.text).toContain("carol's web terminal");
+    expect(note?.text).toContain('(request 6eba4cee)');
+    // No owner on the record: the line still says whose step it is.
+    expect(authorizationNote({ state: 'awaiting' })?.text).toContain("the run's owner");
   });
   test('ended carries the reason; none or unknown says nothing', () => {
     expect(authorizationNote({ state: 'ended', reason: 'denied' })?.text).toContain('denied');

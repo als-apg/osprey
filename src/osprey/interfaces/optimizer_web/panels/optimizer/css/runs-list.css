@@ -1,0 +1,72 @@
+/*
+ * OPTIMIZER panel: the runs list in the sidebar (runs-list.js), on the
+ * design system's list rows. Tokens only.
+ */
+
+.opt-side-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.opt-side-tools .osprey-search-field {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.opt-side-list {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) var(--space-2) var(--space-4);
+}
+
+.opt-past-label {
+  margin-top: var(--space-3);
+  gap: var(--space-1);
+}
+
+.opt-run {
+  gap: var(--space-1);
+}
+
+.opt-run-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.opt-run-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.opt-run-meta {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.opt-run-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.opt-run-aside {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.opt-run-chip {
+  flex: none;
+}

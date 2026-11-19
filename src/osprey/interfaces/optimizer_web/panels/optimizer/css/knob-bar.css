@@ -1,0 +1,186 @@
+/*
+ * OPTIMIZER panel: the knob bar and the knob name (knob-bar.js), the one
+ * drawing of a knob's range in every view. Tokens and the `--opt-` sizes of
+ * shell.css only.
+ *
+ * The track is a range; on it the search window (a band), the value before
+ * the run (a line), the start (a tick), the best so far (a ring) and the last
+ * point written (a dot). A problem window is dashed red, a clamped one amber.
+ */
+
+.opt-kbar {
+  width: 100%;
+  min-width: 0;
+  padding-top: var(--space-2);
+}
+
+.opt-kbar-track {
+  position: relative;
+  height: var(--opt-kbar-track-h);
+  border-radius: var(--radius-full);
+  background: var(--neutral-tint-12);
+}
+
+.opt-kbar-window {
+  position: absolute;
+  top: calc((var(--opt-kbar-track-h) - var(--opt-mark)) / 2);
+  height: var(--opt-mark);
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint-25);
+  box-shadow: inset 0 0 0 var(--opt-hairline) var(--color-accent);
+}
+
+.opt-kbar-window.is-clamped {
+  background: color-mix(in srgb, var(--color-warning) 22%, transparent);
+  box-shadow: inset 0 0 0 var(--opt-hairline) var(--color-warning);
+}
+
+.opt-kbar-window.is-problem {
+  background: var(--error-tint-10);
+  box-shadow: none;
+  outline: var(--opt-hairline) dashed var(--color-error);
+  outline-offset: calc(var(--opt-hairline) * -1);
+}
+
+.opt-kbar-now {
+  position: absolute;
+  top: calc((var(--opt-kbar-track-h) - var(--opt-kbar-now-h)) / 2);
+  width: var(--opt-rule);
+  height: var(--opt-kbar-now-h);
+  margin-left: calc(var(--opt-rule) / -2);
+  border-radius: var(--radius-xs);
+  background: var(--text-primary);
+}
+
+.opt-kbar-mark {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.opt-kbar-start {
+  width: var(--opt-rule);
+  height: var(--opt-mark);
+  border-radius: var(--radius-xs);
+  background: var(--text-muted);
+}
+
+/* Wider than the dot and its halo, so a best point that is also the point
+   on the machine still shows. */
+.opt-kbar-best {
+  width: var(--opt-mark);
+  height: var(--opt-mark);
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 var(--opt-rule) var(--color-success);
+}
+
+.opt-kbar-current {
+  width: var(--opt-dot);
+  height: var(--opt-dot);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 var(--opt-hairline) var(--bg-panel);
+  transition: left var(--duration-base) var(--wt-ease-out);
+}
+
+.opt-kbar-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-none);
+  color: var(--text-muted);
+}
+
+/* The knob's name: its description, then its channel identifier. */
+.opt-knob-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-knob-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.opt-knob-channel {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* The key to the drawings. */
+.opt-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+}
+
+.opt-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.opt-swatch {
+  display: inline-block;
+  width: var(--opt-mark);
+  height: var(--opt-dot);
+  border-radius: var(--radius-xs);
+}
+
+.opt-swatch-track {
+  background: var(--neutral-tint-12);
+}
+
+.opt-swatch-window {
+  background: var(--accent-tint-25);
+  box-shadow: inset 0 0 0 var(--opt-hairline) var(--color-accent);
+}
+
+.opt-swatch-now {
+  width: var(--opt-rule);
+  height: var(--opt-mark-sm);
+  background: var(--text-primary);
+}
+
+.opt-swatch-start {
+  width: var(--opt-rule);
+  height: var(--opt-mark-sm);
+  background: var(--text-muted);
+}
+
+.opt-swatch-best {
+  width: var(--opt-mark-sm);
+  height: var(--opt-mark-sm);
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 var(--opt-rule) var(--color-success);
+}
+
+/* `recorded` keys the same dot as `current`: the last evaluation recorded,
+   where the records do not prove what is on the machine. */
+.opt-swatch-current,
+.opt-swatch-recorded {
+  width: var(--opt-dot);
+  height: var(--opt-dot);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opt-kbar-current {
+    transition: none;
+  }
+}

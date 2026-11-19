@@ -29,11 +29,15 @@ _ALLOWLIST = [
     ("/environments/booster/status", "/environments/booster/status"),
     ("/environments/booster/variables", "/environments/booster/variables"),
     ("/environments/booster/presets", "/environments/booster/presets"),
+    ("/environments/booster/observables", "/environments/booster/observables"),
     ("/environments/booster/initial-bounds", "/environments/booster/initial-bounds"),
+    ("/jobs", "/jobs"),
     ("/jobs/current", "/jobs/current"),
     ("/jobs/job-1", "/jobs/job-1"),
     ("/jobs/job-1/config", "/jobs/job-1/config"),
     ("/models", "/models"),
+    ("/results", "/results"),
+    ("/results/booster/2026-11-09_10-00-00", "/results/booster/2026-11-09_10-00-00"),
 ]
 
 
@@ -69,11 +73,9 @@ def test_no_write_verb_reaches_the_service_through_a_read_path(
 @pytest.mark.parametrize(
     "path",
     [
-        "/jobs",
-        "/results",
-        "/environments/booster/observables",
         "/results/booster/2026-11-09/restore-preview",
-        "/results/booster/2026-11-09",
+        "/results/booster/2026-11-09/restore",
+        "/results/booster",
         "/environments/booster/pv",
         "/jobs/job-1/start",
         "/optimizations",
@@ -107,6 +109,28 @@ def test_a_path_segment_is_escaped_before_it_reaches_the_service() -> None:
         client.get("/environments/a%20b%2Bc/status")
 
     assert seen[0].url.raw_path == b"/environments/a%20b%2Bc/status"
+
+
+def test_the_query_of_an_observables_read_is_forwarded_as_it_arrived() -> None:
+    app, seen, _ = recording_app(read_proxy.router)
+
+    with TestClient(app) as client:
+        client.get("/environments/booster/observables?target=standin&names=q&names=loss")
+
+    assert seen[0].url.params.multi_items() == [
+        ("target", "standin"),
+        ("names", "q"),
+        ("names", "loss"),
+    ]
+
+
+def test_both_segments_of_a_stored_run_are_escaped_before_they_reach_the_service() -> None:
+    app, seen, _ = recording_app(read_proxy.router)
+
+    with TestClient(app) as client:
+        client.get("/results/a%20b/2026-11-09_10-00-00%2B1")
+
+    assert seen[0].url.raw_path == b"/results/a%20b/2026-11-09_10-00-00%2B1"
 
 
 @pytest.mark.parametrize("status_code", [404, 409, 422, 503])

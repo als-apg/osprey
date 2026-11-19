@@ -1,0 +1,233 @@
+/*
+ * OPTIMIZER panel: the objective chart (objective-chart.js) and the table of
+ * the evaluations (evaluations-table.js), on the run page and after a run.
+ * Tokens and the `--opt-` sizes of shell.css only: the drawing follows the
+ * theme.
+ *
+ * The chart's box takes its size from its container (a flex column gives it
+ * the room left); the SVG fills the box and never sizes it, so the box stays
+ * the same from one poll to the next.
+ */
+
+.opt-chart {
+  position: relative;
+  flex: 1 1 0;
+  min-height: var(--opt-plot-min-h);
+  margin: 0;
+  overflow: hidden;
+  border: var(--opt-hairline) solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--chart-plot-bg);
+}
+
+.opt-chart-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.opt-ch-txt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  fill: var(--chart-axis-text);
+}
+
+.opt-ch-grid {
+  stroke: var(--chart-grid);
+}
+
+.opt-ch-init {
+  fill: var(--neutral-tint-06);
+}
+
+.opt-ch-txt.opt-ch-band,
+.opt-ch-txt.opt-ch-empty {
+  fill: var(--text-muted);
+}
+
+.opt-ch-future {
+  fill: var(--neutral-tint-03);
+}
+
+.opt-ch-before {
+  stroke: var(--text-muted);
+  stroke-dasharray: 4 4;
+}
+
+.opt-ch-bestline {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.opt-ch-pt {
+  fill: var(--text-secondary);
+}
+
+.opt-ch-pt.is-init {
+  fill: var(--text-muted);
+}
+
+.opt-ch-pt.is-bad {
+  fill: none;
+  stroke: var(--color-error);
+}
+
+.opt-ch-bestpt {
+  fill: none;
+  stroke: var(--color-success);
+  stroke-width: 2;
+}
+
+.opt-ch-cur {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+}
+
+.opt-ch-cur.is-live {
+  animation: opt-ch-pulse calc(var(--duration-slow) * 4) ease-in-out infinite;
+}
+
+.opt-ch-txt.opt-ch-lbl-best {
+  fill: var(--color-success);
+}
+
+.opt-ch-txt.opt-ch-lbl-before {
+  fill: var(--text-muted);
+}
+
+.opt-ch-end {
+  stroke: var(--text-muted);
+  stroke-dasharray: 3 3;
+}
+
+.opt-ch-end.is-warning {
+  stroke: var(--color-warning);
+}
+
+.opt-ch-end.is-error {
+  stroke: var(--color-error);
+}
+
+.opt-ch-end.is-success {
+  stroke: var(--color-success);
+}
+
+.opt-ch-txt.opt-ch-endlabel.is-warning {
+  fill: var(--color-warning);
+}
+
+.opt-ch-txt.opt-ch-endlabel.is-error {
+  fill: var(--color-error);
+}
+
+.opt-ch-txt.opt-ch-endlabel.is-success {
+  fill: var(--color-success);
+}
+
+@keyframes opt-ch-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* The chart's key (chartLegend), in the legend style of knob-bar.css. */
+.opt-ch-swatch {
+  display: inline-block;
+  flex: none;
+}
+
+.opt-ch-swatch-point {
+  width: var(--opt-dot-sm);
+  height: var(--opt-dot-sm);
+  border-radius: var(--radius-full);
+  background: var(--text-secondary);
+}
+
+.opt-ch-swatch-best {
+  width: var(--opt-mark);
+  height: var(--opt-rule);
+  background: var(--color-accent);
+}
+
+.opt-ch-swatch-before {
+  width: var(--opt-mark);
+  border-top: var(--opt-rule) dashed var(--text-muted);
+}
+
+/* The evaluations, newest first. */
+.opt-evals {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  border: var(--opt-hairline) solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+}
+
+.opt-evals:focus-visible {
+  outline: var(--opt-rule) solid var(--color-accent);
+  outline-offset: var(--opt-hairline);
+}
+
+.opt-evals-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+}
+
+.opt-evals-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  max-width: var(--opt-evals-head-max-w);
+  padding: var(--space-2);
+  overflow: hidden;
+  border-bottom: var(--opt-hairline) solid var(--border-default);
+  background: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--opt-tracking);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.opt-evals-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: var(--opt-hairline) solid var(--surface-hairline);
+  color: var(--text-secondary);
+}
+
+.opt-evals-table .num {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.opt-evals-table td.opt-evals-obj {
+  color: var(--text-primary);
+}
+
+.opt-evals-table tr.is-best td {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.opt-evals-table tr.is-best td:first-child {
+  box-shadow: inset var(--opt-rule) 0 0 var(--color-accent);
+}
+
+.opt-evals-none {
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opt-ch-cur.is-live {
+    animation: none;
+  }
+}

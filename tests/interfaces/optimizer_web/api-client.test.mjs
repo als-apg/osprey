@@ -9,7 +9,9 @@ import { test, expect, describe, vi } from 'vitest';
 import {
   REVISION_HEADER,
   createApi,
-  errorDetail,
+  errorIssues,
+  resultPath,
+  saveDraft,
   seg,
   withQuery,
 } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/api-client.js';
@@ -32,18 +34,46 @@ describe('withQuery', () => {
   });
 });
 
-describe('errorDetail', () => {
+describe('errorIssues', () => {
   test('a FastAPI detail string is relayed verbatim', () => {
-    expect(errorDetail(502, { detail: 'optimizer service unreachable' })).toBe(
-      'optimizer service unreachable'
-    );
+    expect(errorIssues(502, { detail: 'optimizer service unreachable' })).toEqual([
+      'optimizer service unreachable',
+    ]);
   });
   test('a 422 validation list becomes its messages, without the body segment', () => {
     const detail = [{ loc: ['body', 'n_iterations'], msg: 'Input should be >= 0' }];
-    expect(errorDetail(422, { detail })).toBe('n_iterations: Input should be >= 0');
+    expect(errorIssues(422, { detail })).toEqual(['n_iterations: Input should be >= 0']);
   });
   test('no body falls back to the status', () => {
-    expect(errorDetail(500, null)).toBe('request failed (HTTP 500)');
+    expect(errorIssues(500, null)).toEqual(['request failed (HTTP 500)']);
+  });
+});
+
+describe('a 422 refusal with two items', () => {
+  const detail = [
+    { loc: ['body', 'n_iterations'], msg: 'Input should be greater than 0' },
+    { loc: ['body', 'objective_name'], msg: 'Field required' },
+  ];
+  const refusing = () => createApi({ prefix: '', fetchImpl: async () => respond(422, { detail }) });
+
+  test('gives two issues, and one sentence for a caller that shows the error', async () => {
+    const res = await refusing().post('relay/optimizations', {});
+    expect(res.issues).toEqual([
+      'n_iterations: Input should be greater than 0',
+      'objective_name: Field required',
+    ]);
+    expect(res.error).toBe(
+      'n_iterations: Input should be greater than 0; objective_name: Field required'
+    );
+  });
+
+  test('a refused save names each item as its own issue', async () => {
+    const saved = await saveDraft(refusing(), null, {});
+    expect(saved.id).toBeNull();
+    expect(saved.issues).toEqual([
+      'n_iterations: Input should be greater than 0',
+      'objective_name: Field required',
+    ]);
   });
 });
 
@@ -115,5 +145,52 @@ describe('createApi', () => {
     const api = createApi({ prefix: '/panel/optimizer', fetchImpl });
     expect(await api.session()).toEqual(expected);
     expect(/** @type {any} */ (fetchImpl.mock.calls[0])[0]).toBe('/panel/optimizer/relay/session');
+  });
+});
+
+describe('the list and result reads', () => {
+  function recording() {
+    const fetchImpl = vi.fn(async () => respond(200, []));
+    const api = createApi({ prefix: '/panel/optimizer', fetchImpl });
+    const calls = () => /** @type {any[][]} */ (fetchImpl.mock.calls);
+    return { api, urls: () => calls().map((c) => c[0]), inits: () => calls().map((c) => c[1]) };
+  }
+
+  test('jobs() and results() read the two lists, with GET and no body', async () => {
+    const { api, urls, inits } = recording();
+    await api.jobs();
+    await api.results();
+    expect(urls()).toEqual(['/panel/optimizer/jobs', '/panel/optimizer/results']);
+    expect(inits().every((init) => init.method === 'GET' && init.body === undefined)).toBe(true);
+  });
+
+  test('result() names the stored run by its two segments, each escaped', async () => {
+    const { api, urls } = recording();
+    await api.result('va orbit/2026-11-16_21-15-04');
+    expect(urls()).toEqual(['/panel/optimizer/results/va%20orbit/2026-11-16_21-15-04']);
+  });
+
+  test('result() of an id that names no stored run sends nothing and says why', async () => {
+    const { api, urls } = recording();
+    expect(await api.result('no-slash')).toMatchObject({ ok: false, status: 0 });
+    expect(urls()).toEqual([]);
+  });
+
+  test('observables() repeats each name and names the target', async () => {
+    const { api, urls } = recording();
+    await api.observables('injector', ['charge', 'loss'], 'standin');
+    expect(urls()).toEqual([
+      '/panel/optimizer/environments/injector/observables?names=charge&names=loss&target=standin',
+    ]);
+  });
+
+  test.each([
+    ['env/2026-11-16_21-15-04', 'results/env/2026-11-16_21-15-04'],
+    ['a/b/c', 'results/a%2Fb/c'],
+    ['env/', null],
+    ['/ts', null],
+    ['plain', null],
+  ])('resultPath(%j)', (runId, expected) => {
+    expect(resultPath(runId)).toBe(expected);
   });
 });

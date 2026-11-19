@@ -1,11 +1,12 @@
 """Unit tests for the optimizer-web sidecar app shell: its healthcheck, the
-rendered panel index, the service URL it relays to, and an import graph free
-of the optimizer package."""
+panel index served as a static file, the service URL it relays to, and an
+import graph free of the optimizer package."""
 
 from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,13 +27,33 @@ def test_health_ok(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_the_panel_index_is_rendered_at_optimizer(client: TestClient) -> None:
-    response = client.get("/optimizer")
+_PANEL_DIR = Path(__file__).parents[3] / "src/osprey/interfaces/optimizer_web/panels/optimizer"
+
+
+@pytest.mark.parametrize("path", ["/optimizer/", "/optimizer/index.html"])
+def test_the_panel_index_is_served_unchanged(client: TestClient, path: str) -> None:
+    response = client.get(path, follow_redirects=False)
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
-    assert 'id="optimizer-root"' in response.text
-    assert "{{" not in response.text
+    assert response.content == (_PANEL_DIR / "index.html").read_bytes()
+
+
+def test_the_bare_panel_path_redirects_to_the_bundle_root(client: TestClient) -> None:
+    """The page's ``css/`` and ``js/`` references are relative, so the bundle is
+    only addressable with the trailing slash."""
+    response = client.get("/optimizer", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"].endswith("/optimizer/")
+
+
+def test_the_panel_files_are_served_with_their_pinned_types(client: TestClient) -> None:
+    response = client.get("/optimizer/css/shell.css")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/css")
+    assert response.content == (_PANEL_DIR / "css/shell.css").read_bytes()
 
 
 def test_everything_it_serves_is_uncached(client: TestClient) -> None:

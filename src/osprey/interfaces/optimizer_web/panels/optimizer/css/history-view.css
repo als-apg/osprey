@@ -1,0 +1,97 @@
+/*
+ * OPTIMIZER panel: the table of stored runs (history-view.js). A row opens
+ * the run. Tokens and the `--opt-` sizes of shell.css only. In a narrow tile
+ * the optional columns go.
+ */
+
+.opt-hist-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.opt-hist-head {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.opt-hist-scroll {
+  overflow-x: auto;
+}
+
+.opt-hist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+}
+
+.opt-hist-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-2);
+  border-bottom: var(--opt-hairline) solid var(--border-default);
+  background: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--opt-tracking);
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.opt-hist-table td {
+  padding: var(--space-2);
+  border-bottom: var(--opt-hairline) solid var(--surface-hairline);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.opt-hist-table tr.is-click {
+  cursor: pointer;
+}
+
+.opt-hist-table tr.is-click:hover td {
+  background: var(--surface-hover);
+}
+
+.opt-hist-table tr.is-click:focus-visible {
+  outline: var(--opt-rule) solid var(--color-accent);
+  outline-offset: calc(var(--opt-rule) * -1);
+}
+
+.opt-hist-when {
+  white-space: nowrap;
+}
+
+.opt-hist-main {
+  display: block;
+  color: var(--text-primary);
+}
+
+.opt-hist-sub {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.opt-hist-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.opt-hist-pick {
+  min-height: var(--opt-hist-pick-min-h);
+  flex: 1 1 auto;
+  display: flex;
+}
+
+@container panel (max-width: 1040px) {
+  .opt-hist-opt {
+    display: none;
+  }
+}

@@ -1,0 +1,355 @@
+/*
+ * OPTIMIZER panel: the outcome of a run and a past run (outcome-view.js,
+ * outcome-knobs.js, outcome-inspector.js). Tokens and the `--opt-` sizes of
+ * shell.css only.
+ *
+ * The stage is a band (how the run ended, the detail line, the progress where
+ * it stopped, the facts) over the chart area (its head names the view and
+ * switches it). The page scrolls as a whole when the tile is short, so the
+ * chart keeps a usable height.
+ */
+
+.opt-out-page {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.opt-out-band {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--opt-hairline) solid var(--surface-hairline);
+  background: var(--bg-panel);
+}
+
+.opt-out-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.opt-out-banner {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.opt-out-line {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.opt-out-prog {
+  height: var(--opt-progress-h);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--neutral-tint-12);
+}
+
+.opt-out-prog > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+}
+
+.opt-out-prog.is-ok > span {
+  background: var(--color-success);
+}
+
+.opt-out-prog.is-warn > span {
+  background: var(--color-warning);
+}
+
+.opt-out-prog.is-err > span {
+  background: var(--color-error);
+}
+
+.opt-out-body {
+  flex: 1 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-out-none {
+  padding: var(--space-4);
+}
+
+/* ---- The chart area and its views ---- */
+
+.opt-out-chart {
+  flex: 1 0 var(--opt-out-chart-min-h);
+  min-height: var(--opt-out-chart-min-h);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.opt-out-chart-head {
+  flex: none;
+  min-height: var(--control-h-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.opt-out-caption {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+}
+
+.opt-out-title {
+  gap: var(--space-2);
+}
+
+.opt-out-title > .osprey-aside {
+  margin-left: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.opt-out-view {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-out-view > .opt-chart {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.opt-out-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.opt-out-scroll > * {
+  flex-shrink: 0;
+}
+
+/* ---- Knobs: name, range bar, values ---- */
+
+.opt-out-knobs {
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-out-knob {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr) minmax(0, auto);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: var(--opt-hairline) solid var(--surface-hairline);
+}
+
+.opt-out-knob.head {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.opt-out-right {
+  text-align: right;
+}
+
+.opt-out-knob-vals {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.opt-out-strong {
+  color: var(--text-primary);
+}
+
+.opt-out-traces {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.opt-out-trace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr) minmax(0, auto);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.opt-out-trace-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.opt-out-spark {
+  width: 100%;
+  height: var(--opt-spark-h);
+  display: block;
+}
+
+.opt-out-spark-band {
+  fill: var(--accent-tint-25);
+  opacity: 0.5;
+}
+
+.opt-out-spark-start {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.opt-out-spark-best {
+  stroke: var(--color-success);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.opt-out-spark-line {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.opt-out-trace-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+/* ---- Inspector ---- */
+
+.opt-out-card .osprey-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.opt-out-big {
+  font-family: var(--font-mono);
+  font-size: var(--text-3xl);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.opt-out-big-unit {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.opt-out-quiet {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.opt-out-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.opt-out-changes {
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-out-change {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-2);
+  padding: var(--space-2) var(--space-1) var(--space-2) var(--space-2);
+  border-top: var(--opt-hairline) solid var(--surface-hairline);
+}
+
+.opt-out-change:first-child {
+  border-top: 0;
+}
+
+.opt-out-change-label,
+.opt-out-change-raw {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.opt-out-change-label {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.opt-out-change-range {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.opt-out-change-raw,
+.opt-out-change-delta {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.opt-out-change-delta {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.opt-out-settings {
+  padding-top: var(--space-3);
+}
+
+.opt-out-settings > summary:focus-visible {
+  outline: var(--opt-rule) solid var(--color-accent);
+  outline-offset: var(--opt-hairline);
+}
+
+/* A narrow tile: the knob values go under the bar. */
+@container panel (max-width: 1040px) {
+  .opt-out-knob {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+
+  .opt-out-knob-vals {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: flex-end;
+    gap: var(--space-3);
+  }
+
+  .opt-out-knob.head > :last-child {
+    display: none;
+  }
+}
