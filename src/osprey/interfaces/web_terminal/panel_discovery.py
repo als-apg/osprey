@@ -11,8 +11,10 @@ Two design rules govern discovery:
 
 * **Fail closed (OSPREY Principle 1).**  A malformed manifest, a missing entry
   file, a page that never marks itself ready, or any other non-compliant UI check
-  makes that one panel *not served* — it is logged and skipped, and never affects
-  the other panels.  :func:`discover_panels` never raises.
+  makes that one panel *not served*, and never affects the other panels.  A
+  refused panel is returned with every reason, so the server's log, its panels
+  list and ``osprey build`` name it from one verdict.  :func:`discover_panels`
+  never raises.
 * **Human gate = the existing opt-in.**  Discovery runs only when
   ``web.allow_runtime_panels`` is true (it defaults to ``False``).  The operator
   editing ``config.yml`` to enable it is the human approval; there is no separate
@@ -27,16 +29,25 @@ URL-backed panels only and is left untouched.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
+from osprey.interfaces.design_system.errors import SourcedFinding
 from osprey.interfaces.design_system.panels.manifest import load_manifest_file
 from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
+    PanelFinding,
     validate_panel,
 )
-from osprey.profiles.web_panels import BUILD_PANELS, BUILD_PANELS_DIRNAME, BUILTIN_PANELS
+from osprey.profiles.web_panels import (
+    BUILD_PANELS,
+    BUILD_PANELS_DIRNAME,
+    BUILTIN_PANELS,
+    panel_spec_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +57,11 @@ PANELS_DIRNAME = "panels"
 __all__ = [
     "PANELS_DIRNAME",
     "DiscoveredPanel",
+    "DiscoveryFinding",
+    "DiscoveryRule",
+    "PanelDiscovery",
+    "RefusedPanel",
+    "configured_panel_ids",
     "discover_panels",
     "apply_build_panels",
     "apply_discovered_panels",
@@ -71,34 +87,129 @@ class DiscoveredPanel:
     directory: Path
 
 
+class DiscoveryRule(StrEnum):
+    """The refusals discovery makes itself, about where a bundle sits among the others.
+
+    Every rule about a bundle's own content is the panel validator's
+    (:class:`~osprey.interfaces.design_system.panels.validator.PanelRule`).
+    """
+
+    #: The manifest's ``entry`` is absolute or climbs out of the bundle.
+    ENTRY_OUTSIDE_BUNDLE = "entry_outside_bundle"
+    #: The manifest's id is one a built-in panel holds.
+    ID_RESERVED = "id_reserved"
+    #: The manifest's id is one a configured panel or an earlier bundle holds.
+    ID_TAKEN = "id_taken"
+    #: Inspecting the bundle raised, so nothing about it could be judged.
+    UNINSPECTABLE = "uninspectable"
+
+
+@dataclass(frozen=True)
+class DiscoveryFinding(SourcedFinding):
+    """One reason discovery refused a bundle that is not about its content.
+
+    Attributes:
+        rule: Which discovery check refused the bundle.
+        message: Human-readable description of the refusal.
+        source: The manifest path, or the bundle directory when it could not
+            be inspected.
+    """
+
+    rule: DiscoveryRule
+
+
+@dataclass(frozen=True)
+class RefusedPanel:
+    """A bundle under ``panels/`` that is not served, with every reason.
+
+    Attributes:
+        id: The bundle's directory name; it exists even when the manifest is
+            the thing refused.
+        findings: Every reason, in check order; never empty.
+        claims: The manifest id when the manifest parsed, else ``None``. Read
+            by the panels list to withhold a refusal naming a withheld panel;
+            never serialized.
+    """
+
+    id: str
+    findings: tuple[PanelFinding | DiscoveryFinding, ...]
+    claims: str | None
+
+
+@dataclass(frozen=True)
+class PanelDiscovery:
+    """The verdict on every bundle under one panels directory.
+
+    Attributes:
+        served: The compliant panels, in directory order.
+        refused: The bundles not served, in directory order.
+    """
+
+    served: tuple[DiscoveredPanel, ...]
+    refused: tuple[RefusedPanel, ...]
+
+
+def configured_panel_ids(web_config: Mapping[str, Any]) -> set[str]:
+    """The ids of the custom panels a ``web`` config block declares.
+
+    The rule the web terminal's panel-config loader turns into custom panels:
+    a ``web.panels`` block that is on (:func:`panel_spec_enabled`), is a
+    mapping, and does not name a built-in panel. A bundle under ``panels/``
+    may not take one of these ids.
+
+    Args:
+        web_config: The config's ``web`` mapping.
+
+    Returns:
+        The configured custom panel ids.
+    """
+    panels = web_config.get("panels")
+    if not isinstance(panels, Mapping):
+        return set()
+    return {
+        str(panel_id)
+        for panel_id, spec in panels.items()
+        if panel_spec_enabled(spec) and isinstance(spec, Mapping) and panel_id not in BUILTIN_PANELS
+    }
+
+
 def discover_panels(
-    panels_root: str | Path, *, reserved: Iterable[str] = BUILTIN_PANELS
-) -> list[DiscoveredPanel]:
+    panels_root: str | Path,
+    *,
+    reserved: Iterable[str] = BUILTIN_PANELS,
+    taken: Iterable[str] = (),
+) -> PanelDiscovery:
     """Scan ``panels_root`` for compliant panel bundles, fail-closed.
 
     Each immediate subdirectory containing a ``manifest.json`` is a candidate.
     A candidate is validated with :func:`validate_panel`; if it has *any* error
     (malformed manifest, missing entry, raw hex colors, missing design-system
-    link, a page that never marks itself ready, …) it is **logged and skipped** — never served, never fatal to the
-    others.  A candidate whose id collides with a built-in panel or with an
-    already-discovered panel is likewise skipped.
+    link, a page that never marks itself ready, …) it is refused with the
+    validator's findings — never served, never fatal to the others.  A
+    candidate whose entry leaves the bundle, whose id collides with a built-in
+    panel, a configured panel or an already-discovered panel, or whose
+    inspection raised is refused with a :class:`DiscoveryFinding`.
 
     Args:
         panels_root: The conventioned panels directory (``<project>/panels``).
-            A non-existent or non-directory path yields an empty list.
+            A non-existent or non-directory path yields an empty verdict.
         reserved: Ids a bundle here may not take. The framework's own panel
             ids by default.
+        taken: Ids the deployment already configures as panels.
 
     Returns:
-        The compliant panels, ordered by directory name.  Never raises.
+        The served panels and the refused ones, ordered by directory name.
+        Never raises, never logs a refusal.
     """
     root = Path(panels_root)
     if not root.is_dir():
-        return []
+        return PanelDiscovery(served=(), refused=())
 
     discovered: list[DiscoveredPanel] = []
+    refused: list[RefusedPanel] = []
     seen_ids: set[str] = set()
     reserved_ids = set(reserved)
+    taken_ids = set(taken)
 
     for child in sorted(root.iterdir(), key=lambda p: p.name):
         # Every per-candidate step is wrapped so *any* failure inspecting one
@@ -114,44 +225,45 @@ def discover_panels(
 
             errors = validate_panel(child)
             if errors:
-                logger.warning(
-                    "Panel %r is not served: %d validation error(s): %s",
-                    child.name,
-                    len(errors),
-                    "; ".join(str(e) for e in errors),
-                )
+                refused.append(RefusedPanel(child.name, tuple(errors), None))
                 continue
 
             # validate_panel already parsed the manifest cleanly; re-load for
             # the typed fields.
-            manifest = load_manifest_file(child / MANIFEST_FILENAME)
+            manifest_path = child / MANIFEST_FILENAME
+            manifest = load_manifest_file(manifest_path)
 
             # Entry must be a plain bundle-relative path.  Serving is already
             # traversal-guarded, but rejecting an absolute/parent entry here
             # keeps such a bundle out entirely rather than relying on downstream
             # guards, and avoids a validation-time read outside the bundle.
             entry_path = Path(manifest.entry)
+            refusal: tuple[DiscoveryRule, str] | None = None
             if entry_path.is_absolute() or ".." in entry_path.parts:
-                logger.warning(
-                    "Panel %r is not served: entry %r is not a bundle-relative path.",
-                    child.name,
-                    manifest.entry,
+                refusal = (
+                    DiscoveryRule.ENTRY_OUTSIDE_BUNDLE,
+                    f"entry {manifest.entry!r} is not a bundle-relative path",
                 )
-                continue
-
-            if manifest.id in reserved_ids:
-                logger.warning(
-                    "Panel %r is not served: id %r collides with a built-in panel.",
-                    child.name,
-                    manifest.id,
+            elif manifest.id in reserved_ids:
+                refusal = (
+                    DiscoveryRule.ID_RESERVED,
+                    f"id {manifest.id!r} collides with a built-in panel",
                 )
-                continue
-            if manifest.id in seen_ids:
-                logger.warning(
-                    "Panel %r is not served: id %r already discovered in another directory.",
-                    child.name,
-                    manifest.id,
+            elif manifest.id in taken_ids:
+                refusal = (
+                    DiscoveryRule.ID_TAKEN,
+                    f"id {manifest.id!r} is already a panel this deployment configures "
+                    "under web.panels",
                 )
+            elif manifest.id in seen_ids:
+                refusal = (
+                    DiscoveryRule.ID_TAKEN,
+                    f"id {manifest.id!r} already discovered in another directory",
+                )
+            if refusal is not None:
+                rule, message = refusal
+                finding = DiscoveryFinding(rule, message, str(manifest_path))
+                refused.append(RefusedPanel(child.name, (finding,), manifest.id))
                 continue
 
             seen_ids.add(manifest.id)
@@ -163,15 +275,45 @@ def discover_panels(
                     directory=child.resolve(),
                 )
             )
-        except Exception:
-            logger.warning(
-                "Panel %r is not served: discovery raised while inspecting it.",
-                child.name,
-                exc_info=True,
+        except Exception as exc:
+            logger.debug("Inspecting panel %r raised.", child.name, exc_info=True)
+            refused.append(
+                RefusedPanel(
+                    child.name,
+                    (
+                        DiscoveryFinding(
+                            DiscoveryRule.UNINSPECTABLE,
+                            f"could not be inspected: {type(exc).__name__}: {exc}",
+                            str(child),
+                        ),
+                    ),
+                    None,
+                )
             )
             continue
 
-    return discovered
+    return PanelDiscovery(served=tuple(discovered), refused=tuple(refused))
+
+
+def _log_refused(refused: RefusedPanel) -> None:
+    """Log one refused panel on the server's log.
+
+    A refusal made of the validator's findings keeps the validator's line;
+    any other refusal names its reasons.
+    """
+    if all(isinstance(f, PanelFinding) for f in refused.findings):
+        logger.warning(
+            "Panel %r is not served: %d validation error(s): %s",
+            refused.id,
+            len(refused.findings),
+            "; ".join(str(f) for f in refused.findings),
+        )
+        return
+    logger.warning(
+        "Panel %r is not served: %s.",
+        refused.id,
+        "; ".join(f.message for f in refused.findings),
+    )
 
 
 def apply_discovered_panels(app) -> list[DiscoveredPanel]:
@@ -184,9 +326,10 @@ def apply_discovered_panels(app) -> list[DiscoveredPanel]:
     ``/panel-static/{id}/`` URL, and recorded in ``app.state.discovered_panel_dirs``
     (``{id: DiscoveredPanel}``) for the local-file serving route.
 
-    A discovered id that already exists in ``custom_panels`` (e.g. a
-    runtime-registered panel) is skipped so discovery never clobbers a live
-    registration.
+    Every refused bundle is logged and recorded in ``app.state.refused_panels``
+    (empty when the gate is off: nothing was judged). An id ``custom_panels``
+    already holds is ``taken`` in the verdict, so discovery never clobbers a
+    configured panel.
 
     Args:
         app: The FastAPI app whose ``state`` has ``project_cwd``,
@@ -194,28 +337,28 @@ def apply_discovered_panels(app) -> list[DiscoveredPanel]:
             already populated (called from the lifespan after panel config load).
 
     Returns:
-        The panels actually applied (may be shorter than what was discovered).
+        The panels applied.
     """
+    app.state.refused_panels = []
     if not getattr(app.state, "allow_runtime_panels", False):
         return []
 
-    discovered = discover_panels(Path(app.state.project_cwd) / PANELS_DIRNAME)
-    if not discovered:
+    custom_panels: list[dict] = list(getattr(app.state, "custom_panels", []))
+    verdict = discover_panels(
+        Path(app.state.project_cwd) / PANELS_DIRNAME,
+        taken={str(cp["id"]) for cp in custom_panels if cp.get("id")},
+    )
+    for refused in verdict.refused:
+        _log_refused(refused)
+    app.state.refused_panels = list(verdict.refused)
+    if not verdict.served:
         return []
 
-    custom_panels: list[dict] = list(getattr(app.state, "custom_panels", []))
     visible_panels: list[str] = list(getattr(app.state, "visible_panels", []))
     panel_dirs: dict[str, DiscoveredPanel] = dict(getattr(app.state, "discovered_panel_dirs", {}))
-    existing_ids = {cp.get("id") for cp in custom_panels}
 
     applied: list[DiscoveredPanel] = []
-    for panel in discovered:
-        if panel.id in existing_ids:
-            logger.warning(
-                "Discovered panel %r is not served: id already registered as a custom panel.",
-                panel.id,
-            )
-            continue
+    for panel in verdict.served:
         custom_panels.append(
             {
                 "id": panel.id,
@@ -231,7 +374,6 @@ def apply_discovered_panels(app) -> list[DiscoveredPanel]:
         if panel.id not in visible_panels:
             visible_panels.append(panel.id)
         panel_dirs[panel.id] = panel
-        existing_ids.add(panel.id)
         applied.append(panel)
 
     app.state.custom_panels = custom_panels
@@ -262,8 +404,8 @@ def apply_build_panels(app) -> list[DiscoveredPanel]:
 
     A block that names its own ``url`` is the deployment's own panel under that
     id and is left alone. A bundle that is missing or fails the panel contract
-    takes its panel off the rail, with a warning: an entry that could only
-    answer 404 is not shown.
+    takes its panel off the rail, with a warning naming every reason: an entry
+    that could only answer 404 is not shown.
 
     Args:
         app: The FastAPI app whose ``state`` has ``project_cwd``,
@@ -284,8 +426,12 @@ def apply_build_panels(app) -> list[DiscoveredPanel]:
         if panel_id not in BUILD_PANELS or entry.get("url"):
             kept.append(entry)
             continue
-        found = [panel for panel in discover_panels(root, reserved=()) if panel.id == panel_id]
+        verdict = discover_panels(root, reserved=())
+        found = [panel for panel in verdict.served if panel.id == panel_id]
         if not found:
+            for refused in verdict.refused:
+                if refused.id == panel_id:
+                    _log_refused(refused)
             logger.warning(
                 "Panel %r is not served: no valid bundle under %s; rebuild the project.",
                 panel_id,
