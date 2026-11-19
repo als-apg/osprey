@@ -162,7 +162,7 @@ def deployment(built_view, tmp_path, monkeypatch) -> Iterator[Deployment]:  # no
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(project / "var" / "agent_data"))
     monkeypatch.setenv("OSPREY_TERMINAL_USER", OPERATOR)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
-    monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(project / "config.yml"))
     testing.invalidate_cache()
 
     assert activate_default_scenarios(config, project) == ("nominal", *DEFAULTS)

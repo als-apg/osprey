@@ -58,7 +58,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.chdir(root)
     for name in ("OSPREY_CONFIG", ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("CONFIG_FILE", str(root / "build" / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(root / "build" / "config.yml"))
     _render(root, LIVE)
     yield root
     clear_config_state()

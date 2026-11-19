@@ -441,7 +441,7 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     # Applying a scenario resolves the machine model, and its scenario state, out
     # of the ambient project config; the MongoDB connector reads its password from the
     # environment by name. Both are set the way a deployment sets them.
-    monkeypatch.setenv("CONFIG_FILE", str(root / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(root / "config.yml"))
     monkeypatch.setenv(password_env, mongo["password"])
 
     collection = mongo_client[mongo["database"]][mongo["collection"]]

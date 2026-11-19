@@ -102,7 +102,7 @@ class TestRegistryProvider(RegistryConfigProvider):
 
     # Reset and initialize with test config
     reset_registry()
-    monkeypatch.setenv("CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
     init_reg(auto_export=False, config_path=config_file)
     yield
 

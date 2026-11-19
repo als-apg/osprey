@@ -223,7 +223,7 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "unset-by-the-fixture")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("CONFIG_FILE", str(config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", HOLDER)
     monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(built.tree))
     monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(built.ledger))

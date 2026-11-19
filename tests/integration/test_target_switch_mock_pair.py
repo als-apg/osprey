@@ -177,7 +177,7 @@ def fixture_dir(tmp_path_factory):
 def child_environment(fixture_dir, monkeypatch):
     """Children see the repo, the fixture registration, and no project config."""
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(fixture_dir), *REPO_PATHS]))
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -753,7 +753,7 @@ class TestTheSimulatorInProcessIsTheBaseline:
     def child_environment(self, monkeypatch):
         """Children see the repo and no project config, and no fixture registration."""
         monkeypatch.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
     @pytest.fixture
     def section(self, tmp_path) -> dict[str, Any]:

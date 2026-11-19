@@ -1100,7 +1100,7 @@ class TestTheChildsConfigFile:
         self, make_manager, tmp_path, monkeypatch
     ):
         file_a, file_b = self._files(tmp_path)
-        monkeypatch.setenv("CONFIG_FILE", str(file_b))
+        monkeypatch.setenv("OSPREY_CONFIG", str(file_b))
         manager = await started_on(make_manager, "live", raw=self._raw(), config_path=file_a)
 
         derived = manager._derive("va")

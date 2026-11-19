@@ -518,7 +518,7 @@ async def test_a_child_spawned_held_connects_for_writes_and_survives_the_release
     pool = None
     try:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.setenv("PYTHONPATH", str(PACKAGE_SRC))
         data = tmp_path / "agent-data"
         arm_switch(monkeypatch, data, None, stamp=False)

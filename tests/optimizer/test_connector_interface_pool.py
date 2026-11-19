@@ -71,7 +71,7 @@ def project(tmp_path, monkeypatch):
         config = _project(tmp_path, writes=writes)
         monkeypatch.chdir(tmp_path)
         arm_switch(monkeypatch, tmp_path / "agent-data", switch, stamp=False)
-        monkeypatch.setenv("CONFIG_FILE", str(config))
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
         monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
         monkeypatch.setenv(
             "PYTHONPATH",

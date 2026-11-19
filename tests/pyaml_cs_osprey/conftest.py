@@ -310,7 +310,7 @@ def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
         yaml.safe_dump({"control_system": LIVE_CONTROL_SYSTEM}), encoding="utf-8"
     )
     monkeypatch.chdir(root)
-    monkeypatch.setenv("CONFIG_FILE", str(root / "build" / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(root / "build" / "config.yml"))
     monkeypatch.delenv(ENV_CONTROL_TARGET, raising=False)
     monkeypatch.delenv(ENV_CONTROL_TARGET_GENERATION, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)

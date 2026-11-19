@@ -388,7 +388,7 @@ def test_a_write_through_the_replica_settles_on_its_readback(
         yaml.safe_dump({"control_system": {"type": "epics", "connector": {"epics": {}}}}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("CONFIG_FILE", str(config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
     (tmp_path / "build" / "facility.json").write_text(
         json.dumps(
             {

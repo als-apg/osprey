@@ -347,7 +347,7 @@ def fixture_dir(tmp_path_factory):
 def child_environment(fixture_dir, monkeypatch):
     """Children see the repo, the fixture connector, and no project config."""
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(fixture_dir), *REPO_PATHS]))
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
 
 @pytest.fixture

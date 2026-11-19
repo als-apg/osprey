@@ -724,7 +724,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     # recorder for a value that was never written. `monkeypatch` restores all of
     # it, and the autouse fixture in conftest clears the singletons again after.
     arm_switch(monkeypatch, tmp_path / "armed-data", TARGET_VA, stamp=False)
-    monkeypatch.setenv("CONFIG_FILE", str(archiver_world.repo / "build" / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(archiver_world.repo / "build" / "config.yml"))
     monkeypatch.setattr(config_module, "_installed", None)
     monkeypatch.setattr(config_module, "_last_lazy", None)
 
