@@ -14,7 +14,10 @@ unserved model's wiring ``default``, else the zero of the channel's
 ``linear`` input counting as its own sum. Noise and drift are pure functions
 of the address and the epoch millisecond, so a live read and an archived
 sample at the same instant agree. Writing a setpoint holds the
-value and echoes it into the readback its ``pair`` names.
+value and echoes it into the readback its ``pair`` names. A labelled readback
+takes a state by index: the index of a labelled setpoint's label, or a number
+written to the setpoint, which must be an integral index of the readback's
+labels; a write the readback refuses holds nothing.
 
 A ``noise`` record states one term: ``{absolute: sigma}`` adds ``sigma``
 times a keyed normal draw, and ``{relative: f}`` adds ``f`` times
@@ -286,7 +289,7 @@ class TextureModel(LUMEModel):
             address: self._nominal(address, unserved_defaults.get(address)) for address in owned
         }
         for setpoint, readback in self._echo.items():
-            self._nominals[readback] = self._coerce(readback, self._nominals[setpoint])
+            self._nominals[readback] = self._echoed(readback, setpoint, self._nominals[setpoint])
         start = {address: self._derived(address, self._nominals) for address in owned}
         self._variables: dict[str, Variable] = {
             address: channel_variable(self._channels[address], start[address]) for address in owned
@@ -308,6 +311,29 @@ class TextureModel(LUMEModel):
                 if "default" in record:
                     defaults.setdefault(str(record["address"]), record["default"])
         return defaults
+
+    def _echoed(
+        self, readback: str, setpoint: str, value: values.StoredValue
+    ) -> values.StoredValue:
+        """The value ``readback`` holds for its setpoint's held ``value``.
+
+        A labelled readback takes a state by index: a labelled setpoint's label
+        gives its index in the setpoint's labels, a number must be an integral
+        index. Any other readback takes the value itself.
+
+        Raises:
+            ValueError: The readback refuses the value or the index.
+        """
+        if channel_value_type(self._channels[readback]) not in values.LABELLED_TYPES:
+            return self._coerce(readback, value)
+        setpoint_channel = self._channels[setpoint]
+        if channel_value_type(setpoint_channel) in values.LABELLED_TYPES:
+            index: object = values.channel_labels(setpoint_channel).index(str(value))
+        elif isinstance(value, float) and math.isfinite(value) and value.is_integer():
+            index = int(value)
+        else:
+            index = value
+        return self._coerce(readback, index)
 
     def _coerce(self, address: str, value: object) -> values.StoredValue:
         channel = self._channels[address]
@@ -668,7 +694,7 @@ class TextureModel(LUMEModel):
             for name, value in values_by_name.items()
         }
         echoes = {
-            self._echo[name]: self._coerce(self._echo[name], value)
+            self._echo[name]: self._echoed(self._echo[name], name, value)
             for name, value in coerced.items()
             if name in self._echo
         }
