@@ -1,21 +1,21 @@
 """
-Connector factory for control system and archiver connectors and the service backends.
+Connector factory for control system connectors and the service backends.
 
 Provides centralized factory for instantiating and configuring connectors
 based on configuration. Connectors are registered through the Osprey registry
-system for unified component management and lazy loading. The four read-only
-service kinds (``directory``, ``alarm_state``, ``alarm_log``, ``put_log``) are
-registered and built through one kind-keyed pair, :meth:`ConnectorFactory.register_service`
-and :meth:`ConnectorFactory.create_service`.
+system for unified component management and lazy loading. The five read-only
+service kinds (``directory``, ``alarm_state``, ``alarm_log``, ``put_log``,
+``archive``) are registered and built through one kind-keyed pair,
+:meth:`ConnectorFactory.register_service` and :meth:`ConnectorFactory.create_service`.
 """
 
 from __future__ import annotations
 
 import importlib
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, TypeVar, get_args
+from typing import TYPE_CHECKING, TypeGuard, TypeVar, get_args
 
-from osprey_connectors import archiver_selection, connector_types
+from osprey_connectors import connector_types
 from osprey_connectors.connector_types import BUILTIN_CONNECTORS
 from osprey_connectors.control_system._base import (
     ConnectorContext,
@@ -33,15 +33,15 @@ if TYPE_CHECKING:
     from osprey_connectors.alarm_log import AlarmLog
     from osprey_connectors.alarm_state import AlarmState
 
-    # Import only for annotations: pulling in the archiver base eagerly would
+    # Import only for annotations: pulling in the archive base eagerly would
     # make pandas a hard dependency of the lean control-system import chain.
-    from osprey_connectors.archiver._base import ArchiverConnector
+    from osprey_connectors.archiver import ChannelArchive
     from osprey_connectors.directory import ChannelDirectory
     from osprey_connectors.put_log import PutLog
     from osprey_connectors.service_answers import BackendSpec
 
     #: What ``create_service`` returns: the base of the kind the spec names.
-    _ServiceBackend = ChannelDirectory | AlarmState | AlarmLog | PutLog
+    _ServiceBackend = ChannelDirectory | AlarmState | AlarmLog | PutLog | ChannelArchive
 
 __all__ = [
     "ConnectorFactory",
@@ -91,50 +91,51 @@ def _control_system_class(module_path: str, class_name: str) -> type[ControlSyst
     raise _NotASubclassError(module_path, class_name, "ControlSystemConnector")
 
 
-def _archiver_class(module_path: str, class_name: str) -> type[ArchiverConnector]:
-    """The archiver connector class *class_name* of *module_path*.
+def _service_base(kind: ServiceKind) -> type[_ServiceBackend]:
+    """The base *kind*'s backends subclass, imported only now.
 
-    The base is imported here, not at module scope: it would make pandas a hard
-    dependency of the lean control-system import chain.
-
-    Raises:
-        ImportError: The module does not import.
-        AttributeError: The module has no such name.
-        _NotASubclassError: The name is not an ``ArchiverConnector`` subclass.
+    Imported here, not at module scope, so the lean control-system import chain
+    loads no service package, and pandas loads only for the archive.
     """
-    from osprey_connectors.archiver._base import ArchiverConnector
+    if kind == "archive":
+        from osprey_connectors.archiver import ChannelArchive
 
-    found = _imported(module_path, class_name)
-    if isinstance(found, type) and issubclass(found, ArchiverConnector):
-        return found
-    raise _NotASubclassError(module_path, class_name, "ArchiverConnector")
+        return ChannelArchive
+    if kind == "directory":
+        from osprey_connectors.directory import ChannelDirectory
 
+        return ChannelDirectory
+    if kind == "alarm_state":
+        from osprey_connectors.alarm_state import AlarmState
 
-def _service_class(module_path: str, class_name: str) -> type[_ServiceBackend]:
-    """A service backend class: a subclass of one of the four service bases.
+        return AlarmState
+    if kind == "alarm_log":
+        from osprey_connectors.alarm_log import AlarmLog
 
-    The four bases together are the type the service registries hold. They are
-    imported here, not at module scope, so the lean control-system import chain
-    does not load the service packages.
-
-    Raises:
-        ImportError: The module does not import.
-        AttributeError: The module has no such name.
-        _NotASubclassError: The name subclasses none of the four bases.
-    """
-    from osprey_connectors.alarm_log import AlarmLog
-    from osprey_connectors.alarm_state import AlarmState
-    from osprey_connectors.directory import ChannelDirectory
+        return AlarmLog
     from osprey_connectors.put_log import PutLog
 
+    return PutLog
+
+
+def _service_class(kind: ServiceKind, module_path: str, class_name: str) -> type[_ServiceBackend]:
+    """A service backend class of *kind*: a subclass of that kind's base.
+
+    Raises:
+        ImportError: The module does not import.
+        AttributeError: The module has no such name.
+        _NotASubclassError: The name is not a subclass of the kind's base.
+    """
+    base = _service_base(kind)
     found = _imported(module_path, class_name)
-    if isinstance(found, type) and issubclass(
-        found, (ChannelDirectory, AlarmState, AlarmLog, PutLog)
-    ):
+    if isinstance(found, type) and _subclasses(found, base):
         return found
-    raise _NotASubclassError(
-        module_path, class_name, "ChannelDirectory, AlarmState, AlarmLog or PutLog"
-    )
+    raise _NotASubclassError(module_path, class_name, base.__name__)
+
+
+def _subclasses(found: type, base: type[_ServiceBackend]) -> TypeGuard[type[_ServiceBackend]]:
+    """Whether *found* subclasses *base*, one of the service kinds' bases."""
+    return issubclass(found, base)
 
 
 def _dotted_class(
@@ -177,16 +178,17 @@ def _mapping_section(value: object, path: str) -> Mapping[str, object]:
 
 class ConnectorFactory:
     """
-    Factory for control system and archiver connectors and the service backends.
+    Factory for control system connectors and the service backends.
 
     Provides centralized management of available connectors. The connectors
     this package ships are registered on first use, by every build, create and
     list call, so no caller has to register them first; a framework or test
-    registers its own through ``register_control_system`` and its kin, and a
-    name registered that way is never replaced by a built-in. A control system
-    or archiver is built from a config dict and connected; a service backend
-    (kind ``directory``, ``alarm_state``, ``alarm_log`` or ``put_log``) is built
-    from a ``BackendSpec`` by :meth:`create_service` and connects nothing.
+    registers its own through ``register_control_system`` and
+    ``register_service``, and a name registered that way is never replaced by a
+    built-in. A control system is built from a config dict and connected; a
+    service backend (kind ``directory``, ``alarm_state``, ``alarm_log``,
+    ``put_log`` or ``archive``) is built from a ``BackendSpec`` by
+    :meth:`create_service` and connects nothing.
 
     Example:
         >>> # Using default config
@@ -198,7 +200,6 @@ class ConnectorFactory:
     """
 
     _control_system_connectors: dict[str, type[ControlSystemConnector]] = {}
-    _archiver_connectors: dict[str, type[ArchiverConnector]] = {}
     #: Service backend classes by kind, then by the type name a spec selects them by.
     _service_backends: dict[ServiceKind, dict[str, type[_ServiceBackend]]] = {
         kind: {} for kind in _SERVICE_KINDS
@@ -219,30 +220,18 @@ class ConnectorFactory:
         logger.debug(f"Registered control system connector: {name}")
 
     @classmethod
-    def register_archiver(cls, name: str, connector_class: type[ArchiverConnector]) -> None:
-        """
-        Register an archiver connector.
-
-        Args:
-            name: Unique name for the connector (e.g., 'epics_archiver', 'mock_archiver')
-            connector_class: Connector class implementing ArchiverConnector
-        """
-        cls._archiver_connectors[name] = connector_class
-        logger.debug(f"Registered archiver connector: {name}")
-
-    @classmethod
     def register_service(
         cls, kind: ServiceKind, name: str, backend_class: type[_ServiceBackend]
     ) -> None:
         """Register a service backend under the type name a ``BackendSpec`` selects it by.
 
         Args:
-            kind: ``directory``, ``alarm_state``, ``alarm_log`` or ``put_log``.
+            kind: ``directory``, ``alarm_state``, ``alarm_log``, ``put_log`` or ``archive``.
             name: The type name.
             backend_class: A subclass of that kind's base.
 
         Raises:
-            ValueError: *kind* is not one of the four.
+            ValueError: *kind* is not one of the five.
         """
         registry = cls._service_backends.get(kind)
         if registry is None:
@@ -263,23 +252,24 @@ class ConnectorFactory:
         missing_control_systems = [
             name for name in _BUILTIN_CONTROL_SYSTEMS if name not in cls._control_system_connectors
         ]
-        missing_archivers = [
-            name for name in _BUILTIN_ARCHIVERS if name not in cls._archiver_connectors
+        missing_archives = [
+            name for name in _BUILTIN_ARCHIVERS if name not in cls._service_backends["archive"]
         ]
         missing_service_rows = [
             row for row in _SERVICE_BUILTINS if row.name not in cls._service_backends[row.kind]
         ]
-        if not missing_control_systems and not missing_archivers and not missing_service_rows:
+        if not missing_control_systems and not missing_archives and not missing_service_rows:
             return
 
-        # The DOOCS and MongoDB connectors import their optional drivers (doocs4py,
-        # pymongo) inside connect(), not at module scope, so they register
+        # The DOOCS and MongoDB archives import their optional drivers (doocs4py,
+        # pymongo) when they are built, not at module scope, so they register
         # unconditionally like any other built-in. A machine without the driver
-        # only finds out when it tries to connect — which is the point at which it
+        # only finds out when it builds one — which is the point at which it
         # would have failed anyway. Registering MongoDB conditionally instead used
-        # to leave it out of _BUILTIN_ARCHIVERS, which broke convergence: a registry
-        # holding the other built-ins satisfied the early return above and never
-        # healed the missing mongodb_archiver entry.
+        # to leave it out of the built-in archives, which broke convergence: a
+        # registry holding the other built-ins satisfied the early return above
+        # and never healed the missing mongodb_archiver entry. An archiver row of
+        # the connector table registers as a service backend of kind ``archive``.
         for builtin in BUILTIN_CONNECTORS:
             if builtin.kind == "control_system":
                 if builtin.name not in cls._control_system_connectors:
@@ -287,9 +277,11 @@ class ConnectorFactory:
                         builtin.name, _control_system_class(builtin.module_path, builtin.class_name)
                     )
             elif builtin.kind == "archiver":
-                if builtin.name not in cls._archiver_connectors:
-                    cls.register_archiver(
-                        builtin.name, _archiver_class(builtin.module_path, builtin.class_name)
+                if builtin.name not in cls._service_backends["archive"]:
+                    cls.register_service(
+                        "archive",
+                        builtin.name,
+                        _service_class("archive", builtin.module_path, builtin.class_name),
                     )
             else:
                 raise ValueError(
@@ -484,103 +476,14 @@ class ConnectorFactory:
         return connector
 
     @classmethod
-    async def create_archiver_connector(
-        cls, config: Mapping[str, object] | None = None
-    ) -> ArchiverConnector:
-        """
-        Create and configure an archiver connector.
-
-        Args:
-            config: Archiver configuration dict, or None to read the
-                ``archiver`` section of the config this process loads (see
-                :func:`osprey_connectors.config.get_config_value`). Its keys:
-
-                - type: Connector type (e.g., 'epics_archiver', 'mock_archiver').
-                  Defaults to 'mock_archiver' with a warning when unset, so a
-                  config that omits the archiver section stays serviceable.
-                - settings: The selected connector's settings, handed to
-                  connect() whole. A short-named connector's own-name block is
-                  read when settings is absent; both at once raise ConfigurationError.
-
-        Returns:
-            Initialized and connected ArchiverConnector
-
-        Raises:
-            ConfigurationError: If connector type is unknown or config is invalid: a
-                dotted type that names no ``ArchiverConnector`` subclass, or a
-                section that is not a mapping.
-            FileNotFoundError: If ``config`` is None and no config is found.
-                The error names where it looked; nothing is built in its place.
-            ConnectionError: If connection fails
-
-        Example:
-            >>> config = {
-            >>>     'type': 'epics_archiver',
-            >>>     'settings': {
-            >>>         'url': 'https://archiver.example.org:8443',
-            >>>         'timeout_s': 60
-            >>>     }
-            >>> }
-            >>> connector = await ConnectorFactory.create_archiver_connector(config)
-        """
-        # Load config if not provided. A config that cannot be loaded is the
-        # caller's answer, not an empty section: the mock would refuse to
-        # connect for want of a simulator view, and say nothing of the config.
-        if config is None:
-            from osprey_connectors.config import get_config_value
-
-            config = _mapping_section(get_config_value("archiver", {}), "archiver")
-
-        # Fail closed: a config with no `archiver:` section is under-specified,
-        # not a declaration that a facility archiver exists. A blank value is
-        # treated as absent for the same reason. The fallback lives in
-        # archiver_selection.resolve_archiver_type because the honesty rule's refusals have
-        # to answer "what will this build?" with exactly this answer.
-        connector_type = archiver_selection.resolve_archiver_type(config)
-        if not config.get("type"):
-            logger.warning(
-                f"archiver.type is not set; defaulting to '{connector_types.MOCK_ARCHIVER}'. "
-                f"Set archiver.type explicitly to select a connector."
-            )
-
-        cls._ensure_builtins()
-        connector_class = cls._archiver_connectors.get(connector_type)
-
-        if not connector_class:
-            if "." in connector_type:
-                connector_class = _dotted_class(
-                    connector_type, _archiver_class, key="archiver.type"
-                )
-                cls._archiver_connectors[connector_type] = connector_class
-            else:
-                available = list(cls._archiver_connectors.keys())
-                raise ConfigurationError(
-                    f"Unknown archiver type: '{connector_type}'. "
-                    f"Available types: {available}. "
-                    f"Use a dotted module path for custom connectors.",
-                    key="archiver.type",
-                )
-
-        # Create connector instance
-        connector = connector_class()
-
-        # The selected archiver's settings block. The rule is in types so that the
-        # build's refusal and this read give the same answer.
-        type_config = archiver_selection.resolve_archiver_settings(config)
-
-        # Connect with configuration
-        await connector.connect(type_config)
-
-        logger.info(f"Created archiver connector: {connector_type}")
-        return connector
-
-    @classmethod
     async def create_service(
         cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> _ServiceBackend:
         """Build the service backend a spec names. Backends connect nothing here: no I/O.
 
-        The kind is ``spec.kind``.
+        The kind is ``spec.kind``. A backend reads its settings here, so a block
+        its type refuses raises here, in the backend's own words; every answer
+        about the service itself is left to its calls.
 
         Args:
             spec: The backend to build, from ``service_targets`` or written by hand.
@@ -588,10 +491,10 @@ class ConnectorFactory:
             **seams: Test seams, passed on only when not ``None``.
 
         Raises:
-            ValueError: The kind is not one of the four.
+            ValueError: The kind is not one of the five.
             ConfigurationError: The type is unknown, or a dotted type does not
-                resolve to a subclass of one of the four service bases (``key``
-                ``None``: a spec may be written by hand).
+                resolve to a subclass of the kind's base (``key`` ``None``: a
+                spec may be written by hand).
         """
         registry = cls._service_backends.get(spec.kind)
         if registry is None:
@@ -605,7 +508,12 @@ class ConnectorFactory:
                     f"Available types: {list(registry)}. "
                     f"Use a dotted module path for custom connectors."
                 )
-            backend_class = _dotted_class(spec.type, _service_class, key=None)
+            kind = spec.kind
+            backend_class = _dotted_class(
+                spec.type,
+                lambda module_path, class_name: _service_class(kind, module_path, class_name),
+                key=None,
+            )
             registry[spec.type] = backend_class
         given = {name: seam for name, seam in seams.items() if seam is not None}
         backend: _ServiceBackend = backend_class(spec, project_dir=project_dir, **given)
@@ -618,13 +526,21 @@ class ConnectorFactory:
         return list(cls._control_system_connectors.keys())
 
     @classmethod
-    def list_archivers(cls) -> list[str]:
-        """List available archiver connector types."""
+    def list_services(cls, kind: ServiceKind) -> list[str]:
+        """List the type names a ``BackendSpec`` of *kind* may select.
+
+        Raises:
+            ValueError: *kind* is not one of the five.
+        """
+        registry = cls._service_backends.get(kind)
+        if registry is None:
+            raise _unknown_service_kind(kind)
         cls._ensure_builtins()
-        return list(cls._archiver_connectors.keys())
+        return list(registry)
 
 
 _BUILTIN_CONTROL_SYSTEMS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "control_system")
+#: The archives the connector table lists, registered as service backends of kind ``archive``.
 _BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
 
 
@@ -632,7 +548,8 @@ class _ServiceBuiltin(FrozenModel):
     """One service backend this package ships.
 
     Apart from :class:`~osprey_connectors.connector_types.BuiltinConnector` because the framework registry reads
-    that table, and these kinds must never reach a framework that predates them.
+    that table, and these kinds must never reach a framework that predates them. The
+    archive's backends are the exception: they are that table's archiver rows.
     """
 
     #: The type name a ``BackendSpec`` selects it by, and the key it registers under.
@@ -646,9 +563,9 @@ class _ServiceBuiltin(FrozenModel):
         """Import the module and return the backend class.
 
         Raises:
-            TypeError: The class subclasses none of the four service bases.
+            _NotASubclassError: The class does not subclass its kind's base.
         """
-        return _service_class(self.module_path, self.class_name)
+        return _service_class(self.kind, self.module_path, self.class_name)
 
 
 #: Every built-in service backend, in registration order. ``simulator_view``

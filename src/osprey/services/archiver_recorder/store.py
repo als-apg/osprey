@@ -30,17 +30,14 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
-from osprey_connectors.archiver import (
+from osprey_connectors.archive_store import (
     CA_FILE_ERRORS,
+    DATE_FIELD,
+    EXPIRE_FIELD,
     field_name,
     mongo_client_kwargs,
 )
-from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
-    EXPIRE_FIELD,
-    waveform_collection,
-    waveform_document,
-)
+from osprey_connectors.simulation.archive import waveform_collection, waveform_document
 
 from .config import RecorderSettings
 

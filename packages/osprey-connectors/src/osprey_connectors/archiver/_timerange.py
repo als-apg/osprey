@@ -16,10 +16,10 @@ import pandas as pd
 from pydantic import InstanceOf
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.errors import require_aware
+from osprey_connectors.errors import ArchiveQueryError, require_aware
 from osprey_connectors.model import FrozenModel
 
-#: A canonical processing mode: the aggregation ArchiverConnector.get_data
+#: A canonical processing mode: the aggregation ChannelArchive.history
 #: applies within each bin, or raw for none.
 ProcessingMode = Literal["raw", "mean", "min", "max", "median", "std", "count"]
 
@@ -27,7 +27,7 @@ ProcessingMode = Literal["raw", "mean", "min", "max", "median", "std", "count"]
 PROCESSING_MODES: tuple[ProcessingMode, ...] = get_args(ProcessingMode)
 
 #: One channel's samples, indexed by timestamp. The element is the archived
-#: channel value the ``value`` column of ``ArchiverConnector.get_data`` carries,
+#: channel value the ``value`` column of ``ChannelArchive.history`` carries,
 #: which that contract leaves open: a float, an enum string or a waveform's
 #: ``list[float]``. pandas' stubs bound a Series element to scalar dtypes, which
 #: a waveform trace is not, so the open value is named rather than guessed. A
@@ -115,19 +115,21 @@ def resolve_processing(processing: str, precision_ms: int, window_start: datetim
         The resolved :class:`Processing`.
 
     Raises:
-        ValueError: If ``processing`` is not a known mode, or if a non-raw mode
-            is requested with a non-positive ``precision_ms``.
+        ArchiveQueryError: If ``processing`` is not a known mode, or if a non-raw
+            mode is requested with a non-positive ``precision_ms``.
         NaiveDatetimeError: If ``window_start`` is naive.
     """
     require_aware(window_start, name="window_start")
     if not _is_processing_mode(processing):
-        raise ValueError(
-            f"Unknown processing mode {processing!r}. Valid modes: {', '.join(PROCESSING_MODES)}"
+        raise ArchiveQueryError(
+            f"Unknown processing mode {processing!r}. Valid modes: {', '.join(PROCESSING_MODES)}",
+            parameter="processing",
         )
     if processing != "raw" and precision_ms <= 0:
-        raise ValueError(
+        raise ArchiveQueryError(
             f"processing={processing!r} requires precision_ms > 0 (got {precision_ms}); "
-            "an aggregate needs a bin width."
+            "an aggregate needs a bin width.",
+            parameter="precision_ms",
         )
     # The appliance's operator syntax takes whole seconds, so a width that is
     # not a multiple of 1000 ms has no faithful operator: return None rather
@@ -244,15 +246,17 @@ def reject_non_numeric(s: SampleSeries, resolved: Processing) -> None:
         resolved: The resolved processing mode. ``"raw"`` is always accepted.
 
     Raises:
-        ValueError: If a non-raw mode was requested for a non-empty channel
-            whose values are non-numeric, naming the channel.
+        ArchiveQueryError: If a non-raw mode was requested for a non-empty
+            channel whose values are non-numeric, naming the channel.
     """
     if resolved.mode == "raw" or s.empty or pd.api.types.is_numeric_dtype(s):
         return
     channel = repr(s.name) if s.name is not None else "<unnamed channel>"
-    raise ValueError(
+    raise ArchiveQueryError(
         f"Cannot apply processing={resolved.mode!r} to channel {channel}: its values are "
-        "non-numeric (enum/status channels only support processing='raw')"
+        "non-numeric (enum/status channels only support processing='raw')",
+        parameter="processing",
+        address=None if s.name is None else str(s.name),
     )
 
 
@@ -274,8 +278,8 @@ def aggregate_series(s: SampleSeries, resolved: Processing) -> SampleSeries:
         mode: one value per non-empty bin, indexed at ns resolution.
 
     Raises:
-        ValueError: If a non-raw mode is applied to a non-empty channel holding
-            non-numeric values — see :func:`reject_non_numeric`.
+        ArchiveQueryError: If a non-raw mode is applied to a non-empty channel
+            holding non-numeric values — see :func:`reject_non_numeric`.
         TypeError: If a non-empty ``s`` is not indexed by timestamps.
     """
     # "raw" must never reach the resampler: `resample(...).agg("last")` relabels
@@ -316,7 +320,7 @@ def aggregate_long_frame(series: dict[str, SampleSeries], resolved: Processing) 
         The canonical long frame — see :func:`long_frame`.
 
     Raises:
-        ValueError: If a non-raw mode is applied to a non-empty channel holding
-            non-numeric values — see :func:`reject_non_numeric`.
+        ArchiveQueryError: If a non-raw mode is applied to a non-empty channel
+            holding non-numeric values — see :func:`reject_non_numeric`.
     """
     return long_frame({channel: aggregate_series(s, resolved) for channel, s in series.items()})

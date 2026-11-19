@@ -63,15 +63,16 @@ at yours in :doc:`/how-to/control-systems/use-connectors`.
 Archiver
 --------
 
-An archiver connector answers questions about the past instead of the present.
-Subclass ``ArchiverConnector`` from ``osprey_connectors.archiver``
-(alongside the control-system connectors in
+An archive answers questions about the past instead of the present. It is a
+service backend of kind ``archive``: subclass ``ChannelArchive`` from
+``osprey_connectors.archiver`` (alongside the built-in archives in
 ``packages/osprey-connectors/src/osprey_connectors/archiver/``) and register it
-the same two ways, with ``ConnectorFactory.register_archiver`` or a
-``ConnectorRegistration`` whose ``connector_type`` is ``archiver``. A deployment
-can also select one without registering it, by setting ``archiver.type`` to its
-dotted module path. Either way it is configured from ``archiver.settings``, which
-the factory hands to ``connect()``. The return
+the same two ways, with ``ConnectorFactory.register_service("archive", ...)`` or
+a ``ConnectorRegistration`` whose ``connector_type`` is ``archiver``. A
+deployment can also select one without registering it, by setting
+``archiver.type`` to its dotted module path. Either way it is configured from
+``archiver.settings``, which reaches its constructor as the spec's
+``settings``. The return
 shape is a contract of its own: one row per sample, historical enum values
 as strings rather than indices. It is written down under "Archiver
 Connectors" in :doc:`/reference/contracts/connectors`. Pinning test:

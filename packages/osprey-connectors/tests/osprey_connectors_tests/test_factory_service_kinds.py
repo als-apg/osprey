@@ -1,4 +1,7 @@
-"""The connector factory builds the four service kinds from a BackendSpec.
+"""The connector factory builds the service kinds from a BackendSpec.
+
+The four directory kinds are pinned here; the fifth, ``archive``, registers the
+connector table's archiver rows and is pinned in ``test_archiver_conformance``.
 
 One kind-keyed pair serves them: ``register_service(kind, name, cls)`` and
 ``create_service(spec)``, which reads ``spec.kind``. The panel and the directory
@@ -117,7 +120,16 @@ def test_the_table_is_exactly_the_written_out_builtins():
 
 
 def test_the_registry_has_one_entry_per_kind():
-    assert set(ConnectorFactory._service_backends) == set(KINDS)
+    assert set(ConnectorFactory._service_backends) == {*KINDS, "archive"}
+
+
+def test_the_archive_kind_holds_the_connector_tables_archiver_rows():
+    with isolated_connector_registries(clear=True):
+        ConnectorFactory._ensure_builtins()
+
+        assert set(ConnectorFactory._service_backends["archive"]) == {
+            row.name for row in BUILTIN_CONNECTORS if row.kind == "archiver"
+        }
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -185,16 +197,27 @@ def test_the_harness_restores_the_service_registries():
     assert ConnectorFactory._service_backends == before
 
 
-@pytest.mark.parametrize("kind", KINDS)
-async def test_a_dotted_class_resolves_for_every_kind(kind):
+async def test_a_dotted_class_resolves_for_its_kind():
     with isolated_connector_registries():
-        spec = _spec(kind, f"{__name__}._OutOfTreeBackend")
+        spec = _spec("directory", f"{__name__}._OutOfTreeBackend")
 
         backend = await ConnectorFactory.create_service(spec)
 
         assert isinstance(backend, _OutOfTreeBackend)
         assert backend.spec is spec
-        assert ConnectorFactory._service_backends[kind][spec.type] is _OutOfTreeBackend
+        assert ConnectorFactory._service_backends["directory"][spec.type] is _OutOfTreeBackend
+
+
+@pytest.mark.parametrize("kind", [kind for kind in KINDS if kind != "directory"])
+async def test_a_dotted_class_of_another_kinds_base_is_refused(kind):
+    """A spec's kind names the one base its dotted class must subclass."""
+    with isolated_connector_registries():
+        spec = _spec(kind, f"{__name__}._OutOfTreeBackend")
+
+        with pytest.raises(ValueError, match="is not a subclass of"):
+            await ConnectorFactory.create_service(spec)
+
+        assert spec.type not in ConnectorFactory._service_backends[kind]
 
 
 @pytest.mark.parametrize("kind", KINDS)

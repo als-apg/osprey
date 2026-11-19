@@ -9,7 +9,6 @@ deployment's baseline when there is none.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import importlib
 import json
 import sys
@@ -27,9 +26,10 @@ import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import _connectors, service
 from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
-from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
-from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from osprey_connectors.alarm_state import AlarmCondition, AlarmEntry, AlarmStates
+from osprey_connectors.archiver import ArchiveExtent
+from osprey_connectors.directory import DirectoryDetail, DirectoryEntry, DirectoryPage
+from osprey_connectors.service_answers import NotListed, Source, Unavailable
 from tests._service_factory import patch_create_service
 
 _NEW_MODULES = (
@@ -90,7 +90,7 @@ class FakeBackend:
 
 
 def _row(name: str, **fields: Any) -> Any:
-    return DirectoryRow(address=name, **fields)
+    return DirectoryEntry(address=name, **fields)
 
 
 class FakeDirectory(FakeBackend):
@@ -120,7 +120,7 @@ class FakeDirectory(FakeBackend):
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="from the backend",
             request=f"GET /fake?q={query.words}&size={query.page_size}",
             source=self.source,
@@ -135,7 +135,7 @@ class FakeDirectory(FakeBackend):
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(address, Outcome.NOT_LISTED)
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakeAlarmState(FakeBackend):
@@ -150,16 +150,16 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return AlarmStateRecord(severity="MAJOR")
+        return AlarmCondition(severity="MAJOR")
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return Unavailable(reason="no message from the feed yet")
+        return Unavailable(cause="unreachable", reason="no message from the feed yet")
 
     async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if isinstance(self.held, Unavailable):
             return self.held
         rows = tuple(
-            AlarmStateRow(address=channel, path=f"/Demo/{channel}", state=state)
+            AlarmEntry(address=channel, path=f"/Demo/{channel}", condition=state)
             for channel, state in self.held.items()
         )
         return AlarmStates(rows=rows, stale=False, last_contact_at=None)
@@ -372,19 +372,18 @@ def test_the_filter_cap_answers_display_filter_cap(
     assert _service(_config(tmp_path, LIVE_BUILD, section), tmp_path).filter_cap == cap
 
 
-async def test_a_zero_count_drops_the_backend_count_partial(
+async def test_the_search_own_count_answers_over_a_page_whose_count_missed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def search(self: Any, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG001 - a fake
         return DirectoryPage(
-            outcome=Outcome.NO_MATCH,
+            outcome="no_match",
             searched="from the backend",
             request="GET /fake",
             source=self.source,
-            total=None,
+            total=Unavailable(cause="timeout", reason="the count timed out"),
             rows=[],
             truncated=False,
-            partial=[{"part": "count", "reason": "the count timed out"}],
         )
 
     monkeypatch.setattr(FakeDirectory, "search", search)
@@ -392,6 +391,7 @@ async def test_a_zero_count_drops_the_backend_count_partial(
 
     page = await directory.search(words="nothing")
 
+    assert (page["outcome"], page["request"]) == ("no_match", "GET /fake")
     assert page["total"] == 0
     assert page["partial"] == []
     await directory.aclose()
@@ -508,7 +508,7 @@ _FEED = {
     "type": "phoebus_alarm_server",
     "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
 }
-_MAJOR = AlarmStateRecord(
+_MAJOR = AlarmCondition(
     severity="MAJOR",
     status="HIHI_ALARM",
     latched=True,
@@ -519,7 +519,7 @@ _MAJOR = AlarmStateRecord(
 def _alarmed_directory(tmp_path: Path, **display: Any) -> Any:
     """Three rows: PV1 in MAJOR, PV2 held OK, PV3 with no state in the feed."""
     FakeDirectory.rows = [_row(f"SR:PV{i}", server="ioc-a") for i in (1, 2, 3)]
-    FakeAlarmState.held = {"SR:PV1": _MAJOR, "SR:PV2": AlarmStateRecord(severity="OK")}
+    FakeAlarmState.held = {"SR:PV1": _MAJOR, "SR:PV2": AlarmCondition(severity="OK")}
     section = {**FACILITY, "alarm_state": _FEED, "display": display}
     return _service(_config(tmp_path, LIVE_BUILD, section, "SR:PV1"), tmp_path)
 
@@ -550,7 +550,7 @@ async def test_search_marks_each_row_with_the_feed_state(tmp_path: Path) -> None
 
 async def test_a_feed_without_an_answer_marks_no_row_and_says_why(tmp_path: Path) -> None:
     directory = _alarmed_directory(tmp_path)
-    FakeAlarmState.held = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.held = Unavailable(cause="not_ready", reason="alarm feed still loading")
 
     page = await directory.search(words="SR")
 
@@ -613,43 +613,40 @@ async def test_an_alarm_filter_above_the_filter_cap_is_unavailable(tmp_path: Pat
 _APPLIANCE = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
 
 
-@dataclasses.dataclass(frozen=True)
-class _Held:
-    """A ``store_extent`` answer: the channels the store records, or unknown and why."""
-
-    addresses: frozenset[str] | None = None
-    oldest: Any = None
-    newest: Any = None
-    reason: str | None = None
+_HELD = ArchiveExtent(addresses=frozenset({"SR:PV1", "SR:PV3"}))
 
 
-class FakeArchiver:
-    """An archiver connector whose store records ``held``."""
+class FakeArchiver(FakeBackend):
+    """An archive whose store records ``held``: an ``ArchiveExtent`` or ``Unavailable``."""
 
-    held: Any = _Held(addresses=frozenset())
+    held: Any = ArchiveExtent(addresses=frozenset())
 
-    def __init__(self) -> None:
-        self.disconnected = False
+    def __init__(self, spec: Any, *, project_dir: Path | None = None, **seams: Any) -> None:
+        super().__init__(spec, project_dir=project_dir, **seams)
+        self.closed = False
 
-    async def store_extent(self) -> Any:
+    async def extent(self, *, timeout_s: float | None = None) -> Any:  # noqa: ARG002 - a fake
         return self.held
 
-    async def disconnect(self) -> None:
-        self.disconnected = True
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 @pytest.fixture
 def archivers(monkeypatch: pytest.MonkeyPatch) -> list[FakeArchiver]:
-    """Every archiver connector the service builds, in order."""
+    """Every archive the service builds, in order."""
     made: list[FakeArchiver] = []
 
-    async def create(config: Any) -> FakeArchiver:
-        assert config == _APPLIANCE
-        made.append(FakeArchiver())
+    async def create(spec: Any, **kwargs: Any) -> FakeArchiver:
+        assert (spec.type, dict(spec.settings)) == (
+            _APPLIANCE["type"],
+            _APPLIANCE["settings"],
+        )
+        made.append(FakeArchiver(spec, **kwargs))
         return made[-1]
 
-    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", create)
-    monkeypatch.setattr(FakeArchiver, "held", _Held(addresses=frozenset({"SR:PV1", "SR:PV3"})))
+    patch_create_service(monkeypatch, "archive", create)
+    monkeypatch.setattr(FakeArchiver, "held", _HELD)
     return made
 
 
@@ -685,7 +682,9 @@ async def test_search_marks_each_row_archived_from_the_stores_channels(
 async def test_an_archive_that_cannot_list_its_channels_marks_every_row_unknown(
     tmp_path: Path,
 ) -> None:
-    FakeArchiver.held = _Held(reason="this archiver does not report what it holds")
+    FakeArchiver.held = Unavailable(
+        cause="unsupported", reason="this archiver does not report what it holds"
+    )
     directory = _archived_directory(tmp_path)
 
     page = await directory.search(words="SR")
@@ -702,18 +701,19 @@ async def test_an_archive_that_cannot_list_its_channels_marks_every_row_unknown(
 
 
 @pytest.mark.usefixtures("archivers")
-async def test_a_connectors_release_without_store_extent_reads_as_unknown(
+async def test_an_archive_without_an_extent_of_its_own_reads_as_unknown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delattr(FakeArchiver, "store_extent")
+    """The contract's default extent, served in its own words."""
+    from osprey_connectors.archiver import ChannelArchive
+
+    monkeypatch.setattr(FakeArchiver, "extent", ChannelArchive.extent)
     directory = _archived_directory(tmp_path)
 
     page = await directory.search(words="SR")
 
     assert [row["archived"] for row in page["rows"]] == [None, None, None]
-    assert page["archived_reason"] == (
-        "installed osprey-connectors cannot list the archive's channels (upgrade it)"
-    )
+    assert page["archived_reason"] == "this archiver does not report what it holds"
     await directory.aclose()
 
 
@@ -771,16 +771,17 @@ async def test_each_joined_group_counts_under_the_other_groups_filters(tmp_path:
     await directory.aclose()
 
 
-async def test_a_store_that_cannot_be_reached_is_tried_once_until_asked_fresh(
+async def test_an_archive_that_cannot_be_built_is_tried_once_until_asked_fresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Its settings are read when it is built: a refusal there is cached like a fetched set."""
     attempts: list[Any] = []
 
-    async def unreachable(config: Any) -> Any:
-        attempts.append(config)
+    async def unbuildable(spec: Any, **_kwargs: Any) -> Any:
+        attempts.append(spec)
         raise ConnectionError("connection refused")
 
-    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", unreachable)
+    patch_create_service(monkeypatch, "archive", unbuildable)
     directory = _archived_directory(tmp_path)
 
     first = await directory.search(words="SR")
@@ -797,10 +798,10 @@ async def test_a_store_that_cannot_be_reached_is_tried_once_until_asked_fresh(
 async def test_a_failed_archive_build_never_serves_the_exception_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def leaking(config: Any) -> Any:  # noqa: ARG001 - the factory's signature
+    async def leaking(spec: Any, **_kwargs: Any) -> Any:  # noqa: ARG001 - the factory's signature
         raise ConnectionError("cannot reach mongodb://reader:secret@archive.example:27017")
 
-    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", leaking)
+    patch_create_service(monkeypatch, "archive", leaking)
     directory = _archived_directory(tmp_path)
 
     answer = await directory.search(words="SR")
@@ -811,22 +812,22 @@ async def test_a_failed_archive_build_never_serves_the_exception_text(
     await directory.aclose()
 
 
-async def test_a_store_that_hangs_on_connect_is_waited_for_once(
+@pytest.mark.usefixtures("archivers")
+async def test_a_store_that_cannot_be_reached_answers_its_reason_until_asked_fresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    attempts: list[Any] = []
-
-    async def hanging(config: Any) -> Any:
-        attempts.append(config)
-        await asyncio.sleep(60)
-
-    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", hanging)
+    """The archive opens its store on the first call, and answers why it could not."""
+    down = Unavailable(cause="unreachable", reason="Cannot connect to MongoDB at db:27017.")
+    monkeypatch.setattr(FakeArchiver, "held", down)
     directory = _archived_directory(tmp_path)
 
-    pages = [await directory.search(words="SR") for _ in range(3)]
+    first = await directory.search(words="SR")
+    second = await directory.search(words="SR")
+    archive, _source, reason = await directory.archive()
 
-    assert len(attempts) == 1
-    assert pages[-1]["archived_reason"] == "the archive did not answer within 0.3 s"
+    assert first["archived_reason"] == second["archived_reason"] == down.reason
+    assert archive is not None and reason is None  # built: the store answers, not the build
+    assert await directory.archive_extent(fresh=True) == down
     await directory.aclose()
 
 
@@ -836,11 +837,11 @@ async def test_a_store_whose_extent_read_hangs_is_read_once_until_asked_fresh(
 ) -> None:
     reads: list[None] = []
 
-    async def hanging(_self: FakeArchiver) -> Any:
+    async def hanging(_self: FakeArchiver, *, timeout_s: float | None = None) -> Any:  # noqa: ARG001 - the contract's signature
         reads.append(None)
         await asyncio.sleep(60)
 
-    monkeypatch.setattr(FakeArchiver, "store_extent", hanging)
+    monkeypatch.setattr(FakeArchiver, "extent", hanging)
     directory = _archived_directory(tmp_path)
 
     pages = [await directory.search(words="SR") for _ in range(3)]
@@ -852,7 +853,7 @@ async def test_a_store_whose_extent_read_hangs_is_read_once_until_asked_fresh(
     await directory.aclose()
 
 
-async def test_the_archive_connector_is_disconnected_when_the_target_moves(
+async def test_the_archive_is_closed_when_the_target_moves(
     tmp_path: Path, archivers: list[FakeArchiver], record: _Record
 ) -> None:
     record.move("live", 1)
@@ -872,10 +873,10 @@ async def test_the_archive_connector_is_disconnected_when_the_target_moves(
     record.move("live", 2)
     await directory.search(words="SR")
 
-    assert first.disconnected is True
+    assert first.closed is True
     assert len(archivers) == 2
     await directory.aclose()
-    assert archivers[1].disconnected is True
+    assert archivers[1].closed is True
 
 
 # -- describe -----------------------------------------------------------------
@@ -883,8 +884,8 @@ async def test_the_archive_connector_is_disconnected_when_the_target_moves(
 
 async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path: Path) -> None:
     FakeDirectory.records = {
-        "SR:BPM1": DirectoryRecord(
-            row=_row("SR:BPM1", status="Inactive", host="h1"),
+        "SR:BPM1": DirectoryDetail(
+            entry=_row("SR:BPM1", status="Inactive", host="h1"),
             properties={"Engineer": "A. Person", "secret": "x"},
         )
     }
@@ -908,7 +909,7 @@ async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path:
 def _described_rows(name: str) -> None:
     FakeDirectory.rows = [_row(name, description="Cavity temperature", server="ioc-a")]
     FakeDirectory.records = {
-        name: DirectoryRecord(row=_row(name, description="Cavity temperature"))
+        name: DirectoryDetail(entry=_row(name, description="Cavity temperature"))
     }
 
 
@@ -1161,10 +1162,25 @@ async def test_a_search_with_no_source_on_live_is_the_shared_fixture_page(
     await directory.aclose()
 
 
+#: The served search's keys, in the order the pages and the tools have always read them.
+_SEARCH_KEYS = [
+    "outcome",
+    "searched",
+    "request",
+    "source",
+    "total",
+    "rows",
+    "truncated",
+    "partial",
+    "facets",
+    "facets_reason",
+    "reason",
+]
+
+
 async def test_every_search_outcome_carries_the_page_fields(
     tmp_path: Path, record: _Record
 ) -> None:
-    page_keys = set(DirectoryPage.model_fields)
     FakeDirectory.rows = [_row("SR:BPM1")]
     record.move("live", 1)
     found = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")
@@ -1180,8 +1196,29 @@ async def test_every_search_outcome_carries_the_page_fields(
         "unavailable",
         _connectors.NO_SOURCE_REASON,
     )
-    for answer in (found, late, no_source):
-        assert set(answer) == page_keys, answer["outcome"]
+    for answer in (found, late):
+        assert list(answer) == _SEARCH_KEYS, answer["outcome"]
+    assert set(no_source) == set(_SEARCH_KEYS)
+
+
+async def test_a_search_whose_backend_gave_no_answer_names_no_request(
+    tmp_path: Path, record: _Record, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def refused(self: Any, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG001
+        return Unavailable(cause="refused", reason="answered with a login page")
+
+    monkeypatch.setattr(FakeDirectory, "search", refused)
+    record.move("live", 1)
+
+    answer = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")
+
+    # As a search that timed out answers: the backend's request is not served.
+    assert list(answer) == _SEARCH_KEYS
+    assert (answer["outcome"], answer["request"], answer["reason"]) == (
+        "unavailable",
+        "",
+        "answered with a login page",
+    )
 
 
 @pytest.mark.parametrize(

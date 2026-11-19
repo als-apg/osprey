@@ -1,16 +1,17 @@
 """``archiver_read`` serves a session only its own target's archive.
 
 One ``archiver:`` block serves the deployment, and it holds the past of some
-targets and not others (:mod:`osprey_connectors.deployment.archive_targets`): the
-facility's appliance for the live machine and the stand-in that rehearses it,
-the deployment's own store for the virtual accelerator. The agent's reader of
-that block asks :func:`~osprey_connectors.deployment.archive_targets.archive_withheld`
-before it opens the connector, so a session on ``live`` or ``standin`` is never
-shown the simulator's store and a session on ``va`` is never shown the
-appliance.
+targets and not others (the ``archive`` row of
+:func:`~osprey_connectors.service_targets.service_targets`): the facility's
+appliance for the live machine and the stand-in that rehearses it, the
+deployment's own store for the virtual accelerator. The agent's reader of that
+block takes the session's target's spec from that row before it opens the
+archive, and a target the row holds ``None`` for is told it has no archive, so
+a session on ``live`` or ``standin`` is never shown the simulator's store and a
+session on ``va`` is never shown the appliance.
 
-The connector factory is patched out: what is under test is the gate in front
-of it, and the served cases must not reach a real store.
+The factory's ``create_service`` is patched out: what is under test is the gate
+in front of it, and the served cases must not reach a real store.
 """
 
 from __future__ import annotations
@@ -59,14 +60,16 @@ def _project(tmp_path, monkeypatch, *, archiver: dict, baseline: str, simulator:
 def archiver_read():
     from osprey.mcp_server.control_system.tools.archiver_read import archiver_read
 
-    connector = AsyncMock()
-    connector.get_data.return_value = _make_archiver_df({"SR:DCCT": [500.0, 500.2]})
+    archive = AsyncMock()
+    archive.history.return_value = _make_archiver_df({"SR:DCCT": [500.0, 500.2]})
     with patch(
-        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_service",
         new_callable=AsyncMock,
-        return_value=connector,
-    ):
-        yield get_tool_fn(archiver_read), connector
+        return_value=archive,
+    ) as create:
+        # The spec each served read was built from, for the tests that ask.
+        archive.built_from = create
+        yield get_tool_fn(archiver_read), archive
 
 
 async def test_a_stand_in_session_is_not_shown_the_simulators_store(
@@ -75,7 +78,7 @@ async def test_a_stand_in_session_is_not_shown_the_simulators_store(
     """The owner's shape: baselined on the stand-in, simulator built, mongodb store."""
     _project(tmp_path, monkeypatch, archiver=STORE_BLOCK, baseline="live_standin", simulator=True)
     write_control_context(control_context_root, target="standin")
-    fn, connector = archiver_read
+    fn, archive = archiver_read
 
     with assert_raises_error(error_type="no_archive") as ctx:
         await fn(**_READ)
@@ -86,7 +89,7 @@ async def test_a_stand_in_session_is_not_shown_the_simulators_store(
     # machine, the cautious words; the store it is refused is the simulator's.
     assert "No archive for the live machine here" in envelope["error_message"]
     assert "holds the past of the simulator" in envelope["error_message"]
-    connector.get_data.assert_not_called()
+    archive.history.assert_not_called()
 
 
 async def test_a_live_session_is_not_shown_the_simulators_store(
@@ -94,11 +97,11 @@ async def test_a_live_session_is_not_shown_the_simulators_store(
 ):
     _project(tmp_path, monkeypatch, archiver=STORE_BLOCK, baseline="live_standin", simulator=True)
     write_control_context(control_context_root, target="live")
-    fn, connector = archiver_read
+    fn, archive = archiver_read
 
     with assert_raises_error(error_type="no_archive"):
         await fn(**_READ)
-    connector.get_data.assert_not_called()
+    archive.history.assert_not_called()
 
 
 async def test_a_simulator_session_is_shown_its_store_whatever_the_baseline(
@@ -107,12 +110,15 @@ async def test_a_simulator_session_is_shown_its_store_whatever_the_baseline(
     """Switched to ``va`` from a stand-in baseline: the store is the simulator's."""
     _project(tmp_path, monkeypatch, archiver=STORE_BLOCK, baseline="live_standin", simulator=True)
     write_control_context(control_context_root, target="va")
-    fn, connector = archiver_read
+    fn, archive = archiver_read
 
     response = extract_response_dict(await fn(**_READ))
 
     assert response["status"] == "success"
-    connector.get_data.assert_awaited_once()
+    archive.history.assert_awaited_once()
+    (spec,) = archive.built_from.await_args.args
+    assert (spec.kind, spec.type, spec.target) == ("archive", "mongodb_archiver", "va")
+    assert dict(spec.settings) == STORE_BLOCK["settings"]
 
 
 async def test_a_simulator_session_is_not_shown_the_appliance(
@@ -120,13 +126,13 @@ async def test_a_simulator_session_is_not_shown_the_appliance(
 ):
     _project(tmp_path, monkeypatch, archiver=APPLIANCE_BLOCK, baseline="epics", simulator=True)
     write_control_context(control_context_root, target="va")
-    fn, connector = archiver_read
+    fn, archive = archiver_read
 
     with assert_raises_error(error_type="no_archive") as ctx:
         await fn(**_READ)
 
     assert ctx["envelope"]["details"] == {"target": "va", "archive_targets": ["live", "standin"]}
-    connector.get_data.assert_not_called()
+    archive.history.assert_not_called()
 
 
 @pytest.mark.parametrize("target", ["live", "standin"])
@@ -135,12 +141,18 @@ async def test_the_real_machine_and_its_rehearsal_are_shown_the_appliance(
 ):
     _project(tmp_path, monkeypatch, archiver=APPLIANCE_BLOCK, baseline="epics", simulator=True)
     write_control_context(control_context_root, target=target)
-    fn, connector = archiver_read
+    fn, archive = archiver_read
 
     response = extract_response_dict(await fn(**_READ))
 
     assert response["status"] == "success"
-    connector.get_data.assert_awaited_once()
+    archive.history.assert_awaited_once()
+    (spec,) = archive.built_from.await_args.args
+    assert (spec.type, spec.target, spec.rehearsal) == (
+        "epics_archiver",
+        target,
+        target == "standin",
+    )
 
 
 async def test_a_store_on_a_deployment_that_built_no_simulator_is_nobodys(
@@ -150,13 +162,13 @@ async def test_a_store_on_a_deployment_that_built_no_simulator_is_nobodys(
     deployment seeded describes it, so even a ``va`` session is told no archive."""
     _project(tmp_path, monkeypatch, archiver=STORE_BLOCK, baseline="epics", simulator=False)
     write_control_context(control_context_root, target="va")
-    fn, connector = archiver_read
+    fn, archive = archiver_read
 
     with assert_raises_error(error_type="no_archive") as ctx:
         await fn(**_READ)
 
     assert ctx["envelope"]["details"]["archive_targets"] == []
-    connector.get_data.assert_not_called()
+    archive.history.assert_not_called()
 
 
 async def test_the_mock_archiver_is_left_to_the_pairing(
@@ -173,9 +185,9 @@ async def test_the_mock_archiver_is_left_to_the_pairing(
         simulator=False,
     )
     write_control_context(control_context_root, target="live")
-    fn, connector = archiver_read
+    fn, archive = archiver_read
 
     response = extract_response_dict(await fn(**_READ))
 
     assert response["status"] == "success"
-    connector.get_data.assert_awaited_once()
+    archive.history.assert_awaited_once()

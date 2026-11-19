@@ -1,7 +1,8 @@
 """What a channel directory answers, and in what shape.
 
-The shared answers (``Outcome``, ``Unavailable``, ``Source``, ``BackendSpec``)
-and the rules every backend follows are in :mod:`osprey_connectors.service_answers`.
+The shared answers (``Page``, ``Unavailable``, ``NotListed``, ``Source``,
+``BackendSpec``) and the rules every backend follows are in
+:mod:`osprey_connectors.service_answers`.
 """
 
 from __future__ import annotations
@@ -16,19 +17,18 @@ from typing_extensions import override
 
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.service_answers import (
-    Outcome,
-    Source,
+    NotListed,
+    Page,
     Unavailable,
     _Backend,
     _require_one_time,
-    _require_reason,
 )
 
 #: Whether the directory lists a channel as announced now or no longer.
 DirectoryStatus = Literal["Active", "Inactive"]
 
 
-class DirectoryRow(FrozenModel):
+class DirectoryEntry(FrozenModel):
     """One channel, as the directory lists it.
 
     ``server`` is the process serving the channel and ``channel_type`` its type
@@ -57,10 +57,10 @@ class DirectoryRow(FrozenModel):
         return self
 
 
-class DirectoryRecord(FrozenModel):
+class DirectoryDetail(FrozenModel):
     """One channel in full. Every property is optional and a string, as measured."""
 
-    row: DirectoryRow
+    entry: DirectoryEntry
     properties: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     tags: FrozenTuple[str] = ()
 
@@ -104,31 +104,17 @@ class DirectoryQuery(FrozenModel):
         )
 
 
-class DirectoryPage(FrozenModel):
+class DirectoryPage(Page[DirectoryEntry]):
     """One page of a search.
 
     ``searched`` is the search in plain words and ``request`` the literal request
-    sent. ``partial`` lists ``{part, reason}`` for what missed the deadline;
-    ``facets`` maps a row field to ``{value, count}`` lists, and is ``None`` with
-    ``facets_reason`` when it could not be computed.
+    sent. ``total`` is how many rows the search matches over the whole directory,
+    or why that is not known.
     """
 
-    outcome: Outcome
     searched: str
     request: str
-    source: Source
-    total: int | None = None
-    rows: FrozenTuple[DirectoryRow] = ()
-    truncated: bool = False
-    partial: FrozenTuple[ReadOnlyMapping[str, str]] = ()
-    facets: ReadOnlyMapping[str, FrozenTuple[ReadOnlyMapping[str, object]]] | None = None
-    facets_reason: str | None = None
-    reason: str | None = None
-
-    @model_validator(mode="after")
-    def _unavailable_says_why(self) -> Self:
-        _require_reason(self.outcome, self.reason)
-        return self
+    total: int | Unavailable
 
 
 class ChannelDirectory(_Backend, ABC):
@@ -143,8 +129,10 @@ class ChannelDirectory(_Backend, ABC):
         return MappingProxyType({})
 
     @abstractmethod
-    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
-        """One page of the rows *query* matches; no rows is ``NO_MATCH``, not ``NOT_LISTED``."""
+    async def search(
+        self, query: DirectoryQuery, *, timeout_s: float
+    ) -> DirectoryPage | Unavailable:
+        """One page of the rows *query* matches; no rows is ``no_match``, never :class:`NotListed`."""
 
     @abstractmethod
     async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int | Unavailable:
@@ -153,8 +141,8 @@ class ChannelDirectory(_Backend, ABC):
     @abstractmethod
     async def describe(
         self, address: str, *, timeout_s: float
-    ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        """The record of the channel at exactly *address*, or ``NOT_LISTED``."""
+    ) -> DirectoryDetail | NotListed | Unavailable:
+        """The record of the channel at exactly *address*, or :class:`NotListed`."""
 
     @abstractmethod
     async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:

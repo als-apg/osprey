@@ -1858,14 +1858,16 @@ keys:
       absent or empty means unacknowledged; presence alone is the acknowledgement, never a value comparison
 
   # ── Archiver ────────────────────────────────────────────────────────
-  archiver: {evidence: 'get_config_value\("archiver", \{\}\)', default: {}}
-  # Evidenced by the factory's own diagnostic for an unset type, not by the name
+  # Evidenced by the archive row's reader of the section, which builds every
+  # target's archive spec from it.
+  archiver: {evidence: '_ARCHIVER_SECTION_KEY = "archiver"', default: {}}
+  # Evidenced by the pairing rule's own spelling of the key, not by the name
   # of whichever connector happens to be the default. The literal 'mock_archiver'
   # used to serve here and stopped describing the key the moment the
   # demo default became mongodb_archiver — a matcher that tracks a
   # default is a matcher that goes quiet on the change it should have caught.
   archiver.type:
-    evidence: 'archiver\.type is not set'
+    evidence: '_ARCHIVER_TYPE = "archiver\.type"'
     default: required
     default_note: >-
       The shipped archivers are `mock_archiver`, `epics_archiver`,

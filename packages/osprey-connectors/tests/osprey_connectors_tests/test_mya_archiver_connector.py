@@ -18,10 +18,13 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from osprey_connectors.archiver import ArchiveCoverage
 from osprey_connectors.archiver._mya_archiver_connector import (
     MYAArchiverConnector,
     _like_literal,
 )
+from osprey_connectors.errors import ArchiveQueryError
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 # --------------------------------------------------------------------------------------
 # Helpers
@@ -42,20 +45,37 @@ def _millis(moment: datetime) -> int:
     return int(pd.Timestamp(moment).value // 10**6)
 
 
-def _connected(client, timezone="UTC"):
-    """A connected connector wired to a mock jlab_archiver_client.
+def _spec(settings: dict | None = None) -> BackendSpec:
+    return BackendSpec(
+        kind="archive", type="mya_archiver", target="live", settings=settings or {}, rehearsal=False
+    )
 
-    ``connect()`` is bypassed so the tests do not have to mock the client's
-    config object; the attributes it would have set are set directly. The
-    timezone is pinned to UTC so expected timestamps are readable.
+
+def _built(settings: dict | None = None, settings_module=None) -> MYAArchiverConnector:
+    """An archive built from *settings* against a fake client library."""
+    module = _fake_module(settings_module or _FakeLibraryConfig())
+    with patch.dict(sys.modules, {"jlab_archiver_client": module}):
+        return MYAArchiverConnector(_spec(settings))
+
+
+def _no_answer(answer: object, cause: str) -> str:
+    """*answer*'s reason, after asserting it is ``Unavailable`` with *cause*."""
+    assert isinstance(answer, Unavailable), answer
+    assert answer.cause == cause, answer
+    return answer.reason
+
+
+def _connected(client, timezone="UTC"):
+    """An archive wired to a mock jlab_archiver_client.
+
+    It is built against a fake library config, then pointed at *client* and the
+    fixed endpoint URLs, so the tests do not have to mock the client's config
+    object per call. The timezone is pinned to UTC so expected timestamps are
+    readable.
     """
-    connector = MYAArchiverConnector()
-    connector._connected = True
+    connector = _built({"timeout_s": 60, "timezone": timezone})
     connector._client = client
     connector._urls = dict(_URLS)
-    connector._timeout = 60
-    connector._deployment = "ops"
-    connector._timezone = __import__("zoneinfo").ZoneInfo(timezone)
     return connector
 
 
@@ -92,39 +112,34 @@ def _fake_client():
 def test_signature_matches_the_archiver_contract():
     """Every argument archiver_read passes must be accepted.
 
-    A connector whose get_data lacks `processing` raises TypeError on every
+    A connector whose history lacks `processing` raises TypeError on every
     call, which is how this connector's first version failed in the field.
     """
     import inspect
 
-    from osprey_connectors.archiver._base import ArchiverConnector
+    from osprey_connectors.archiver import ChannelArchive
 
-    base = inspect.signature(ArchiverConnector.get_data)
-    impl = inspect.signature(MYAArchiverConnector.get_data)
+    base = inspect.signature(ChannelArchive.history)
+    impl = inspect.signature(MYAArchiverConnector.history)
     assert list(impl.parameters) == list(base.parameters)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["get_data", "get_metadata", "check_availability"])
-async def test_every_read_refuses_when_not_connected(method):
-    """After disconnect() every entry point reports the same thing.
+async def test_a_closed_archive_still_answers():
+    """myquery is stateless HTTP: closing holds nothing, so a later read still asks."""
+    client = _fake_client()
+    client.channel.Channel.return_value.matches = [{"name": "TEST:PV"}]
+    connector = _connected(client)
 
-    Without the guard, get_metadata and check_availability reach a None client
-    and raise AttributeError from a worker thread.
-    """
-    connector = MYAArchiverConnector()
-    args, kwargs = {
-        "get_data": ((["TEST:PV"],), {"start_at": _START, "end_at": _END}),
-        "get_metadata": (("TEST:PV",), {}),
-        "check_availability": ((["TEST:PV"],), {}),
-    }[method]
+    await connector.aclose()
+    await connector.aclose()
 
-    with pytest.raises(RuntimeError, match="not connected"):
-        await getattr(connector, method)(*args, **kwargs)
+    coverage = await connector.coverage(["TEST:PV"])
+    assert coverage["TEST:PV"].is_archived is True
 
 
 # --------------------------------------------------------------------------------------
-# connect() -- settings scoping and defaults
+# Building -- settings scoping and defaults
 # --------------------------------------------------------------------------------------
 
 
@@ -154,7 +169,7 @@ def _fake_module(settings):
 
 
 @pytest.mark.asyncio
-async def test_connect_scopes_its_server_per_call_not_process_wide():
+async def test_building_scopes_its_server_per_call_not_process_wide():
     """The library's global config must not be mutated.
 
     `config.set()` writes a process-global singleton: a second connector with
@@ -162,10 +177,7 @@ async def test_connect_scopes_its_server_per_call_not_process_wide():
     would clobber each other. The overrides become per-call URLs instead.
     """
     settings = _FakeLibraryConfig()
-    connector = MYAArchiverConnector()
-
-    with patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(settings)}):
-        await connector.connect({"myquery_server": "myquery.example.edu", "protocol": "http"})
+    connector = _built({"myquery_server": "myquery.example.edu", "protocol": "http"}, settings)
 
     assert settings.set_calls == []
     assert settings.myquery_server == "epicsweb.jlab.org"
@@ -175,13 +187,9 @@ async def test_connect_scopes_its_server_per_call_not_process_wide():
 
 
 @pytest.mark.asyncio
-async def test_connect_keeps_the_library_defaults_when_nothing_is_named():
+async def test_building_keeps_the_library_defaults_when_nothing_is_named():
     """Every setting is optional; the client's own server is the fallback."""
-    settings = _FakeLibraryConfig()
-    connector = MYAArchiverConnector()
-
-    with patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(settings)}):
-        await connector.connect({})
+    connector = _built({})
 
     assert connector._urls["mystats"] == "https://epicsweb.jlab.org/myquery/mystats"
     assert connector._deployment == "ops"
@@ -190,11 +198,7 @@ async def test_connect_keeps_the_library_defaults_when_nothing_is_named():
 @pytest.mark.asyncio
 async def test_an_explicitly_empty_timeout_still_bounds_the_wait():
     """`timeout_s:` left blank in YAML is None, which wait_for treats as forever."""
-    settings = _FakeLibraryConfig()
-    connector = MYAArchiverConnector()
-
-    with patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(settings)}):
-        await connector.connect({"timeout_s": None, "deployment": None})
+    connector = _built({"timeout_s": None, "deployment": None})
 
     assert connector._timeout == 60
     assert connector._deployment == "ops"
@@ -202,10 +206,7 @@ async def test_an_explicitly_empty_timeout_still_bounds_the_wait():
 
 @pytest.mark.asyncio
 async def test_timeout_s_sets_the_wait():
-    connector = MYAArchiverConnector()
-
-    with patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}):
-        await connector.connect({"timeout_s": 15})
+    connector = _built({"timeout_s": 15})
 
     assert connector._timeout == 15
 
@@ -217,47 +218,38 @@ async def test_timeout_s_sets_the_wait():
     ids=["token", "password"],
 )
 async def test_a_login_is_refused_by_name(auth):
-    connector = MYAArchiverConnector()
-
-    with (
-        patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}),
-        pytest.raises(ValueError, match=r"`archiver\.settings\.auth`.*jlab-archiver-client"),
-    ):
-        await connector.connect({"auth": auth})
-    assert connector._connected is False
+    with pytest.raises(ValueError, match=r"`archiver\.settings\.auth`.*jlab-archiver-client"):
+        _built({"auth": auth})
 
 
 @pytest.mark.asyncio
 async def test_a_ca_bundle_is_refused_by_name():
-    connector = MYAArchiverConnector()
-
-    with (
-        patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}),
-        pytest.raises(ValueError, match=r"`archiver\.settings\.tls`.*jlab-archiver-client"),
-    ):
-        await connector.connect({"tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}})
+    with pytest.raises(ValueError, match=r"`archiver\.settings\.tls`.*jlab-archiver-client"):
+        _built({"tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}})
 
 
 @pytest.mark.asyncio
 async def test_the_refusal_needs_no_client_library():
-    connector = MYAArchiverConnector()
-
     with (
         patch.dict(sys.modules, {"jlab_archiver_client": None}),
         pytest.raises(ValueError, match=r"`archiver\.settings\.auth`"),
     ):
-        await connector.connect({"auth": {"token_env": "ARCHIVER_TOKEN"}})
+        MYAArchiverConnector(_spec({"auth": {"token_env": "ARCHIVER_TOKEN"}}))
+
+
+@pytest.mark.asyncio
+async def test_building_without_the_client_library_names_it():
+    with (
+        patch.dict(sys.modules, {"jlab_archiver_client": None}),
+        pytest.raises(ImportError, match=r"jlab-archiver-client>=4\.0\.1"),
+    ):
+        MYAArchiverConnector(_spec())
 
 
 @pytest.mark.asyncio
 async def test_a_flat_timeout_is_refused_naming_timeout_s():
-    connector = MYAArchiverConnector()
-
-    with (
-        patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}),
-        pytest.raises(ValueError, match=r"`archiver\.settings\.timeout_s`"),
-    ):
-        await connector.connect({"timeout": 60})
+    with pytest.raises(ValueError, match=r"`archiver\.settings\.timeout_s`"):
+        _built({"timeout": 60})
 
 
 # --------------------------------------------------------------------------------------
@@ -271,13 +263,13 @@ async def test_both_endpoints_are_asked_for_epoch_milliseconds():
     client = _fake_client()
     client.interval.Interval.return_value.data = _events([1.0], [0])
     connector = _connected(client)
-    await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    await connector.history(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
     assert client.query.IntervalQuery.call_args[1]["unix_timestamps_ms"] is True
 
     client = _fake_client()
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"])
     connector = _connected(client)
-    await connector.get_data(
+    await connector.history(
         ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing="mean"
     )
     assert client.query.MyStatsQuery.call_args[1]["unix_timestamps_ms"] is True
@@ -308,7 +300,7 @@ async def test_the_repeated_fall_back_hour_keeps_its_true_instants():
     )
     connector = _connected(client, timezone="America/New_York")
 
-    data = await connector.get_data(
+    data = await connector.history(
         ["TEST:PV"],
         start_at=datetime(2026, 11, 1, 3, 0, tzinfo=UTC),
         end_at=datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
@@ -336,8 +328,8 @@ async def test_a_client_library_that_ignores_the_flag_is_refused():
     )
     connector = _connected(client)
 
-    with pytest.raises(RuntimeError, match=r"4\.0\.1"):
-        await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    answer = await connector.history(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    assert "jlab-archiver-client>=4.0.1" in _no_answer(answer, "misconfigured")
 
 
 # --------------------------------------------------------------------------------------
@@ -351,7 +343,7 @@ async def test_raw_uses_the_interval_endpoint_and_returns_a_long_frame():
     client.interval.Interval.return_value.data = _events([1.0, 2.0, 3.0], [0, 20, 40])
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    data = await connector.history(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert client.query.IntervalQuery.called
     # mysampler forward-fills onto a shared grid, which the contract forbids.
@@ -369,7 +361,7 @@ async def test_the_endpoint_url_is_passed_per_call():
     client.interval.Interval.return_value.data = _events([1.0], [0])
     connector = _connected(client)
 
-    await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    await connector.history(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert client.interval.Interval.call_args[1]["url"] == _URLS["interval"]
 
@@ -381,7 +373,7 @@ async def test_raw_decimates_at_the_requested_bin_keeping_true_timestamps():
     client.interval.Interval.return_value.data = _events([1.0, 2.0, 3.0, 4.0], [0, 5, 30, 35])
     connector = _connected(client)
 
-    data = await connector.get_data(
+    data = await connector.history(
         ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=30 * 60 * 1000
     )
 
@@ -404,7 +396,7 @@ async def test_each_channel_contributes_only_its_own_samples():
     client.query.IntervalQuery.side_effect = lambda **kw: MagicMock(channel=kw["channel"])
     connector = _connected(client)
 
-    data = await connector.get_data(
+    data = await connector.history(
         ["TEST:PV1", "TEST:PV2"], start_at=_START, end_at=_END, precision_ms=0
     )
 
@@ -418,7 +410,7 @@ async def test_channel_with_no_data_contributes_no_rows():
     client.interval.Interval.return_value.data = pd.Series(dtype="float64")
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    data = await connector.history(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert len(data) == 0
     assert list(data.columns) == ["timestamp", "address", "value"]
@@ -446,7 +438,7 @@ async def test_the_prior_point_is_requested_and_kept_at_its_recorded_time():
     )
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    data = await connector.history(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert client.query.IntervalQuery.call_args[1]["prior_point"] is True
     assert data["value"].tolist() == [7.0, 9.0]
@@ -475,7 +467,7 @@ async def test_aggregates_are_computed_server_side(mode, expected):
     )
     connector = _connected(client)
 
-    data = await connector.get_data(
+    data = await connector.history(
         ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing=mode
     )
 
@@ -491,7 +483,7 @@ async def test_bin_width_becomes_a_bin_count_for_mystats():
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"])
     connector = _connected(client)
 
-    await connector.get_data(
+    await connector.history(
         ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing="mean"
     )
 
@@ -513,7 +505,7 @@ async def test_a_width_that_does_not_divide_the_window_adds_a_partial_bin():
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"])
     connector = _connected(client)
 
-    await connector.get_data(
+    await connector.history(
         ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=25 * 60 * 1000, processing="mean"
     )
 
@@ -533,7 +525,7 @@ async def test_a_window_narrower_than_one_bin_is_a_single_partial_bin():
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"])
     connector = _connected(client)
 
-    await connector.get_data(
+    await connector.history(
         ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=90 * 60 * 1000, processing="mean"
     )
 
@@ -549,7 +541,7 @@ async def test_the_bin_count_is_computed_across_a_dst_transition():
     connector = _connected(client, timezone="America/New_York")
 
     # Six real hours spanning the fall-back; the wall clock advances only five.
-    await connector.get_data(
+    await connector.history(
         ["TEST:PV"],
         start_at=datetime(2026, 11, 1, 3, 0, tzinfo=UTC),
         end_at=datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
@@ -567,10 +559,11 @@ async def test_aggregate_on_a_non_numeric_channel_is_refused():
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": ["CW MODE (DC)"]}, ["mean"])
     connector = _connected(client)
 
-    with pytest.raises(ValueError, match="non-numeric"):
-        await connector.get_data(
+    with pytest.raises(ArchiveQueryError, match="non-numeric") as refused:
+        await connector.history(
             ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing="mean"
         )
+    assert (refused.value.parameter, refused.value.address) == ("processing", "TEST:PV")
 
 
 @pytest.mark.asyncio
@@ -580,7 +573,7 @@ async def test_median_falls_back_to_client_side_binning():
     client.interval.Interval.return_value.data = _events([1.0, 5.0, 3.0, 100.0], [0, 1, 2, 45])
     connector = _connected(client)
 
-    data = await connector.get_data(
+    data = await connector.history(
         ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=30 * 60 * 1000, processing="median"
     )
 
@@ -597,40 +590,106 @@ async def test_median_falls_back_to_client_side_binning():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("precision_ms", "processing", "match"),
+    ("precision_ms", "processing", "match", "parameter"),
     [
-        pytest.param(60_000, "bogus", "Unknown processing mode", id="unknown-processing-mode"),
-        pytest.param(0, "mean", "requires precision_ms > 0", id="aggregate-at-full-resolution"),
+        pytest.param(
+            60_000, "bogus", "Unknown processing mode", "processing", id="unknown-processing-mode"
+        ),
+        pytest.param(
+            0,
+            "mean",
+            "requires precision_ms > 0",
+            "precision_ms",
+            id="aggregate-at-full-resolution",
+        ),
     ],
 )
-async def test_an_unusable_processing_request_is_refused(precision_ms, processing, match):
+async def test_an_unusable_processing_request_is_refused(
+    precision_ms, processing, match, parameter
+):
     connector = _connected(_fake_client())
-    with pytest.raises(ValueError, match=match):
-        await connector.get_data(
+    with pytest.raises(ArchiveQueryError, match=match) as refused:
+        await connector.history(
             ["TEST:PV"],
             start_at=_START,
             end_at=_END,
             precision_ms=precision_ms,
             processing=processing,
         )
+    assert refused.value.parameter == parameter
 
 
 @pytest.mark.asyncio
 async def test_reversed_window_is_refused():
     connector = _connected(_fake_client())
-    with pytest.raises(ValueError, match="end_at must be after start_at"):
-        await connector.get_data(["TEST:PV"], start_at=_END, end_at=_START)
+    with pytest.raises(ArchiveQueryError, match="end_at must be after start_at") as refused:
+        await connector.history(["TEST:PV"], start_at=_END, end_at=_START)
+    assert refused.value.parameter == "end_at"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raised", "cause", "reason"),
+    [
+        (
+            ConnectionRefusedError("refused"),
+            "unreachable",
+            "Cannot connect to the MYA archiver. Check connectivity and configuration.",
+        ),
+        (
+            OSError("connection reset by peer"),
+            "unreachable",
+            "Network issue reaching the MYA archiver: connection reset by peer",
+        ),
+        (RuntimeError("myquery broke"), "failed", "the MYA archiver read failed: myquery broke"),
+    ],
+    ids=["refused", "connection-words", "anything-else"],
+)
+async def test_a_failed_read_answers_why(raised, cause, reason):
+    """A read myquery gives no answer to is ``Unavailable``, never raised."""
+    client = _fake_client()
+    client.interval.Interval.return_value.run.side_effect = raised
+    connector = _connected(client)
+
+    answer = await connector.history(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
+    assert _no_answer(answer, cause) == reason
+
+
+@pytest.mark.asyncio
+async def test_a_read_that_outlasts_its_budget_answers_timeout():
+    client = _fake_client()
+    client.interval.Interval.return_value.run.side_effect = lambda: __import__("time").sleep(1)
+    connector = _connected(client)
+
+    answer = await connector.history(
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0, timeout_s=0.01
+    )
+    assert _no_answer(answer, "timeout") == "MYA archiver request timed out after 0.01s"
+
+
+@pytest.mark.asyncio
+async def test_a_missing_statistic_answers_bad_reply():
+    client = _fake_client()
+    client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.0]}, ["min"])
+    connector = _connected(client)
+
+    answer = await connector.history(
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60 * 60 * 1000, processing="mean"
+    )
+    assert _no_answer(answer, "bad_reply") == (
+        "MYA returned no 'mean' statistic for processing='mean'"
+    )
 
 
 @pytest.mark.asyncio
 async def test_non_datetime_bounds_are_refused():
     connector = _connected(_fake_client())
     with pytest.raises(TypeError, match="start_at must be a datetime"):
-        await connector.get_data(["TEST:PV"], start_at="2026-01-01", end_at=_END)
+        await connector.history(["TEST:PV"], start_at="2026-01-01", end_at=_END)
 
 
 # --------------------------------------------------------------------------------------
-# Metadata and availability
+# Coverage
 # --------------------------------------------------------------------------------------
 
 
@@ -648,31 +707,72 @@ def test_channel_names_are_quoted_against_sql_like():
 
 
 @pytest.mark.asyncio
-async def test_get_metadata_quotes_the_address_before_looking_it_up():
+async def test_coverage_quotes_the_address_before_looking_it_up():
     client = _fake_client()
     client.channel.Channel.return_value.matches = [{"name": "IGLK100Preset_Volt"}]
     connector = _connected(client)
 
-    meta = await connector.get_metadata("IGLK100Preset_Volt")
+    coverage = await connector.coverage(["IGLK100Preset_Volt"])
 
     assert client.query.ChannelQuery.call_args[1]["pattern"] == r"IGLK100Preset\_Volt"
-    assert meta.is_archived is True
-    assert meta.address == "IGLK100Preset_Volt"
+    # MYA states no bounds.
+    assert coverage == {
+        "IGLK100Preset_Volt": ArchiveCoverage(address="IGLK100Preset_Volt", is_archived=True)
+    }
 
 
 @pytest.mark.asyncio
-async def test_get_metadata_reports_an_unknown_channel():
+async def test_coverage_reports_an_unknown_channel():
     client = _fake_client()
     client.channel.Channel.return_value.matches = []
     connector = _connected(client)
 
-    meta = await connector.get_metadata("TEST:NOPE")
+    coverage = await connector.coverage(["TEST:NOPE"])
 
-    assert meta.is_archived is False
+    assert coverage["TEST:NOPE"].is_archived is False
 
 
 @pytest.mark.asyncio
-async def test_get_metadata_refuses_a_pattern():
+@pytest.mark.parametrize(
+    ("matches", "reason"),
+    [
+        (
+            [{"name": "TEST:PV"}, {"name": "TEST:PV2"}],
+            "Archiver matched more than one channel for 'TEST:PV': ['TEST:PV', 'TEST:PV2'].",
+        ),
+        (
+            [{"name": "TEST:OTHER"}],
+            "Archiver returned the wrong channel. Requested: TEST:PV. Received: TEST:OTHER.",
+        ),
+    ],
+    ids=["ambiguous", "wrong-channel"],
+)
+async def test_coverage_of_a_lookup_that_matched_otherwise_is_unknown(matches, reason):
+    """A lookup that matched another channel cannot say, and names what it matched."""
+    client = _fake_client()
+    client.channel.Channel.return_value.matches = matches
+    connector = _connected(client)
+
+    coverage = await connector.coverage(["TEST:PV"])
+
+    assert coverage["TEST:PV"] == ArchiveCoverage(
+        address="TEST:PV", is_archived=None, unknown_reason=reason
+    )
+
+
+@pytest.mark.asyncio
+async def test_coverage_of_a_failed_lookup_answers_failed():
+    client = _fake_client()
+    client.channel.Channel.return_value.run.side_effect = RuntimeError("myquery broke")
+    connector = _connected(client)
+
+    answer = await connector.coverage(["TEST:PV"])
+
+    assert _no_answer(answer, "failed") == "the MYA channel lookup failed: RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_coverage_refuses_a_pattern():
     """A SQL wildcard in the address is a caller error, not a lookup miss.
 
     Quoting means the query itself can no longer match siblings, so the
@@ -681,12 +781,13 @@ async def test_get_metadata_refuses_a_pattern():
     """
     connector = _connected(_fake_client())
 
-    with pytest.raises(ValueError, match="looks like a pattern"):
-        await connector.get_metadata("TEST:PV%")
+    with pytest.raises(ArchiveQueryError, match="looks like a pattern") as refused:
+        await connector.coverage(["TEST:PV%"])
+    assert (refused.value.parameter, refused.value.address) == ("addresses", "TEST:PV%")
 
 
 @pytest.mark.asyncio
-async def test_check_availability_reports_each_channel():
+async def test_coverage_reports_each_channel():
     """The sweep reports hits and misses; coverage probing depends on it."""
     client = _fake_client()
     matches = {"TEST:PV1": [{"name": "TEST:PV1"}], "TEST:PV2": []}
@@ -696,14 +797,15 @@ async def test_check_availability_reports_each_channel():
     client.query.ChannelQuery.side_effect = lambda **kw: MagicMock(pattern=kw["pattern"])
     connector = _connected(client)
 
-    assert await connector.check_availability(["TEST:PV1", "TEST:PV2"]) == {
+    coverage = await connector.coverage(["TEST:PV1", "TEST:PV2"])
+    assert {address: entry.is_archived for address, entry in coverage.items()} == {
         "TEST:PV1": True,
         "TEST:PV2": False,
     }
 
 
 @pytest.mark.asyncio
-async def test_check_availability_bounds_each_channel_not_the_whole_sweep():
+async def test_coverage_bounds_each_channel_not_the_whole_sweep():
     """A wide list must not time out as a unit and discard every answer.
 
     Each lookup spends 600 ms of a 1 s timeout, so any two outrun it together
@@ -727,7 +829,11 @@ async def test_check_availability_bounds_each_channel_not_the_whole_sweep():
 
     channels = [f"TEST:PV{n}" for n in range(10)]
     with patch.object(loop, "time", lambda: now[0]):
-        assert await connector.check_availability(channels) == dict.fromkeys(channels, True)
+        coverage = await connector.coverage(channels)
+    assert not isinstance(coverage, Unavailable), coverage
+    assert {address: entry.is_archived for address, entry in coverage.items()} == dict.fromkeys(
+        channels, True
+    )
 
 
 @pytest.mark.asyncio
@@ -746,7 +852,7 @@ async def test_server_side_and_client_side_bins_share_one_grid():
     client = _fake_client()
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"], at=start)
     connector = _connected(client)
-    await connector.get_data(
+    await connector.history(
         ["TEST:PV"], start_at=start, end_at=end, precision_ms=hour_ms, processing="mean"
     )
 
@@ -763,7 +869,7 @@ async def test_server_side_and_client_side_bins_share_one_grid():
         name="TEST:PV",
     )
     connector = _connected(client)
-    data = await connector.get_data(
+    data = await connector.history(
         ["TEST:PV"], start_at=start, end_at=end, precision_ms=hour_ms, processing="median"
     )
 

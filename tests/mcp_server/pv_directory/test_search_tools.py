@@ -31,9 +31,9 @@ from osprey.mcp_server.pv_directory.tools import properties, search
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.pv_directory import _connectors, facts, service
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
-from osprey_connectors.directory import DirectoryPage, DirectoryRow
-from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from osprey_connectors.alarm_state import AlarmCondition, AlarmEntry, AlarmStates
+from osprey_connectors.directory import DirectoryEntry, DirectoryPage
+from osprey_connectors.service_answers import NotListed, Source, Unavailable
 from tests._service_factory import patch_create_service
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -86,7 +86,7 @@ class FakeDirectory:
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="from the backend",
             request=f"GET /fake?q={query.words}",
             source=self.source,
@@ -102,7 +102,7 @@ class FakeDirectory:
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return Outcome.NOT_LISTED
+        return NotListed(address=address)
 
     async def property_values(
         self,
@@ -115,7 +115,7 @@ class FakeDirectory:
         if self.failure:
             raise RuntimeError(self.failure)
         if property not in self.values:
-            return Unavailable(reason=f"property {property!r} did not answer")
+            return Unavailable(cause="timeout", reason=f"property {property!r} did not answer")
         return [value for value in self.values[property] if value.startswith(prefix or "")]
 
 
@@ -167,7 +167,7 @@ def _install(tmp_path: Path, section: dict[str, Any] | None, *curated: str) -> s
 
 
 def _row(name: str, **fields: Any) -> Any:
-    return DirectoryRow(address=name, **fields)
+    return DirectoryEntry(address=name, **fields)
 
 
 # -- directory_search ---------------------------------------------------------
@@ -249,7 +249,7 @@ class FakeFeed:
         if isinstance(self.held, Unavailable):
             return self.held
         rows = tuple(
-            AlarmStateRow(address=channel, path=None, state=state)
+            AlarmEntry(address=channel, path=None, condition=state)
             for channel, state in self.held.items()
         )
         return AlarmStates(rows=rows, stale=False, last_contact_at=None)
@@ -273,7 +273,7 @@ def feed(monkeypatch: pytest.MonkeyPatch) -> type[FakeFeed]:
 
 async def test_a_row_carries_the_alarm_feed_state(tmp_path: Path, feed: type[FakeFeed]) -> None:
     FakeDirectory.rows = [_row("SR:BPM1"), _row("SR:BPM2")]
-    feed.held = {"SR:BPM1": AlarmStateRecord(severity="MINOR", status="HIGH_ALARM")}
+    feed.held = {"SR:BPM1": AlarmCondition(severity="MINOR", status="HIGH_ALARM")}
     _install(tmp_path, {**FACILITY, "alarm_state": _FEED})
 
     result = json.loads(await search.directory_search(words="SR"))
@@ -290,7 +290,7 @@ async def test_a_feed_without_an_answer_stays_in_the_result_as_partial(
     tmp_path: Path, feed: type[FakeFeed]
 ) -> None:
     FakeDirectory.rows = [_row("SR:BPM1")]
-    feed.held = Unavailable(reason="alarm feed still loading")
+    feed.held = Unavailable(cause="not_ready", reason="alarm feed still loading")
     _install(tmp_path, {**FACILITY, "alarm_state": _FEED})
 
     result = json.loads(await search.directory_search(words="SR"))

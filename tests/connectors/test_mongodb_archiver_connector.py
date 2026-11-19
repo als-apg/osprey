@@ -1,4 +1,4 @@
-"""Tests for MongoDB Archiver connector."""
+"""Tests for the MongoDB archive."""
 
 import copy
 import json
@@ -7,22 +7,26 @@ import re
 import ssl
 import sys
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
 from osprey.port_layout import default_port
-from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
-from osprey_connectors.archiver._field_names import field_name
-from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+from osprey_connectors.archive_store import (
+    _HOST_OVERRIDE_ENV,
+    _PORT_OVERRIDE_ENV,
+    address_overrides,
+    field_name,
+)
+from osprey_connectors.archiver._base import ArchiveCoverage, ArchiveExtent
 from osprey_connectors.archiver._mongodb_archiver_connector import (
     DEPLOY_HINT,
     MongoDBArchiverConnector,
-    address_overrides,
 )
-from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.errors import ArchiveQueryError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
@@ -33,17 +37,41 @@ from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 pytestmark = pytest.mark.xdist_group("docker")
 
 
+def _spec(settings):
+    """The ``va`` archive spec of a ``mongodb_archiver`` block."""
+    return BackendSpec(
+        kind="archive", type="mongodb_archiver", target="va", settings=settings, rehearsal=False
+    )
+
+
+def _archive(settings):
+    """The archive *settings* configure; its settings are read here, nothing is dialled."""
+    return MongoDBArchiverConnector(_spec(settings))
+
+
+#: A block naming its store by url: it reads no login and no environment.
+_STUB_BLOCK = {"url": "mongodb://stub.example.invalid", "name": "testdb", "collection": "testcoll"}
+
+
+def _wired(collection, waveforms=None, *, timeout_s=10):
+    """An archive already open on the stub *collection* (and its waveform sibling)."""
+    archive = _archive({**_STUB_BLOCK, "timeout_s": timeout_s})
+    archive._collection = collection
+    archive._waveforms = waveforms
+    return archive
+
+
 @pytest.fixture
 def static_mongo_config(monkeypatch):
-    """A complete, connector-ready config that needs no container.
+    """A complete, archive-ready config that needs no container.
 
-    For tests that fail inside ``connect()`` before a ``MongoClient`` is built.
-    The in-network address overrides are cleared so a developer shell that sets
-    them cannot supply the host a test has deleted.
+    For tests that fail when the archive is built or opened, before a store is
+    reached. The in-network address overrides are cleared so a developer shell
+    that sets them cannot supply the host a test has deleted.
     """
     monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
     return {
         "host": "mongodb.example.invalid",
         "port": 27017,
@@ -58,69 +86,95 @@ def static_mongo_config(monkeypatch):
     }
 
 
-class TestConnectDisconnectLifecycle:
-    """Tests for connect/disconnect lifecycle."""
+def _unreachable_client():
+    """A patched ``MongoClient`` whose ping fails as an unreachable store does."""
+    pymongo_errors = pytest.importorskip("pymongo.errors")
+    patched = patch("pymongo.MongoClient")
+    mock_client_cls = patched.start()
+    mock_client_cls.return_value.admin.command.side_effect = pymongo_errors.ConnectionFailure(
+        "refused"
+    )
+    return patched, mock_client_cls
+
+
+class TestOpenAndCloseLifecycle:
+    """The archive opens its store on the first call and closes it on ``aclose``."""
 
     @pytest.mark.asyncio
-    async def test_connect_success(self, mongodb_config):
-        """Test that connect succeeds with valid config."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_the_first_call_opens_the_store(self, mongodb_config):
+        """Building reads the settings only; the first call opens and pings the store."""
+        archive = _archive(mongodb_config)
+        assert archive._client is None
 
-        assert connector._connected is True
-        assert connector._client is not None
-        assert connector._collection is not None
+        evidence = await archive.probe()
 
-        await connector.disconnect()
+        assert isinstance(evidence, str)
+        assert "answered a ping" in evidence
+        assert archive._client is not None
+        assert archive._collection is not None
 
-    @pytest.mark.asyncio
+        await archive.aclose()
+
     @pytest.mark.parametrize(
         ("config_timeout", "expected"), [(None, 60), (120, 120)], ids=["default", "configured"]
     )
-    async def test_connect_timeout(self, static_mongo_config, config_timeout, expected):
-        """The timeout is 60 s unless the config names one. A config-only read,
-        so the client is patched rather than dialled."""
+    def test_timeout(self, static_mongo_config, config_timeout, expected):
+        """The timeout is 60 s unless the config names one. A settings read, so
+        nothing is dialled."""
         config = static_mongo_config.copy()
         del config["timeout_s"]
         if config_timeout is not None:
             config["timeout_s"] = config_timeout
 
-        connector = MongoDBArchiverConnector()
-        with patch("pymongo.MongoClient"):
-            await connector.connect(config)
+        archive = _archive(config)
 
-        assert connector._timeout == expected
-
-        await connector.disconnect()
+        assert archive._timeout == expected
 
     @pytest.mark.asyncio
-    async def test_disconnect_clears_state(self, mongodb_config):
-        """Test that disconnect clears connection state."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_aclose_clears_state(self, mongodb_config):
+        """``aclose`` drops the client and the collection handles."""
+        archive = _archive(mongodb_config)
+        assert isinstance(await archive.probe(), str)
 
-        await connector.disconnect()
+        await archive.aclose()
 
-        assert connector._connected is False
-        assert connector._client is None
-        assert connector._collection is None
+        assert archive._client is None
+        assert archive._collection is None
 
     @pytest.mark.asyncio
-    async def test_disconnect_when_not_connected(self):
-        """Test that disconnect is safe to call when already disconnected."""
-        connector = MongoDBArchiverConnector()
+    async def test_aclose_when_never_opened(self, static_mongo_config):
+        """``aclose`` is safe on an archive that never opened its store."""
+        archive = _archive(static_mongo_config)
         # Should not raise any exception
-        await connector.disconnect()
+        await archive.aclose()
 
-        assert connector._connected is False
-        assert connector._client is None
-        assert connector._collection is None
-
-
-class TestConnectValidationWithoutDocker:
-    """connect() config validation, which fails before any client is built."""
+        assert archive._client is None
+        assert archive._collection is None
 
     @pytest.mark.asyncio
+    async def test_a_store_that_did_not_open_is_tried_again_on_the_next_call(
+        self, static_mongo_config
+    ):
+        """No connect step to have failed: a store that is down answers, and reopens later."""
+        archive = _archive(static_mongo_config)
+        patched, mock_client_cls = _unreachable_client()
+        try:
+            first = await archive.probe()
+            mock_client_cls.return_value.admin.command.side_effect = None
+            second = await archive.probe()
+        finally:
+            patched.stop()
+
+        assert isinstance(first, Unavailable)
+        assert first.cause == "unreachable"
+        assert isinstance(second, str)
+        assert mock_client_cls.call_count == 2
+        assert archive._collection is not None
+
+
+class TestSettingsValidationWithoutDocker:
+    """The settings read when the archive is built, which fails before any client is built."""
+
     @pytest.mark.parametrize(
         ("key", "match"),
         [
@@ -140,7 +194,7 @@ class TestConnectValidationWithoutDocker:
             "missing_auth_source",
         ],
     )
-    async def test_connect_missing_key_raises_value_error(self, static_mongo_config, key, match):
+    def test_a_missing_key_raises_value_error(self, static_mongo_config, key, match):
         """Each required key missing from the config (with no environment
         override to stand in for it) is refused as an authoring error."""
         config = copy.deepcopy(static_mongo_config)
@@ -151,12 +205,9 @@ class TestConnectValidationWithoutDocker:
         del section[leaf]
 
         with pytest.raises(ValueError, match=match):
-            await MongoDBArchiverConnector().connect(config)
+            _archive(config)
 
-    @pytest.mark.asyncio
-    async def test_connect_unset_password_env_var_raises_connection_error(
-        self, static_mongo_config
-    ):
+    def test_an_unset_password_env_var_raises_connection_error(self, static_mongo_config):
         """An unset password variable is a deployment state, not a config error.
 
         ``osprey up`` mints the password into the project's ``.env``, so this is
@@ -168,12 +219,10 @@ class TestConnectValidationWithoutDocker:
         config = static_mongo_config.copy()
         config["auth"] = {**config["auth"], "password_env": "NONEXISTENT_ENV_VAR"}
 
-        connector = MongoDBArchiverConnector()
-
         with pytest.raises(
             ConnectorUnavailableError, match="NONEXISTENT_ENV_VAR.*is not set"
         ) as exc_info:
-            await connector.connect(config)
+            _archive(config)
 
         assert "osprey up" in str(exc_info.value)
 
@@ -181,10 +230,9 @@ class TestConnectValidationWithoutDocker:
 class TestImportErrorHandling:
     """Tests for import error handling when pymongo is missing."""
 
-    @pytest.mark.asyncio
-    async def test_connect_raises_import_error_when_pymongo_missing(self, static_mongo_config):
-        """Test that connect raises ImportError with helpful message when pymongo missing."""
-        # Remove pymongo from sys.modules if it exists
+    def test_building_raises_import_error_when_pymongo_missing(self, static_mongo_config):
+        """Building the archive raises ImportError with a helpful message when pymongo is missing."""
+        spec = _spec(static_mongo_config)
         original_modules = sys.modules.copy()
 
         # Mock the import to raise ImportError
@@ -193,11 +241,9 @@ class TestImportErrorHandling:
                 raise ImportError("No module named 'pymongo'")
             return original_modules.get(name)
 
-        connector = MongoDBArchiverConnector()
-
         with patch("builtins.__import__", side_effect=mock_import):
             with pytest.raises(ImportError) as exc_info:
-                await connector.connect(static_mongo_config)
+                MongoDBArchiverConnector(spec)
 
             # pymongo is a declared dependency of osprey-connectors, so the
             # message must name the package to reinstall — not an extra to
@@ -208,20 +254,19 @@ class TestImportErrorHandling:
             assert "archiver-mongodb" not in str(exc_info.value)
 
 
-class TestGetDataMethod:
-    """Tests for get_data method."""
+class TestHistoryMethod:
+    """Tests for the history method."""
 
     @pytest.mark.asyncio
-    async def test_get_data_multiple_pvs(self, mongodb_config, mongodb_test_data):
-        """Test that get_data returns data for multiple PVs."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_history_multiple_pvs(self, mongodb_config, mongodb_test_data):
+        """history returns data for multiple PVs."""
+        archive = _archive(mongodb_config)
 
         start_date = mongodb_test_data["start_date"]
         end_date = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         channels = mongodb_test_data["channels"]
 
-        df = await connector.get_data(
+        df = await archive.history(
             channels,
             start_at=start_date,
             end_at=end_date,
@@ -233,19 +278,18 @@ class TestGetDataMethod:
         assert set(df["address"]) == set(channels)
         assert len(df) > 0
 
-        await connector.disconnect()
+        await archive.aclose()
 
     @pytest.mark.asyncio
-    async def test_get_data_empty_time_range(self, mongodb_config):
-        """Test that get_data returns empty DataFrame for time range with no data."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_history_empty_time_range(self, mongodb_config):
+        """history returns an empty DataFrame for a time range with no data."""
+        archive = _archive(mongodb_config)
 
         # Use a time range that definitely has no data
         start_date = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
         end_date = datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC)
 
-        df = await connector.get_data(
+        df = await archive.history(
             ["BEAM:CURRENT"],
             start_at=start_date,
             end_at=end_date,
@@ -257,42 +301,50 @@ class TestGetDataMethod:
         assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
         assert df["value"].dtype == "float64"
 
-        await connector.disconnect()
+        await archive.aclose()
 
     @pytest.mark.asyncio
-    async def test_get_data_not_connected_raises_runtime_error(self):
-        """Test that get_data raises RuntimeError when not connected."""
-        connector = MongoDBArchiverConnector()
-
-        with pytest.raises(RuntimeError, match="MongoDB archiver not connected"):
-            await connector.get_data(
+    async def test_history_of_an_unreachable_store_answers_unavailable(self, static_mongo_config):
+        """A store that cannot be reached is an answer, with the deploy hint, never a raise."""
+        archive = _archive(static_mongo_config)
+        patched, _client = _unreachable_client()
+        try:
+            answer = await archive.history(
                 ["BEAM:CURRENT"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 2, tzinfo=UTC),
             )
+        finally:
+            patched.stop()
+
+        assert isinstance(answer, Unavailable)
+        assert answer.cause == "unreachable"
+        assert answer.reason.startswith(
+            "Cannot connect to MongoDB at mongodb.example.invalid:27017"
+        )
+        assert DEPLOY_HINT in answer.reason
 
     @pytest.mark.asyncio
-    async def test_get_data_empty_channels_raises_value_error(self, mongodb_config):
-        """Test that get_data raises ValueError when channels is empty."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_history_empty_channels_raises_archive_query_error(self, static_mongo_config):
+        """An empty channel list is the caller's argument: ArchiveQueryError, before any I/O."""
+        archive = _archive(static_mongo_config)
 
-        with pytest.raises(ValueError, match="channels cannot be empty"):
-            await connector.get_data(
+        with pytest.raises(ArchiveQueryError, match="channels cannot be empty") as exc_info:
+            await archive.history(
                 [],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 2, tzinfo=UTC),
             )
 
-        await connector.disconnect()
+        assert exc_info.value.parameter == "addresses"
+        assert archive._client is None
 
     @pytest.mark.asyncio
-    async def test_get_data_time_range_filtering(self, mongodb_config, mongodb_test_data):
-        """Test that get_data correctly filters by time range."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_history_time_range_filtering(self, mongodb_config, mongodb_test_data):
+        """history correctly filters by time range."""
+        archive = _archive(mongodb_config)
 
-        # Get first 6 hourly samples. The connector's range query is inclusive
+        # Get first 6 hourly samples. The archive's range query is inclusive
         # on both ends ($gte/$lte), so end_date is the timestamp of the last
         # sample we want, not the exclusive upper bound. precision_ms matches
         # the seeded hourly cadence; bounds are tz-aware since the returned
@@ -300,7 +352,7 @@ class TestGetDataMethod:
         start_date = mongodb_test_data["start_date"].replace(tzinfo=UTC)
         end_date = datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC)
 
-        df = await connector.get_data(
+        df = await archive.history(
             ["BEAM:CURRENT"],
             start_at=start_date,
             end_at=end_date,
@@ -311,103 +363,99 @@ class TestGetDataMethod:
         assert df["timestamp"].iloc[0] >= start_date
         assert df["timestamp"].iloc[-1] <= end_date
 
-        await connector.disconnect()
+        await archive.aclose()
 
 
-class TestMetadataMethods:
-    """Tests for metadata methods."""
+class TestCoverageMethod:
+    """Tests for the coverage method."""
 
     @pytest.mark.asyncio
-    async def test_get_metadata_returns_archiver_metadata(self, mongodb_config, mongodb_test_data):
-        """get_metadata reports the coverage the collection actually holds.
+    async def test_coverage_reports_what_the_collection_holds(
+        self, mongodb_config, mongodb_test_data
+    ):
+        """coverage reports the span the collection actually holds.
 
         The fixture seeds hourly documents from ``start_date`` up to (not
         including) ``end_date``, so the newest stored sample is one hour before
         ``end_date``. Asserting that exact boundary is what proves the bounds
         are read from the store rather than echoed from the request.
         """
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+        archive = _archive(mongodb_config)
 
         channel = mongodb_test_data["channels"][0]
-        metadata = await connector.get_metadata(channel)
+        coverage = (await archive.coverage([channel]))[channel]
 
-        assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.address == channel
-        assert metadata.is_archived is True  # Should be True since we have test data
-        assert channel in metadata.description
-        assert metadata.first_sample_at == mongodb_test_data["start_date"]
-        assert metadata.last_sample_at == mongodb_test_data["end_date"] - timedelta(hours=1)
+        assert isinstance(coverage, ArchiveCoverage)
+        assert coverage.address == channel
+        assert coverage.is_archived is True  # Should be True since we have test data
+        # A known channel needs no reason: the store said.
+        assert coverage.unknown_reason is None
+        assert coverage.first_sample_at == mongodb_test_data["start_date"]
+        assert coverage.last_sample_at == mongodb_test_data["end_date"] - timedelta(hours=1)
 
-        await connector.disconnect()
+        await archive.aclose()
 
     @pytest.mark.asyncio
-    async def test_get_metadata_nonexistent_pv(self, mongodb_config):
-        """Test that get_metadata returns is_archived=False for nonexistent PV."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_coverage_nonexistent_pv(self, mongodb_config):
+        """coverage answers is_archived=False for a nonexistent PV."""
+        archive = _archive(mongodb_config)
 
-        metadata = await connector.get_metadata("NONEXISTENT:PV")
+        coverage = (await archive.coverage(["NONEXISTENT:PV"]))["NONEXISTENT:PV"]
 
-        assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.address == "NONEXISTENT:PV"
-        assert metadata.is_archived is False  # Should be False for nonexistent PV
+        assert isinstance(coverage, ArchiveCoverage)
+        assert coverage.address == "NONEXISTENT:PV"
+        assert coverage.is_archived is False  # Should be False for nonexistent PV
         # No stored samples means no coverage window — not an invented one.
-        assert metadata.first_sample_at is None
-        assert metadata.last_sample_at is None
+        assert coverage.first_sample_at is None
+        assert coverage.last_sample_at is None
 
-        await connector.disconnect()
+        await archive.aclose()
 
     @pytest.mark.asyncio
-    async def test_check_availability_mixed_pvs(self, mongodb_config, mongodb_test_data):
-        """Test that check_availability correctly identifies available and unavailable PVs."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_coverage_mixed_pvs(self, mongodb_config, mongodb_test_data):
+        """coverage correctly identifies archived and unarchived PVs."""
+        archive = _archive(mongodb_config)
 
         # Mix of existing and nonexistent PVs
         channels = mongodb_test_data["channels"] + ["NONEXISTENT:PV"]
-        availability = await connector.check_availability(channels)
+        coverage = await archive.coverage(channels)
 
-        assert isinstance(availability, dict)
-        assert len(availability) == len(channels)
+        assert not isinstance(coverage, Unavailable)
+        assert len(coverage) == len(channels)
 
         # Existing PVs should be True
         for pv in mongodb_test_data["channels"]:
-            assert availability[pv] is True
+            assert coverage[pv].is_archived is True
 
         # Nonexistent PV should be False
-        assert availability["NONEXISTENT:PV"] is False
+        assert coverage["NONEXISTENT:PV"].is_archived is False
 
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_check_availability_empty_list(self, mongodb_config):
-        """Test that check_availability returns empty dict for empty input."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
-
-        availability = await connector.check_availability([])
-
-        assert isinstance(availability, dict)
-        assert len(availability) == 0
-
-        await connector.disconnect()
+        await archive.aclose()
 
     @pytest.mark.asyncio
-    async def test_check_availability_not_connected_raises_runtime_error(self):
-        """Test that check_availability raises RuntimeError when not connected."""
-        connector = MongoDBArchiverConnector()
+    async def test_coverage_empty_list(self, mongodb_config):
+        """coverage answers an empty mapping for empty input."""
+        archive = _archive(mongodb_config)
 
-        with pytest.raises(RuntimeError, match="MongoDB archiver not connected"):
-            await connector.check_availability(["BEAM:CURRENT"])
+        coverage = await archive.coverage([])
+
+        assert coverage == {}
+
+        await archive.aclose()
 
     @pytest.mark.asyncio
-    async def test_get_metadata_not_connected_raises_runtime_error(self):
-        """Test that get_metadata raises RuntimeError when not connected."""
-        connector = MongoDBArchiverConnector()
+    async def test_coverage_of_an_unreachable_store_answers_unavailable(self, static_mongo_config):
+        """A store that cannot be opened answers why, for every channel at once."""
+        archive = _archive(static_mongo_config)
+        patched, _client = _unreachable_client()
+        try:
+            answer = await archive.coverage(["BEAM:CURRENT"])
+        finally:
+            patched.stop()
 
-        with pytest.raises(RuntimeError, match="MongoDB archiver not connected"):
-            await connector.get_metadata("BEAM:CURRENT")
+        assert isinstance(answer, Unavailable)
+        assert answer.cause == "unreachable"
+        assert DEPLOY_HINT in answer.reason
 
 
 def _test_collection(mongodb_container):
@@ -446,25 +494,23 @@ class TestDottedChannelAddresses:
         finally:
             client.close()
 
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+        archive = _archive(mongodb_config)
         try:
-            df = await connector.get_data(
+            df = await archive.history(
                 ["BEAM:REC.RBV", "BEAM:CURRENT"],
                 start_at=start_date.replace(tzinfo=UTC),
                 end_at=(start_date + timedelta(hours=4)).replace(tzinfo=UTC),
             )
-            metadata = await connector.get_metadata("BEAM:REC.RBV")
-            availability = await connector.check_availability(["BEAM:REC.RBV"])
+            coverage = await archive.coverage(["BEAM:REC.RBV"])
         finally:
-            await connector.disconnect()
+            await archive.aclose()
 
         assert set(df["address"]) == {"BEAM:REC.RBV", "BEAM:CURRENT"}
         dotted = df[df["address"] == "BEAM:REC.RBV"]
         assert list(dotted["value"]) == [0.0, 1.0, 2.0]
-        assert metadata.is_archived is True
-        assert metadata.address == "BEAM:REC.RBV"
-        assert availability == {"BEAM:REC.RBV": True}
+        assert coverage["BEAM:REC.RBV"].is_archived is True
+        assert coverage["BEAM:REC.RBV"].address == "BEAM:REC.RBV"
+        assert list(coverage) == ["BEAM:REC.RBV"]
 
     @pytest.mark.asyncio
     async def test_a_nested_document_is_not_read_as_a_dotted_channel(
@@ -479,20 +525,21 @@ class TestDottedChannelAddresses:
         finally:
             client.close()
 
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+        archive = _archive(mongodb_config)
         try:
-            df = await connector.get_data(
+            df = await archive.history(
                 ["BEAM:REC.RBV"],
                 start_at=start_date.replace(tzinfo=UTC),
                 end_at=(start_date + timedelta(hours=4)).replace(tzinfo=UTC),
             )
-            availability = await connector.check_availability(["BEAM:REC.RBV"])
+            coverage = await archive.coverage(["BEAM:REC.RBV"])
         finally:
-            await connector.disconnect()
+            await archive.aclose()
 
         assert len(df) == 0
-        assert availability == {"BEAM:REC.RBV": False}
+        assert {address: c.is_archived for address, c in coverage.items()} == {
+            "BEAM:REC.RBV": False
+        }
 
 
 class TestFactoryIntegration:
@@ -500,10 +547,10 @@ class TestFactoryIntegration:
 
     @pytest.fixture(autouse=True)
     def setup_factory(self):
-        """Ensure built-in archivers (including mongodb_archiver) are registered.
+        """Ensure built-in archives (including mongodb_archiver) are registered.
 
-        Idempotent: ``ConnectorFactory._ensure_builtins()`` no-ops only when all five
-        required built-ins are already present, and otherwise re-registers the
+        Idempotent: ``ConnectorFactory._ensure_builtins()`` no-ops only when every
+        required built-in is already present, and otherwise re-registers the
         missing ones, so this is safe regardless of prior test state. No
         teardown — we leave built-ins in place so subsequent tests can rely on
         them.
@@ -514,46 +561,30 @@ class TestFactoryIntegration:
         yield
 
     @pytest.mark.asyncio
-    async def test_factory_creates_mongodb_archiver_connector(self, mongodb_config):
-        """Test that factory creates and connects MongoDBArchiverConnector."""
-        config = {
-            "type": "mongodb_archiver",
-            "mongodb_archiver": mongodb_config,
-        }
+    async def test_factory_builds_the_mongodb_archive(self, mongodb_config):
+        """create_service builds a MongoDBArchiverConnector from an archive spec; it opens on use."""
+        archive = await ConnectorFactory.create_service(_spec(mongodb_config))
 
-        connector = await ConnectorFactory.create_archiver_connector(config)
+        assert isinstance(archive, MongoDBArchiverConnector)
+        assert isinstance(await archive.probe(), str)
 
-        assert isinstance(connector, MongoDBArchiverConnector)
-        assert connector._connected is True
-
-        await connector.disconnect()
+        await archive.aclose()
 
     @pytest.mark.asyncio
     async def test_factory_with_missing_host_raises_error(self, static_mongo_config):
-        """Test that factory propagates ValueError for missing host."""
+        """create_service propagates the settings reader's ValueError for a missing host."""
         config_without_host = static_mongo_config.copy()
         del config_without_host["host"]
 
-        config = {
-            "type": "mongodb_archiver",
-            "mongodb_archiver": config_without_host,
-        }
-
         with pytest.raises(ValueError, match="host is required"):
-            await ConnectorFactory.create_archiver_connector(config)
+            await ConnectorFactory.create_service(_spec(config_without_host))
 
 
 class TestQueryShapeWithoutDocker:
     """Query construction, asserted against a stub collection — no container needed."""
 
     def _stub_connector(self, documents):
-        """Return a connector wired to an in-memory stub collection."""
-        from unittest.mock import MagicMock
-
-        from osprey_connectors.archiver._mongodb_archiver_connector import (
-            MongoDBArchiverConnector,
-        )
-
+        """Return an archive open on an in-memory stub collection."""
         captured = {}
 
         class _Cursor:
@@ -569,18 +600,14 @@ class TestQueryShapeWithoutDocker:
 
         collection.find = _find
 
-        connector = MongoDBArchiverConnector()
-        connector._connected = True
-        connector._collection = collection
-        connector._timeout = 10
-        return connector, captured
+        return _wired(collection), captured
 
     @pytest.mark.asyncio
     async def test_pv_existence_is_ored_not_anded(self):
         """PVs archived in separate documents must not produce an empty frame."""
         connector, captured = self._stub_connector([])
 
-        await connector.get_data(
+        await connector.history(
             ["BEAM:CURRENT", "BEAM:LIFETIME"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 2, tzinfo=UTC),
@@ -618,7 +645,7 @@ class TestQueryShapeWithoutDocker:
         """
         connector, captured = self._stub_connector([])
 
-        await connector.get_data(
+        await connector.history(
             channels,
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 2, tzinfo=UTC),
@@ -641,7 +668,7 @@ class TestQueryShapeWithoutDocker:
         ]
         connector, _ = self._stub_connector(documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
@@ -663,7 +690,7 @@ class TestQueryShapeWithoutDocker:
         ]
         connector, _ = self._stub_connector(documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
@@ -689,7 +716,7 @@ class TestQueryShapeWithoutDocker:
         ]
         connector, _ = self._stub_connector(documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
@@ -712,7 +739,7 @@ class TestQueryShapeWithoutDocker:
         # an empty (object-dtype) channel raised a misleading "non-numeric".
         connector, _ = self._stub_connector([])
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 2, tzinfo=UTC),
@@ -730,13 +757,14 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector([])
         connector._timeout = 60
 
-        with pytest.raises(TimeoutError):
-            await connector.get_data(
-                ["BEAM:CURRENT"],
-                start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                end_at=datetime(2024, 1, 2, tzinfo=UTC),
-                timeout_s=0,
-            )
+        answer = await connector.history(
+            ["BEAM:CURRENT"],
+            start_at=datetime(2024, 1, 1, tzinfo=UTC),
+            end_at=datetime(2024, 1, 2, tzinfo=UTC),
+            timeout_s=0,
+        )
+
+        assert answer == Unavailable(cause="timeout", reason="MongoDB query timed out after 0s")
 
     @pytest.mark.asyncio
     async def test_sparse_documents_are_not_upsampled(self):
@@ -747,7 +775,7 @@ class TestQueryShapeWithoutDocker:
         ]
         connector, _ = self._stub_connector(documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC),
@@ -774,7 +802,7 @@ class TestQueryShapeWithoutDocker:
         ]
         connector, _ = self._stub_connector(documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT", "BEAM:LIFETIME"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
@@ -792,7 +820,7 @@ class TestQueryShapeWithoutDocker:
         ]
         connector, _ = self._stub_connector(documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=datetime(2024, 1, 1, tzinfo=UTC),
             end_at=datetime(2024, 1, 2, tzinfo=UTC),
@@ -823,7 +851,7 @@ class TestQueryShapeWithoutDocker:
         documents = sorted(fast_docs + slow_docs, key=lambda d: d["date"])
         connector, _ = self._stub_connector(documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["FAST", "SLOW"],
             start_at=base,
             end_at=base + timedelta(milliseconds=49 * 1500 + 100),
@@ -847,23 +875,23 @@ class TestClientKwargsWithoutDocker:
     @pytest.mark.asyncio
     async def test_a_bundled_block_builds_the_six_keyword_client(self, monkeypatch):
         monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await MongoDBArchiverConnector().connect(bundled_block())
+            assert isinstance(await _archive(bundled_block()).probe(), str)
 
         assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
 
     @pytest.mark.asyncio
     async def test_a_ca_bundle_becomes_tls_ca_file(self, monkeypatch):
         monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
         block = {**bundled_block(), "tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}}
 
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await MongoDBArchiverConnector().connect(block)
+            assert isinstance(await _archive(block).probe(), str)
 
         assert mock_client_cls.call_args.kwargs == {
             **BUNDLED_CLIENT_KWARGS,
@@ -873,11 +901,11 @@ class TestClientKwargsWithoutDocker:
     @pytest.mark.asyncio
     async def test_no_ca_bundle_passes_no_tls_key(self, monkeypatch):
         monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await MongoDBArchiverConnector().connect({**bundled_block(), "tls": {}})
+            assert isinstance(await _archive({**bundled_block(), "tls": {}}).probe(), str)
 
         assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
 
@@ -893,11 +921,11 @@ class TestUrlWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_a_url_is_passed_verbatim_as_host(self, monkeypatch):
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await MongoDBArchiverConnector().connect(self._config(self.URL))
+            assert isinstance(await _archive(self._config(self.URL)).probe(), str)
 
         assert mock_client_cls.call_args.kwargs == {
             "host": self.URL,
@@ -906,11 +934,11 @@ class TestUrlWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_a_url_ignores_the_address_overrides(self, monkeypatch):
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017")
 
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await MongoDBArchiverConnector().connect(self._config(self.URL, host="localhost"))
+            assert isinstance(await _archive(self._config(self.URL, host="localhost")).probe(), str)
 
         kwargs = mock_client_cls.call_args.kwargs
         assert kwargs["host"] == self.URL
@@ -922,7 +950,7 @@ class TestUrlWithoutDocker:
         auth = {"source": "archive", "username": "reader", "password_env": "MONGODB_MOCK_PASSWORD"}
 
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await MongoDBArchiverConnector().connect(self._config(self.URL, auth=auth))
+            assert isinstance(await _archive(self._config(self.URL, auth=auth)).probe(), str)
 
         assert mock_client_cls.call_args.kwargs == {
             "host": self.URL,
@@ -944,7 +972,7 @@ class TestUrlWithoutDocker:
     )
     async def test_a_url_carrying_a_credential_is_refused(self, url):
         with pytest.raises(ValueError, match=r"archiver\.settings\.url") as exc_info:
-            await MongoDBArchiverConnector().connect(self._config(url))
+            _archive(self._config(url))
 
         assert url not in str(exc_info.value)
 
@@ -962,7 +990,7 @@ class TestUrlWithoutDocker:
         url = f"mongodb://h.example.org/?{option}=x"
 
         with pytest.raises(ValueError, match=rf"`{option}`.*`{re.escape(key)}`"):
-            await MongoDBArchiverConnector().connect(self._config(url))
+            _archive(self._config(url))
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -972,7 +1000,7 @@ class TestUrlWithoutDocker:
         url = f"mongodb://h.example.org/?tls=true&{option}=true"
 
         with pytest.raises(ValueError, match=rf"`{option}`.*certificate verification"):
-            await MongoDBArchiverConnector().connect(self._config(url))
+            _archive(self._config(url))
 
     @pytest.mark.asyncio
     async def test_a_malformed_url_is_refused_by_key(self):
@@ -981,7 +1009,7 @@ class TestUrlWithoutDocker:
         with pytest.raises(
             ValueError, match=r"archiver\.settings\.url.*not a valid connection string"
         ):
-            await MongoDBArchiverConnector().connect(self._config(url))
+            _archive(self._config(url))
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -997,12 +1025,12 @@ class TestUrlWithoutDocker:
     )
     async def test_an_option_after_a_semicolon_separator_is_refused(self, url, option, key):
         with pytest.raises(ValueError, match=rf"`{option}`.*`{re.escape(key)}`"):
-            await MongoDBArchiverConnector().connect(self._config(url))
+            _archive(self._config(url))
 
     @pytest.mark.asyncio
     async def test_a_url_with_another_scheme_is_refused(self):
         with pytest.raises(ValueError, match="mongodb://"):
-            await MongoDBArchiverConnector().connect(self._config("https://h.example.org/"))
+            _archive(self._config("https://h.example.org/"))
 
     @pytest.mark.asyncio
     async def test_the_route_is_logged_once_per_process(self, monkeypatch, caplog):
@@ -1012,9 +1040,8 @@ class TestUrlWithoutDocker:
         monkeypatch.setattr(module.logger, "propagate", True, raising=False)
         caplog.set_level(logging.INFO)
 
-        with patch("pymongo.MongoClient"):
-            await MongoDBArchiverConnector().connect(self._config(self.URL))
-            await MongoDBArchiverConnector().connect(self._config(self.URL))
+        _archive(self._config(self.URL))
+        _archive(self._config(self.URL))
 
         routes = [r.getMessage() for r in caplog.records if "reaches its store" in r.getMessage()]
         assert routes == [
@@ -1029,33 +1056,29 @@ class TestErrorHandlingWithoutDocker:
 
     @staticmethod
     def _erroring_connector(**side_effects):
-        """Return a connected connector whose named collection methods raise."""
-        connector = MongoDBArchiverConnector()
-        connector._connected = True
-        connector._collection = MagicMock()
-        connector._timeout = 10
+        """Return an open archive whose named collection methods raise."""
+        connector = _wired(MagicMock())
         for method, exception in side_effects.items():
             getattr(connector._collection, method).side_effect = exception
         return connector
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("raised", "match"),
+        ("raised", "cause", "match"),
         [
-            ("ConnectionFailure", "Cannot connect to MongoDB"),
-            ("ConfigurationError", "MongoDB configuration error"),
-            (TimeoutError("unreachable"), "MongoDB connection failed"),
-            (OSError("unreachable"), "MongoDB connection failed"),
-            (RuntimeError("driver bug"), "MongoDB connection failed"),
+            ("ConnectionFailure", "unreachable", "Cannot connect to MongoDB"),
+            ("ConfigurationError", "misconfigured", "MongoDB configuration error"),
+            (TimeoutError("unreachable"), "unreachable", "MongoDB connection failed"),
+            (OSError("unreachable"), "unreachable", "MongoDB connection failed"),
+            (RuntimeError("driver bug"), "failed", "MongoDB connection failed"),
         ],
     )
-    async def test_connect_failures_map_to_connection_error(self, raised, match, monkeypatch):
-        """Every connect()-time failure surfaces as ConnectorUnavailableError, message per cause."""
+    async def test_open_failures_answer_unavailable(self, raised, cause, match, monkeypatch):
+        """Every failure to open the store is the first call's answer, cause and words per failure."""
         if isinstance(raised, str):  # pymongo exception class, imported lazily
             pymongo_errors = pytest.importorskip("pymongo.errors")
             raised = getattr(pymongo_errors, raised)("refused")
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-        connector = MongoDBArchiverConnector()
         config = {
             "host": "mongodb.example.invalid",
             "port": default_port("mongo"),
@@ -1068,12 +1091,17 @@ class TestErrorHandlingWithoutDocker:
             },
         }
 
+        connector = _archive(config)
         with patch("pymongo.MongoClient") as mock_client_cls:
             mock_client_cls.return_value.admin.command.side_effect = raised
-            with pytest.raises(ConnectorUnavailableError, match=match) as exc_info:
-                await connector.connect(config)
+            answer = await connector.probe()
 
-        assert isinstance(exc_info.value.__cause__, type(raised))
+        assert isinstance(answer, Unavailable)
+        assert answer.cause == cause
+        assert re.match(match, answer.reason)
+        # A client whose ping failed is closed and not kept: the next call opens afresh.
+        mock_client_cls.return_value.close.assert_called_once()
+        assert connector._client is None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1101,12 +1129,15 @@ class TestErrorHandlingWithoutDocker:
             "tls": {"ca_bundle": "/etc/ssl/certs/missing-site-ca.pem"},
         }
 
+        connector = _archive(config)
         with patch("pymongo.MongoClient", side_effect=raised):
-            with pytest.raises(ConnectorUnavailableError, match=r"tls\.ca_bundle") as exc_info:
-                await MongoDBArchiverConnector().connect(config)
+            answer = await connector.probe()
 
-        assert exc_info.value.__cause__ is raised
-        assert DEPLOY_HINT not in str(exc_info.value)
+        assert isinstance(answer, Unavailable)
+        assert answer.cause == "misconfigured"
+        assert "tls.ca_bundle" in answer.reason
+        assert str(raised) in answer.reason
+        assert DEPLOY_HINT not in answer.reason
 
     @pytest.mark.asyncio
     async def test_a_missing_file_without_a_ca_bundle_is_not_blamed_on_one(self, monkeypatch):
@@ -1123,13 +1154,14 @@ class TestErrorHandlingWithoutDocker:
             },
         }
 
+        connector = _archive(config)
         with patch("pymongo.MongoClient", side_effect=FileNotFoundError(2, "missing")):
-            with pytest.raises(
-                ConnectorUnavailableError, match="MongoDB connection failed"
-            ) as exc_info:
-                await MongoDBArchiverConnector().connect(config)
+            answer = await connector.probe()
 
-        assert "tls.ca_bundle" not in str(exc_info.value)
+        assert isinstance(answer, Unavailable)
+        assert answer.cause == "unreachable"
+        assert answer.reason.startswith("MongoDB connection failed")
+        assert "tls.ca_bundle" not in answer.reason
 
     @pytest.mark.asyncio
     async def test_a_bearer_token_is_refused_by_name(self, monkeypatch):
@@ -1137,7 +1169,7 @@ class TestErrorHandlingWithoutDocker:
         monkeypatch.setenv("MONGODB_MOCK_TOKEN", "secret")
 
         with pytest.raises(ValueError, match="not a bearer token") as exc_info:
-            await MongoDBArchiverConnector().connect(
+            _archive(
                 {
                     "host": "mongodb.example.invalid",
                     "port": default_port("mongo"),
@@ -1160,10 +1192,9 @@ class TestErrorHandlingWithoutDocker:
         """
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
         monkeypatch.delenv("OSPREY_ARCHIVER_MONGODB_PORT", raising=False)
-        connector = MongoDBArchiverConnector()
 
         with pytest.raises(ValueError, match="port is required for MongoDB archiver"):
-            await connector.connect(
+            _archive(
                 {
                     "host": "mongodb.example.invalid",
                     "name": "testdb",
@@ -1182,71 +1213,75 @@ class TestErrorHandlingWithoutDocker:
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
         monkeypatch.setenv("OSPREY_ARCHIVER_MONGODB_HOST", "archiver-mongodb")
         monkeypatch.setenv("OSPREY_ARCHIVER_MONGODB_PORT", "27017")
-        connector = MongoDBArchiverConnector()
+        connector = _archive(
+            {
+                "name": "testdb",
+                "collection": "testcoll",
+                "auth": {
+                    "source": "admin",
+                    "username": "user",
+                    "password_env": "MONGODB_MOCK_PASSWORD",
+                },
+            }
+        )
 
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await connector.connect(
-                {
-                    "name": "testdb",
-                    "collection": "testcoll",
-                    "auth": {
-                        "source": "admin",
-                        "username": "user",
-                        "password_env": "MONGODB_MOCK_PASSWORD",
-                    },
-                }
-            )
+            assert isinstance(await connector.probe(), str)
 
         assert mock_client_cls.call_args.kwargs["port"] == 27017
 
     @pytest.mark.asyncio
-    async def test_disconnect_swallows_close_error_and_clears_state(self):
+    async def test_aclose_swallows_close_error_and_clears_state(self):
         """A failing client.close() is logged, not raised, and state is still cleared."""
         connector = self._erroring_connector()
         connector._client = MagicMock()
         connector._client.close.side_effect = RuntimeError("socket already closed")
 
-        await connector.disconnect()
+        await connector.aclose()
 
         assert connector._client is None
         assert connector._collection is None
-        assert connector._connected is False
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("raised", "expected", "match"),
+        ("raised", "cause", "reason"),
         [
-            (TimeoutError("slow server"), TimeoutError, "MongoDB query timed out after 10s"),
+            # The configured timeout_s reads as a float, so the reason says 10.0s.
+            (TimeoutError("slow server"), "timeout", "MongoDB query timed out after 10.0s"),
             (
                 ConnectionError("connection reset"),
-                ConnectorUnavailableError,
-                "Network connectivity issue with MongoDB",
+                "unreachable",
+                "Network connectivity issue with MongoDB: connection reset",
             ),
-            (ValueError("bad document"), ValueError, "Error retrieving data from MongoDB"),
-            (TypeError("bad document"), ValueError, "Error retrieving data from MongoDB"),
-            # The helper's connector never ran connect(), so the pymongo types are
-            # unbound and ``_connection_error_types()`` is an empty tuple; an empty
-            # tuple in an ``except`` clause must simply not match, not blow up.
+            (
+                ValueError("bad document"),
+                "bad_reply",
+                "Error retrieving data from MongoDB: bad document",
+            ),
+            (
+                TypeError("bad document"),
+                "bad_reply",
+                "Error retrieving data from MongoDB: bad document",
+            ),
             pytest.param(
                 RuntimeError("cursor lost"),
-                ValueError,
-                "Error retrieving data from MongoDB",
-                id="unbound_pymongo_types",
+                "failed",
+                "Error retrieving data from MongoDB: cursor lost",
+                id="an_unclassified_failure",
             ),
         ],
     )
-    async def test_get_data_failures_map_per_exception_type(self, raised, expected, match):
-        """Each get_data()-time failure re-raises as the documented type and message."""
+    async def test_history_failures_answer_per_exception_type(self, raised, cause, reason):
+        """Each failure of a history read is an answer: the documented cause and words."""
         connector = self._erroring_connector(find=raised)
 
-        with pytest.raises(expected, match=match) as exc_info:
-            await connector.get_data(
-                ["BEAM:CURRENT"],
-                start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                end_at=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+        answer = await connector.history(
+            ["BEAM:CURRENT"],
+            start_at=datetime(2024, 1, 1, tzinfo=UTC),
+            end_at=datetime(2024, 1, 2, tzinfo=UTC),
+        )
 
-        assert isinstance(exc_info.value.__cause__, type(raised))
+        assert answer == Unavailable(cause=cause, reason=reason)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1258,44 +1293,38 @@ class TestErrorHandlingWithoutDocker:
         ids=["start", "end"],
     )
     async def test_non_datetime_bound_is_rejected(self, bound, start, end):
-        """get_data raises TypeError naming whichever bound is not a datetime."""
+        """history raises TypeError naming whichever bound is not a datetime."""
         connector = self._erroring_connector()
 
         with pytest.raises(TypeError, match=f"{bound} must be a datetime object"):
-            await connector.get_data(["BEAM:CURRENT"], start_at=start, end_at=end)
+            await connector.history(["BEAM:CURRENT"], start_at=start, end_at=end)
 
         connector._collection.find.assert_not_called()
 
-    @pytest.mark.skipif(
-        not hasattr(ArchiverConnector, "store_extent"),
-        reason="installed osprey-connectors reports a failed read as not archived",
-    )
     @pytest.mark.asyncio
-    async def test_availability_query_errors_degrade_to_unknown(self):
-        """get_metadata()/check_availability() report unknown (None) instead of raising."""
+    async def test_coverage_query_errors_answer_unavailable(self):
+        """A coverage read that fails answers why instead of raising, and claims no channel.
+
+        An unreadable store reports no coverage rather than inventing one: not
+        "not archived", and no bounds, for any channel asked.
+        """
         connector = self._erroring_connector(
             find_one=RuntimeError("cursor lost"),
             count_documents=RuntimeError("cursor lost"),
         )
 
-        metadata = await connector.get_metadata("BEAM:CURRENT")
-        assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.address == "BEAM:CURRENT"
-        assert metadata.is_archived is None
-        # An unreadable store reports no coverage rather than inventing one.
-        assert metadata.first_sample_at is None
-        assert metadata.last_sample_at is None
+        answer = await connector.coverage(["BEAM:CURRENT", "BEAM:LIFETIME"])
 
-        availability = await connector.check_availability(["BEAM:CURRENT", "BEAM:LIFETIME"])
-        assert availability == {"BEAM:CURRENT": None, "BEAM:LIFETIME": None}
+        assert answer == Unavailable(
+            cause="failed", reason="the MongoDB archive could not be read: RuntimeError"
+        )
 
     @pytest.mark.asyncio
-    async def test_get_data_pymongo_connection_loss_maps_to_connector_unavailable(self):
-        """A pymongo connection-class failure mid-query is the connector being unavailable.
+    async def test_history_pymongo_connection_loss_answers_unreachable(self):
+        """A pymongo connection-class failure mid-query is the store being unreachable.
 
-        The supervisor rebuilds an unavailable archiver connector, so mapping
-        this to the generic ValueError would leave a dead client cached and
-        every later archiver call failing until the server restarted.
+        Answered as ``unreachable``, not as the generic failure the last branch
+        gives; the client is kept, and pymongo reconnects it on the next call.
         """
         pymongo_errors = pytest.importorskip("pymongo.errors")
         # ServerSelectionTimeoutError -> AutoReconnect -> ConnectionFailure: the
@@ -1303,70 +1332,78 @@ class TestErrorHandlingWithoutDocker:
         lost = pymongo_errors.ServerSelectionTimeoutError("no replica set members available")
 
         connector = self._erroring_connector(find=lost)
-        connector._ConnectionFailure = pymongo_errors.ConnectionFailure
 
-        with pytest.raises(
-            ConnectorUnavailableError, match="Lost connection to MongoDB"
-        ) as exc_info:
-            await connector.get_data(
-                ["BEAM:CURRENT"],
-                start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                end_at=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+        answer = await connector.history(
+            ["BEAM:CURRENT"],
+            start_at=datetime(2024, 1, 1, tzinfo=UTC),
+            end_at=datetime(2024, 1, 2, tzinfo=UTC),
+        )
 
-        assert exc_info.value.__cause__ is lost
+        assert answer == Unavailable(
+            cause="unreachable",
+            reason="Lost connection to MongoDB: no replica set members available",
+        )
+        assert connector._collection is not None
 
     @pytest.mark.asyncio
-    async def test_a_lost_connection_makes_the_supervisor_drop_the_archiver(self):
-        """The mapping is only useful if the MCP supervisor drops the connector for it.
+    async def test_a_lost_connection_is_answered_and_the_archive_is_kept(self):
+        """The controls server holds one archive per target and never drops it.
 
-        This is the half a per-connector unit test cannot see: ``get_data``
-        raising ConnectorUnavailableError and the supervisor that owns the
-        archiver dropping it are two separate pieces, and the recovery is the
-        claim that spans them. Wiring the real connector's failure through the
-        real supervised handle and the real handler is what pins it.
+        The archive answers a lost store as ``Unavailable``, so nothing raises
+        for a supervisor to recover from: the tool's envelope says the archive
+        could not be reached, names no recovery, and the next call is served by
+        the same archive, which asks the store again.
         """
         from fastmcp.exceptions import ToolError
 
         from osprey.mcp_server.control_system import server_context
-        from osprey.mcp_server.control_system.error_handling import connector_error_handler
+        from osprey.mcp_server.control_system.error_handling import (
+            connector_error_handler,
+            refuse_unavailable,
+        )
 
         pymongo_errors = pytest.importorskip("pymongo.errors")
         connector = self._erroring_connector(find=pymongo_errors.AutoReconnect("primary stepped"))
-        connector._ConnectionFailure = pymongo_errors.ConnectionFailure
-        connector.disconnect = AsyncMock()
 
         context = server_context.ControlSystemContext()
         context._config = server_context.MCPServerConfig(raw={})
-        context._connectors["archiver"] = server_context.ConnectorEntry(
-            config={}, instance=connector, connector_type="archiver"
-        )
+        context._archives["va"] = connector
+        spec = _spec(_STUB_BLOCK)
 
         with pytest.raises(ToolError) as raised:
             async with connector_error_handler("archiver_read", connector_name="archiver"):
-                archiver = await context.archiver()
-                await archiver.get_data(
+                archive = await context.archive(spec)
+                answer = await archive.history(
                     ["BEAM:CURRENT"],
                     start_at=datetime(2024, 1, 1, tzinfo=UTC),
                     end_at=datetime(2024, 1, 2, tzinfo=UTC),
                 )
+                assert isinstance(answer, Unavailable)
+                refuse_unavailable("archiver_read", "archiver", answer)
 
         envelope = json.loads(str(raised.value))
         assert envelope["error_type"] == "connection_error"
-        assert [r["action"] for r in envelope["details"]["recovery"]] == ["connector_dropped"]
-        connector.disconnect.assert_awaited_once()
-        assert context._connectors["archiver"].instance is None
+        assert envelope["error_message"] == (
+            "Failed to connect to the archiver: Lost connection to MongoDB: primary stepped."
+        )
+        assert "details" not in envelope
+        assert await context.archive(spec) is connector
+        again = await connector.history(
+            ["BEAM:CURRENT"],
+            start_at=datetime(2024, 1, 1, tzinfo=UTC),
+            end_at=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        assert isinstance(again, Unavailable)
+        assert connector._collection.find.call_count == 2
 
 
-class TestHonestMetadataWithoutDocker:
-    """``get_metadata`` reports the coverage the store actually holds."""
+class TestHonestCoverageWithoutDocker:
+    """``coverage`` reports the span the store actually holds."""
 
     @staticmethod
     def _connector_with_extent(oldest, newest):
-        """A connected connector whose find_one returns the given boundary docs."""
-        connector = MongoDBArchiverConnector()
-        connector._connected = True
-        connector._collection = MagicMock()
+        """An open archive whose find_one returns the given boundary docs."""
+        connector = _wired(MagicMock())
         calls = []
 
         def _find_one(query, projection, sort):  # noqa: ARG001 - stands in for the collection's find_one, whose caller names sort
@@ -1385,7 +1422,7 @@ class TestHonestMetadataWithoutDocker:
         last = datetime(2025, 7, 1, 12, 0, tzinfo=UTC)
         connector, calls = self._connector_with_extent({"date": first}, {"date": last})
 
-        metadata = await connector.get_metadata("BEAM:CURRENT")
+        metadata = (await connector.coverage(["BEAM:CURRENT"]))["BEAM:CURRENT"]
 
         assert metadata.is_archived is True
         assert metadata.first_sample_at == first
@@ -1402,7 +1439,7 @@ class TestHonestMetadataWithoutDocker:
         """
         connector, calls = self._connector_with_extent(None, None)
 
-        metadata = await connector.get_metadata("NOT:STORED")
+        metadata = (await connector.coverage(["NOT:STORED"]))["NOT:STORED"]
 
         assert metadata.is_archived is False
         assert metadata.first_sample_at is None
@@ -1438,37 +1475,37 @@ class TestInNetworkAddressOverride:
         return config
 
     def test_no_environment_means_no_override(self, monkeypatch):
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         assert address_overrides() == (None, None)
 
     def test_the_environment_is_read_as_host_and_typed_port(self, monkeypatch):
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017")
 
         assert address_overrides() == ("archiver-mongodb", 27017)
 
     def test_whitespace_is_unset_not_an_address_of_nothing(self, monkeypatch):
         """A compose file that renders an empty value must not point the reader
         at the empty string — it must leave the configured value alone."""
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "   ")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "  ")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "   ")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "  ")
 
         assert address_overrides() == (None, None)
 
     def test_the_halves_are_independent(self, monkeypatch):
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         assert address_overrides() == ("archiver-mongodb", None)
 
     def test_a_port_that_is_not_a_port_is_refused_not_ignored(self, monkeypatch):
         """Falling back to the host-side port would send a container to an
         address nothing serves, for a reason nobody is looking at."""
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017a")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017a")
 
-        with pytest.raises(ValueError, match=PORT_OVERRIDE_ENV):
+        with pytest.raises(ValueError, match=_PORT_OVERRIDE_ENV):
             address_overrides()
 
     @pytest.mark.asyncio
@@ -1476,12 +1513,12 @@ class TestInNetworkAddressOverride:
         """The end this exists for: the worker's `archiver_read` reaches the
         store by its network alias while config.yml still says localhost."""
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017")
 
-        connector = MongoDBArchiverConnector()
+        connector = _archive(self._config(host="localhost", port=27117))
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await connector.connect(self._config(host="localhost", port=27117))
+            assert isinstance(await connector.probe(), str)
 
         kwargs = mock_client_cls.call_args.kwargs
         assert kwargs["host"] == "archiver-mongodb"
@@ -1491,12 +1528,12 @@ class TestInNetworkAddressOverride:
     async def test_the_connector_keeps_its_config_when_no_override_is_set(self, monkeypatch):
         """The host-side path, which is every agent running outside a container."""
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
-        connector = MongoDBArchiverConnector()
+        connector = _archive(self._config(host="facility-mongo.example.org", port=27117))
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await connector.connect(self._config(host="facility-mongo.example.org", port=27117))
+            assert isinstance(await connector.probe(), str)
 
         kwargs = mock_client_cls.call_args.kwargs
         assert kwargs["host"] == "facility-mongo.example.org"
@@ -1507,13 +1544,13 @@ class TestInNetworkAddressOverride:
         """The required-ness check is about having an address, not about where
         it came from."""
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
         config = self._config()
         del config["host"]
 
-        connector = MongoDBArchiverConnector()
+        connector = _archive(config)
         with patch("pymongo.MongoClient") as mock_client_cls:
-            await connector.connect(config)
+            assert isinstance(await connector.probe(), str)
 
         assert mock_client_cls.call_args.kwargs["host"] == "archiver-mongodb"
 
@@ -1592,13 +1629,8 @@ class _StubStore:
 
 
 def _waveform_connector(scalars=(), waveforms=(), waveform_raises=None):
-    """A connected connector reading the two stub stores."""
-    connector = MongoDBArchiverConnector()
-    connector._connected = True
-    connector._collection = _StubStore(scalars)
-    connector._waveforms = _StubStore(waveforms, raises=waveform_raises)
-    connector._timeout = 10
-    return connector
+    """An open archive reading the two stub stores."""
+    return _wired(_StubStore(scalars), _StubStore(waveforms, raises=waveform_raises))
 
 
 def _scalar_documents():
@@ -1607,14 +1639,14 @@ def _scalar_documents():
 
 
 class TestWaveformReadWithoutDocker:
-    """The waveform contract of ``get_data``, ``get_metadata`` and ``check_availability``."""
+    """The waveform contract of ``history`` and ``coverage``."""
 
     @pytest.mark.asyncio
     async def test_raw_returns_each_stored_trace_as_a_float_list(self):
         documents = _sek_documents(3)
         connector = _waveform_connector(waveforms=documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             [WAVEFORM_CHANNEL],
             start_at=WAVEFORM_T0 - timedelta(minutes=1),
             end_at=WAVEFORM_T0 + timedelta(minutes=1),
@@ -1634,7 +1666,7 @@ class TestWaveformReadWithoutDocker:
         documents = _sek_documents(10)
         connector = _waveform_connector(waveforms=documents)
 
-        df = await connector.get_data(
+        df = await connector.history(
             [WAVEFORM_CHANNEL],
             start_at=WAVEFORM_T0,
             end_at=WAVEFORM_T0 + timedelta(seconds=5),
@@ -1650,22 +1682,23 @@ class TestWaveformReadWithoutDocker:
     async def test_non_raw_on_a_waveform_channel_is_refused(self, processing):
         connector = _waveform_connector(waveforms=_sek_documents(3))
 
-        with pytest.raises(ValueError, match=r"waveform.*processing='raw'") as excinfo:
-            await connector.get_data(
+        with pytest.raises(ArchiveQueryError, match=r"waveform.*processing='raw'") as excinfo:
+            await connector.history(
                 [WAVEFORM_CHANNEL],
                 start_at=WAVEFORM_T0,
                 end_at=WAVEFORM_T0 + timedelta(minutes=1),
                 processing=processing,
             )
         assert WAVEFORM_CHANNEL in str(excinfo.value)
+        assert (excinfo.value.parameter, excinfo.value.address) == ("processing", WAVEFORM_CHANNEL)
 
     @pytest.mark.asyncio
     async def test_non_raw_is_refused_even_with_no_trace_in_the_window(self):
         """A waveform channel is a waveform channel outside its stored range too."""
         connector = _waveform_connector(waveforms=_sek_documents(3))
 
-        with pytest.raises(ValueError, match="waveform"):
-            await connector.get_data(
+        with pytest.raises(ArchiveQueryError, match="waveform"):
+            await connector.history(
                 [WAVEFORM_CHANNEL],
                 start_at=WAVEFORM_T0 + timedelta(days=10),
                 end_at=WAVEFORM_T0 + timedelta(days=11),
@@ -1676,7 +1709,7 @@ class TestWaveformReadWithoutDocker:
     async def test_non_raw_on_a_scalar_channel_still_works(self):
         connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(3))
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=WAVEFORM_T0,
             end_at=WAVEFORM_T0 + timedelta(hours=4),
@@ -1690,7 +1723,7 @@ class TestWaveformReadWithoutDocker:
     async def test_scalar_and_waveform_channels_in_one_request(self):
         connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(2))
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT", WAVEFORM_CHANNEL],
             start_at=WAVEFORM_T0,
             end_at=WAVEFORM_T0 + timedelta(hours=4),
@@ -1705,11 +1738,9 @@ class TestWaveformReadWithoutDocker:
     async def test_a_waveform_only_channel_is_available(self):
         connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(1))
 
-        availability = await connector.check_availability(
-            ["BEAM:CURRENT", WAVEFORM_CHANNEL, "NOT:STORED"]
-        )
+        coverage = await connector.coverage(["BEAM:CURRENT", WAVEFORM_CHANNEL, "NOT:STORED"])
 
-        assert availability == {
+        assert {address: c.is_archived for address, c in coverage.items()} == {
             "BEAM:CURRENT": True,
             WAVEFORM_CHANNEL: True,
             "NOT:STORED": False,
@@ -1720,7 +1751,7 @@ class TestWaveformReadWithoutDocker:
         documents = _sek_documents(4, spacing=timedelta(minutes=10))
         connector = _waveform_connector(scalars=_scalar_documents(), waveforms=documents)
 
-        metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
+        metadata = (await connector.coverage([WAVEFORM_CHANNEL]))[WAVEFORM_CHANNEL]
 
         assert metadata.is_archived is True
         assert metadata.first_sample_at == documents[0]["date"]
@@ -1733,35 +1764,30 @@ class TestWaveformReadWithoutDocker:
         documents = _sek_documents(2, spacing=timedelta(hours=1))
         connector = _waveform_connector(scalars=[early], waveforms=documents)
 
-        metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
+        metadata = (await connector.coverage([WAVEFORM_CHANNEL]))[WAVEFORM_CHANNEL]
 
         assert metadata.first_sample_at == early["date"]
         assert metadata.last_sample_at == documents[-1]["date"]
 
-    @pytest.mark.skipif(
-        not hasattr(ArchiverConnector, "store_extent"),
-        reason="installed osprey-connectors reports a failed read as not archived",
-    )
     @pytest.mark.asyncio
-    async def test_an_interrupted_read_reports_unknown_not_an_error(self):
+    async def test_an_interrupted_read_answers_unreachable_not_an_error(self):
+        """A connection lost mid-read is an answer for the whole request, never "not archived"."""
         pymongo_errors = pytest.importorskip("pymongo.errors")
         lost = pymongo_errors.AutoReconnect("connection reset")
         connector = _waveform_connector(waveforms=_sek_documents(1), waveform_raises=lost)
 
-        availability = await connector.check_availability([WAVEFORM_CHANNEL])
-        metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
+        answer = await connector.coverage([WAVEFORM_CHANNEL])
 
-        assert availability == {WAVEFORM_CHANNEL: None}
-        assert metadata.is_archived is None
-        assert metadata.first_sample_at is None
-        assert metadata.last_sample_at is None
+        assert answer == Unavailable(
+            cause="unreachable", reason="the MongoDB archive could not be read: AutoReconnect"
+        )
 
     @pytest.mark.asyncio
     async def test_a_connector_without_a_waveform_handle_reads_scalars_only(self):
         connector = _waveform_connector(scalars=_scalar_documents())
         connector._waveforms = None
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["BEAM:CURRENT"],
             start_at=WAVEFORM_T0,
             end_at=WAVEFORM_T0 + timedelta(hours=4),
@@ -1770,13 +1796,14 @@ class TestWaveformReadWithoutDocker:
         )
 
         assert list(df["value"]) == [103.0]
-        assert await connector.check_availability([WAVEFORM_CHANNEL]) == {WAVEFORM_CHANNEL: False}
+        coverage = await connector.coverage([WAVEFORM_CHANNEL])
+        assert coverage[WAVEFORM_CHANNEL].is_archived is False
 
     @pytest.mark.asyncio
-    async def test_disconnect_drops_the_waveform_handle(self):
+    async def test_aclose_drops_the_waveform_handle(self):
         connector = _waveform_connector(waveforms=_sek_documents(1))
 
-        await connector.disconnect()
+        await connector.aclose()
 
         assert connector._waveforms is None
 
@@ -1802,17 +1829,16 @@ class TestWaveformReadAgainstMongo:
 
     @pytest.mark.asyncio
     async def test_raw_reads_the_sek_traces(self, mongodb_config, waveform_store):
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+        connector = _archive(mongodb_config)
         try:
-            df = await connector.get_data(
+            df = await connector.history(
                 [WAVEFORM_CHANNEL],
                 start_at=WAVEFORM_T0,
                 end_at=WAVEFORM_T0 + timedelta(minutes=1),
                 precision_ms=60_000,
             )
         finally:
-            await connector.disconnect()
+            await connector.aclose()
 
         assert len(df) == len(waveform_store)
         for sample, document in zip(df["value"], waveform_store, strict=True):
@@ -1822,20 +1848,18 @@ class TestWaveformReadAgainstMongo:
             assert sample == document[field_name(WAVEFORM_CHANNEL)]
 
     @pytest.mark.asyncio
-    async def test_availability_metadata_and_processing(self, mongodb_config, waveform_store):
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
+    async def test_coverage_and_processing(self, mongodb_config, waveform_store):
+        connector = _archive(mongodb_config)
         try:
-            availability = await connector.check_availability([WAVEFORM_CHANNEL, "BEAM:CURRENT"])
-            metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
-            with pytest.raises(ValueError, match="waveform"):
-                await connector.get_data(
+            coverage = await connector.coverage([WAVEFORM_CHANNEL, "BEAM:CURRENT"])
+            with pytest.raises(ArchiveQueryError, match="waveform"):
+                await connector.history(
                     [WAVEFORM_CHANNEL],
                     start_at=WAVEFORM_T0,
                     end_at=WAVEFORM_T0 + timedelta(minutes=1),
                     processing="mean",
                 )
-            scalar = await connector.get_data(
+            scalar = await connector.history(
                 ["BEAM:CURRENT"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 1, 4, tzinfo=UTC),
@@ -1843,10 +1867,13 @@ class TestWaveformReadAgainstMongo:
                 processing="mean",
             )
         finally:
-            await connector.disconnect()
+            await connector.aclose()
 
-        assert availability == {WAVEFORM_CHANNEL: True, "BEAM:CURRENT": True}
-        assert metadata.is_archived is True
+        assert {address: c.is_archived for address, c in coverage.items()} == {
+            WAVEFORM_CHANNEL: True,
+            "BEAM:CURRENT": True,
+        }
+        metadata = coverage[WAVEFORM_CHANNEL]
         assert pd.Timestamp(metadata.first_sample_at).tz_localize(None) == pd.Timestamp(
             waveform_store[0]["date"]
         ).tz_localize(None)
@@ -1854,7 +1881,7 @@ class TestWaveformReadAgainstMongo:
 
 
 class _MemoryStore:
-    """An in-memory collection answering the reads ``store_extent`` and metadata make."""
+    """An in-memory collection answering the reads ``extent`` and ``coverage`` make."""
 
     def __init__(self, documents, *, fail: bool = False):
         self._documents = list(documents)
@@ -1892,20 +1919,11 @@ class _MemoryStore:
 
 
 def _memory_connector(scalars, waveforms=(), *, fail=False):
-    connector = MongoDBArchiverConnector()
-    connector._connected = True
-    connector._collection = _MemoryStore(scalars, fail=fail)
-    connector._waveforms = _MemoryStore(waveforms, fail=fail)
-    connector._timeout = 10
-    return connector
+    return _wired(_MemoryStore(scalars, fail=fail), _MemoryStore(waveforms, fail=fail))
 
 
-@pytest.mark.skipif(
-    not hasattr(ArchiverConnector, "store_extent"),
-    reason="installed osprey-connectors predates ArchiverConnector.store_extent",
-)
 class TestStoreExtentWithoutDocker:
-    """``store_extent`` answers the store's channels and its sample span."""
+    """``extent`` answers the store's channels and its sample span."""
 
     @pytest.mark.asyncio
     async def test_a_two_tier_store_answers_every_channel_and_its_span(self):
@@ -1931,41 +1949,40 @@ class TestStoreExtentWithoutDocker:
         ]
         connector = _memory_connector(coarse + dense, traces)
 
-        extent = await connector.store_extent()
+        extent = await connector.extent(timeout_s=10)
 
         # The newest documents name the channels: one dropped since is not listed.
+        assert isinstance(extent, ArchiveExtent)
         assert extent.addresses == frozenset({"SR:A", "REC.RBV", "SR:WAVE", "SR:TRACE.X"})
         assert extent.oldest_at == base
         assert extent.newest_at == base + timedelta(minutes=60, seconds=50)
-        assert extent.reason is None
 
     @pytest.mark.asyncio
-    async def test_a_failing_store_answers_unknown_with_a_reason(self):
+    async def test_a_failing_store_answers_unavailable_with_a_reason(self):
         connector = _memory_connector([], fail=True)
 
-        extent = await connector.store_extent()
+        extent = await connector.extent(timeout_s=10)
 
-        assert extent.addresses is None
-        assert extent.oldest_at is None and extent.newest_at is None
-        assert "could not be read" in extent.reason
+        assert extent == Unavailable(
+            cause="failed", reason="the MongoDB archive could not be read: RuntimeError"
+        )
 
     @pytest.mark.asyncio
     async def test_an_empty_store_holds_no_channels(self):
-        extent = await _memory_connector([]).store_extent()
+        extent = await _memory_connector([]).extent(timeout_s=10)
 
+        assert isinstance(extent, ArchiveExtent)
         assert extent.addresses == frozenset()
         assert extent.newest_at is None
 
     @pytest.mark.asyncio
-    async def test_a_failed_read_is_unknown_not_unarchived(self):
+    async def test_a_failed_read_is_unavailable_not_unarchived(self):
         connector = _memory_connector([], fail=True)
 
-        metadata = await connector.get_metadata("SR:A")
-        availability = await connector.check_availability(["SR:A", "SR:B"])
+        coverage = await connector.coverage(["SR:A", "SR:B"])
 
-        assert metadata.is_archived is None
-        assert "could not be read" in metadata.description
-        assert availability == {"SR:A": None, "SR:B": None}
+        assert isinstance(coverage, Unavailable)
+        assert "could not be read" in coverage.reason
 
     @pytest.mark.asyncio
     async def test_a_failed_read_never_answers_the_exception_text(self):
@@ -1980,8 +1997,9 @@ class TestStoreExtentWithoutDocker:
 
         connector._collection = connector._waveforms = Leaking()
 
-        metadata = await connector.get_metadata("SR:A")
-        extent = await connector.store_extent()
+        coverage = await connector.coverage(["SR:A"])
+        extent = await connector.extent(timeout_s=10)
 
-        assert metadata.description == "the MongoDB archive could not be read: ConnectionError"
-        assert extent.reason == "the MongoDB archive could not be read: ConnectionError"
+        reason = "the MongoDB archive could not be read: ConnectionError"
+        assert coverage == Unavailable(cause="unreachable", reason=reason)
+        assert extent == Unavailable(cause="unreachable", reason=reason)

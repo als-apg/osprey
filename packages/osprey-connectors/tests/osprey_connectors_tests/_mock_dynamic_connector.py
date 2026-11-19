@@ -1,6 +1,6 @@
 """Mock connector for testing dynamic import in ConnectorFactory."""
 
-from osprey_connectors.archiver._base import ArchiverConnector
+from osprey_connectors.archiver import ChannelArchive
 from osprey_connectors.control_system._base import ControlSystemConnector
 
 
@@ -44,31 +44,26 @@ class MockDynamicConnector(ControlSystemConnector):
         pass
 
 
-class RecordingArchiver(ArchiverConnector):
-    """Archiver that keeps the settings block ``connect()`` was handed."""
+class RecordingArchiver(ChannelArchive):
+    """Archive that keeps the settings block its spec was built with."""
 
     settings: dict | None = None
 
-    async def connect(self, config):
-        type(self).settings = config
+    def __init__(self, spec, *, project_dir=None, **seams):
+        super().__init__(spec, project_dir=project_dir, **seams)
+        type(self).settings = dict(spec.settings)
 
-    async def disconnect(self):
-        raise NotImplementedError
-
-    async def get_data(
+    async def history(
         self,
-        channels,
+        addresses,
         *,
         start_at,
         end_at,
         precision_ms=1000,
-        timeout_s=None,
         processing="raw",
+        timeout_s=None,
     ):
         raise NotImplementedError
 
-    async def get_metadata(self, channel):
-        raise NotImplementedError
-
-    async def check_availability(self, channels):
+    async def coverage(self, addresses, *, timeout_s=None):
         raise NotImplementedError

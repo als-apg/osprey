@@ -3,10 +3,10 @@
 Covers: time parsing, raw vs processed data, artifact persistence,
 timeout handling, and error format compliance.
 
-Note: archiver_read uses the registry to get the archiver connector.
-The connector returns the canonical long-format DataFrame (columns
-``timestamp``, ``channel``, ``value``), and archiver_read always saves the
-per-channel series to the ArtifactStore.
+Note: archiver_read builds the archive the session's target opens through the
+registry. Its ``history`` returns the canonical long-format DataFrame (columns
+``timestamp``, ``address``, ``value``), or ``Unavailable``, and archiver_read
+always saves the per-channel series to the ArtifactStore.
 """
 
 import json
@@ -19,6 +19,7 @@ import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.archiver._timerange import long_frame
+from osprey_connectors.service_answers import Unavailable
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.facility.served_tree import served_tree
 from tests.mcp_server.conftest import (
@@ -75,36 +76,43 @@ def archiver_project(tmp_path, monkeypatch):
 
 @pytest.fixture
 def archiver_read_tool(archiver_project):  # noqa: ARG001 - the tool resolves its archiver through the rendered project
-    """``(tool, connector)`` with the archiver connector factory patched out.
+    """``(tool, archive)`` with the factory's ``create_service`` patched out.
 
-    Set ``connector.get_data.return_value`` (or ``.side_effect``), then await
+    Set ``archive.history.return_value`` (or ``.side_effect``), then await
     the tool. Tests that need the real ``MockArchiverConnector`` take
     ``archiver_project`` instead.
 
-    The coverage probes carry benign defaults — every channel available,
-    metadata archived but boundless — because a bare ``AsyncMock`` would hand
-    the empty-channel path awaitable mocks instead of ``ArchiverMetadata`` and
-    blow up on the first datetime comparison. Boundless metadata classifies as
+    The coverage probe carries a benign default — every channel archived but
+    boundless — because a bare ``AsyncMock`` would hand the empty-channel path
+    an awaitable mock instead of ``ArchiveCoverage`` records and blow up on the
+    first datetime comparison. Boundless coverage classifies as
     ``coverage_unknown``, the verdict that asserts nothing about a store this
-    mock never had. Tests that exercise a specific verdict override them.
+    mock never had. Tests that exercise a specific verdict override it.
     """
-    from osprey_connectors.archiver._base import ArchiverMetadata
-
-    connector = AsyncMock()
-    connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
-    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(address=ch, is_archived=True)
+    archive = _mock_archive()
     with patch(
-        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_service",
         new_callable=AsyncMock,
-        return_value=connector,
+        return_value=archive,
     ):
-        yield _get_archiver_read(), connector
+        yield _get_archiver_read(), archive
+
+
+def _mock_archive() -> AsyncMock:
+    """A stand-in archive whose coverage answers every channel archived, boundless."""
+    from osprey_connectors.archiver import ArchiveCoverage
+
+    archive = AsyncMock()
+    archive.coverage.side_effect = lambda chans, **_: {
+        ch: ArchiveCoverage(address=ch, is_archived=True) for ch in chans
+    }
+    return archive
 
 
 async def test_archiver_read_basic(archiver_read_tool):
     """Basic archiver read returns summary with data file path."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -142,10 +150,10 @@ async def test_access_details_states_the_read_rule_once(archiver_read_tool):
     1-channel and a 20-channel read, and carry nothing ``summary``/``query``
     already carry.
     """
-    fn, connector = archiver_read_tool
+    fn, archive = archiver_read_tool
 
     async def read(channels):
-        connector.get_data.return_value = _make_archiver_df(dict.fromkeys(channels, [500.0, 500.1]))
+        archive.history.return_value = _make_archiver_df(dict.fromkeys(channels, [500.0, 500.1]))
         result = await fn(channels=channels, start_time="2024-01-15T10:00:00")
         return extract_response_dict(result)["access_details"]
 
@@ -168,8 +176,8 @@ async def test_access_details_states_the_read_rule_once(archiver_read_tool):
 
 async def test_archiver_read_relative_time(archiver_read_tool):
     """Archiver read with relative time strings (e.g., '1h ago')."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -334,8 +342,8 @@ async def test_archiver_read_unparseable_time(field, bad_value, kwargs):
 
 async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     """Archiver read saves data to the agent-data artifacts dir via ArtifactStore."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -369,8 +377,8 @@ async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
 
 async def test_archiver_read_multiple_channels(archiver_read_tool):
     """Multi-channel archiver read returns summary for all channels."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df(
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1],
             "SR:ENERGY:RB": [1.9, 1.9],
@@ -397,8 +405,8 @@ async def test_archiver_read_follows_requested_channel_order(tmp_path, archiver_
     """
     requested = ["SR:ZED:RB", "SR:VOID:RB", "SR:ALPHA:RB", "SR:MID:RB"]
     # Frame order is alphabetical (long_frame sorts) and omits SR:VOID:RB.
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df(
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df(
         {
             "SR:ALPHA:RB": [1.0],
             "SR:MID:RB": [2.0, 2.1, 2.2],
@@ -422,9 +430,11 @@ async def test_archiver_read_follows_requested_channel_order(tmp_path, archiver_
 
 
 async def test_archiver_read_timeout(archiver_read_tool):
-    """Archiver read timeout returns error."""
-    fn, connector = archiver_read_tool
-    connector.get_data.side_effect = TimeoutError("archiver query timed out")
+    """An archive that did not answer in time is a ``timeout_error`` built from its reason."""
+    fn, archive = archiver_read_tool
+    archive.history.return_value = Unavailable(
+        cause="timeout", reason="Archiver request timed out after 60s"
+    )
 
     with assert_raises_error(error_type="timeout_error") as _exc_ctx:
         await fn(
@@ -434,14 +444,18 @@ async def test_archiver_read_timeout(archiver_read_tool):
         )
 
     data = _exc_ctx["envelope"]
-    assert "error_message" in data
-    assert "suggestions" in data
+    assert data["error_message"] == "archiver_read timed out: Archiver request timed out after 60s"
+    assert data["suggestions"] == ["Check network connectivity.", "Try a smaller request."]
+    # Nothing recovered anything: the archive reopens itself.
+    assert "details" not in data
 
 
 async def test_archiver_read_connection_error(archiver_read_tool):
-    """Archiver connection error returns standard error format."""
-    fn, connector = archiver_read_tool
-    connector.get_data.side_effect = ConnectionError("archiver unreachable")
+    """An archive that could not be reached is a ``connection_error`` built from its reason."""
+    fn, archive = archiver_read_tool
+    archive.history.return_value = Unavailable(
+        cause="unreachable", reason="Cannot connect to archiver at https://archiver.example: down"
+    )
 
     with assert_raises_error(error_type="connection_error") as _exc_ctx:
         await fn(
@@ -450,8 +464,55 @@ async def test_archiver_read_connection_error(archiver_read_tool):
         )
 
     data = _exc_ctx["envelope"]
-    assert "error_message" in data
-    assert "suggestions" in data
+    assert data["error_message"] == (
+        "Failed to connect to the archiver: Cannot connect to archiver at "
+        "https://archiver.example: down."
+    )
+    assert data["suggestions"] == [
+        "Check that the archiver is running.",
+        "If the archiver settings are wrong, fix them in the build profile "
+        "(profile.yml on the host), then rebuild and redeploy.",
+    ]
+    # No recovery record: no supervisor dropped anything.
+    assert "details" not in data
+
+
+@pytest.mark.parametrize(
+    ("cause", "error_type"),
+    [
+        ("unreachable", "connection_error"),
+        ("refused", "connection_error"),
+        ("bad_reply", "connection_error"),
+        ("misconfigured", "connection_error"),
+        ("not_ready", "connection_error"),
+        ("timeout", "timeout_error"),
+        ("unsupported", "internal_error"),
+        ("failed", "internal_error"),
+    ],
+)
+async def test_each_cause_is_answered_with_its_envelope(archiver_read_tool, cause, error_type):
+    """Every cause an archive answers maps onto one of the three envelope words."""
+    fn, archive = archiver_read_tool
+    archive.history.return_value = Unavailable(cause=cause, reason="why")
+
+    with assert_raises_error(error_type=error_type):
+        await fn(channels=["SR:CURRENT:RB"], start_time="2024-01-15T10:00:00")
+
+
+async def test_a_failed_archive_is_an_internal_error_built_from_its_reason(archiver_read_tool):
+    fn, archive = archiver_read_tool
+    archive.history.return_value = Unavailable(
+        cause="unsupported", reason="Waveform PVs not supported: SR:SEK:WAVEFORM"
+    )
+
+    with assert_raises_error(error_type="internal_error") as _exc_ctx:
+        await fn(channels=["SR:SEK:WAVEFORM"], start_time="2024-01-15T10:00:00")
+
+    data = _exc_ctx["envelope"]
+    assert data["error_message"] == (
+        "Unexpected error during archiver_read: Waveform PVs not supported: SR:SEK:WAVEFORM"
+    )
+    assert data["suggestions"] == ["Check the MCP server logs for details."]
 
 
 async def test_archiver_read_nan_channel_data(archiver_read_tool):
@@ -460,8 +521,8 @@ async def test_archiver_read_nan_channel_data(archiver_read_tool):
     ``points`` is the real sample count for the channel (the archiver still
     returned two rows — it just recorded NaN in each), not zero.
     """
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df(
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1],
             "SR:MISSING:RB": [float("nan"), float("nan")],
@@ -500,8 +561,8 @@ async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, archiver
     ``pd.to_numeric(..., errors="coerce")`` turns every string into NaN, so the
     channel takes the same "no numeric samples" path as an all-NaN channel.
     """
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df(
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1],
             "MACHINE:MODE": ["Standby", "Injecting"],
@@ -535,8 +596,8 @@ async def test_archiver_read_null_samples_become_json_null(tmp_path, archiver_re
 
     Dropping the sample would misreport the channel's real cadence.
     """
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df(
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df(
         {
             "SR:GAPPY:RB": [500.0, float("nan"), 500.2],
             "SR:MISSING:RB": [float("nan"), float("nan")],
@@ -564,8 +625,8 @@ async def test_archiver_read_integer_channel_keeps_integer_values(tmp_path, arch
     """An integer-valued channel (bucket count, status code) stays integral,
     never rewritten as ``3.0`` through a float representation.
     """
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:BUCKET:COUNT": [3, 4, 5]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:BUCKET:COUNT": [3, 4, 5]})
 
     result = await fn(
         channels=["SR:BUCKET:COUNT"],
@@ -588,8 +649,8 @@ async def test_archiver_read_enum_channel_keeps_null_gaps_between_strings(
     Rendering the gap as ``"nan"``/``"None"`` would report the machine in a
     mode it was never in.
     """
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df(
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df(
         {"MACHINE:MODE": ["Standby", None, "Injecting"]}
     )
 
@@ -616,8 +677,8 @@ async def test_archiver_read_empty_channels():
 
 async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):
     """The advertised processing mode must reach the connector, not just the echo."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
     await fn(
         channels=["SR:CURRENT:RB"],
@@ -627,7 +688,7 @@ async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):
         bin_size=60,
     )
 
-    kwargs = connector.get_data.call_args.kwargs
+    kwargs = archive.history.call_args.kwargs
     assert kwargs["processing"] == "mean"
     assert kwargs["precision_ms"] == 60_000
 
@@ -658,8 +719,8 @@ def test_auto_bin_seconds_scales_with_span(span, expected_seconds):
 
 async def test_default_bin_widens_for_a_long_span(archiver_read_tool):
     """A one-year read with no bin_size asks for ~53-minute bins, and says so."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
 
     # 2023 is not a leap year: 365 days -> ceil(31_536_000 / 10_000) = 3154 s.
     result = await fn(
@@ -668,7 +729,7 @@ async def test_default_bin_widens_for_a_long_span(archiver_read_tool):
         end_time="2024-01-01T00:00:00",
     )
 
-    assert connector.get_data.call_args.kwargs["precision_ms"] == 3154 * 1000
+    assert archive.history.call_args.kwargs["precision_ms"] == 3154 * 1000
     summary = extract_response_dict(result)["summary"]
     assert summary["bin_size"] == 3154
     assert summary["bin_size_source"] == "auto"
@@ -676,8 +737,8 @@ async def test_default_bin_widens_for_a_long_span(archiver_read_tool):
 
 async def test_default_bin_stays_one_second_for_a_short_span(archiver_read_tool):
     """Short reads keep the 1-second default they always had."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -685,7 +746,7 @@ async def test_default_bin_stays_one_second_for_a_short_span(archiver_read_tool)
         end_time="2024-01-15T11:00:00",
     )
 
-    assert connector.get_data.call_args.kwargs["precision_ms"] == 1000
+    assert archive.history.call_args.kwargs["precision_ms"] == 1000
     summary = extract_response_dict(result)["summary"]
     assert summary["bin_size"] == 1
     assert summary["bin_size_source"] == "auto"
@@ -693,8 +754,8 @@ async def test_default_bin_stays_one_second_for_a_short_span(archiver_read_tool)
 
 async def test_explicit_bin_size_is_reported_as_requested(tmp_path, archiver_read_tool):
     """An explicit bin_size is used verbatim, and the echo says it was the caller's."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -704,7 +765,7 @@ async def test_explicit_bin_size_is_reported_as_requested(tmp_path, archiver_rea
     )
 
     data = extract_response_dict(result)
-    assert connector.get_data.call_args.kwargs["precision_ms"] == 60_000
+    assert archive.history.call_args.kwargs["precision_ms"] == 60_000
     assert data["summary"]["bin_size"] == 60
     assert data["summary"]["bin_size_source"] == "requested"
     # The artifact's query block records the bin that was USED, not the
@@ -715,8 +776,8 @@ async def test_explicit_bin_size_is_reported_as_requested(tmp_path, archiver_rea
 
 
 async def test_full_resolution_is_reported_as_requested_zero(archiver_read_tool):
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -732,22 +793,18 @@ async def test_full_resolution_is_reported_as_requested_zero(archiver_read_tool)
 
 async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
     """``archiver.auto_bin_points`` sets how many points the default bin aims for."""
-    from osprey_connectors.archiver._base import ArchiverMetadata
-
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(
         "archiver:\n  type: mock_archiver\n  auto_bin_points: 100\n"
     )
     initialize_server_context()
 
-    connector = AsyncMock()
-    connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
-    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(address=ch, is_archived=True)
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+    archive = _mock_archive()
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
     with patch(
-        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_service",
         new_callable=AsyncMock,
-        return_value=connector,
+        return_value=archive,
     ):
         result = await _get_archiver_read()(
             channels=["SR:CURRENT:RB"],
@@ -756,7 +813,7 @@ async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
         )
 
     # 3600 s / 100 points -> 36 s bins
-    assert connector.get_data.call_args.kwargs["precision_ms"] == 36_000
+    assert archive.history.call_args.kwargs["precision_ms"] == 36_000
     assert extract_response_dict(result)["summary"]["bin_size"] == 36
 
 
@@ -803,8 +860,8 @@ async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool
         lambda: ZoneInfo("America/Los_Angeles"),
     )
 
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -817,14 +874,14 @@ async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool
     assert "-08:00" in data["summary"]["time_range"]["start"]
 
     # The connector receives the facility-local instant; converting is its job.
-    start_arg = connector.get_data.call_args.kwargs["start_at"]
+    start_arg = archive.history.call_args.kwargs["start_at"]
     assert start_arg.utcoffset().total_seconds() == -8 * 3600
 
 
 async def test_archiver_read_bin_size_zero_is_full_resolution(archiver_read_tool):
     """bin_size=0 requests full-resolution data: precision_ms=0 reaches the connector."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
     result = await fn(
         channels=["SR:CURRENT:RB"],
@@ -836,7 +893,7 @@ async def test_archiver_read_bin_size_zero_is_full_resolution(archiver_read_tool
     data = extract_response_dict(result)
     assert data["status"] == "success"
 
-    kwargs = connector.get_data.call_args.kwargs
+    kwargs = archive.history.call_args.kwargs
     assert kwargs["precision_ms"] == 0
     assert kwargs["processing"] == "raw"
 
@@ -874,8 +931,8 @@ async def test_archiver_read_handles_ragged_channels(tmp_path, archiver_read_too
     """Channels with different sample counts are never forced onto a shared axis:
     one channel with 3 samples, another with 1, neither padded nor truncated.
     """
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df(
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1, 500.2],
             "SR:ENERGY:RB": [1.9],
@@ -902,8 +959,8 @@ async def test_archiver_read_channel_absent_from_result_reports_zero_points(arch
     """A requested channel with zero rows appears with points=0 and no numeric stats."""
     # Only SR:CURRENT:RB has any rows; SR:VOID:RB is requested but the
     # archiver returned nothing for it (e.g. out of archival range).
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB", "SR:VOID:RB"],
@@ -929,8 +986,8 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
     Consumers like ``build_data_reader`` rely on every *requested* channel
     getting an entry in ``series``, even one with no data in range.
     """
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB", "SR:VOID:RB"],
@@ -946,8 +1003,8 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
 
 async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
     """A caller-repeated channel name is queried and summarized once, not double-counted."""
-    fn, connector = archiver_read_tool
-    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
+    fn, archive = archiver_read_tool
+    archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
     result = await fn(
         channels=["SR:CURRENT:RB", "SR:CURRENT:RB"],
@@ -960,15 +1017,15 @@ async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
     assert list(data["summary"]["per_channel"].keys()) == ["SR:CURRENT:RB"]
 
     # The dedup happens before the connector call too.
-    queried_channels = connector.get_data.call_args.args[0]
+    queried_channels = archive.history.call_args.args[0]
     assert queried_channels == ["SR:CURRENT:RB"]
 
 
 class TestArchiverReadRealInProcessConnector:
     """End-to-end coverage through the real ``MockArchiverConnector``.
 
-    Every test above patches the connector factory, so only these exercise a
-    real connector's ``get_data`` — including its handling of ``precision_ms``.
+    Every test above patches the factory, so only these exercise a real
+    archive's ``history`` — including its handling of ``precision_ms``.
     """
 
     @pytest.fixture
@@ -1087,15 +1144,15 @@ class TestArchiverReadRealInProcessConnector:
 # ---------------------------------------------------------------------------
 
 
-def _probe(available=True, start=None, end=None, is_archived=True, note=None):
-    """A _CoverageProbe with an ArchiverMetadata built from bare bounds."""
+def _probe(start=None, end=None, is_archived=True, note=None):
+    """A _CoverageProbe with an ArchiveCoverage built from bare bounds."""
     from osprey.mcp_server.control_system.tools.archiver_read import _CoverageProbe
-    from osprey_connectors.archiver._base import ArchiverMetadata
+    from osprey_connectors.archiver import ArchiveCoverage
 
-    md = ArchiverMetadata(
+    covered = ArchiveCoverage(
         address="X", is_archived=is_archived, first_sample_at=start, last_sample_at=end
     )
-    return _CoverageProbe(available=available, metadata=md, note=note)
+    return _CoverageProbe(coverage=covered, note=note)
 
 
 _WIN_START = datetime(2026, 7, 5, tzinfo=UTC)
@@ -1160,19 +1217,19 @@ class TestComposeCoverage:
         )
         assert block["verdict"] == "gap_within_coverage"
 
-    def test_unavailable_channel_was_never_recorded(self):
-        block = self._compose({"CH": _probe(available=False, start=_ARC_START, end=_ARC_END)})
+    def test_a_channel_not_archived_was_never_recorded_whatever_its_bounds(self):
+        block = self._compose({"CH": _probe(is_archived=False, start=_ARC_START, end=_ARC_END)})
         assert block["verdict"] == "never_recorded"
         # No bounds on a channel that has none.
         assert "archive_start" not in block["channels"]["CH"]
 
-    def test_metadata_saying_not_archived_means_never_recorded(self):
+    def test_coverage_saying_not_archived_means_never_recorded(self):
         block = self._compose({"CH": _probe(is_archived=False)})
         assert block["verdict"] == "never_recorded"
 
     def test_an_archiver_that_cannot_say_is_unknown_not_never_recorded(self):
-        # The EPICS Archiver Appliance connector answers None for both probes.
-        block = self._compose({"CH": _probe(available=None, is_archived=None)})
+        # The EPICS Archiver Appliance connector answers None for every channel.
+        block = self._compose({"CH": _probe(is_archived=None)})
         assert block["verdict"] == "coverage_unknown"
 
     def test_boundless_metadata_is_unknown_not_guessed(self):
@@ -1183,10 +1240,10 @@ class TestComposeCoverage:
     def test_probe_failure_note_is_carried_not_raised(self):
         from osprey.mcp_server.control_system.tools.archiver_read import _CoverageProbe
 
-        probe = _CoverageProbe(available=None, metadata=None, note="metadata probe failed: boom")
+        probe = _CoverageProbe(coverage=None, note="the MongoDB archive could not be read: boom")
         block = self._compose({"CH": probe})
         assert block["verdict"] == "coverage_unknown"
-        assert block["channels"]["CH"]["note"] == "metadata probe failed: boom"
+        assert block["channels"]["CH"]["note"] == "the MongoDB archive could not be read: boom"
 
     def test_metadata_bounds_in_another_zone_are_served_in_utc(self):
         # The contract makes the bounds aware, not UTC; the served text is UTC
@@ -1208,7 +1265,7 @@ class TestComposeCoverage:
         block = self._compose(
             {
                 "OLD": _probe(start=_ARC_START, end=_ARC_END),
-                "GONE": _probe(available=False),
+                "GONE": _probe(is_archived=False),
             }
         )
         assert block["verdict"] == "mixed"
@@ -1221,21 +1278,21 @@ class TestCoverageInToolResponse:
     """The block reaches the agent — and costs nothing when nothing is empty."""
 
     async def test_empty_channel_gets_a_coverage_block(self, archiver_read_tool):
-        from osprey_connectors.archiver._base import ArchiverMetadata
+        from osprey_connectors.archiver import ArchiveCoverage
 
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({})  # nothing at all
-        # The fixture's benign probe defaults are side_effects; clear them or
-        # these return_values are silently ignored (side_effect wins in Mock).
-        connector.check_availability.side_effect = None
-        connector.check_availability.return_value = {"SR:OLD:RB": True}
-        connector.get_metadata.side_effect = None
-        connector.get_metadata.return_value = ArchiverMetadata(
-            address="SR:OLD:RB",
-            is_archived=True,
-            first_sample_at=_ARC_START,
-            last_sample_at=_ARC_END,
-        )
+        fn, archive = archiver_read_tool
+        archive.history.return_value = _make_archiver_df({})  # nothing at all
+        # The fixture's benign default is a side_effect; clear it or this
+        # return_value is silently ignored (side_effect wins in Mock).
+        archive.coverage.side_effect = None
+        archive.coverage.return_value = {
+            "SR:OLD:RB": ArchiveCoverage(
+                address="SR:OLD:RB",
+                is_archived=True,
+                first_sample_at=_ARC_START,
+                last_sample_at=_ARC_END,
+            )
+        }
 
         result = await fn(
             channels=["SR:OLD:RB"],
@@ -1248,30 +1305,30 @@ class TestCoverageInToolResponse:
         cov = data["summary"]["coverage"]
         assert cov["verdict"] == "window_precedes_archive"
         assert cov["channels"]["SR:OLD:RB"]["archive_start"] == _ARC_START.isoformat()
+        # One question, asked once, about the empty channels only.
+        archive.coverage.assert_awaited_once()
+        assert archive.coverage.await_args.args[0] == ["SR:OLD:RB"]
 
     async def test_fully_answered_query_has_no_block_and_no_probe(self, archiver_read_tool):
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0]})
+        fn, archive = archiver_read_tool
+        archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0]})
 
         result = await fn(channels=["SR:CURRENT:RB"], start_time="2024-01-15T10:00:00")
 
         data = extract_response_dict(result)
         assert "coverage" not in data["summary"]
-        # The probes are the empty path's cost, and only the empty path's.
-        connector.get_metadata.assert_not_awaited()
-        connector.check_availability.assert_not_awaited()
+        # The probe is the empty path's cost, and only the empty path's.
+        archive.coverage.assert_not_awaited()
 
     async def test_partial_result_explains_only_the_empty_channel(self, archiver_read_tool):
-        from osprey_connectors.archiver._base import ArchiverMetadata
+        from osprey_connectors.archiver import ArchiveCoverage
 
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
-        connector.check_availability.side_effect = None
-        connector.check_availability.return_value = {"SR:VOID:RB": False}
-        connector.get_metadata.side_effect = None
-        connector.get_metadata.return_value = ArchiverMetadata(
-            address="SR:VOID:RB", is_archived=False
-        )
+        fn, archive = archiver_read_tool
+        archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
+        archive.coverage.side_effect = None
+        archive.coverage.return_value = {
+            "SR:VOID:RB": ArchiveCoverage(address="SR:VOID:RB", is_archived=False)
+        }
 
         result = await fn(
             channels=["SR:CURRENT:RB", "SR:VOID:RB"], start_time="2024-01-15T10:00:00"
@@ -1284,80 +1341,82 @@ class TestCoverageInToolResponse:
         # The answered channel's data is untouched.
         assert data["summary"]["per_channel"]["SR:CURRENT:RB"]["points"] == 2
 
-    async def test_probe_failure_degrades_to_unknown_not_error(self, archiver_read_tool):
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({})
-        connector.check_availability.side_effect = RuntimeError("store went away")
-        connector.get_metadata.side_effect = RuntimeError("store went away")
+    async def test_an_archive_that_gave_no_answer_degrades_to_unknown_not_error(
+        self, archiver_read_tool
+    ):
+        """An ``Unavailable`` coverage is each empty channel's note, naming its cause only.
+
+        The reason can name the store's host, and the note is saved with the data.
+        """
+        fn, archive = archiver_read_tool
+        archive.history.return_value = _make_archiver_df({})
+        archive.coverage.side_effect = None
+        archive.coverage.return_value = Unavailable(
+            cause="unreachable",
+            reason="Cannot connect to MongoDB at db.example.org:27017. Please check connectivity.",
+        )
 
         result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
 
         data = extract_response_dict(result)
         assert data["status"] == "success"  # the read itself did not fail
-        cov = data["summary"]["coverage"]
-        assert cov["verdict"] == "coverage_unknown"
-        assert cov["channels"]["SR:OLD:RB"]["note"] == "metadata probe failed: RuntimeError"
+        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
+        assert entry == {
+            "verdict": "coverage_unknown",
+            "note": "coverage probe gave no answer: unreachable",
+        }
+        assert "db.example.org" not in json.dumps(data)
 
-    async def test_an_archiver_not_connected_reports_unknown_with_the_reason(
+    async def test_an_archive_that_cannot_say_reports_unknown_without_a_note(
         self, archiver_read_tool
     ):
-        """A refused availability probe still says why the coverage is unknown."""
-        from osprey_connectors.archiver._base import ArchiverMetadata
+        """``unknown_reason`` is the archive's own words about a channel, never a served note.
 
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({})
-        connector.check_availability.side_effect = RuntimeError("Archiver not connected")
-        connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
-            address=ch, is_archived=None
-        )
+        An answered coverage that cannot say (the appliance's) serves exactly what
+        it served when the two probes said ``None``: the verdict alone.
+        """
+        from osprey_connectors.archiver import ArchiveCoverage
+
+        fn, archive = archiver_read_tool
+        archive.history.return_value = _make_archiver_df({})
+        archive.coverage.side_effect = None
+        archive.coverage.return_value = {
+            "SR:OLD:RB": ArchiveCoverage(
+                address="SR:OLD:RB", is_archived=None, unknown_reason="the appliance is not asked"
+            )
+        }
 
         result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
 
         data = extract_response_dict(result)
         assert data["status"] == "success"
         entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
-        assert entry["verdict"] == "coverage_unknown"
-        assert entry["note"] == "availability probe failed: RuntimeError"
+        assert entry == {"verdict": "coverage_unknown"}
 
-    async def test_a_failed_metadata_probe_never_serves_the_exception_text(
+    async def test_a_refused_coverage_question_is_the_note_not_a_failed_read(
         self, archiver_read_tool
     ):
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({})
-        connector.check_availability.return_value = {}
-        connector.get_metadata.side_effect = RuntimeError(
-            "cannot reach https://reader:secret@archiver.example/mgmt"
+        """A channel the archive refuses to be asked about keeps the data that came back."""
+        from osprey_connectors.errors import ArchiveQueryError
+
+        fn, archive = archiver_read_tool
+        archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0]})
+        archive.coverage.side_effect = ArchiveQueryError(
+            "Archiver address 'SR:%' contains '%', a SQL wildcard.",
+            parameter="addresses",
+            address="SR:%",
         )
 
-        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+        result = await fn(channels=["SR:CURRENT:RB", "SR:%"], start_time="2024-01-15T10:00:00")
 
         data = extract_response_dict(result)
-        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
-        assert entry["note"] == "metadata probe failed: RuntimeError"
-        served = json.dumps(data)
-        assert "archiver.example" not in served and "secret" not in served
-
-    async def test_a_failed_availability_probe_never_serves_the_exception_text(
-        self, archiver_read_tool
-    ):
-        from osprey_connectors.archiver._base import ArchiverMetadata
-
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({})
-        connector.check_availability.side_effect = RuntimeError(
-            "cannot reach https://reader:secret@archiver.example/mgmt"
-        )
-        connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
-            address=ch, is_archived=None
-        )
-
-        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
-
-        data = extract_response_dict(result)
-        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
-        assert entry["note"] == "availability probe failed: RuntimeError"
-        served = json.dumps(data)
-        assert "archiver.example" not in served and "secret" not in served
+        assert data["status"] == "success"
+        assert data["summary"]["per_channel"]["SR:CURRENT:RB"]["points"] == 1
+        entry = data["summary"]["coverage"]["channels"]["SR:%"]
+        assert entry == {
+            "verdict": "coverage_unknown",
+            "note": "Archiver address 'SR:%' contains '%', a SQL wildcard.",
+        }
 
 
 # --- Waveform channels -------------------------------------------------------
@@ -1390,8 +1449,8 @@ class TestWaveformReads:
 
     async def test_inclusive_one_hour_window_fits_the_budget(self, tmp_path, archiver_read_tool):
         """61 traces x 500 points = 30 500 elements is under the 32 000 budget."""
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value, values = _waveform_df(61)
+        fn, archive = archiver_read_tool
+        archive.history.return_value, values = _waveform_df(61)
 
         result = await fn(
             channels=[_SEK],
@@ -1421,8 +1480,8 @@ class TestWaveformReads:
         self, tmp_path, archiver_read_tool
     ):
         """65 traces (32 500 elements) are refused, and nothing is saved."""
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value, _ = _waveform_df(65)
+        fn, archive = archiver_read_tool
+        archive.history.return_value, _ = _waveform_df(65)
 
         with assert_raises_error(error_type="validation_error") as ctx:
             await fn(
@@ -1444,9 +1503,9 @@ class TestWaveformReads:
 
     async def test_budget_sums_elements_across_waveform_channels(self, archiver_read_tool):
         """Two waveform channels share one budget: 2 x 33 traces x 500 is over it."""
-        fn, connector = archiver_read_tool
+        fn, archive = archiver_read_tool
         index, values = _sek_traces(33)
-        connector.get_data.return_value = long_frame(
+        archive.history.return_value = long_frame(
             {
                 _SEK: pd.Series(values, index=index, dtype=object),
                 "SR:SEK2:WAVEFORM": pd.Series(values, index=index, dtype=object),
@@ -1463,9 +1522,9 @@ class TestWaveformReads:
 
     async def test_scalar_samples_do_not_count_against_the_element_budget(self, archiver_read_tool):
         """A large scalar read is not a waveform read: no budget applies."""
-        fn, connector = archiver_read_tool
+        fn, archive = archiver_read_tool
         stamps = pd.date_range("2024-01-15T10:00:00", periods=40_000, freq="100ms", tz="UTC")
-        connector.get_data.return_value = long_frame(
+        archive.history.return_value = long_frame(
             {"SR:CURRENT:RB": pd.Series([500.0] * len(stamps), index=stamps)}
         )
 
@@ -1479,8 +1538,8 @@ class TestWaveformReads:
         assert extract_response_dict(result)["summary"]["total_points"] == 40_000
 
     async def test_each_trace_carries_its_own_stats(self, tmp_path, archiver_read_tool):
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value, values = _waveform_df(3)
+        fn, archive = archiver_read_tool
+        archive.history.return_value, values = _waveform_df(3)
 
         result = await fn(
             channels=[_SEK],
@@ -1503,9 +1562,9 @@ class TestWaveformReads:
         assert saved["stats"] == [{k: v for k, v in t.items() if k != "timestamp"} for t in traces]
 
     async def test_trace_with_nan_elements_gets_json_safe_stats(self, tmp_path, archiver_read_tool):
-        fn, connector = archiver_read_tool
+        fn, archive = archiver_read_tool
         index = pd.DatetimeIndex([_WAVE_T0, _WAVE_T0 + timedelta(minutes=1)])
-        connector.get_data.return_value = long_frame(
+        archive.history.return_value = long_frame(
             {
                 _SEK: pd.Series(
                     [[1.0, float("nan"), 3.0], [float("nan"), float("nan")]],
@@ -1535,8 +1594,8 @@ class TestWaveformReads:
         self, tmp_path, archiver_read_tool
     ):
         """bin_size=None on SEK: whole 500-point traces at the stored cadence."""
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value, values = _waveform_df(61)
+        fn, archive = archiver_read_tool
+        archive.history.return_value, values = _waveform_df(61)
 
         result = await fn(
             channels=[_SEK],
@@ -1561,8 +1620,8 @@ class TestWaveformReads:
     async def test_waveform_beside_scalar_leaves_the_scalar_entry_unchanged(
         self, archiver_read_tool
     ):
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value, _ = _waveform_df(2, {"SR:CURRENT:RB": [500.0, 502.0]})
+        fn, archive = archiver_read_tool
+        archive.history.return_value, _ = _waveform_df(2, {"SR:CURRENT:RB": [500.0, 502.0]})
 
         result = await fn(
             channels=["SR:CURRENT:RB", _SEK],
@@ -1581,8 +1640,8 @@ class TestWaveformReads:
         assert summary["waveforms"]["channels"] == [_SEK]
 
     async def test_scalar_read_has_no_waveform_keys(self, tmp_path, archiver_read_tool):
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+        fn, archive = archiver_read_tool
+        archive.history.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
         result = await fn(
             channels=["SR:CURRENT:RB"],
@@ -1604,8 +1663,8 @@ class TestWaveformReads:
         assert "waveforms" not in saved["query"]
 
     async def test_schema_describes_waveform_values(self, archiver_read_tool):
-        fn, connector = archiver_read_tool
-        connector.get_data.return_value, _ = _waveform_df(1)
+        fn, archive = archiver_read_tool
+        archive.history.return_value, _ = _waveform_df(1)
 
         result = await fn(channels=[_SEK], start_time="2024-01-15T10:00:00+00:00", bin_size=0)
 
@@ -1618,8 +1677,12 @@ class TestWaveformThroughRealMongoConnector:
 
     @pytest.fixture
     def mongo_tool(self, archiver_project):  # noqa: ARG002 - wires the project CWD
+        from osprey_connectors.archiver._mongodb_archiver_connector import (
+            MongoDBArchiverConnector,
+        )
+        from osprey_connectors.service_answers import BackendSpec
         from osprey_connectors.simulation.archive import waveform_document
-        from tests.connectors.test_mongodb_archiver_connector import _waveform_connector
+        from tests.connectors.test_mongodb_archiver_connector import _StubStore
 
         index, values = _sek_traces(61)
         expire = _WAVE_T0 + timedelta(days=30)
@@ -1627,11 +1690,22 @@ class TestWaveformThroughRealMongoConnector:
             waveform_document(_SEK, ts.to_pydatetime(), v, expire_at=expire)
             for ts, v in zip(index, values, strict=True)
         ]
-        connector = _waveform_connector(waveforms=docs)
+        archive = MongoDBArchiverConnector(
+            BackendSpec(
+                kind="archive",
+                type="mongodb_archiver",
+                target="va",
+                settings={"url": "mongodb://localhost", "name": "db", "collection": "c"},
+                rehearsal=False,
+            )
+        )
+        # The two stub stores stand in for the opened collections, so nothing is dialled.
+        archive._collection = _StubStore(())
+        archive._waveforms = _StubStore(docs)
         with patch(
-            "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_service",
             new_callable=AsyncMock,
-            return_value=connector,
+            return_value=archive,
         ):
             yield _get_archiver_read(), values
 

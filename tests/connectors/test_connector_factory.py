@@ -3,15 +3,17 @@
 import pytest
 
 from osprey_connectors import connector_types
-from osprey_connectors.archiver._base import ArchiverConnector
+from osprey_connectors.archiver import ChannelArchive
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
     ConnectorFactory,
 )
+from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors_tests._harness import isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -26,7 +28,7 @@ def setup_test_connectors():
     with isolated_connector_registries(clear=True):
         # Register the connectors (simulates what registry does)
         ConnectorFactory.register_control_system("virtual_accelerator", VAInProcessConnector)
-        ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
+        ConnectorFactory.register_service("archive", "mock_archiver", MockArchiverConnector)
 
         yield
 
@@ -53,20 +55,25 @@ class TestConnectorFactory:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_create_mock_archiver_connector(self, tmp_path):
-        """Test creating a mock archiver connector."""
-        config = {
-            "type": "mock_archiver",
-            "mock_archiver": in_process_config(served_tree(tmp_path), sample_rate_hz=1.0),
-        }
+    async def test_create_mock_archive(self, tmp_path):
+        """The archive is built from its spec like any service backend, and answers."""
+        spec = _archive_spec(
+            "mock_archiver", in_process_config(served_tree(tmp_path), sample_rate_hz=1.0)
+        )
 
-        connector = await ConnectorFactory.create_archiver_connector(config)
+        archive = await ConnectorFactory.create_service(spec)
 
-        assert isinstance(connector, ArchiverConnector)
-        assert isinstance(connector, MockArchiverConnector)
-        assert connector._connected is True
+        assert isinstance(archive, ChannelArchive)
+        assert isinstance(archive, MockArchiverConnector)
+        assert archive.spec is spec
+        assert (archive.source.kind, archive.source.target, archive.source.service) == (
+            "archive",
+            "va",
+            "mock_archiver",
+        )
+        assert isinstance(await archive.probe(), str)
 
-        await connector.disconnect()
+        await archive.aclose()
 
     @pytest.mark.asyncio
     async def test_factory_creates_independent_instances(self, tmp_path):
@@ -121,6 +128,13 @@ class TestConnectorFactory:
         assert "custom_test" in ConnectorFactory.list_control_systems()
 
 
+def _archive_spec(archive_type: str, settings: dict | None = None) -> BackendSpec:
+    """A spec of kind ``archive`` on ``va``, as ``service_targets`` writes one."""
+    return BackendSpec(
+        kind="archive", type=archive_type, target="va", settings=settings or {}, rehearsal=False
+    )
+
+
 # Written out here rather than read from ``_BUILTIN_CONTROL_SYSTEMS`` /
 # ``_BUILTIN_ARCHIVERS``: a name dropped from a tuple must still produce a case.
 _EVERY_BUILTIN_CONTROL_SYSTEM = (
@@ -142,7 +156,7 @@ _EVERY_BUILTIN_ARCHIVER = (
 def _registry_for(name: str) -> dict:
     if name in _EVERY_BUILTIN_CONTROL_SYSTEM:
         return ConnectorFactory._control_system_connectors
-    return ConnectorFactory._archiver_connectors
+    return ConnectorFactory._service_backends["archive"]
 
 
 class TestBuiltinRegistrationConverges:
@@ -159,12 +173,12 @@ class TestBuiltinRegistrationConverges:
     def test_the_tuples_list_every_builtin_that_is_registered(self):
         """A first call on an empty registry registers exactly the tuples' names."""
         ConnectorFactory._control_system_connectors.clear()
-        ConnectorFactory._archiver_connectors.clear()
+        ConnectorFactory._service_backends["archive"].clear()
 
         ConnectorFactory._ensure_builtins()
 
         registered = set(ConnectorFactory._control_system_connectors) | set(
-            ConnectorFactory._archiver_connectors
+            ConnectorFactory._service_backends["archive"]
         )
         assert registered == set(_BUILTIN_CONTROL_SYSTEMS) | set(_BUILTIN_ARCHIVERS)
         assert registered == set(_EVERY_BUILTIN_CONTROL_SYSTEM) | set(_EVERY_BUILTIN_ARCHIVER)
@@ -177,7 +191,7 @@ class TestBuiltinRegistrationConverges:
     def test_a_registry_missing_only_this_builtin_regains_it(self, name):
         """Every other built-in present, this one missing: the next call adds it."""
         ConnectorFactory._control_system_connectors.clear()
-        ConnectorFactory._archiver_connectors.clear()
+        ConnectorFactory._service_backends["archive"].clear()
         ConnectorFactory._ensure_builtins()
         registry = _registry_for(name)
         expected = registry.pop(name)
@@ -204,7 +218,9 @@ class TestBuiltinRegistrationConverges:
         ConnectorFactory._control_system_connectors[connector_types.LIVE_STANDIN] = (
             SentinelControlSystem
         )
-        ConnectorFactory._archiver_connectors[connector_types.MONGODB_ARCHIVER] = SentinelArchiver
+        ConnectorFactory._service_backends["archive"][connector_types.MONGODB_ARCHIVER] = (
+            SentinelArchiver
+        )
         # Force the call past its early return so the per-name guard is what runs.
         del ConnectorFactory._control_system_connectors[connector_types.EPICS]
 
@@ -215,7 +231,7 @@ class TestBuiltinRegistrationConverges:
             is SentinelControlSystem
         )
         assert (
-            ConnectorFactory._archiver_connectors[connector_types.MONGODB_ARCHIVER]
+            ConnectorFactory._service_backends["archive"][connector_types.MONGODB_ARCHIVER]
             is SentinelArchiver
         )
         assert connector_types.EPICS in ConnectorFactory._control_system_connectors
@@ -248,6 +264,15 @@ class TestBuiltinsRegisterOnFirstUse:
 
         assert set(ConnectorFactory.list_control_systems()) == set(_BUILTIN_CONTROL_SYSTEMS)
 
+    def test_listing_the_archives_registers_them(self):
+        ConnectorFactory._service_backends["archive"].clear()
+
+        assert set(ConnectorFactory.list_services("archive")) == set(_BUILTIN_ARCHIVERS)
+
+    def test_listing_an_unknown_kind_is_refused(self):
+        with pytest.raises(ValueError, match="Unknown service kind: 'archiver'"):
+            ConnectorFactory.list_services("archiver")  # type: ignore[arg-type]
+
     def test_a_registration_under_a_builtin_name_is_kept(self):
         """The module's own ``virtual_accelerator`` registration survives the first use."""
         ConnectorFactory.list_control_systems()
@@ -268,7 +293,6 @@ class TestBuiltinArchiverRegistration:
         cannot construct, or the reverse.
         """
         from osprey.registry.builtins import FrameworkRegistryProvider
-        from osprey_connectors.factory import _BUILTIN_ARCHIVERS
 
         registry_archivers = {
             reg.name
@@ -345,10 +369,10 @@ class TestLiveStandinRegistration:
 
 
 class TestArchiverTypeResolution:
-    """How ``create_archiver_connector`` turns ``archiver.type`` into a class."""
+    """How ``create_service`` turns an archive spec's ``type`` into a class."""
 
     @pytest.mark.parametrize(
-        ("connector_type", "message"),
+        ("archive_type", "message"),
         [
             pytest.param(
                 "osprey_no_such_package.archivers.Thing",
@@ -363,30 +387,45 @@ class TestArchiverTypeResolution:
                 id="class-missing",
             ),
             pytest.param(
+                "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector",
+                "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector "
+                "is not a subclass of ChannelArchive",
+                id="not-an-archive",
+            ),
+            pytest.param(
                 "hdf5_archiver",
                 # Every built-in is registered on first use, so the list names
                 # them all although this module's registry held only the mock.
-                f"Unknown archiver type: 'hdf5_archiver'. Available types: "
+                f"Unknown archive type: 'hdf5_archiver'. Available types: "
                 f"{list(_BUILTIN_ARCHIVERS)}. Use a dotted module path for custom connectors.",
                 id="unknown-name-lists-available",
             ),
         ],
     )
     @pytest.mark.asyncio
-    async def test_an_unusable_archiver_type_is_refused(self, connector_type, message):
-        with pytest.raises(ValueError) as caught:
-            await ConnectorFactory.create_archiver_connector({"type": connector_type})
+    async def test_an_unusable_archive_type_is_refused(self, archive_type, message):
+        with pytest.raises(ConfigurationError) as caught:
+            await ConnectorFactory.create_service(_archive_spec(archive_type))
 
         assert message in str(caught.value)
+        assert caught.value.key is None
 
     @pytest.mark.asyncio
-    async def test_a_dotted_archiver_path_is_imported_and_remembered(self, tmp_path):
+    async def test_a_dotted_archive_path_is_imported_and_remembered(self, tmp_path):
         dotted = "osprey_connectors.archiver._mock_archiver_connector.MockArchiverConnector"
 
-        connector = await ConnectorFactory.create_archiver_connector(
-            {"type": dotted, "settings": in_process_config(served_tree(tmp_path))}
+        archive = await ConnectorFactory.create_service(
+            _archive_spec(dotted, in_process_config(served_tree(tmp_path)))
         )
 
-        assert isinstance(connector, MockArchiverConnector)
-        assert ConnectorFactory._archiver_connectors[dotted] is MockArchiverConnector
-        await connector.disconnect()
+        assert isinstance(archive, MockArchiverConnector)
+        assert ConnectorFactory._service_backends["archive"][dotted] is MockArchiverConnector
+        await archive.aclose()
+
+    @pytest.mark.asyncio
+    async def test_refused_settings_raise_at_build_in_the_archives_own_words(self):
+        """An archive reads its settings when it is built: a refused block raises there."""
+        with pytest.raises(ValueError, match="sample_rate_hz must be > 0"):
+            await ConnectorFactory.create_service(
+                _archive_spec("mock_archiver", {"sample_rate_hz": 0})
+            )

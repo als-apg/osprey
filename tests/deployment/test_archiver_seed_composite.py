@@ -19,13 +19,12 @@ import numpy as np
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import archive as archive_module
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
     SeedKnobs,
     _synthesize_documents,
     build,

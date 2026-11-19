@@ -26,7 +26,8 @@ def context_for(manager: Any) -> Any:
 
     Fills exactly what ``initialize()`` would have filled for the connectors
     these suites reach: the manager itself, the config it was built from, and
-    the ``control_system`` / ``archiver`` entries the tools resolve through.
+    the ``control_system`` entry the tools resolve through. An archive needs no
+    entry: the context builds one per target from its spec on first use.
     """
     from osprey.mcp_server.control_system.server_context import (
         ConnectorEntry,
@@ -38,9 +39,6 @@ def context_for(manager: Any) -> Any:
     context._connector_hosts = manager
     context._connectors["control_system"] = ConnectorEntry(
         config=manager._config.control_system, connector_type="control_system"
-    )
-    context._connectors["archiver"] = ConnectorEntry(
-        config=manager._config.archiver, connector_type="archiver"
     )
     claim_the_record(manager)
     return context

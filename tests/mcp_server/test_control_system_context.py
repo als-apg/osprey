@@ -162,22 +162,51 @@ async def test_connector_caching(tmp_path, monkeypatch):
     assert c1.connector is mock_connector
 
 
-async def test_archiver_connector_caching(tmp_path, monkeypatch):
-    """Two calls to registry.archiver() return the same instance."""
+async def test_archive_caching(tmp_path, monkeypatch):
+    """Two calls to registry.archive() for one target build one archive."""
+    from osprey_connectors.service_targets import service_targets
+
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"archiver": {"type": "mock_archiver"}})
     registry = initialize_server_context()
+    table = service_targets(registry.config.raw)
 
-    mock_connector = AsyncMock()
+    mock_archive = AsyncMock()
     with patch(
-        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_service",
         new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        a1 = await registry.archiver()
-        a2 = await registry.archiver()
+        return_value=mock_archive,
+    ) as create:
+        a1 = await registry.archive(table.archive["live"])
+        a2 = await registry.archive(table.archive["live"])
 
-    assert a1 is a2
+    assert a1 is a2 is mock_archive
+    create.assert_awaited_once()
+    (spec,) = create.await_args.args
+    assert (spec.kind, spec.type, spec.target) == ("archive", "mock_archiver", "live")
+    # The archive is built beside the rendered config, as every service backend is.
+    assert create.await_args.kwargs == {"project_dir": tmp_path}
+
+
+async def test_each_target_keeps_its_own_archive(tmp_path, monkeypatch):
+    """An archive belongs to its target: another target's spec builds another archive."""
+    from osprey_connectors.service_targets import service_targets
+
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, {"archiver": {"type": "mock_archiver"}})
+    registry = initialize_server_context()
+    table = service_targets(registry.config.raw)
+
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_service",
+        new_callable=AsyncMock,
+        side_effect=lambda spec, **_: AsyncMock(name=spec.target),
+    ):
+        live = await registry.archive(table.archive["live"])
+        va = await registry.archive(table.archive["va"])
+
+    assert live is not va
+    assert set(registry._archives) == {"live", "va"}
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +398,7 @@ def test_config_validation_warnings_missing_sections(tmp_path, monkeypatch, capl
 
 
 async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
-    """shutdown() disconnects all cached connectors."""
+    """shutdown() disconnects every cached connector and closes every archive."""
     monkeypatch.chdir(tmp_path)
     _write_config(
         tmp_path,
@@ -383,6 +412,8 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
     )
     registry = initialize_server_context()
 
+    from osprey_connectors.service_targets import service_targets
+
     mock_cs = AsyncMock()
     mock_arch = AsyncMock()
 
@@ -393,18 +424,19 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
             return_value=mock_cs,
         ),
         patch(
-            "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_service",
             new_callable=AsyncMock,
             return_value=mock_arch,
         ),
     ):
         await registry.control_system()
-        await registry.archiver()
+        await registry.archive(service_targets(registry.config.raw).archive["va"])
 
     await registry.shutdown()
 
     mock_cs.disconnect.assert_called_once()
-    mock_arch.disconnect.assert_called_once()
+    mock_arch.aclose.assert_awaited_once()
+    assert registry._archives == {}
 
 
 # ---------------------------------------------------------------------------

@@ -1214,7 +1214,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # it has to travel either. It is a host-side writer that samples the
         # virtual accelerator into the deployment's store; whose history that
         # store holds is a fact about the control system the render already
-        # carries (`osprey_connectors.deployment.archive_targets`), not about the recorder.
+        # carries (`osprey_connectors.service_targets`), not about the recorder.
         note="a host-side writer; a render reads the store, not the recorder",
     ),
     "dispatch_worker": ReachContract(

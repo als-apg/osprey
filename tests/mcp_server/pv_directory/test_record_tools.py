@@ -13,7 +13,6 @@ import fnmatch
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -27,14 +26,13 @@ from osprey.mcp_server.pv_directory.tools import ioc_record, pv_record
 from osprey.services.pv_directory import _connectors
 from osprey_connectors import control_context
 from osprey_connectors.directory import (
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
-    DirectoryRecord,
-    DirectoryRow,
 )
-from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import (
-    HistoryPage,
-    Outcome,
+    LogPage,
+    NotListed,
     Source,
     Unavailable,
 )
@@ -81,15 +79,15 @@ class FakeDirectory(FakeBackend):
 
     def _hits(self, query: Any) -> list[Any]:
         return [
-            record.row
+            record.entry
             for record in self.records.values()
-            if (not query.server or record.row.server in query.server)
-            and (query.status is None or record.row.status == query.status)
+            if (not query.server or record.entry.server in query.server)
+            and (query.status is None or record.entry.status == query.status)
             and (
                 query.address_pattern is None
-                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+                or fnmatch.fnmatchcase(record.entry.address, query.address_pattern)
             )
-            and query.words in record.row.address
+            and query.words in record.entry.address
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
@@ -97,7 +95,7 @@ class FakeDirectory(FakeBackend):
         hits = self._hits(query)
         rows = hits[query.page * query.page_size : (query.page + 1) * query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="",
             request="GET /fake",
             source=self.source,
@@ -108,22 +106,22 @@ class FakeDirectory(FakeBackend):
 
     async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(reason=self.fail)
+            return Unavailable(cause="unreachable", reason=self.fail)
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail or address in self.failing:
-            return Unavailable(reason=self.fail or "connection refused")
-        return self.records.get(address, Outcome.NOT_LISTED)
+            return Unavailable(cause="unreachable", reason=self.fail or "connection refused")
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakePutLog(FakeBackend):
     failing: set[str] = set()
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, **_: Any) -> Any:
         if address in self.failing:
-            return Unavailable(reason="put log did not answer")
-        return HistoryPage(outcome=Outcome.FOUND, source=self.source, rows=[])
+            return Unavailable(cause="timeout", reason="put log did not answer")
+        return LogPage(outcome="found", source=self.source, rows=[])
 
 
 _FAKES = {"pv_directory": FakeDirectory, "put_log": FakePutLog}
@@ -200,12 +198,12 @@ def _install(
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = DirectoryRow(address=name, server=ioc, host="host-a", status=status)
-    return DirectoryRecord(row=row, properties=properties)
+    row = DirectoryEntry(address=name, server=ioc, host="host-a", status=status)
+    return DirectoryDetail(entry=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.address: record for record in records}
+    return {record.entry.address: record for record in records}
 
 
 def _by_name(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -236,23 +234,29 @@ async def test_a_found_channel_carries_its_origin_and_panel_link(tmp_path: Path)
 async def test_a_channel_carries_the_archive_section_when_the_deployment_has_an_archive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from osprey_connectors.archiver import ArchiveCoverage
+
     class Appliance:
-        async def get_metadata(self, channel: str) -> Any:
-            return SimpleNamespace(
-                is_archived=None,
-                first_sample_at=None,
-                last_sample_at=None,
-                sampling_period=None,
-                description=f"cannot say for {channel}",
+        def __init__(self, spec: Any) -> None:
+            self.source = Source(
+                kind=spec.kind, target=spec.target, service=spec.type, rehearsal=spec.rehearsal
             )
 
-        async def disconnect(self) -> None:
+        async def coverage(self, addresses: Any, **_kwargs: Any) -> Any:
+            return {
+                address: ArchiveCoverage(
+                    address=address, is_archived=None, unknown_reason=f"cannot say for {address}"
+                )
+                for address in addresses
+            }
+
+        async def aclose(self) -> None:
             pass
 
-    async def create(config: Any) -> Appliance:  # noqa: ARG001 - the factory's signature
-        return Appliance()
+    async def create(spec: Any, **_kwargs: Any) -> Appliance:
+        return Appliance(spec)
 
-    monkeypatch.setattr(ConnectorFactory, "create_archiver_connector", create)
+    patch_create_service(monkeypatch, "archive", create)
     FakeDirectory.records = _records(_record("SR:BPM1"))
     appliance = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
     _install(tmp_path, LIVE_BUILD, FACILITY, "SR:BPM1", archiver=appliance)

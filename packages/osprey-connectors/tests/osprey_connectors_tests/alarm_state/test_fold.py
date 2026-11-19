@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from osprey_connectors.alarm_state import AlarmStates, severity_rank
+from osprey_connectors.alarm_state import AlarmSeverity, AlarmStates
 from osprey_connectors.alarm_state._fold import (
     FeedSnapshot,
     config_record,
@@ -16,6 +16,7 @@ from osprey_connectors.alarm_state._fold import (
     state_rows,
 )
 from osprey_connectors.errors import NaiveDatetimeError
+from osprey_connectors.service_answers import NotListed
 
 PV = "DEMO:RF1:CAV:Temp-I"
 PATH = f"/Demo/RF/Cavity1/{PV}"
@@ -110,9 +111,9 @@ def test_a_cleared_alarm_reads_ok():
     assert record.acknowledged is False
 
 
-def test_an_unknown_severity_is_kept_and_never_reads_as_recovered():
+def test_an_unknown_severity_reads_as_undefined_and_never_as_recovered():
     record = state_record(_folded((STATE_KEY, _state("WEIRD", "ALSO_WEIRD"))), PV, stale=False)
-    assert record.severity == "WEIRD"
+    assert record.severity is AlarmSeverity.UNDEFINED
     assert record.latched is False
 
 
@@ -123,13 +124,13 @@ def test_the_stale_flag_is_the_callers():
 
 def test_a_state_tombstone_removes_the_state():
     snapshot = _folded((STATE_KEY, _state("MAJOR", "MAJOR")), (STATE_KEY, None))
-    assert state_record(snapshot, PV, stale=False) is None
+    assert state_record(snapshot, PV, stale=False) == NotListed(address=PV)
     assert snapshot.messages == 2
 
 
 def test_an_empty_value_is_a_tombstone():
     snapshot = _folded((STATE_KEY, _state("MAJOR", "MAJOR")), (STATE_KEY, b""))
-    assert state_record(snapshot, PV, stale=False) is None
+    assert state_record(snapshot, PV, stale=False) == NotListed(address=PV)
 
 
 def test_a_config_tombstone_takes_the_pv_out_of_the_tree():
@@ -264,15 +265,15 @@ def test_each_row_is_the_channels_record_under_its_latest_path():
     snapshot = _folded((STATE_KEY, _state("MINOR", "MINOR")), (other, _state("MAJOR", "OK")))
     row = _rows(snapshot, stale=True)[PV]
     assert row.path == f"/Demo/Other/{PV}"
-    assert row.state == state_record(snapshot, PV, stale=True)
-    assert row.state.latched is True
-    assert row.state.stale is True
+    assert row.condition == state_record(snapshot, PV, stale=True)
+    assert row.condition.latched is True
+    assert row.condition.stale is True
 
 
 def test_an_acknowledged_alarm_lists_acknowledged():
     row = _rows(_folded((STATE_KEY, _state("MAJOR_ACK", "MAJOR"))))[PV]
-    assert row.state.severity == "MAJOR"
-    assert row.state.acknowledged is True
+    assert row.condition.severity == "MAJOR"
+    assert row.condition.acknowledged is True
 
 
 def test_a_tombstoned_channel_is_gone():
@@ -292,17 +293,37 @@ def test_the_counts_equal_a_hand_count():
     assert dict(states.counts) == {"MAJOR": 2, "MINOR": 1, "OK": 1}
 
 
-def test_an_unknown_severity_ranks_above_every_known_one():
-    known = ["OK", "MINOR", "MAJOR", "INVALID", "UNDEFINED"]
-    assert [severity_rank(s) for s in known] == sorted(severity_rank(s) for s in known)
-    assert severity_rank("BOGUS") > severity_rank("UNDEFINED")
-    assert severity_rank(None) > severity_rank("UNDEFINED")
+#: The ranks of the severity table before ``AlarmSeverity``: an unknown word ranked above all.
+_OLD_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
 
 
-def test_a_severity_that_is_not_text_reads_as_its_text():
+def _old_latched(severity: object, current: object) -> bool:
+    """The latched rule as it read the recorded words before ``AlarmSeverity``."""
+
+    def rank(word: object) -> int:
+        return _OLD_RANK.get(word, 5) if isinstance(word, str) else 5
+
+    recorded = None if severity is None else str(severity)
+    bare = recorded.removesuffix("_ACK") if recorded is not None else None
+    return bare == recorded and rank(current) < rank(bare)
+
+
+_WORDS = (None, "OK", "MINOR", "MAJOR", "INVALID", "UNDEFINED", "BOGUS", 3)
+
+
+@pytest.mark.parametrize("severity", (*_WORDS, "MAJOR_ACK", "UNDEFINED_ACK", "BOGUS_ACK"))
+@pytest.mark.parametrize("current", _WORDS)
+def test_latched_reads_every_pair_of_recorded_words_as_before(severity, current):
+    body = {"severity": severity, "current_severity": current}
+    snapshot = _folded((STATE_KEY, json.dumps(body).encode()))
+
+    assert state_record(snapshot, PV, stale=False).latched is _old_latched(severity, current)
+
+
+def test_a_severity_that_is_not_text_is_read_as_its_text():
     body = json.loads(_state("MAJOR", "MAJOR"))
     body["severity"] = 3
     snapshot = _folded((STATE_KEY, json.dumps(body).encode()))
-    assert state_record(snapshot, PV, stale=False).severity == "3"
+    assert state_record(snapshot, PV, stale=False).severity is AlarmSeverity.UNDEFINED
     states = AlarmStates(rows=state_rows(snapshot, stale=False), stale=False, last_contact_at=None)
-    assert dict(states.counts) == {"3": 1}
+    assert dict(states.counts) == {"UNDEFINED": 1}

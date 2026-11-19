@@ -11,11 +11,8 @@ from urllib.parse import unquote
 
 import pytest
 
-from osprey_connectors.archiver import _field_names
-from osprey_connectors.archiver._field_names import (
-    _RESERVED_FIELDS,
-    field_name,
-)
+from osprey_connectors import archive_store
+from osprey_connectors.archive_store import RESERVED_FIELDS, field_name
 from tests._builds import BuiltProject
 
 ADDRESSES = [
@@ -66,7 +63,7 @@ EVERY_ADDRESS = [*ADDRESSES, *RESERVED]
 
 
 def test_the_table_is_the_reserved_list() -> None:
-    assert set(RESERVED) == _RESERVED_FIELDS
+    assert set(RESERVED) == RESERVED_FIELDS
 
 
 @pytest.mark.parametrize(("name", "field"), RESERVED.items())
@@ -76,12 +73,12 @@ def test_a_reserved_name_is_stored_with_its_first_character_escaped(name: str, f
 
 
 @pytest.mark.skipif(
-    not hasattr(_field_names, "_address_of"),
+    not hasattr(archive_store, "_address_of"),
     reason="installed osprey-connectors predates the field-name inverse",
 )
 @pytest.mark.parametrize("address", EVERY_ADDRESS)
 def test_address_of_inverts_field_name(address: str) -> None:
-    assert _field_names._address_of(field_name(address)) == address
+    assert archive_store._address_of(field_name(address)) == address
 
 
 @pytest.mark.parametrize("address", EVERY_ADDRESS)
@@ -106,7 +103,7 @@ def test_distinct_addresses_never_share_a_field() -> None:
 
 @pytest.mark.parametrize("address", EVERY_ADDRESS)
 def test_no_field_is_a_reserved_name(address: str) -> None:
-    assert field_name(address) not in _RESERVED_FIELDS
+    assert field_name(address) not in RESERVED_FIELDS
 
 
 def test_an_address_storable_before_encodes_to_itself(
@@ -124,7 +121,7 @@ def test_an_address_storable_before_encodes_to_itself(
         for address in ADDRESSES
         if not any(c in address for c in "%.\x00")
         and not address.startswith("$")
-        and address not in _RESERVED_FIELDS
+        and address not in RESERVED_FIELDS
     ]
     addresses = [*view["channels"], *plain]
     assert view["channels"]
@@ -140,8 +137,12 @@ def test_an_empty_address_is_refused() -> None:
 def test_the_module_imports_only_the_standard_library() -> None:
     probe = (
         "import sys\n"
-        "import osprey_connectors.archiver._field_names\n"
+        "import osprey_connectors.archive_store\n"
         "assert 'pymongo' not in sys.modules, 'pymongo was imported'\n"
+        "package = {m for m in sys.modules if m.startswith('osprey_connectors')}\n"
+        "leaf = {'osprey_connectors', 'osprey_connectors.archive_store',"
+        " 'osprey_connectors._contract_types'}\n"
+        "assert package <= leaf, sorted(package - leaf)\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120
@@ -192,7 +193,7 @@ def test_the_reserved_list_is_every_field_the_archive_writes_besides_a_channel()
     fields = {"_id"}
 
     # The base seeder's sample documents.
-    fields |= {archive.DATE_FIELD, archive.EXPIRE_FIELD}
+    fields |= {archive_store.DATE_FIELD, archive_store.EXPIRE_FIELD}
 
     manifest = _Recording()
     archive._write_manifest(
@@ -234,4 +235,4 @@ def test_the_reserved_list_is_every_field_the_archive_writes_besides_a_channel()
     writer.write_sample(instant, {"A": 1.0})
     fields |= set(recorded.filters[0]) | set(recorded.updates[0]["$setOnInsert"])
 
-    assert fields == _RESERVED_FIELDS
+    assert fields == RESERVED_FIELDS

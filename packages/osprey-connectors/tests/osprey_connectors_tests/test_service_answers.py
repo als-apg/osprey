@@ -7,32 +7,38 @@ import importlib
 import inspect
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
 import osprey_connectors
 from osprey_connectors import service_answers
-from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
+from osprey_connectors.alarm_log import AlarmLog, AlarmLogEntry
 from osprey_connectors.alarm_state import (
-    AlarmConfigRecord,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
+    AlarmSeverity,
     AlarmState,
-    AlarmStateRecord,
-    AlarmStateRow,
     AlarmStates,
 )
 from osprey_connectors.directory import (
     ChannelDirectory,
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
     DirectoryQuery,
-    DirectoryRecord,
-    DirectoryRow,
 )
-from osprey_connectors.put_log import PutLog, PutRow
+from osprey_connectors.model import evolve
+from osprey_connectors.put_log import PutLog, PutLogEntry
 from osprey_connectors.service_answers import (
     BackendSpec,
-    HistoryPage,
-    Outcome,
+    LogPage,
+    NotListed,
+    Page,
+    PageOutcome,
+    ServiceKind,
     Source,
     Unavailable,
 )
@@ -48,19 +54,21 @@ ABCS = {
 }
 RECORDS = (
     Unavailable,
+    NotListed,
     Source,
     BackendSpec,
-    DirectoryRow,
-    DirectoryRecord,
+    DirectoryEntry,
+    DirectoryDetail,
     DirectoryQuery,
     DirectoryPage,
-    AlarmHistoryRow,
-    PutRow,
-    HistoryPage,
-    AlarmStateRecord,
-    AlarmStateRow,
+    AlarmLogEntry,
+    PutLogEntry,
+    Page,
+    LogPage,
+    AlarmCondition,
+    AlarmEntry,
     AlarmStates,
-    AlarmConfigRecord,
+    AlarmConfiguration,
 )
 
 
@@ -96,7 +104,7 @@ class _Directory(ChannelDirectory):
 
 
 class _Log(PutLog):
-    async def history(self, address, start_at, limit, *, timeout_s):
+    async def history(self, address, *, start_at=None, limit, timeout_s):
         raise NotImplementedError
 
     async def probe(self, *, timeout_s):
@@ -106,15 +114,14 @@ class _Log(PutLog):
 # -- The shapes ---------------------------------------------------------------
 
 
-def test_outcome_is_the_five_words_and_serialises_as_them():
-    assert {outcome.value for outcome in Outcome} == {
-        "found",
-        "inactive",
-        "not_listed",
-        "no_match",
-        "unavailable",
-    }
-    assert Outcome.NO_MATCH == "no_match"
+def test_a_page_ends_found_or_no_match_and_never_unavailable():
+    assert get_args(PageOutcome) == ("found", "no_match")
+    with pytest.raises(ValidationError, match="outcome"):
+        Page(outcome="unavailable", source=SOURCE)  # type: ignore[arg-type]
+
+
+def test_the_archive_is_a_service_kind_and_the_logbook_is_not():
+    assert get_args(ServiceKind) == ("directory", "alarm_log", "alarm_state", "put_log", "archive")
 
 
 @pytest.mark.parametrize(
@@ -122,23 +129,30 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
     [
         (Source, ["kind", "target", "service", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
-        (AlarmHistoryRow, ["event_at", "severity", "status", "message", "user", "kind"]),
         (
-            PutRow,
+            AlarmLogEntry,
+            ["event_at", "severity", "acknowledged", "status", "message", "user", "kind"],
+        ),
+        (
+            PutLogEntry,
             ["put_at", "recorded_stamp", "address", "field", "old", "new", "user", "client"],
         ),
+        (Unavailable, ["cause", "reason"]),
+        (NotListed, ["address"]),
+        (Page, ["outcome", "source", "rows", "truncated", "note"]),
+        (LogPage, ["outcome", "source", "rows", "truncated", "note", "retention_known"]),
         (
-            HistoryPage,
-            ["outcome", "source", "rows", "truncated", "retention_known", "reason"],
+            DirectoryPage,
+            ["outcome", "source", "rows", "truncated", "note", "searched", "request", "total"],
         ),
         (
-            AlarmStateRecord,
+            AlarmCondition,
             ["severity", "status", "latched", "acknowledged", "message", "event_at", "stale"],
         ),
-        (AlarmStateRow, ["address", "path", "state"]),
+        (AlarmEntry, ["address", "path", "condition"]),
         (AlarmStates, ["rows", "stale", "last_contact_at"]),
         (
-            AlarmConfigRecord,
+            AlarmConfiguration,
             ["in_tree", "path", "guidance", "displays", "enabled", "latching"],
         ),
     ],
@@ -158,14 +172,23 @@ def test_every_record_is_frozen(record):
     assert record.model_config["frozen"]
 
 
-def test_unavailable_takes_its_reason_by_keyword_and_requires_it():
-    assert Unavailable(reason="alarm feed still loading").reason == "alarm feed still loading"
+def test_unavailable_takes_its_cause_and_reason_by_keyword_and_requires_both():
+    answer = Unavailable(cause="not_ready", reason="alarm feed still loading")
+
+    assert (answer.cause, answer.reason) == ("not_ready", "alarm feed still loading")
+    with pytest.raises(ValidationError, match="cause"):
+        Unavailable(reason="alarm feed still loading")  # type: ignore[call-arg]
     with pytest.raises(ValidationError, match="reason"):
-        Unavailable()  # type: ignore[call-arg]
+        Unavailable(cause="not_ready")  # type: ignore[call-arg]
 
 
-def _row(channel: str, severity: str | None) -> AlarmStateRow:
-    return AlarmStateRow(address=channel, path=None, state=AlarmStateRecord(severity=severity))
+def test_an_unavailable_cause_is_one_of_the_closed_words():
+    with pytest.raises(ValidationError, match="cause"):
+        Unavailable(cause="loading", reason="alarm feed still loading")  # type: ignore[arg-type]
+
+
+def _row(channel: str, severity: str | None) -> AlarmEntry:
+    return AlarmEntry(address=channel, path=None, condition=AlarmCondition(severity=severity))
 
 
 def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():
@@ -191,10 +214,10 @@ def test_the_list_converts_to_the_json_shape_with_its_counts():
     "build",
     [
         lambda moment: AlarmStates(rows=(), stale=False, last_contact_at=moment),
-        lambda moment: AlarmStateRecord(event_at=moment),
-        lambda moment: AlarmHistoryRow(event_at=moment),
-        lambda moment: PutRow(put_at=moment, address="A"),
-        lambda moment: DirectoryRow(address="A", announced_at=moment),
+        lambda moment: AlarmCondition(event_at=moment),
+        lambda moment: AlarmLogEntry(event_at=moment),
+        lambda moment: PutLogEntry(put_at=moment, address="A"),
+        lambda moment: DirectoryEntry(address="A", announced_at=moment),
     ],
 )
 def test_a_record_refuses_an_instant_with_no_zone_or_as_text(build):
@@ -205,28 +228,75 @@ def test_a_record_refuses_an_instant_with_no_zone_or_as_text(build):
         build("2026-11-06T12:00:00Z")
 
 
-@pytest.mark.parametrize(
-    "build",
-    [
-        lambda **kw: DirectoryPage(
-            outcome=Outcome.UNAVAILABLE, searched="", request="", source=SOURCE, **kw
-        ),
-        lambda **kw: HistoryPage(outcome=Outcome.UNAVAILABLE, source=SOURCE, **kw),
-    ],
-)
-def test_an_unavailable_page_carries_its_reason(build):
-    assert build(reason="not available for this target").reason
-    with pytest.raises(ValueError, match="reason"):
-        build()
-    with pytest.raises(ValueError, match="reason"):
-        build(reason="")
-
-
 def test_a_page_holds_its_rows_as_a_tuple():
-    assert HistoryPage(outcome=Outcome.FOUND, source=SOURCE).rows == ()
-    page = HistoryPage(outcome=Outcome.FOUND, source=SOURCE, rows=["a", "b"])
+    assert LogPage(outcome="found", source=SOURCE).rows == ()
+    page = LogPage(outcome="found", source=SOURCE, rows=["a", "b"])
 
     assert page.rows == ("a", "b")
+
+
+def test_a_directory_page_total_is_a_count_or_why_it_is_unknown():
+    unknown = Unavailable(cause="timeout", reason="no answer within 6 s")
+    page = DirectoryPage(outcome="no_match", searched="q", request="r", source=SOURCE, total=0)
+
+    assert page.total == 0
+    assert evolve(page, total=unknown).total == unknown
+    with pytest.raises(ValidationError, match="total"):
+        DirectoryPage(outcome="no_match", searched="q", request="r", source=SOURCE)  # type: ignore[call-arg]
+
+
+#: The severity ranks the alarm contract kept in a private table before ``AlarmSeverity``.
+_OLD_RANKS = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
+
+
+def test_a_severity_ranks_as_the_old_table_did():
+    assert {severity.value: severity.rank for severity in AlarmSeverity} == _OLD_RANKS
+    assert sorted(AlarmSeverity, key=lambda severity: severity.rank) == list(AlarmSeverity)
+
+
+@pytest.mark.parametrize(
+    ("recorded", "read"),
+    [
+        (None, (None, False)),
+        ("OK", (AlarmSeverity.OK, False)),
+        ("MAJOR", (AlarmSeverity.MAJOR, False)),
+        ("MAJOR_ACK", (AlarmSeverity.MAJOR, True)),
+        ("UNDEFINED_ACK", (AlarmSeverity.UNDEFINED, True)),
+        ("BOGUS", (AlarmSeverity.UNDEFINED, False)),
+        ("BOGUS_ACK", (AlarmSeverity.UNDEFINED, True)),
+        (3, (AlarmSeverity.UNDEFINED, False)),
+    ],
+)
+def test_a_recorded_severity_word_reads_as_its_member_and_acknowledgement(recorded, read):
+    assert AlarmSeverity.of_recorded(recorded) == read
+
+
+@pytest.mark.parametrize("record", [AlarmCondition, AlarmLogEntry])
+def test_a_record_reads_a_severity_word_as_its_member_and_refuses_another(record):
+    assert record(severity="MAJOR").severity is AlarmSeverity.MAJOR
+    assert record(severity=AlarmSeverity.MINOR).severity is AlarmSeverity.MINOR
+    assert record().severity is None
+    with pytest.raises(ValidationError, match="severity"):
+        record(severity="MAJOR_ACK")
+
+
+def test_a_severity_dumps_as_its_word():
+    record = AlarmCondition(severity="MAJOR")
+
+    assert record.model_dump(mode="json")["severity"] == "MAJOR"
+    assert '"severity":"MAJOR"' in record.model_dump_json()
+
+
+def test_not_listed_names_the_address_it_was_asked_for():
+    assert NotListed(address="SR:BPM1").address == "SR:BPM1"
+
+
+async def test_a_backend_without_a_lifecycle_starts_and_closes_as_a_no_op():
+    backend = _Directory(_spec())
+
+    assert await backend.start() is None
+    assert await backend.aclose() is None
+    assert await backend.aclose() is None
 
 
 # -- The ABCs -----------------------------------------------------------------
@@ -300,7 +370,7 @@ def test_a_directory_answers_no_field_properties_unless_it_has_them():
         properties["server"] = "iocName"  # type: ignore[index]
 
 
-@pytest.mark.parametrize("record", [Source, AlarmConfigRecord, DirectoryRow])
+@pytest.mark.parametrize("record", [Source, AlarmConfiguration, DirectoryEntry])
 def test_no_answer_carries_a_display_label(record):
     assert "label" not in record.model_fields
     assert not hasattr(ChannelDirectory, "label")

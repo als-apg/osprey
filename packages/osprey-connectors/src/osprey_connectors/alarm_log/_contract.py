@@ -13,20 +13,24 @@ from typing import Literal
 
 from pydantic import AwareDatetime
 
-from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.alarm_state import AlarmConfiguration
+from osprey_connectors.alarm_state._contract import _Severity
 from osprey_connectors.model import FrozenModel
-from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
+from osprey_connectors.service_answers import LogPage, Unavailable, _Backend
 
 
-class AlarmHistoryRow(FrozenModel):
+class AlarmLogEntry(FrozenModel):
     """One logged alarm event, as the logger recorded it.
 
     ``event_at`` is when the logger says it happened, ``None`` when the row gave
-    no time it could be placed by.
+    no time it could be placed by. ``severity`` is the logged one, its ``_ACK``
+    folded into ``acknowledged`` as :class:`~osprey_connectors.alarm_state.AlarmSeverity`
+    ``.of_recorded`` reads it.
     """
 
     event_at: AwareDatetime | None = None
-    severity: str | None = None
+    severity: _Severity = None
+    acknowledged: bool = False
     status: str | None = None
     message: str | None = None
     user: str | None = None
@@ -38,9 +42,14 @@ class AlarmLog(_Backend, ABC):
 
     @abstractmethod
     async def history(
-        self, address: str, start_at: datetime | None, limit: int, *, timeout_s: float
-    ) -> HistoryPage[AlarmHistoryRow]:
-        """The logged alarm events of *address*, ``AlarmHistoryRow`` rows, newest first.
+        self,
+        address: str,
+        *,
+        start_at: datetime | None = None,
+        limit: int,
+        timeout_s: float,
+    ) -> LogPage[AlarmLogEntry] | Unavailable:
+        """The logged alarm events of *address*, ``AlarmLogEntry`` rows, newest first.
 
         With *start_at*, an aware instant, only events at or after it, and those
         whose time cannot be placed; a naive one raises
@@ -50,7 +59,7 @@ class AlarmLog(_Backend, ABC):
     @abstractmethod
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         """The last logged alarm configuration of *address*."""
 
     @abstractmethod

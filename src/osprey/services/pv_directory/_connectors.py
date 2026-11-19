@@ -23,33 +23,30 @@ from pydantic import BaseModel
 from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, LOGBOOK_SERVICE, source_label
 
 try:
-    from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
+    from osprey_connectors.alarm_log import AlarmLog, AlarmLogEntry
     from osprey_connectors.alarm_state import (
-        AlarmConfigRecord,
+        AlarmCondition,
+        AlarmConfiguration,
+        AlarmEntry,
         AlarmState,
-        AlarmStateRecord,
-        AlarmStateRow,
         AlarmStates,
-        severity_rank,
     )
-    from osprey_connectors.deployment.archive_targets import APPLIANCE_TARGETS
     from osprey_connectors.deployment.simulator import has_simulator
     from osprey_connectors.directory import (
         ChannelDirectory,
+        DirectoryDetail,
+        DirectoryEntry,
         DirectoryPage,
         DirectoryQuery,
-        DirectoryRecord,
-        DirectoryRow,
     )
-    from osprey_connectors.put_log import PutLog, PutRow
+    from osprey_connectors.put_log import PutLog, PutLogEntry
     from osprey_connectors.service_answers import (
         BackendSpec,
-        HistoryPage,
-        Outcome,
+        NotListed,
         Source,
         Unavailable,
     )
-    from osprey_connectors.service_targets import service_targets
+    from osprey_connectors.service_targets import APPLIANCE_TARGETS, service_targets
     from osprey_connectors.simulation.view import (
         ENGINEER,
         IOC_HEALTH_SIGNALS,
@@ -62,26 +59,24 @@ except ImportError:
 
     DIRECTORY_CONNECTORS_AVAILABLE = False
     APPLIANCE_TARGETS = None  # type: ignore[assignment]
-    AlarmConfigRecord = None  # type: ignore[assignment,misc]
-    AlarmHistoryRow = None  # type: ignore[assignment,misc]
+    AlarmConfiguration = None  # type: ignore[assignment,misc]
+    AlarmLogEntry = None  # type: ignore[assignment,misc]
     AlarmLog = None  # type: ignore[assignment,misc]
     AlarmState = None  # type: ignore[assignment,misc]
-    AlarmStateRecord = None  # type: ignore[assignment,misc]
-    AlarmStateRow = None  # type: ignore[assignment,misc]
+    AlarmCondition = None  # type: ignore[assignment,misc]
+    AlarmEntry = None  # type: ignore[assignment,misc]
     AlarmStates = None  # type: ignore[assignment,misc]
-    severity_rank = None  # type: ignore[assignment]
     BackendSpec = None  # type: ignore[assignment,misc]
     ChannelDirectory = None  # type: ignore[assignment,misc]
     ENGINEER = None  # type: ignore[assignment,misc]
     IOC_HEALTH_SIGNALS = None  # type: ignore[assignment]
     DirectoryPage = None  # type: ignore[assignment,misc]
     DirectoryQuery = None  # type: ignore[assignment,misc]
-    DirectoryRecord = None  # type: ignore[assignment,misc]
-    DirectoryRow = None  # type: ignore[assignment,misc]
-    HistoryPage = None  # type: ignore[assignment,misc]
-    Outcome = None  # type: ignore[assignment,misc]
+    DirectoryDetail = None  # type: ignore[assignment,misc]
+    DirectoryEntry = None  # type: ignore[assignment,misc]
+    NotListed = None  # type: ignore[assignment,misc]
     PutLog = None  # type: ignore[assignment,misc]
-    PutRow = None  # type: ignore[assignment,misc]
+    PutLogEntry = None  # type: ignore[assignment,misc]
     SERVED_SIGNAL_PROPERTY = None  # type: ignore[assignment]
     Source = None  # type: ignore[assignment,misc]
     Unavailable = None  # type: ignore[assignment,misc]
@@ -95,36 +90,34 @@ __all__ = [
     "FLOOR_REASON",
     "IOC_HEALTH_SIGNALS",
     "NO_SOURCE_REASON",
-    "SERVED_SIGNAL_PROPERTY",
-    "AlarmConfigRecord",
-    "AlarmHistoryRow",
-    "AlarmLog",
-    "AlarmState",
-    "AlarmStateRecord",
-    "AlarmStateRow",
-    "AlarmStates",
-    "BackendSpec",
-    "ChannelDirectory",
-    "DirectoryPage",
-    "DirectoryQuery",
-    "DirectoryRecord",
-    "DirectoryRow",
-    "HistoryPage",
-    "Outcome",
-    "PutLog",
-    "PutRow",
-    "Source",
     "SERVED_FIELD",
     "SERVED_INSTANT_FIELD",
     "SERVED_QUERY_FIELD",
     "SERVED_ROW_FIELD",
+    "SERVED_SIGNAL_PROPERTY",
+    "AlarmCondition",
+    "AlarmConfiguration",
+    "AlarmEntry",
+    "AlarmLog",
+    "AlarmLogEntry",
+    "AlarmState",
+    "AlarmStates",
+    "BackendSpec",
+    "ChannelDirectory",
+    "DirectoryDetail",
+    "DirectoryEntry",
+    "DirectoryPage",
+    "DirectoryQuery",
+    "NotListed",
+    "PutLog",
+    "PutLogEntry",
+    "Source",
     "Unavailable",
     "as_payload",
     "has_simulator",
     "logbook_source",
     "served_instant",
     "service_targets",
-    "severity_rank",
     "unavailable_payload",
 ]
 
@@ -134,9 +127,10 @@ FLOOR_REASON = "installed osprey-connectors has no PV directory support (upgrade
 #: The reason a section with no source on the current target answers.
 NO_SOURCE_REASON = "not available for this target"
 
-#: The served name of each contract field the framework serves under its EPICS word.
-#: Routes, pages and tool answers keep ``ioc``, ``record_type`` and ``pv``.
-SERVED_FIELD = {"server": "ioc", "channel_type": "record_type", "address": "pv"}
+#: The served name of each contract field the framework serves under its EPICS word,
+#: or under the word the pages read: routes, pages and tool answers keep ``ioc``,
+#: ``record_type`` and ``pv``, and a directory detail's entry is its ``row``.
+SERVED_FIELD = {"server": "ioc", "channel_type": "record_type", "address": "pv", "entry": "row"}
 
 #: A directory row's fields as served: its address is the row's ``name``.
 SERVED_ROW_FIELD = {**SERVED_FIELD, "address": "name"}
@@ -158,13 +152,18 @@ SERVED_INSTANT_FIELD = {
 #: The field a record keeps an unplaced stamp in; it is served as the record's instant.
 _RECORDED_STAMP = "recorded_stamp"
 
+#: What the alarm logger appends to an acknowledged severity, served as it recorded it.
+_ACK_SUFFIX = "_ACK"
+
 #: The records whose fields are served under :data:`SERVED_FIELD`.
-_SERVED_RECORDS = tuple(record for record in (PutRow, AlarmStateRow) if record is not None)
+_SERVED_RECORDS = tuple(
+    record for record in (PutLogEntry, AlarmEntry, DirectoryDetail) if record is not None
+)
 
 
 def _served_names(result: Any) -> Mapping[str, str]:
     """The served name of each of *result*'s fields that is served under another."""
-    if DirectoryRow is not None and isinstance(result, DirectoryRow):
+    if DirectoryEntry is not None and isinstance(result, DirectoryEntry):
         return SERVED_ROW_FIELD
     return SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
 
@@ -193,7 +192,16 @@ def _model_payload(result: BaseModel) -> dict[str, Any]:
         for name in type(result).model_fields:
             if name in SERVED_INSTANT_FIELD and payload[SERVED_INSTANT_FIELD[name]] is None:
                 payload[SERVED_INSTANT_FIELD[name]] = stamp
+    if AlarmLogEntry is not None and isinstance(result, AlarmLogEntry):
+        _serve_recorded_severity(payload)
     return payload
+
+
+def _serve_recorded_severity(payload: dict[str, Any]) -> None:
+    """A logged alarm's severity as the logger recorded it: ``MAJOR_ACK``, not ``acknowledged``."""
+    acknowledged = payload.pop("acknowledged")
+    if acknowledged and payload["severity"] is not None:
+        payload["severity"] = f"{payload['severity']}{_ACK_SUFFIX}"
 
 
 def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
@@ -215,9 +223,10 @@ def as_payload(result: Any) -> Any:
 
     A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
     by :func:`~osprey.services.pv_directory.vocabulary.source_label`; a directory
-    row names its fields by :data:`SERVED_ROW_FIELD`, a put row and an alarm-state row
-    by :data:`SERVED_FIELD`, and every record its instants by
-    :data:`SERVED_INSTANT_FIELD`. Other records (pydantic models, and dataclasses)
+    entry names its fields by :data:`SERVED_ROW_FIELD`, a put-log entry, an alarm entry
+    and a directory detail by :data:`SERVED_FIELD`, and every record its instants by
+    :data:`SERVED_INSTANT_FIELD`; a logged alarm serves its severity as the logger
+    recorded it, an acknowledged one with its ``_ACK``. Other records (pydantic models, and dataclasses)
     become mappings field by field, enum members their values, a ``datetime`` its
     :func:`served_instant` text, mappings and sequences their JSON forms; anything
     else is returned as it is.

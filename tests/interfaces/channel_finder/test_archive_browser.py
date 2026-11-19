@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -25,7 +24,9 @@ import yaml
 pytest.importorskip("osprey_connectors.service_answers")
 
 from osprey.channel_roster import registered_channels
-from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.archiver import ArchiveCoverage, ArchiveExtent
+from osprey_connectors.service_answers import Source
+from tests._service_factory import patch_create_service
 from tests.interfaces.channel_finder.test_all_pvs_browser import (
     _open,
     _tabs,
@@ -43,24 +44,22 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 class _Store:
     """The deployment's store, recording *channels*."""
 
-    def __init__(self, channels: frozenset[str]) -> None:
+    def __init__(self, spec: Any, channels: frozenset[str]) -> None:
+        self.source = Source(
+            kind=spec.kind, target=spec.target, service=spec.type, rehearsal=spec.rehearsal
+        )
         self._channels = channels
 
-    async def store_extent(self) -> Any:
-        return SimpleNamespace(
-            addresses=self._channels, oldest_at=None, newest_at=None, reason=None
-        )
+    async def extent(self, **_kwargs: Any) -> Any:
+        return ArchiveExtent(addresses=self._channels)
 
-    async def get_metadata(self, channel: str) -> Any:
-        return SimpleNamespace(
-            is_archived=channel in self._channels,
-            first_sample_at=None,
-            last_sample_at=None,
-            sampling_period=None,
-            description=None,
-        )
+    async def coverage(self, addresses: Any, **_kwargs: Any) -> Any:
+        return {
+            address: ArchiveCoverage(address=address, is_archived=address in self._channels)
+            for address in addresses
+        }
 
-    async def disconnect(self) -> None:
+    async def aclose(self) -> None:
         pass
 
 
@@ -72,11 +71,11 @@ def store(render: Path) -> Iterator[frozenset[str]]:  # noqa: F811
     channels = frozenset(record.address for record in registered_channels(config).records)
     assert channels
 
-    async def create(_config: Any) -> _Store:
-        return _Store(channels)
+    async def create(spec: Any, **_kwargs: Any) -> _Store:
+        return _Store(spec, channels)
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(ConnectorFactory, "create_archiver_connector", create)
+        patch_create_service(patch, "archive", create)
         yield channels
 
 

@@ -42,6 +42,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
+from osprey_connectors.archiver import ChannelArchive
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
@@ -51,6 +52,7 @@ from osprey_connectors.ipc._pool import DEFAULT_CALL_TIMEOUT_S
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.ipc._verification import verify_host_report
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
 from osprey_connectors_tests.ipc._host_reports import host_report
 from tests._live import async_wait_until
@@ -114,17 +116,14 @@ class _NeverBuilt:
         raise AssertionError("the in-process connector was built on a switch-capable deployment")
 
 
-class _FakeArchiver:
-    """An archiver that connects without touching a database."""
+class _FakeArchive(ChannelArchive):
+    """An archive that is built without touching a database, and answers nothing."""
 
-    def __init__(self):
-        self.config = None
+    async def history(self, *_addresses: object, **_window: object) -> Unavailable:
+        return Unavailable(cause="unsupported", reason="a test archive")
 
-    async def connect(self, config):
-        self.config = config
-
-    async def disconnect(self):
-        return None
+    async def coverage(self, *_addresses: object, **_budget: object) -> Unavailable:
+        return Unavailable(cause="unsupported", reason="a test archive")
 
 
 async def wait_for(predicate):
@@ -2132,12 +2131,17 @@ class TestServingFromTheChild:
 
         with isolated_connector_registries():
             ConnectorFactory.register_control_system(SERVED_LIVE_TYPE, _NeverBuilt)
-            ConnectorFactory.register_archiver("mongodb_archiver", _FakeArchiver)
+            ConnectorFactory.register_service("archive", "mongodb_archiver", _FakeArchive)
+            spec = BackendSpec(
+                kind="archive", type="mongodb_archiver", target="live", settings={}, rehearsal=False
+            )
 
-            archiver = await context.archiver()
+            archive = await context.archive(spec)
 
-            assert isinstance(archiver.connector, _FakeArchiver)
-            assert await context.archiver() is archiver
+            assert isinstance(archive, _FakeArchive)
+            assert await context.archive(spec) is archive
+            # Built in this process, never handed out as a supervised child handle.
+            assert "archive" not in context._handles and "archiver" not in context._handles
 
     async def test_the_baseline_starts_unprobed_and_is_returned_to_unprobed(self, make_manager):
         """The shipped posture: the live block carries no probe channel.

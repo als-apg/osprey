@@ -32,14 +32,14 @@ from osprey.interfaces.channel_finder import directory_pages_api
 from osprey.services.pv_directory import _connectors, service
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import (
-    AlarmConfigRecord,
-    AlarmStateRecord,
-    AlarmStateRow,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
     AlarmStates,
 )
-from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
-from osprey_connectors.put_log import PutRow
-from osprey_connectors.service_answers import HistoryPage, Outcome, Source
+from osprey_connectors.directory import DirectoryDetail, DirectoryEntry, DirectoryPage
+from osprey_connectors.put_log import PutLogEntry
+from osprey_connectors.service_answers import LogPage, NotListed, Source
 from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -98,15 +98,15 @@ class FakeDirectory(FakeBackend):
 
     def _hits(self, query: Any) -> list[Any]:
         return [
-            record.row
+            record.entry
             for record in self.records.values()
-            if (not query.server or record.row.server in query.server)
-            and (query.status is None or record.row.status == query.status)
+            if (not query.server or record.entry.server in query.server)
+            and (query.status is None or record.entry.status == query.status)
             and (
                 query.address_pattern is None
-                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+                or fnmatch.fnmatchcase(record.entry.address, query.address_pattern)
             )
-            and query.words in record.row.address
+            and query.words in record.entry.address
         ]
 
     async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
@@ -114,7 +114,7 @@ class FakeDirectory(FakeBackend):
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="",
             request="GET /fake",
             source=self.source,
@@ -127,19 +127,19 @@ class FakeDirectory(FakeBackend):
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(address, Outcome.NOT_LISTED)
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakeHistory(FakeBackend):
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        return HistoryPage(
-            outcome=Outcome.FOUND,
+    async def history(self, address: str, **_: Any) -> Any:
+        return LogPage(
+            outcome="found",
             source=self.source,
-            rows=[PutRow(recorded_stamp="t", address=address, old="1", new="2")],
+            rows=[PutLogEntry(recorded_stamp="t", address=address, old="1", new="2")],
         )
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return AlarmConfigRecord(in_tree="yes", path=f"/SR/{address}")
+        return AlarmConfiguration(in_tree="yes", path=f"/SR/{address}")
 
 
 class FakeAlarmState(FakeBackend):
@@ -152,13 +152,13 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        state = AlarmStateRecord(
+        state = AlarmCondition(
             severity="MAJOR",
             status="NO_ALARM",
             latched=True,
             event_at=datetime(2026, 11, 11, 6, tzinfo=UTC),
         )
-        row = AlarmStateRow(address="SR:BPM1", path="/SR/SR:BPM1", state=state)
+        row = AlarmEntry(address="SR:BPM1", path="/SR/SR:BPM1", condition=state)
         return AlarmStates(rows=(row,), stale=False, last_contact_at=None)
 
 
@@ -257,12 +257,12 @@ def start(mock_registry, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
 
 
 def _record_of(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
-    row = DirectoryRow(address=name, server=ioc, host="host-a", status="Active")
-    return DirectoryRecord(row=row, properties=properties)
+    row = DirectoryEntry(address=name, server=ioc, host="host-a", status="Active")
+    return DirectoryDetail(entry=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.address: record for record in records}
+    return {record.entry.address: record for record in records}
 
 
 def _routes() -> dict[str, Any]:

@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from osprey_connectors.archiver import ArchiverMetadata
+from osprey_connectors.archiver import ArchiveCoverage
 from osprey_connectors.control_system import ChannelLimitsConfig
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -63,7 +63,7 @@ LIMIT_FIELDS = (
             "outcome",
             WriteOutcome.CONFIRMED,
         ),
-        (ArchiverMetadata(address="A", is_archived=True), "is_archived", False),
+        (ArchiveCoverage(address="A", is_archived=True), "is_archived", False),
         (ChannelLimitsConfig(address="A", max_value=1.0, writable=True), "max_value", 1e9),
         (SeedReport(), "documents", 1),
     ],

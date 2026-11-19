@@ -106,8 +106,8 @@ class TestBuiltinRegistration:
                 assert row.type_name in ConnectorFactory.list_control_systems()
                 registered = ConnectorFactory._control_system_connectors[row.type_name]
             else:
-                assert row.type_name in ConnectorFactory.list_archivers()
-                registered = ConnectorFactory._archiver_connectors[row.type_name]
+                assert row.type_name in ConnectorFactory.list_services("archive")
+                registered = ConnectorFactory._service_backends["archive"][row.type_name]
             assert registered.__name__ == row.class_name
 
 

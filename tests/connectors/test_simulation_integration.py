@@ -3,7 +3,7 @@
 A setpoint reads its seeded nominal, a write is echoed into the readback its
 pair names, unit and description come from the channel record, and a string
 channel passes through; the mock archiver serves the same values as history and
-refuses an address the view does not hold.
+no rows for an address the view does not hold.
 """
 
 from datetime import UTC, datetime
@@ -13,7 +13,7 @@ import pytest
 
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -122,15 +122,27 @@ class TestVAInProcessConnectorSimulation:
             await connector.disconnect()
 
 
+def _archive(view) -> MockArchiverConnector:
+    """The mock archive over *view*, as ``create_service`` builds it."""
+    return MockArchiverConnector(
+        BackendSpec(
+            kind="archive",
+            type="mock_archiver",
+            target="va",
+            settings=in_process_config(view),
+            rehearsal=False,
+        )
+    )
+
+
 class TestMockArchiverSimulation:
     """MockArchiverConnector over the rig's simulator view."""
 
     @pytest.mark.asyncio
     async def test_engine_baseline_series(self, view):
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(view))
+        connector = _archive(view)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["T:Q1:CUR:SP"],
             start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC),
@@ -140,14 +152,13 @@ class TestMockArchiverSimulation:
         assert len(sp) > 0
         assert (sp == 42.0).all()
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_an_address_outside_the_view_is_refused(self, view):
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(view))
+    async def test_an_address_outside_the_view_has_no_rows(self, view):
+        connector = _archive(view)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["T:Q1:CUR:SP"],
             start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC),
@@ -157,25 +168,26 @@ class TestMockArchiverSimulation:
         assert len(sp) > 0
         assert (sp == 42.0).all()
 
-        with pytest.raises(
-            ChannelNotFoundError, match="UNSERVED:PV is not a channel of this facility"
-        ):
-            await connector.get_data(
-                ["T:Q1:CUR:SP", "UNSERVED:PV"],
-                start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
-                end_at=datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC),
-            )
+        # Never recorded: the request answers, the address contributes nothing.
+        both = await connector.history(
+            ["T:Q1:CUR:SP", "UNSERVED:PV"],
+            start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            end_at=datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC),
+        )
+        assert set(both["address"]) == {"T:Q1:CUR:SP"}
+        assert both.equals(df)
+        coverage = await connector.coverage(["UNSERVED:PV"])
+        assert coverage["UNSERVED:PV"].is_archived is False
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_mixed_numeric_and_string_channels_both_present(self, view):
         """A single request mixing a numeric channel and a string (enum/status)
         channel returns rows for both — neither is dropped or coerced."""
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(view))
+        connector = _archive(view)
 
-        df = await connector.get_data(
+        df = await connector.history(
             ["T:Q1:CUR:SP", "T:MODE"],
             start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
             end_at=datetime(2024, 1, 1, 0, 10, 0, tzinfo=UTC),
@@ -188,4 +200,4 @@ class TestMockArchiverSimulation:
         assert (sp == 42.0).all()
         assert (mode == "CW").all()
 
-        await connector.disconnect()
+        await connector.aclose()

@@ -124,17 +124,28 @@ def test_identity_imports_no_osprey_module():
 @pytest.mark.parametrize(
     ("driver", "type_name", "registry", "connector_module"),
     [
-        ("tango", "tango", "control_system", "control_system._tango_connector"),
-        ("doocs4py", "doocs", "control_system", "control_system._doocs_connector"),
-        ("doocs4py", "doocs_archiver", "archiver", "archiver._doocs_archiver_connector"),
-        ("pymongo", "mongodb_archiver", "archiver", "archiver._mongodb_archiver_connector"),
+        ("tango", "tango", "_control_system_connectors", "control_system._tango_connector"),
+        ("doocs4py", "doocs", "_control_system_connectors", "control_system._doocs_connector"),
+        (
+            "doocs4py",
+            "doocs_archiver",
+            "_service_backends['archive']",
+            "archiver._doocs_archiver_connector",
+        ),
+        (
+            "pymongo",
+            "mongodb_archiver",
+            "_service_backends['archive']",
+            "archiver._mongodb_archiver_connector",
+        ),
     ],
     ids=["tango", "doocs", "doocs_archiver", "mongodb_archiver"],
 )
 def test_builtin_registration_needs_no_driver(driver, type_name, registry, connector_module):
     """A built-in registers on a machine where its driver cannot be imported.
 
-    Each connector imports its driver inside ``connect()``. If that import ever
+    Each connector imports its driver inside ``connect()``, and each archive when
+    it is built, never at module scope. If that import ever
     moved to module scope, registering the built-ins would raise ImportError on
     every machine without that control system and take the framework down with
     it. This has to run in a fresh interpreter: in the test process the
@@ -149,7 +160,7 @@ def test_builtin_registration_needs_no_driver(driver, type_name, registry, conne
         "from osprey_connectors.factory import ConnectorFactory;"
         "ConnectorFactory._ensure_builtins();"
         f"assert {module!r} in sys.modules, 'the connector module was never imported';"
-        f"registered = ConnectorFactory._{registry}_connectors;"
+        f"registered = ConnectorFactory.{registry};"
         f"assert {type_name!r} in registered, sorted(registered);"
         "print('CLEAN')"
     )
@@ -162,7 +173,7 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
     A finder at the front of ``sys.meta_path`` refuses ``osprey`` and its
     submodules, because the dev environment has the framework installed and
     no path setting can hide it. The child first proves the finder is live,
-    then connects the archiver over the view and reads a channel's history
+    then builds the archive over the view and reads a channel's history
     back.
     """
     view = served_tree(tmp_path / "served", ["T:Q1:CUR:SP"])
@@ -190,19 +201,27 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
             sys.exit("blocker inert")
 
         from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+        from osprey_connectors.service_answers import BackendSpec
 
 
         async def main():
-            connector = MockArchiverConnector()
-            await connector.connect({"simulator_view": sys.argv[1]})
-            df = await connector.get_data(
+            connector = MockArchiverConnector(
+                BackendSpec(
+                    kind="archive",
+                    type="mock_archiver",
+                    target="va",
+                    settings={"simulator_view": sys.argv[1]},
+                    rehearsal=False,
+                )
+            )
+            df = await connector.history(
                 ["T:Q1:CUR:SP"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
             )
             values = df.loc[df["address"] == "T:Q1:CUR:SP", "value"].tolist()
             assert values and all(math.isfinite(v) for v in values), values
-            await connector.disconnect()
+            await connector.aclose()
 
 
         asyncio.run(main())

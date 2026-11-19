@@ -12,7 +12,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -22,10 +21,10 @@ pytest.importorskip("osprey_connectors.service_answers")
 from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
-from osprey.services.pv_directory import service
 from osprey_connectors import control_context
-from osprey_connectors.directory import DirectoryPage, DirectoryRow
-from osprey_connectors.service_answers import Outcome, Source
+from osprey_connectors.archiver import ArchiveExtent
+from osprey_connectors.directory import DirectoryEntry, DirectoryPage
+from osprey_connectors.service_answers import Source
 from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -56,9 +55,9 @@ class FakeDirectory:
     """A directory of three PVs on two IOCs."""
 
     rows = (
-        DirectoryRow(address="SR:BPM1", server="sim-SR"),
-        DirectoryRow(address="SR:BPM2", server="sim-SR"),
-        DirectoryRow(address="BR:BPM1", server="sim-BR"),
+        DirectoryEntry(address="SR:BPM1", server="sim-SR"),
+        DirectoryEntry(address="SR:BPM2", server="sim-SR"),
+        DirectoryEntry(address="BR:BPM1", server="sim-BR"),
     )
 
     def __init__(self, spec: Any, **seams: Any) -> None:
@@ -73,7 +72,7 @@ class FakeDirectory:
     async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         rows = list(self.rows)[query.page * query.page_size :][: query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND,
+            outcome="found",
             searched="",
             request="GET /fake",
             source=self.source,
@@ -89,15 +88,19 @@ class FakeDirectory:
 class FakeStore:
     """The deployment's own store, recording two of the three PVs."""
 
-    async def store_extent(self) -> Any:
-        return SimpleNamespace(
+    def __init__(self, spec: Any) -> None:
+        self.source = Source(
+            kind=spec.kind, target=spec.target, service=spec.type, rehearsal=spec.rehearsal
+        )
+
+    async def extent(self, **_kwargs: Any) -> Any:
+        return ArchiveExtent(
             addresses=frozenset({"SR:BPM1", "BR:BPM1"}),
             oldest_at=datetime(2026, 10, 13, 8, tzinfo=UTC),
             newest_at=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
-            reason=None,
         )
 
-    async def disconnect(self) -> None:
+    async def aclose(self) -> None:
         pass
 
 
@@ -106,11 +109,11 @@ def fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     async def directory(spec: Any, **seams: Any) -> FakeDirectory:
         return FakeDirectory(spec, **seams)
 
-    async def archiver(config: Any) -> FakeStore:  # noqa: ARG001 - the factory's signature
-        return FakeStore()
+    async def archiver(spec: Any, **_kwargs: Any) -> FakeStore:
+        return FakeStore(spec)
 
     patch_create_service(monkeypatch, "directory", directory)
-    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", archiver)
+    patch_create_service(monkeypatch, "archive", archiver)
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
     record = control_context.ControlContext(target="va", generation=1)
     monkeypatch.setattr(control_context, "read_record", lambda **_: record)

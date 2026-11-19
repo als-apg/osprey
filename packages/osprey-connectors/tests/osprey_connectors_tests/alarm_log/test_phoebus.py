@@ -12,11 +12,11 @@ from typing import Any
 import pytest
 
 from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
-from osprey_connectors.alarm_log import AlarmHistoryRow
+from osprey_connectors.alarm_log import AlarmLogEntry
 from osprey_connectors.alarm_log._phoebus import PhoebusAlarmLogger
-from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.alarm_state import AlarmConfiguration, AlarmSeverity
 from osprey_connectors.errors import NaiveDatetimeError
-from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 DEADLINE = 6.0
 PV = "DEMO:RF1:CAV:Temp-I"
@@ -136,13 +136,31 @@ def loopback() -> Iterator[Any]:
 # --- history ------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("recorded", "severity", "acknowledged"),
+    [
+        ("MAJOR", AlarmSeverity.MAJOR, False),
+        ("MAJOR_ACK", AlarmSeverity.MAJOR, True),
+        ("UNDEFINED_ACK", AlarmSeverity.UNDEFINED, True),
+        ("OK", AlarmSeverity.OK, False),
+    ],
+)
+async def test_history_folds_a_logged_ack_into_the_severity_and_acknowledged(
+    recorded, severity, acknowledged
+):
+    row = _state("2026-10-29T03:14:07.120Z", severity=recorded)
+    page = await _logger(Recording(search=[row])).history(PV, limit=50, timeout_s=DEADLINE)
+
+    assert (page.rows[0].severity, page.rows[0].acknowledged) == (severity, acknowledged)
+
+
 async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
     transport = Recording(search=RECORDED)
-    page = await _logger(transport).history(PV, None, 50, timeout_s=DEADLINE)
+    page = await _logger(transport).history(PV, limit=50, timeout_s=DEADLINE)
 
-    assert page.outcome is Outcome.FOUND
+    assert page.outcome == "found"
     assert [row.kind for row in page.rows] == ["state", "config", "state", "config", "state"]
-    assert page.rows[0] == AlarmHistoryRow(
+    assert page.rows[0] == AlarmLogEntry(
         event_at=datetime(2026, 10, 29, 3, 14, 7, 120000, tzinfo=UTC),
         severity="MAJOR",
         status="NO_ALARM",
@@ -150,7 +168,7 @@ async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
         user=None,
         kind="state",
     )
-    assert page.rows[1] == AlarmHistoryRow(
+    assert page.rows[1] == AlarmLogEntry(
         event_at=datetime(2026, 10, 29, 3, 13, tzinfo=UTC),
         message="Cavity 1 over-temperature",
         user="opsuser",
@@ -176,7 +194,7 @@ async def test_history_window_is_sent_in_days_and_applied_exactly():
     stale = _state((since - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.120Z"))
     transport = Recording(search=[fresh, stale])
 
-    page = await _logger(transport).history(PV, since, 50, timeout_s=DEADLINE)
+    page = await _logger(transport).history(PV, start_at=since, limit=50, timeout_s=DEADLINE)
 
     assert [row.event_at for row in page.rows] == [datetime.fromisoformat(fresh["time"])]
     params = transport.requests[0]["params"]
@@ -186,14 +204,18 @@ async def test_history_window_is_sent_in_days_and_applied_exactly():
 
 async def test_history_window_reads_a_config_row_by_its_message_time():
     since = datetime(2026, 10, 25, tzinfo=UTC)
-    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, timeout_s=DEADLINE)
+    page = await _logger(Recording(search=RECORDED)).history(
+        PV, start_at=since, limit=50, timeout_s=DEADLINE
+    )
     assert [row.kind for row in page.rows] == ["state", "config"]
 
 
 async def test_history_refuses_a_naive_start_and_asks_nothing():
     transport = Recording(search=RECORDED)
     with pytest.raises(NaiveDatetimeError) as refused:
-        await _logger(transport).history(PV, datetime(2026, 10, 25), 50, timeout_s=DEADLINE)
+        await _logger(transport).history(
+            PV, start_at=datetime(2026, 10, 25), limit=50, timeout_s=DEADLINE
+        )
     assert refused.value.parameter == "start_at"
     assert transport.requests == []
 
@@ -203,7 +225,9 @@ async def test_history_keeps_a_row_whose_time_cannot_be_placed(stamp: str):
     # A stamp with no zone names no instant, so none is guessed and the row stays.
     row = {"config": f"state:{PATH}", "pv": PV, "time": stamp, "severity": "OK"}
     since = datetime(2026, 10, 30, tzinfo=UTC)
-    page = await _logger(Recording(search=[row])).history(PV, since, 50, timeout_s=DEADLINE)
+    page = await _logger(Recording(search=[row])).history(
+        PV, start_at=since, limit=50, timeout_s=DEADLINE
+    )
     assert len(page.rows) == 1
     assert page.rows[0].event_at is None
 
@@ -211,27 +235,31 @@ async def test_history_keeps_a_row_whose_time_cannot_be_placed(stamp: str):
 async def test_history_compares_instants_across_zones():
     pacific = timezone(timedelta(hours=-7))
     since = datetime(2026, 10, 28, 20, 14, 7, tzinfo=pacific)  # 03:14:07Z on the 29th
-    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, timeout_s=DEADLINE)
+    page = await _logger(Recording(search=RECORDED)).history(
+        PV, start_at=since, limit=50, timeout_s=DEADLINE
+    )
     assert [row.event_at for row in page.rows] == [
         datetime(2026, 10, 29, 3, 14, 7, 120000, tzinfo=UTC)
     ]
 
 
 async def test_history_a_full_page_is_truncated_at_the_limit():
-    page = await _logger(Recording(search=RECORDED[:3])).history(PV, None, 2, timeout_s=DEADLINE)
+    page = await _logger(Recording(search=RECORDED[:3])).history(PV, limit=2, timeout_s=DEADLINE)
     assert len(page.rows) == 2
     assert page.truncated is True
 
 
 async def test_history_a_page_that_fills_exactly_is_not_truncated():
-    page = await _logger(Recording(search=RECORDED[:2])).history(PV, None, 2, timeout_s=DEADLINE)
+    page = await _logger(Recording(search=RECORDED[:2])).history(PV, limit=2, timeout_s=DEADLINE)
     assert len(page.rows) == 2
     assert page.truncated is False
 
 
 async def test_history_reaching_the_window_end_is_not_truncated():
     since = datetime(2026, 10, 25, tzinfo=UTC)
-    page = await _logger(Recording(search=RECORDED[:3])).history(PV, since, 2, timeout_s=DEADLINE)
+    page = await _logger(Recording(search=RECORDED[:3])).history(
+        PV, start_at=since, limit=2, timeout_s=DEADLINE
+    )
     assert len(page.rows) == 2
     assert page.truncated is False
 
@@ -239,44 +267,44 @@ async def test_history_reaching_the_window_end_is_not_truncated():
 async def test_history_filtered_rows_on_a_full_page_still_report_truncation():
     other = _state("2026-10-29T03:14:08.120Z", config=f"state:/Demo/{PV}-X", pv=f"{PV}-X")
     page = await _logger(Recording(search=[other, *RECORDED[:2]])).history(
-        PV, None, 2, timeout_s=DEADLINE
+        PV, limit=2, timeout_s=DEADLINE
     )
     assert len(page.rows) == 2
     assert page.truncated is True
 
 
 async def test_history_no_rows_is_no_logged_events_not_no_alarm():
-    page = await _logger(Recording(search=[])).history(PV, None, 50, timeout_s=DEADLINE)
-    assert page.outcome is Outcome.NO_MATCH
+    page = await _logger(Recording(search=[])).history(PV, limit=50, timeout_s=DEADLINE)
+    assert page.outcome == "no_match"
     assert page.rows == ()
-    assert page.reason == "no logged events"
+    assert page.note == "no logged events"
 
 
 async def test_history_drops_rows_of_a_name_the_search_matched_loosely():
     near = _state("2026-10-29T03:14:08.120Z", config=f"state:/Demo/{PV}-X", pv=f"{PV}-X")
     page = await _logger(Recording(search=[near, "not a row"])).history(
-        PV, None, 50, timeout_s=DEADLINE
+        PV, limit=50, timeout_s=DEADLINE
     )
-    assert page.outcome is Outcome.NO_MATCH
+    assert page.outcome == "no_match"
 
 
 async def test_history_service_failure_carries_its_reason():
-    page = await _logger(Recording(search=Unavailable(reason=LOGIN_PAGE_REASON))).history(
-        PV, None, 50, timeout_s=DEADLINE
-    )
-    assert page.outcome is Outcome.UNAVAILABLE
+    page = await _logger(
+        Recording(search=Unavailable(cause="refused", reason=LOGIN_PAGE_REASON))
+    ).history(PV, limit=50, timeout_s=DEADLINE)
+    assert isinstance(page, Unavailable)
     assert page.reason == LOGIN_PAGE_REASON
 
 
 async def test_history_a_bare_object_is_malformed():
-    page = await _logger(Recording(search={"hits": []})).history(PV, None, 50, timeout_s=DEADLINE)
-    assert page.outcome is Outcome.UNAVAILABLE
+    page = await _logger(Recording(search={"hits": []})).history(PV, limit=50, timeout_s=DEADLINE)
+    assert isinstance(page, Unavailable)
     assert page.reason == "malformed response"
 
 
 async def test_history_a_deleted_config_row_says_so():
     row = _config("2026-10-29T03:13:00.000Z", delete="Deleting", user="opsuser")
-    page = await _logger(Recording(search=[row])).history(PV, None, 50, timeout_s=DEADLINE)
+    page = await _logger(Recording(search=[row])).history(PV, limit=50, timeout_s=DEADLINE)
     assert page.rows[0].message == "Deleting"
     assert page.rows[0].kind == "config"
 
@@ -288,7 +316,7 @@ async def test_config_found_reads_the_newest_config_row():
     transport = Recording(search=RECORDED)
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
 
-    assert record == AlarmConfigRecord(
+    assert record == AlarmConfiguration(
         in_tree="yes",
         path=PATH,
         guidance=[{"title": "Action", "details": "Check cooling water flow", "delay": 0}],
@@ -326,17 +354,17 @@ async def test_config_path_check_reads_an_escaped_slash_and_a_scheme():
 async def test_config_not_in_tree_when_the_logger_holds_nothing():
     transport = Recording(search=[])
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="no")
+    assert record == AlarmConfiguration(in_tree="no")
     # Nothing names a path to ask the second route about.
     assert len(transport.requests) == 1
 
 
 async def test_config_search_failure_keeps_its_reason():
     # A lookup with no answer at all carries why; the record has no field for a reason.
-    record = await _logger(Recording(search=Unavailable(reason="no answer within 6 s"))).config_for(
-        PV, timeout_s=DEADLINE
-    )
-    assert record == Unavailable(reason="no answer within 6 s")
+    record = await _logger(
+        Recording(search=Unavailable(cause="timeout", reason="no answer within 6 s"))
+    ).config_for(PV, timeout_s=DEADLINE)
+    assert record == Unavailable(cause="timeout", reason="no answer within 6 s")
 
 
 async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
@@ -351,7 +379,7 @@ async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
 @pytest.mark.parametrize(
     "fallback",
     [
-        Unavailable(reason="answered HTTP 404"),
+        Unavailable(cause="bad_reply", reason="answered HTTP 404"),
         [],
         [_config("2026-10-29", path="/Demo/other")],
         {"a": 1},
@@ -362,14 +390,14 @@ async def test_config_lookup_failure_is_unknown(fallback: Any):
     # The state row proves the path; the unmeasured route's failure proves nothing.
     transport = Recording(search=[RECORDED[0]], config=fallback)
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
+    assert record == AlarmConfiguration(in_tree="unknown", path=PATH)
 
 
 async def test_config_state_row_without_a_path_is_unknown_with_no_second_request():
     row = {"pv": PV, "severity": "OK", "time": "2026-10-29T03:14:07.120Z"}
     transport = Recording(search=[row])
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=None)
+    assert record == AlarmConfiguration(in_tree="unknown", path=None)
     assert len(transport.requests) == 1
 
 
@@ -378,14 +406,14 @@ async def test_config_deleted_means_removed():
     record = await _logger(Recording(search=[deleted, *RECORDED])).config_for(
         PV, timeout_s=DEADLINE
     )
-    assert record == AlarmConfigRecord(in_tree="no", path=PATH)
+    assert record == AlarmConfiguration(in_tree="no", path=PATH)
 
 
 @pytest.mark.parametrize("config_msg", ["{not json", None, "[1]"], ids=["bad", "absent", "list"])
 async def test_config_row_that_cannot_be_read_is_unknown(config_msg: Any):
     row = {**_config("2026-10-29T03:13:00.000Z"), "config_msg": config_msg}
     record = await _logger(Recording(search=[row])).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
+    assert record == AlarmConfiguration(in_tree="unknown", path=PATH)
 
 
 async def test_config_record_never_carries_the_notification_actions():
@@ -416,11 +444,11 @@ async def test_probe_sends_only_the_slashed_root():
 
 
 async def test_probe_failure_and_a_root_that_is_not_an_object():
-    assert await _logger(Recording(root=Unavailable(reason="x"))).probe(
+    assert await _logger(Recording(root=Unavailable(cause="unreachable", reason="x"))).probe(
         timeout_s=DEADLINE
-    ) == Unavailable(reason="x")
+    ) == Unavailable(cause="unreachable", reason="x")
     answer = await _logger(Recording(root=[1])).probe(timeout_s=DEADLINE)
-    assert answer == Unavailable(reason="malformed response")
+    assert answer == Unavailable(cause="bad_reply", reason="malformed response")
 
 
 async def test_probe_names_nothing_it_was_not_told():
@@ -435,9 +463,9 @@ async def test_search_over_the_real_transport_reaches_the_service(loopback: Any)
     loopback.routes[path] = (rows, 200, "text/plain")
     logger = _logger(None, url=f"http://127.0.0.1:{port}/alarm-logger/")
 
-    page = await logger.history(PV, None, 50, timeout_s=DEADLINE)
+    page = await logger.history(PV, limit=50, timeout_s=DEADLINE)
 
-    assert page.outcome is Outcome.FOUND
+    assert page.outcome == "found"
     assert len(page.rows) == 5
 
 

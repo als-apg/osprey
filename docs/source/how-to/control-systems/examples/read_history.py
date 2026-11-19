@@ -4,25 +4,26 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import BackendSpec
 
-ARCHIVER = {
-    "type": "epics_archiver",
-    "settings": {"url": "https://archiver.facility.edu:8443", "timeout_s": 30},
-}
+ARCHIVER = {"url": "https://archiver.facility.edu:8443", "timeout_s": 30}
 
 
 async def main() -> None:
-    archiver = await ConnectorFactory.create_archiver_connector(ARCHIVER)
+    spec = BackendSpec(
+        kind="archive", type="epics_archiver", target="live", settings=ARCHIVER, rehearsal=False
+    )
+    archive = await ConnectorFactory.create_service(spec)
     try:
         end = datetime.now(UTC)
-        frame = await archiver.get_data(
+        frame = await archive.history(
             ["DEMO:READBACK", "DEMO:SETPOINT"],
             start_at=end - timedelta(hours=1),
             end_at=end,
         )
-        print(frame)
+        print(frame)  # or Unavailable(cause=..., reason=...) when the appliance gave no answer
     finally:
-        await archiver.disconnect()
+        await archive.aclose()
 
 
 if __name__ == "__main__":

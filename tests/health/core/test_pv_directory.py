@@ -198,7 +198,11 @@ async def test_each_configured_service_is_one_row_with_its_evidence(
 
 @pytest.mark.usefixtures("fakes")
 async def test_an_unreachable_service_warns_with_its_reason(tmp_path: Path, contract: Any) -> None:
-    _Fake.answers = {"directory": contract.Unavailable(reason="the service answered a login page")}
+    _Fake.answers = {
+        "directory": contract.Unavailable(
+            cause="refused", reason="the service answered a login page"
+        )
+    }
 
     rows = await pv_directory(_config(tmp_path, LIVE_BUILD, FACILITY), cwd=tmp_path)()
 

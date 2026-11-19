@@ -28,11 +28,11 @@ from unittest.mock import AsyncMock, patch
 import numpy as np
 import pytest
 
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, field_name
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.service_answers import Unavailable
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
     SeedKnobs,
     build,
     seed_base,
@@ -220,10 +220,10 @@ def store(mongodb_container):
 @pytest.fixture
 def connector_config(mongodb_container, store, monkeypatch):
     """The connector config of the store, password by environment name."""
-    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archive_store import _HOST_OVERRIDE_ENV, _PORT_OVERRIDE_ENV
 
-    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
     password_env = "WAVEFORM_EQUIVALENCE_MONGO_PASSWORD"
     monkeypatch.setenv(password_env, mongodb_container["password"])
     collection, _ = store
@@ -243,18 +243,26 @@ def connector_config(mongodb_container, store, monkeypatch):
 
 @pytest.fixture
 async def connector(connector_config, mongodb_container):
-    """A connected ``MongoDBArchiverConnector`` on the store."""
+    """A ``MongoDBArchiverConnector`` on the store."""
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.service_answers import BackendSpec
 
     # The session's store answered once, at its start; the runtime under a
     # sweep's load may not now, and that is the runtime's failure, said as such.
     require_container_runtime(lambda: _ping(mongodb_container), "mongodb")
-    archiver = MongoDBArchiverConnector()
-    await archiver.connect(connector_config)
+    archiver = MongoDBArchiverConnector(
+        BackendSpec(
+            kind="archive",
+            type="mongodb_archiver",
+            target="va",
+            settings=connector_config,
+            rehearsal=False,
+        )
+    )
     try:
         yield archiver
     finally:
-        await archiver.disconnect()
+        await archiver.aclose()
 
 
 @pytest.fixture
@@ -286,7 +294,7 @@ def read_tool(connector, tmp_path, monkeypatch):
     initialize_server_context()
     try:
         with patch(
-            "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_service",
             new_callable=AsyncMock,
             return_value=connector,
         ):
@@ -366,12 +374,13 @@ class TestTheSeededArchive:
         """The connector's trace at T is the texture's trace at clock T."""
         texture = live_texture(demo_view, clock=lambda: T.timestamp())
 
-        frame = await connector.get_data(
+        frame = await connector.history(
             [SEK],
             start_at=T - timedelta(seconds=30),
             end_at=T + timedelta(seconds=30),
             precision_ms=0,
         )
+        assert not isinstance(frame, Unavailable), frame
 
         (value,) = frame.loc[frame["address"] == SEK, "value"].tolist()
         assert np.array_equal(np.asarray(value, dtype=np.float64), live_trace(texture))
@@ -454,7 +463,8 @@ async def test_a_live_hour_records_sixty_traces_each_the_pulse_of_its_minute(
     recorded = waveforms.count_documents({DATE_FIELD: {"$gte": T, "$lt": hour_end}})
     assert abs(recorded - 60) <= 1
 
-    frame = await connector.get_data([SEK], start_at=T, end_at=hour_end, precision_ms=0)
+    frame = await connector.history([SEK], start_at=T, end_at=hour_end, precision_ms=0)
+    assert not isinstance(frame, Unavailable), frame
     rows = frame.loc[frame["address"] == SEK]
     assert abs(len(rows) - 60) <= 1
     for stamp, value in zip(rows["timestamp"], rows["value"], strict=True):

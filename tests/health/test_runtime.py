@@ -11,7 +11,7 @@ disconnects it exactly once on exit. Mirrors the spy-connector shape from
 - best-effort teardown: a ``disconnect()`` that raises is swallowed so context
   exit never propagates it;
 - serialized construction: probes run concurrently inside a health category, so
-  two gathered ``get_connector``/``get_archiver`` calls must still construct a
+  two gathered ``get_connector``/``get_archive`` calls must still construct a
   single connector rather than orphaning the loser of the race.
 """
 
@@ -24,7 +24,17 @@ import pytest
 
 from osprey.health.runtime import HealthRuntime
 from osprey_connectors import factory
+from osprey_connectors.service_answers import BackendSpec
 from tests.health._fakes import SpyConnector
+
+#: An archive's spec, as the archive row of ``service_targets`` names one.
+_ARCHIVE_SPEC = BackendSpec(
+    kind="archive",
+    type="epics_archiver",
+    target="live",
+    settings={"url": "https://arch.example"},
+    rehearsal=False,
+)
 
 
 class _RaisingDisconnectConnector(SpyConnector):
@@ -268,33 +278,33 @@ async def test_double_shutdown_is_safe_after_construction(
 
 
 class _SpyArchiver:
-    """Minimal async-``disconnect``-only stand-in for an archiver connector."""
+    """Minimal async-``aclose``-only stand-in for an archive."""
 
     def __init__(self) -> None:
-        self.disconnect_calls = 0
+        self.aclose_calls = 0
 
-    async def disconnect(self) -> None:
-        self.disconnect_calls += 1
+    async def aclose(self) -> None:
+        self.aclose_calls += 1
 
 
 def _patch_archiver_factory(
     monkeypatch: pytest.MonkeyPatch,
-    connector: Any,
+    archive: Any,
     construct_calls: list[Any],
 ) -> None:
-    """Spy `create_archiver_connector`, yielding once inside the construction.
+    """Spy `create_service`, yielding once inside the construction.
 
     The ``await asyncio.sleep(0)`` is the whole point: it hands control back to
     the event loop while the cache slot is still empty, which is exactly the
     window a second concurrent probe used to slip through.
     """
 
-    async def fake_create(config: dict[str, Any]) -> Any:
-        construct_calls.append(config)
+    async def fake_create(spec: BackendSpec, **_kwargs: Any) -> Any:
+        construct_calls.append(spec)
         await asyncio.sleep(0)
-        return connector
+        return archive
 
-    monkeypatch.setattr(factory.ConnectorFactory, "create_archiver_connector", fake_create)
+    monkeypatch.setattr(factory.ConnectorFactory, "create_service", fake_create)
 
 
 def _patch_slow_factory(
@@ -410,14 +420,12 @@ async def test_shutdown_during_construction_does_not_orphan_the_connector(
     assert not runtime.ever_constructed
 
 
-async def test_concurrent_get_archiver_constructs_exactly_one(
+async def test_concurrent_get_archive_constructs_exactly_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
     spy = _SpyArchiver()
     _patch_archiver_factory(monkeypatch, spy, construct_calls)
-
-    archiver_config = {"type": "epics_archiver", "epics_archiver": {}}
 
     async with HealthRuntime(
         {
@@ -426,16 +434,16 @@ async def test_concurrent_get_archiver_constructs_exactly_one(
         }
     ) as runtime:
         first, second = await asyncio.gather(
-            runtime.get_archiver(archiver_config),
-            runtime.get_archiver(archiver_config),
+            runtime.get_archive(_ARCHIVE_SPEC),
+            runtime.get_archive(_ARCHIVE_SPEC),
         )
 
-        assert construct_calls == [archiver_config]
+        assert construct_calls == [_ARCHIVE_SPEC]
         assert first is spy
         assert second is spy
-        assert runtime.archiver_ever_constructed is True
+        assert runtime.archive_ever_constructed is True
 
-    assert spy.disconnect_calls == 1
+    assert spy.aclose_calls == 1
 
 
 async def test_closed_runtime_refuses_without_waiting_on_the_lock(
@@ -460,7 +468,7 @@ async def test_closed_runtime_refuses_without_waiting_on_the_lock(
         with pytest.raises(RuntimeError):
             await asyncio.wait_for(runtime.get_connector(), timeout=1)
         with pytest.raises(RuntimeError):
-            await asyncio.wait_for(runtime.get_archiver({"type": "mock"}), timeout=1)
+            await asyncio.wait_for(runtime.get_archive(_ARCHIVE_SPEC), timeout=1)
     finally:
         runtime._lock.release()
 

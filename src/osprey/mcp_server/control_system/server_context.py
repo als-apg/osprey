@@ -10,7 +10,7 @@ Usage in tools:
     registry = get_server_context()
     config = registry.config                          # Full parsed config
     connector = await registry.control_system()       # Supervised connector
-    archiver = await registry.archiver()              # Supervised connector
+    archive = await registry.archive(spec)            # The archive a spec names
     channel_finder_cfg = registry.channel_finder_config()
     hosts = registry.connector_hosts                  # Connector-host supervisor
 
@@ -40,8 +40,12 @@ by :func:`~osprey.mcp_server.control_system.connector_host_manager.switch_capabl
   any config that never named a second target — keeps the in-process cached
   connector, unchanged and untouched by any of this.
 
-The archiver is on neither path: it speaks HTTP or pymongo, holds no Channel
-Access context, and keeps serving whatever is happening to the child.
+The archive is on neither path: it speaks HTTP or pymongo, holds no Channel
+Access context, and keeps serving whatever is happening to the child. It is a
+service backend, one per control target, built from the spec
+:func:`~osprey_connectors.service_targets.service_targets` names and kept: it
+answers a failure as ``Unavailable`` and reopens itself, so nothing here
+recovers it.
 
 Who recovers a lost connector
 -----------------------------
@@ -78,7 +82,7 @@ import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from osprey.errors import ConfigurationError
 from osprey.mcp_server.control_system.connector_host_manager import (
@@ -89,7 +93,6 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     switch_capable,
 )
 from osprey_connectors import control_context
-from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_system import ControlSystem, ControlSystemConnector
@@ -103,6 +106,10 @@ from osprey_connectors.ipc import (
 from osprey_connectors.model import evolve
 from osprey_connectors.targets import configured_targets
 from osprey_connectors.write_tier import tier_allows
+
+if TYPE_CHECKING:
+    from osprey_connectors.archiver import ChannelArchive
+    from osprey_connectors.service_answers import BackendSpec
 
 __all__ = [
     "ConnectorEntry",
@@ -236,8 +243,8 @@ class ConnectorEntry:
     """Cached connector with its config for reconnection."""
 
     config: dict[str, Any]
-    instance: ControlSystemConnector | ArchiverConnector | None = None
-    connector_type: str = ""  # "control_system" or "archiver"
+    instance: ControlSystemConnector | None = None
+    connector_type: str = ""  # "control_system"
 
 
 @dataclass
@@ -275,7 +282,6 @@ class MCPServerConfig:
 #: The contract each key's connector states, which a handle reads when none serves.
 _CONTRACTS: dict[str, type] = {
     "control_system": ControlSystemConnector,
-    "archiver": ArchiverConnector,
 }
 
 
@@ -350,6 +356,8 @@ class ControlSystemContext:
         self._handles: dict[str, _SupervisedConnector] = {}
         #: The latest recovery each key ran, with the instance or child it was for.
         self._recoveries: dict[str, tuple[Any, asyncio.Task[RecoveryRecord | None]]] = {}
+        #: The archive each control target opened, built once and kept.
+        self._archives: dict[str, ChannelArchive] = {}
 
     def initialize(self) -> None:
         """Load config and register connector types.
@@ -367,10 +375,6 @@ class ControlSystemContext:
         self._connectors["control_system"] = ConnectorEntry(
             config=self._config.control_system,
             connector_type="control_system",
-        )
-        self._connectors["archiver"] = ConnectorEntry(
-            config=self._config.archiver,
-            connector_type="archiver",
         )
 
         # 3. Validate config: warnings for the misconfigurations a tool can
@@ -470,14 +474,32 @@ class ControlSystemContext:
         """
         return await self._handle("control_system")
 
-    async def archiver(self) -> _SupervisedConnector:
-        """The supervised handle on the cached archiver connector.
+    async def archive(self, spec: BackendSpec) -> ChannelArchive:
+        """The archive *spec* names, built on first use and kept for its target.
 
-        Never routed through a connector host: the archiver speaks HTTP or
+        Never routed through a connector host: the archive speaks HTTP or
         pymongo, holds no Channel Access context, and therefore keeps serving
-        while no child is alive.
+        while no child is alive. Building it does no I/O, and it answers a
+        failure as ``Unavailable`` and reopens itself, so it is never dropped
+        or rebuilt here.
+
+        Raises:
+            ConfigurationError: The spec's type is unknown or its settings are
+                refused, as the factory raises it (in the backend's own words).
         """
-        return await self._handle("archiver")
+        held = self._archives.get(spec.target)
+        if held is not None:
+            return held
+        from osprey_connectors.factory import ConnectorFactory
+
+        config_path = self.config.config_path
+        built = await ConnectorFactory.create_service(
+            spec, project_dir=config_path.parent if config_path is not None else None
+        )
+        archive = cast("ChannelArchive", built)
+        self._archives[spec.target] = archive
+        logger.info("ControlSystemContext: created the %s archive (%s)", spec.target, spec.type)
+        return archive
 
     async def _handle(self, name: str) -> _SupervisedConnector:
         """Resolve *name*'s connector, then hand out the one handle bound to it."""
@@ -646,12 +668,9 @@ class ControlSystemContext:
     async def _get_connector(self, name: Literal["control_system"]) -> ControlSystem: ...
 
     @overload
-    async def _get_connector(self, name: Literal["archiver"]) -> ArchiverConnector: ...
+    async def _get_connector(self, name: str) -> ControlSystem: ...
 
-    @overload
-    async def _get_connector(self, name: str) -> ControlSystem | ArchiverConnector: ...
-
-    async def _get_connector(self, name: str) -> ControlSystem | ArchiverConnector:
+    async def _get_connector(self, name: str) -> ControlSystem:
         """Resolve the connector serving *name* now: lazily built, or the live child's proxy."""
         entry = self._connectors.get(name)
         if entry is None:
@@ -665,7 +684,7 @@ class ControlSystemContext:
 
         from osprey_connectors.factory import ConnectorFactory
 
-        instance: ControlSystemConnector | ArchiverConnector
+        instance: ControlSystemConnector
         if name == "control_system":
             # A deployment on this path serves one target and never switches, so
             # the target it is on is the deployment's own baseline. Naming it
@@ -675,8 +694,6 @@ class ControlSystemContext:
             instance = await ConnectorFactory.create_control_system_connector(
                 entry.config, control_target=self.baseline
             )
-        elif name == "archiver":
-            instance = await ConnectorFactory.create_archiver_connector(entry.config)
         else:
             raise ValueError(f"Unknown connector: {name}")
         entry.instance = instance
@@ -817,7 +834,7 @@ class ControlSystemContext:
             logger.warning("No archiver section in config.yml")
         else:
             arch_type = arch.get("type")
-            known_arch = set(ConnectorFactory.list_archivers())
+            known_arch = set(ConnectorFactory.list_services("archive"))
             if arch_type and arch_type not in known_arch and "." not in arch_type:
                 logger.warning("Unknown archiver.type: %s (registered: %s)", arch_type, known_arch)
 
@@ -863,11 +880,17 @@ class ControlSystemContext:
         )
 
     async def shutdown(self) -> None:
-        """Disconnect all connectors. Called on server shutdown."""
+        """Disconnect all connectors and close every archive. Called on server shutdown."""
         if self._connector_hosts is not None:
             await self._connector_hosts.shutdown()
         for name in list(self._connectors):
             await self.invalidate_connector(name)
+        archives, self._archives = list(self._archives.values()), {}
+        for archive in archives:
+            try:
+                await archive.aclose()
+            except Exception:
+                logger.debug("Error closing an archive (ignored)", exc_info=True)
         logger.info("ControlSystemContext: shutdown complete")
 
 

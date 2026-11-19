@@ -3,8 +3,9 @@
 Connector Contracts
 ===================
 
-The two interfaces every connector implements, and the door a connector opens
-around its own write. What a conforming connector must do is described in
+The two interfaces every connector implements, the door a connector opens
+around its own write, and how the archive's MongoDB store names a channel and
+is reached. What a conforming connector must do is described in
 :doc:`/reference/contracts/connectors`; these are the classes and functions
 that carry it.
 
@@ -50,3 +51,5 @@ builds every result. The other protected hooks are optional.
 .. automodule:: osprey_connectors.control_system.write_door
 
 .. automodule:: osprey_connectors.archiver
+
+.. automodule:: osprey_connectors.archive_store

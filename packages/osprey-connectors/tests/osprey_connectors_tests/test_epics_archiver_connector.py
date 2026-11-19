@@ -12,13 +12,33 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from osprey_connectors.archiver._base import ArchiverMetadata
+from osprey_connectors.archiver import ArchiveCoverage
 from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverConnector
 from osprey_connectors.archiver._timerange import Processing
-from osprey_connectors.errors import ConnectorUnavailableError, NaiveDatetimeError
+from osprey_connectors.errors import ArchiveQueryError, NaiveDatetimeError
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import BackendSpec, Unavailable
+from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._loopback_https import Reply, loopback_pair
+
+
+def _spec(settings: dict) -> BackendSpec:
+    return BackendSpec(
+        kind="archive", type="epics_archiver", target="live", settings=settings, rehearsal=False
+    )
+
+
+def _archive(settings: dict) -> EPICSArchiverConnector:
+    """The archive *settings* configure, built as the factory builds it."""
+    return EPICSArchiverConnector(_spec(settings))
+
+
+def _no_answer(answer: object, cause: str) -> str:
+    """*answer*'s reason, after asserting it is ``Unavailable`` with *cause*."""
+    assert isinstance(answer, Unavailable), answer
+    assert answer.cause == cause, answer
+    return answer.reason
 
 
 def _make_open_response(payload: list) -> MagicMock:
@@ -54,19 +74,19 @@ def captured_urls():
         yield urls
 
 
-class TestConnectDisconnectLifecycle:
-    """Tests for connect/disconnect lifecycle."""
+class TestBuildAndClose:
+    """The archive reads its settings when it is built; there is no connect step."""
 
     @pytest.mark.asyncio
-    async def test_connect_success(self):
-        """Test that connect succeeds with valid config."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+    async def test_build_success(self):
+        """A valid block builds an archive naming the appliance."""
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        assert connector._connected is True
         assert connector._url == "https://archiver.example.com"
+        assert connector.source.kind == "archive"
+        assert connector.source.service == "epics_archiver"
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -77,41 +97,34 @@ class TestConnectDisconnectLifecycle:
         config = {"url": "https://archiver.example.com"}
         if config_timeout is not None:
             config["timeout_s"] = config_timeout
-        connector = EPICSArchiverConnector()
-        await connector.connect(config)
+        connector = _archive(config)
 
         assert connector._timeout == expected
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("config", [{}, {"url": ""}], ids=["missing", "empty"])
-    async def test_connect_without_url_raises_value_error(self, config):
-        """connect() raises ValueError when the URL is missing or an empty string."""
-        connector = EPICSArchiverConnector()
-
+    async def test_build_without_url_raises_value_error(self, config):
+        """Building raises ValueError when the URL is missing or an empty string."""
         with pytest.raises(ValueError, match="archiver URL is required"):
-            await connector.connect(config)
+            _archive(config)
 
     @pytest.mark.asyncio
-    async def test_disconnect_clears_state(self):
-        """Test that disconnect clears connection state."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+    async def test_close_is_idempotent_and_the_archive_still_answers(self, captured_urls):
+        """Nothing is held open: closing twice is safe, and a later read still asks."""
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        await connector.disconnect()
+        await connector.aclose()
+        await connector.aclose()
+        frame = await connector.history(
+            ["BEAM:CURRENT"],
+            start_at=datetime(2024, 1, 1, tzinfo=UTC),
+            end_at=datetime(2024, 1, 2, tzinfo=UTC),
+        )
 
-        assert connector._connected is False
-        assert connector._url is None
-
-    @pytest.mark.asyncio
-    async def test_disconnect_when_not_connected(self):
-        """Test that disconnect is safe to call when already disconnected."""
-        connector = EPICSArchiverConnector()
-        await connector.disconnect()
-
-        assert connector._connected is False
-        assert connector._url is None
+        assert isinstance(frame, pd.DataFrame)
+        assert len(captured_urls) == 1
 
 
 class TestGetDataMethod:
@@ -125,10 +138,9 @@ class TestGetDataMethod:
         response = _make_open_response(_archiver_payload("PV:X", points))
 
         with patch("urllib.request.OpenerDirector.open", return_value=response):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            df = await connector.get_data(
+            df = await connector.history(
                 ["PV:X"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
@@ -141,7 +153,7 @@ class TestGetDataMethod:
             assert (df["address"] == "PV:X").all()
             assert list(df["value"]) == [1.0, 2.0, 3.0]
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_get_data_string_valued_pv_round_trips(self):
@@ -151,10 +163,9 @@ class TestGetDataMethod:
         response = _make_open_response(_archiver_payload("RF:MODE", points))
 
         with patch("urllib.request.OpenerDirector.open", return_value=response):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            df = await connector.get_data(
+            df = await connector.history(
                 ["RF:MODE"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
@@ -163,7 +174,7 @@ class TestGetDataMethod:
             assert (df["address"] == "RF:MODE").all()
             assert list(df["value"]) == ["CW", "CW", "STANDBY"]
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_get_data_multi_pv_returns_rows_for_each_channel(self):
@@ -179,10 +190,9 @@ class TestGetDataMethod:
             return _make_open_response(_archiver_payload(pv, points))
 
         with patch("urllib.request.OpenerDirector.open", side_effect=mock_open):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            df = await connector.get_data(
+            df = await connector.history(
                 ["PV:1", "PV:2"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
@@ -194,7 +204,7 @@ class TestGetDataMethod:
             assert (df["address"] == "PV:1").sum() == 5
             assert (df["address"] == "PV:2").sum() == 5
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -207,10 +217,9 @@ class TestGetDataMethod:
         response = _make_open_response(payload)
 
         with patch("urllib.request.OpenerDirector.open", return_value=response):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            df = await connector.get_data(
+            df = await connector.history(
                 ["BEAM:CURRENT"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
@@ -222,20 +231,7 @@ class TestGetDataMethod:
             assert df["timestamp"].dtype == "datetime64[ns, UTC]"
             assert df["value"].dtype == "float64"
 
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_data_not_connected_raises_runtime_error(self):
-        """Test that get_data raises RuntimeError when not connected."""
-        connector = EPICSArchiverConnector()
-
-        with pytest.raises(RuntimeError, match="Archiver not connected"):
-            await connector.get_data(
-                ["BEAM:CURRENT"],
-                start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                end_at=datetime(2024, 1, 2, tzinfo=UTC),
-                timeout_s=60,
-            )
+            await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -248,17 +244,16 @@ class TestGetDataMethod:
     )
     async def test_non_datetime_bound_is_rejected(self, bound, start, end):
         """get_data raises TypeError naming whichever bound is not a datetime."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
         with pytest.raises(TypeError, match=f"{bound} must be a datetime object"):
-            await connector.get_data(
+            await connector.history(
                 ["BEAM:CURRENT"],
                 start_at=start,
                 end_at=end,
             )
 
-        await connector.disconnect()
+        await connector.aclose()
 
 
 class TestMultiPVLongFormat:
@@ -284,10 +279,9 @@ class TestMultiPVLongFormat:
             return _make_open_response(payload)
 
         with patch("urllib.request.OpenerDirector.open", side_effect=mock_open):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            df = await connector.get_data(
+            df = await connector.history(
                 ["PV:A", "PV:B"],
                 start_at=datetime(2024, 1, 1, tzinfo=UTC),
                 end_at=datetime(2024, 1, 1, 0, 0, 10, tzinfo=UTC),
@@ -310,30 +304,30 @@ class TestMultiPVLongFormat:
             # No shared/aligned grid was fabricated between them.
             assert set(a_timestamps).isdisjoint(set(b_timestamps))
 
-            await connector.disconnect()
+            await connector.aclose()
 
 
 class TestGetDataErrorHandling:
     """Tests for error handling in get_data method."""
 
     @pytest.mark.asyncio
-    async def test_url_error_raises_connection_error(self):
-        """A urllib.error.URLError is the archiver connector being unavailable."""
+    async def test_url_error_answers_unreachable(self):
+        """A urllib.error.URLError is the appliance not being reached."""
         with patch(
             "urllib.request.OpenerDirector.open",
             side_effect=urllib.error.URLError("connection refused"),
         ):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ConnectorUnavailableError):
-                await connector.get_data(
-                    ["BEAM:CURRENT"],
-                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
-                )
+            answer = await connector.history(
+                ["BEAM:CURRENT"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+            reason = _no_answer(answer, "unreachable")
+            assert reason.startswith("Cannot connect to archiver at https://archiver.example.com")
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -344,189 +338,219 @@ class TestGetDataErrorHandling:
             pytest.param(60, "after 0s", 0, id="zero-is-respected-not-falsy"),
         ],
     )
-    async def test_an_elapsed_timeout_raises_timeout_error(self, connect_timeout, match, timeout):
-        """Test that asyncio timeout raises TimeoutError."""
+    async def test_an_elapsed_timeout_answers_timeout(self, connect_timeout, match, timeout):
+        """A read that outlasts its budget answers ``timeout``, naming the budget."""
         import asyncio
 
         async def slow_fetch(*args, **kwargs):
             await asyncio.sleep(10)
 
         with patch("asyncio.to_thread", side_effect=slow_fetch):
-            connector = EPICSArchiverConnector()
-            await connector.connect(
+            connector = _archive(
                 {"url": "https://archiver.example.com", "timeout_s": connect_timeout}
             )
 
-            with pytest.raises(TimeoutError, match=match):
-                await connector.get_data(
-                    ["BEAM:CURRENT"],
-                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
-                    timeout_s=timeout,
-                )
+            answer = await connector.history(
+                ["BEAM:CURRENT"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
+                timeout_s=timeout,
+            )
+            assert match in _no_answer(answer, "timeout")
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_connection_refused_raises_connection_error(self):
-        """A ConnectionRefusedError is the archiver connector being unavailable."""
+    async def test_connection_refused_answers_unreachable(self):
+        """A ConnectionRefusedError is the appliance not being reached."""
         with patch(
             "urllib.request.OpenerDirector.open",
             side_effect=ConnectionRefusedError("Connection refused"),
         ):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ConnectorUnavailableError, match="Cannot connect to the archiver"):
-                await connector.get_data(
-                    ["BEAM:CURRENT"],
-                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
-                )
+            answer = await connector.history(
+                ["BEAM:CURRENT"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+            assert "Cannot connect to the archiver" in _no_answer(answer, "unreachable")
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_generic_connection_error_raised(self):
-        """A generic exception with 'connection' in its message is the connector unavailable."""
+    async def test_generic_connection_failure_answers_unreachable(self):
+        """A generic exception with 'connection' in its message is the appliance not reached."""
         with patch(
             "urllib.request.OpenerDirector.open",
             side_effect=Exception("Connection timed out: could not reach server"),
         ):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ConnectorUnavailableError, match="Network connectivity issue"):
-                await connector.get_data(
-                    ["BEAM:CURRENT"],
-                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
-                )
+            answer = await connector.history(
+                ["BEAM:CURRENT"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+            assert "Network connectivity issue" in _no_answer(answer, "unreachable")
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_waveform_pv_raises_value_error(self):
-        """Test that array-valued val (waveform PV) raises ValueError."""
+    async def test_any_other_failure_answers_failed(self):
+        """A failure none of the causes names is ``failed``, not raised."""
+        with patch(
+            "urllib.request.OpenerDirector.open", side_effect=Exception("the appliance broke")
+        ):
+            connector = _archive({"url": "https://archiver.example.com"})
+
+            answer = await connector.history(
+                ["BEAM:CURRENT"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+            assert "the appliance broke" in _no_answer(answer, "failed")
+
+            await connector.aclose()
+
+    @pytest.mark.asyncio
+    async def test_waveform_pv_answers_unsupported(self):
+        """An array-valued val (waveform PV) is a question this archive cannot answer."""
         payload = [
             {"meta": {"name": "CAM:IMAGE"}, "data": [{"secs": 1, "nanos": 0, "val": [1, 2, 3]}]}
         ]
         response = _make_open_response(payload)
 
         with patch("urllib.request.OpenerDirector.open", return_value=response):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ValueError, match="Waveform PVs not supported"):
-                await connector.get_data(
-                    ["CAM:IMAGE"],
-                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
-                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
-                )
+            answer = await connector.history(
+                ["CAM:IMAGE"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+            # The PV is named as it was asked for: wrapped in the bin's operator.
+            assert _no_answer(answer, "unsupported") == (
+                "Waveform PVs not supported: lastSample_1(CAM:IMAGE)"
+            )
 
-            await connector.disconnect()
-
-
-class TestMetadataMethods:
-    """Tests for metadata methods."""
+            await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_get_metadata_does_not_claim_the_channel_archived(self):
-        """The connector does not ask the appliance, so membership is unknown."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+    @pytest.mark.parametrize(
+        "payload",
+        [{"not": "a list"}, [{"data": [{"secs": "x", "nanos": 0, "val": 1}]}]],
+        ids=["not_a_list", "bad_sample"],
+    )
+    async def test_a_malformed_reply_answers_bad_reply(self, payload):
+        """A reply that is not the retrieval format names the PV and answers ``bad_reply``."""
+        with patch("urllib.request.OpenerDirector.open", return_value=_make_open_response(payload)):
+            connector = _archive({"url": "https://archiver.example.com"})
 
-        metadata = await connector.get_metadata("BEAM:CURRENT")
+            answer = await connector.history(
+                ["CAM:IMAGE"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
+                precision_ms=0,
+            )
+            assert _no_answer(answer, "bad_reply").startswith(
+                "Unexpected archiver reply for CAM:IMAGE"
+            )
 
-        assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.address == "BEAM:CURRENT"
-        assert metadata.is_archived is None
-        assert "does not ask the appliance" in metadata.description
+            await connector.aclose()
 
-        await connector.disconnect()
+
+class TestCoverage:
+    """What the archive says of whether a channel is archived."""
 
     @pytest.mark.asyncio
-    async def test_check_availability_answers_unknown_per_channel(self):
-        """Every channel answers ``None``: the appliance is not asked."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+    async def test_coverage_does_not_claim_a_channel_archived(self, captured_urls):
+        """The connector does not ask the appliance, so membership is unknown, with why."""
+        connector = _archive({"url": "https://archiver.example.com"})
 
         channels = ["PV:1", "PV:2", "PV:3"]
-        availability = await connector.check_availability(channels)
+        coverage = await connector.coverage(channels)
 
-        assert isinstance(availability, dict)
-        assert len(availability) == len(channels)
+        assert list(coverage) == channels
         for pv in channels:
-            assert pv in availability
-            assert availability[pv] is None
+            assert coverage[pv] == ArchiveCoverage(
+                address=pv,
+                is_archived=None,
+                unknown_reason=(
+                    "the EPICS Archiver Appliance connector does not ask the appliance "
+                    "whether this channel is archived"
+                ),
+            )
+        assert captured_urls == []
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_check_availability_empty_list(self):
-        """Test that check_availability returns empty dict for empty input."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+    async def test_coverage_of_no_channel_is_empty(self):
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        availability = await connector.check_availability([])
+        assert await connector.coverage([]) == {}
 
-        assert isinstance(availability, dict)
-        assert len(availability) == 0
+        await connector.aclose()
 
-        await connector.disconnect()
+    @pytest.mark.asyncio
+    async def test_the_appliance_reports_no_extent_and_has_no_probe(self, captured_urls):
+        connector = _archive({"url": "https://archiver.example.com"})
+
+        assert _no_answer(await connector.extent(), "unsupported") == (
+            "this archiver does not report what it holds"
+        )
+        _no_answer(await connector.probe(), "unsupported")
+        assert captured_urls == []
 
 
-class TestConnectSideEffects:
-    """connect() must be metadata-only: no third-party client, no stdout.
+class TestBuildSideEffects:
+    """Building the archive must be metadata-only: no third-party client, no stdout.
 
     Historical context (als-profiles GitLab #8): an earlier implementation
     constructed ``archivertools.ArchiverClient`` inside ``connect()``, whose
     ``__init__`` ICMP-pinged the server (fails in containers where ICMP is
     blocked but HTTP 17668 is open) and printed to stdout (corrupts MCP
-    stdio transport). The connector now talks direct HTTP at fetch time;
-    these tests pin that ``connect()`` never regresses to connect-time
+    stdio transport). The archive now talks direct HTTP at fetch time;
+    these tests pin that building it never regresses to build-time
     side effects.
     """
 
     @pytest.mark.asyncio
     async def test_connect_needs_no_archiver_client_library(self):
-        """connect() succeeds with archivertools entirely absent."""
+        """Building succeeds with archivertools entirely absent."""
         with patch.dict("sys.modules", {"archivertools": None}):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "http://archiver.example.com:17668"})
+            connector = _archive({"url": "http://archiver.example.com:17668"})
 
-            assert connector._connected is True
-            await connector.disconnect()
+            assert isinstance(connector, EPICSArchiverConnector)
+            await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_connect_does_not_pollute_stdout(self, capfd):
-        """Nothing may print to stdout during connect() — MCP stdio safety.
+        """Nothing may print to stdout while the archive is built — MCP stdio safety.
 
         ``capfd`` captures file descriptor 1, so a write from a C extension or a
         subprocess is caught as well as one through ``sys.stdout``.
         """
-        connector = EPICSArchiverConnector()
         capfd.readouterr()
 
-        await connector.connect({"url": "http://archiver.example.com:17668"})
+        connector = _archive({"url": "http://archiver.example.com:17668"})
 
         out = capfd.readouterr().out
-        assert out == "", f"stdout was polluted during connect(): {out!r}"
-        assert connector._connected is True
-        await connector.disconnect()
+        assert out == "", f"stdout was polluted while the archive was built: {out!r}"
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_connect_performs_no_network_io(self):
-        """connect() must not open HTTP connections (fetch-time only)."""
+        """Building must not open HTTP connections (fetch-time only)."""
         with patch(
             "urllib.request.OpenerDirector.open",
-            side_effect=AssertionError("network I/O in connect"),
+            side_effect=AssertionError("network I/O at build"),
         ):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "http://archiver.example.com:17668"})
+            connector = _archive({"url": "http://archiver.example.com:17668"})
 
-            assert connector._connected is True
-            await connector.disconnect()
+            assert isinstance(connector, EPICSArchiverConnector)
+            await connector.aclose()
 
 
 class TestFactoryIntegration:
@@ -542,35 +566,33 @@ class TestFactoryIntegration:
         elsewhere in the process intact.
         """
         with isolated_connector_registries():
-            ConnectorFactory.register_archiver("epics_archiver", EPICSArchiverConnector)
+            ConnectorFactory.register_service("archive", "epics_archiver", EPICSArchiverConnector)
             yield
 
     @pytest.mark.asyncio
     async def test_factory_creates_epics_archiver_connector(self):
-        """Test that factory creates and connects EPICSArchiverConnector."""
+        """The factory builds the archive the config's own-name block configures."""
         config = {
-            "type": "epics_archiver",
-            "epics_archiver": {"url": "https://archiver.example.com", "timeout_s": 30},
+            "archiver": {
+                "type": "epics_archiver",
+                "epics_archiver": {"url": "https://archiver.example.com", "timeout_s": 30},
+            }
         }
+        spec = service_targets(config).archive["live"]
+        assert spec is not None
 
-        connector = await ConnectorFactory.create_archiver_connector(config)
+        connector = await ConnectorFactory.create_service(spec)
 
         assert isinstance(connector, EPICSArchiverConnector)
-        assert connector._connected is True
         assert connector._timeout == 30
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_factory_with_missing_url_raises_error(self):
-        """Test that factory propagates ValueError for missing URL."""
-        config = {
-            "type": "epics_archiver",
-            "epics_archiver": {},  # Missing URL
-        }
-
+        """The factory propagates the archive's own ValueError for a missing URL."""
         with pytest.raises(ValueError, match="archiver URL is required"):
-            await ConnectorFactory.create_archiver_connector(config)
+            await ConnectorFactory.create_service(_spec({}))
 
 
 class TestQueryWindowTimezone:
@@ -602,16 +624,15 @@ class TestQueryWindowTimezone:
     async def test_window_reaches_the_archiver_as_the_same_utc_instant(
         self, captured_urls, start, end
     ):
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        await connector.get_data(["SR:DCCT"], start_at=start, end_at=end, precision_ms=1000)
+        await connector.history(["SR:DCCT"], start_at=start, end_at=end, precision_ms=1000)
 
         # 10:00 PDT is 17:00 UTC; 11:00 PDT is 18:00 UTC.
         assert "from=2026-07-30T17%3A00%3A00.000Z" in captured_urls[0]
         assert "to=2026-07-30T18%3A00%3A00.000Z" in captured_urls[0]
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("bound", ["start_at", "end_at"])
@@ -624,15 +645,14 @@ class TestQueryWindowTimezone:
             "end_at": datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC),
         }
         window[bound] = window[bound].replace(tzinfo=None)
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
         with pytest.raises(NaiveDatetimeError, match=bound) as refused:
-            await connector.get_data(["SR:DCCT"], **window, precision_ms=1000)
+            await connector.history(["SR:DCCT"], **window, precision_ms=1000)
 
         assert refused.value.parameter == bound
         assert captured_urls == []
-        await connector.disconnect()
+        await connector.aclose()
 
 
 class TestProcessingModes:
@@ -652,10 +672,9 @@ class TestProcessingModes:
         ],
     )
     async def test_mode_selects_the_archiver_operator(self, captured_urls, mode, expected):
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        await connector.get_data(
+        await connector.history(
             ["SR:DCCT"],
             start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
             end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
@@ -665,23 +684,23 @@ class TestProcessingModes:
 
         assert expected in captured_urls[0]
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_unknown_mode_raises_value_error(self):
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+    async def test_unknown_mode_raises_archive_query_error(self):
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        with pytest.raises(ValueError, match="Unknown processing mode"):
-            await connector.get_data(
+        with pytest.raises(ArchiveQueryError, match="Unknown processing mode") as refused:
+            await connector.history(
                 ["SR:DCCT"],
                 start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
                 processing="p99",
             )
+        assert refused.value.parameter == "processing"
 
-        await connector.disconnect()
+        await connector.aclose()
 
 
 class TestNonNumericAggregation:
@@ -703,19 +722,20 @@ class TestNonNumericAggregation:
         payload = _archiver_payload("SR:MODE", [(1000, 0, "CW"), (1060, 0, "STANDBY")])
 
         with self._connector_returning(payload):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ValueError, match="SR:MODE"):
-                await connector.get_data(
+            with pytest.raises(ArchiveQueryError, match="SR:MODE") as refused:
+                await connector.history(
                     ["SR:MODE"],
                     start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                     end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                     precision_ms=60_000,
                     processing=mode,
                 )
+            assert refused.value.parameter == "processing"
+            assert refused.value.address == "SR:MODE"
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_raw_over_string_channel_is_allowed(self):
@@ -723,10 +743,9 @@ class TestNonNumericAggregation:
         payload = _archiver_payload("SR:MODE", [(1000, 0, "CW"), (1060, 0, "STANDBY")])
 
         with self._connector_returning(payload):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            df = await connector.get_data(
+            df = await connector.history(
                 ["SR:MODE"],
                 start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
@@ -736,16 +755,15 @@ class TestNonNumericAggregation:
 
             assert df["value"].tolist() == ["CW", "STANDBY"]
 
-            await connector.disconnect()
+            await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_empty_channel_does_not_fail_an_aggregate_query(self):
         """A channel that matched nothing has nothing to reject."""
         with self._connector_returning([]):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+            connector = _archive({"url": "https://archiver.example.com"})
 
-            df = await connector.get_data(
+            df = await connector.history(
                 ["SR:DCCT"],
                 start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
@@ -755,7 +773,7 @@ class TestNonNumericAggregation:
 
             assert df.empty
 
-            await connector.disconnect()
+            await connector.aclose()
 
 
 class TestSubSecondPrecision:
@@ -768,19 +786,19 @@ class TestSubSecondPrecision:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("precision_ms", [1, 500, 999, 1500, 2500])
     async def test_non_whole_second_precision_is_rejected(self, precision_ms):
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        with pytest.raises(ValueError, match="whole number of seconds"):
-            await connector.get_data(
+        with pytest.raises(ArchiveQueryError, match="whole number of seconds") as refused:
+            await connector.history(
                 ["SR:DCCT"],
                 start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=precision_ms,
                 processing="raw",
             )
+        assert refused.value.parameter == "precision_ms"
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_rejection_follows_resolve_processing_rather_than_a_second_copy_of_the_rule(
@@ -801,11 +819,10 @@ class TestSubSecondPrecision:
             ),
         )
 
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        with pytest.raises(ValueError, match="whole number of seconds"):
-            await connector.get_data(
+        with pytest.raises(ArchiveQueryError, match="whole number of seconds"):
+            await connector.history(
                 ["SR:DCCT"],
                 start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
@@ -815,7 +832,7 @@ class TestSubSecondPrecision:
 
         assert captured_urls == []
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -831,10 +848,9 @@ class TestSubSecondPrecision:
     async def test_whole_second_precision_renders_the_operator(
         self, captured_urls, processing, precision_ms, expected
     ):
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        await connector.get_data(
+        await connector.history(
             ["SR:DCCT"],
             start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
             end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
@@ -845,15 +861,14 @@ class TestSubSecondPrecision:
         assert len(captured_urls) == 1
         assert expected in captured_urls[0]
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_full_resolution_is_still_allowed(self, captured_urls):
         """precision_ms <= 0 is full resolution, not a sub-second bin width."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        await connector.get_data(
+        await connector.history(
             ["SR:DCCT"],
             start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
             end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
@@ -864,7 +879,7 @@ class TestSubSecondPrecision:
         # Bare PV name, no operator wrapper.
         assert "lastSample" not in captured_urls[0]
 
-        await connector.disconnect()
+        await connector.aclose()
 
 
 class TestRetrievalPath:
@@ -883,33 +898,31 @@ class TestRetrievalPath:
     @pytest.mark.asyncio
     async def test_default_is_the_appliance_root(self, captured_urls):
         """No ``retrieval_path`` means the appliance's own ``/retrieval`` servlet."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        connector = _archive({"url": "https://archiver.example.com"})
 
-        await connector.get_data(["SR:DCCT"], **self._WINDOW)
+        await connector.history(["SR:DCCT"], **self._WINDOW)
 
         assert captured_urls[0].startswith(
             "https://archiver.example.com/retrieval/data/getData.json?"
         )
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_proxied_prefix_replaces_the_default(self, captured_urls):
         """A proxy that renames ``/retrieval`` is reached under its own prefix."""
-        connector = EPICSArchiverConnector()
-        await connector.connect(
+        connector = _archive(
             {"url": "https://controls-web.example.com", "retrieval_path": "/archappl_retrieve"}
         )
 
-        await connector.get_data(["SR:DCCT"], **self._WINDOW)
+        await connector.history(["SR:DCCT"], **self._WINDOW)
 
         assert captured_urls[0].startswith(
             "https://controls-web.example.com/archappl_retrieve/data/getData.json?"
         )
         assert "/retrieval/" not in captured_urls[0]
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -924,16 +937,15 @@ class TestRetrievalPath:
     async def test_slashes_are_normalized(self, captured_urls, url, path):
         """Neither a trailing slash on ``url`` nor a missing one on the path
         doubles or drops a separator."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": url, "retrieval_path": path})
+        connector = _archive({"url": url, "retrieval_path": path})
 
-        await connector.get_data(["SR:DCCT"], **self._WINDOW)
+        await connector.history(["SR:DCCT"], **self._WINDOW)
 
         assert captured_urls[0].startswith(
             "https://controls-web.example.com/archappl_retrieve/data/getData.json?"
         )
 
-        await connector.disconnect()
+        await connector.aclose()
 
 
 class TestLoginAndTrust:
@@ -962,61 +974,56 @@ class TestLoginAndTrust:
     @pytest.mark.asyncio
     async def test_a_token_reaches_the_appliance(self, appliance, monkeypatch):
         monkeypatch.setenv("ARCHIVER_TEST_TOKEN", self._SECRET)
-        connector = EPICSArchiverConnector()
-        await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
+        connector = _archive(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
 
-        frame = await connector.get_data(["SR:DCCT"], **self._WINDOW)
+        frame = await connector.history(["SR:DCCT"], **self._WINDOW)
 
         assert appliance.https.authorizations() == [f"Bearer {self._SECRET}"]
         assert len(frame) == 1
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_a_password_login_reaches_the_appliance_as_basic(self, appliance, monkeypatch):
         monkeypatch.setenv("ARCHIVER_TEST_PASSWORD", self._SECRET)
-        connector = EPICSArchiverConnector()
-        await connector.connect(
+        connector = _archive(
             self._config(
                 appliance,
                 auth={"username": "reader", "password_env": "ARCHIVER_TEST_PASSWORD"},
             )
         )
 
-        await connector.get_data(["SR:DCCT"], **self._WINDOW)
+        await connector.history(["SR:DCCT"], **self._WINDOW)
 
         (header,) = appliance.https.authorizations()
         scheme, encoded = header.split(" ", 1)
         assert scheme == "Basic"
         assert base64.b64decode(encoded).decode() == f"reader:{self._SECRET}"
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_no_login_sends_no_authorization_header(self, appliance):
-        connector = EPICSArchiverConnector()
-        await connector.connect(self._config(appliance))
+        connector = _archive(self._config(appliance))
 
-        await connector.get_data(["SR:DCCT"], **self._WINDOW)
+        await connector.history(["SR:DCCT"], **self._WINDOW)
 
         assert appliance.https.seen == [(self._DATA, None)]
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_every_request_goes_through_the_connect_time_opener(self, appliance):
+    async def test_every_request_goes_through_the_build_time_opener(self, appliance):
         appliance.https.routes[self._DATA] = Reply(body=[])
         with patch.object(urllib.request, "urlopen", side_effect=AssertionError("bypassed")):
-            connector = EPICSArchiverConnector()
-            await connector.connect(self._config(appliance))
-            await connector.get_data(["SR:DCCT", "SR:TUNE"], **self._WINDOW)
-            await connector.disconnect()
+            connector = _archive(self._config(appliance))
+            await connector.history(["SR:DCCT", "SR:TUNE"], **self._WINDOW)
+            await connector.aclose()
 
         assert len(appliance.https.seen) == 2
 
     @pytest.mark.asyncio
-    async def test_an_unset_credential_variable_is_refused_at_connect(self, monkeypatch):
+    async def test_an_unset_credential_variable_is_refused_at_build(self, monkeypatch):
         monkeypatch.delenv("ARCHIVER_TEST_TOKEN", raising=False)
-        connector = EPICSArchiverConnector()
         with pytest.raises(ConnectionError) as exc:
-            await connector.connect(
+            _archive(
                 {
                     "url": "https://archiver.example.org",
                     "auth": {"token_env": "ARCHIVER_TEST_TOKEN"},
@@ -1024,16 +1031,14 @@ class TestLoginAndTrust:
             )
         assert "archiver.settings.auth.token_env" in str(exc.value)
         assert "ARCHIVER_TEST_TOKEN" in str(exc.value)
-        assert connector._connected is False
 
     @pytest.mark.asyncio
     async def test_the_secret_never_reaches_the_log(self, appliance, monkeypatch, caplog):
         monkeypatch.setenv("ARCHIVER_TEST_TOKEN", self._SECRET)
         caplog.set_level(logging.DEBUG, logger="epics_archiver_connector")
-        connector = EPICSArchiverConnector()
-        await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
-        await connector.get_data(["SR:DCCT"], **self._WINDOW)
-        await connector.disconnect()
+        connector = _archive(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
+        await connector.history(["SR:DCCT"], **self._WINDOW)
+        await connector.aclose()
 
         assert caplog.records, "the connector logged nothing at DEBUG"
         assert self._SECRET not in caplog.text
@@ -1045,62 +1050,49 @@ class TestLoginAndTrust:
     ):
         appliance.https.routes[self._DATA] = Reply(status=code)
         monkeypatch.setenv("ARCHIVER_TEST_TOKEN", self._SECRET)
-        connector = EPICSArchiverConnector()
-        await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
+        connector = _archive(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
 
-        with pytest.raises(ConnectorUnavailableError) as exc:
-            await connector.get_data(["SR:DCCT"], **self._WINDOW)
-
-        message = str(exc.value)
+        message = _no_answer(await connector.history(["SR:DCCT"], **self._WINDOW), "refused")
         assert "`archiver.settings.auth.token_env`" in message
         assert f"HTTP {code}" in message
         assert "ARCHIVER_TEST_TOKEN" in message
         assert "Cannot connect" not in message
         assert "Network connectivity issue" not in message
         assert self._SECRET not in message
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_an_appliance_that_asks_for_a_login_names_the_keys(self, appliance):
         appliance.https.routes[self._DATA] = Reply(status=401)
-        connector = EPICSArchiverConnector()
-        await connector.connect(self._config(appliance))
+        connector = _archive(self._config(appliance))
 
-        with pytest.raises(ConnectorUnavailableError) as exc:
-            await connector.get_data(["SR:DCCT"], **self._WINDOW)
-
-        message = str(exc.value)
+        message = _no_answer(await connector.history(["SR:DCCT"], **self._WINDOW), "refused")
         assert "asks for a login (HTTP 401)" in message
         assert "`archiver.settings.auth` names none" in message
         assert "Network connectivity issue" not in message
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_an_untrusted_certificate_names_tls_ca_bundle(self, appliance):
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": appliance.https.url})
+        connector = _archive({"url": appliance.https.url})
 
-        with pytest.raises(ConnectorUnavailableError) as exc:
-            await connector.get_data(["SR:DCCT"], **self._WINDOW)
-
-        message = str(exc.value)
+        answer = await connector.history(["SR:DCCT"], **self._WINDOW)
+        message = _no_answer(answer, "misconfigured")
         assert "does not trust" in message
         assert "`archiver.settings.tls.ca_bundle`" in message
         assert "Network connectivity issue" not in message
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_other_http_errors_keep_their_wording(self, appliance):
         appliance.https.routes.pop(self._DATA)
-        connector = EPICSArchiverConnector()
-        await connector.connect(self._config(appliance))
+        connector = _archive(self._config(appliance))
 
-        with pytest.raises(ConnectorUnavailableError, match="Cannot connect to archiver at"):
-            await connector.get_data(["SR:DCCT"], **self._WINDOW)
-        await connector.disconnect()
+        answer = await connector.history(["SR:DCCT"], **self._WINDOW)
+        assert _no_answer(answer, "bad_reply").startswith("Cannot connect to archiver at")
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_a_flat_timeout_is_refused_naming_timeout_s(self):
-        connector = EPICSArchiverConnector()
         with pytest.raises(ValueError, match=r"`archiver\.settings\.timeout_s`"):
-            await connector.connect({"url": "https://archiver.example.org", "timeout": 60})
+            _archive({"url": "https://archiver.example.org", "timeout": 60})

@@ -342,8 +342,7 @@ def test_the_timezone_config_the_page_shows_sets_the_zone(tmp_path):
 
 def test_read_history_prints_the_page_output(appliance, tmp_path):
     module = _load("read_history")
-    archiver = copy.deepcopy(module.ARCHIVER)
-    archiver["settings"]["url"] = appliance
+    archiver = {**module.ARCHIVER, "url": appliance}
     result = _run("read_history", tmp_path, _clean_env(tmp_path), {"ARCHIVER": archiver})
     assert _ok(result) == _expected("read_history")
 

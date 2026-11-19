@@ -19,9 +19,9 @@ feed holds none; a feed that does not answer marks no row and is listed in
 ``archived``: whether the store records the PV now, ``None`` when the archiver
 cannot say (the page's ``archived_reason`` says why).
 
-Backends, the archiver connector, the alarm snapshot and the cached sets belong
-to one (target, generation): when either moves, they are dropped, the snapshot
-closed, the connector disconnected, and the next call builds afresh.
+Backends, the archive, the alarm snapshot and the cached sets belong to one
+(target, generation): when either moves, they are dropped, the snapshot and
+the archive closed, and the next call builds afresh.
 """
 
 from __future__ import annotations
@@ -40,23 +40,19 @@ from osprey.services.pv_directory._connectors import (
     FLOOR_REASON,
     NO_SOURCE_REASON,
     SERVED_QUERY_FIELD,
-    DirectoryPage,
     DirectoryQuery,
-    Outcome,
-    Source,
+    NotListed,
     Unavailable,
     as_payload,
     service_targets,
     unavailable_payload,
 )
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
-from osprey.services.pv_directory.archive import Extent, read_extent
+from osprey.services.pv_directory.archive import history_targets
 from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey.services.pv_directory.origin import Origin, mark
 from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors import control_context
-from osprey_connectors.archiver_selection import resolve_archiver_type
-from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.model import evolve
 from osprey_connectors.targets import baseline_target
@@ -85,11 +81,11 @@ _ALARM_VALUES = ("UNDEFINED", "INVALID", "MAJOR", "MINOR", "none")
 _ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
 #: The archive filter's values: the store records the PV, does not, or cannot say.
 _ARCHIVED_VALUES = ("yes", "no", "unknown")
-#: The cache key of a failed archiver build's reason.
+#: The cache key of a failed archive build's reason.
 _ARCHIVE_FAILED = ("archive", "failed")
 #: The cache key of the store's extent; the in-flight key of its read.
 _ARCHIVE_EXTENT = ("archive",)
-#: The in-flight key of the archiver connector's build.
+#: The in-flight key of the archive's build.
 _ARCHIVE_BUILD = ("archive", "build")
 #: What an archive read answers when the target moved while it ran.
 _MOVED_REASON = "the target moved"
@@ -170,7 +166,7 @@ class DirectoryService:
         held = _result(store, late)
         await _cancel(tasks)
 
-        partial: list[Mapping[str, str]] = []
+        partial: list[dict[str, str]] = []
         total = counted if isinstance(counted, int) else None
         if isinstance(counted, Unavailable):
             partial.append({"part": "count", "reason": counted.reason})
@@ -194,22 +190,25 @@ class DirectoryService:
                 server, (origins, alarms, archived), marked, fetched, index, held
             )
         else:
-            fields_out = self._server_page(backend, _result(page, late), total, partial)
+            fields_out = self._server_page(backend, _result(page, late), total)
             if fields_out.get("total") is None:
                 fields_out["total"] = total
-        rows = fields_out.pop("rows", [])
-        payload: dict[str, Any] = as_payload(
-            DirectoryPage(
-                searched=_searched(server, origins, alarms, archived),
-                source=source,
-                partial=tuple(partial),
-                facets=None if facets is None else {k: tuple(v) for k, v in facets.items()},
-                facets_reason=facets_reason,
-                **fields_out,
-            )
-        )
         alarm_states = index if isinstance(index, dict) else None
-        payload["rows"] = [_served_row(row, origin, alarm_states, held) for row, origin in rows]
+        rows = fields_out.get("rows", [])
+        # The served search, key for key in the order the pages and tools have always read.
+        payload: dict[str, Any] = {
+            "outcome": fields_out["outcome"],
+            "searched": _searched(server, origins, alarms, archived),
+            "request": fields_out["request"],
+            "source": as_payload(source),
+            "total": fields_out.get("total"),
+            "rows": [_served_row(row, origin, alarm_states, held) for row, origin in rows],
+            "truncated": fields_out.get("truncated", False),
+            "partial": partial,
+            "facets": facets,
+            "facets_reason": facets_reason,
+            "reason": fields_out.get("reason"),
+        }
         if isinstance(held, Unavailable):
             payload["archived_reason"] = held.reason
         return payload
@@ -271,10 +270,10 @@ class DirectoryService:
         payload = {"source": as_payload(source), "origin": origin, "record": None}
         if isinstance(answer, Unavailable):
             return {**payload, "outcome": "unavailable", "reason": answer.reason}
-        if answer == Outcome.NOT_LISTED:
+        if isinstance(answer, NotListed):
             return {**payload, "outcome": "not_listed"}
         hidden = self._hidden()
-        row = self._hide_row(backend, answer.row, hidden)
+        row = self._hide_row(backend, answer.entry, hidden)
         record = as_payload(
             evolve(
                 answer,
@@ -321,30 +320,26 @@ class DirectoryService:
             return {"pv_directory": unavailable_payload(FLOOR_REASON, target=target)}
         wanted = _KINDS if kinds is None else tuple(kinds)
         table = service_targets(self._config)
-        asked = [
-            kind
-            for kind in _KINDS
-            if kind in wanted and any(table[_TARGETS_ROW.get(kind, kind)].values())
-        ]
+        asked = [kind for kind in _KINDS if kind in wanted and any(_row(table, kind).values())]
         answers = await asyncio.gather(*(self._probe(kind, target) for kind in asked))
         return dict(zip(asked, answers, strict=True))
 
     async def archive(self, *, fresh: bool = False) -> tuple[Any, Any, str | None]:
-        """``(connector, source, None)`` for the current target's archive, else ``(None, None, reason)``.
+        """``(archive, source, None)`` for the current target's archive, else ``(None, None, reason)``.
 
-        The archiver connector is built once per (target, generation), read
-        only through ``get_metadata`` and ``store_extent``, and disconnected
-        when the target moves. ``NO_SOURCE_REASON`` when the deployment's
-        archive does not serve the target. A failed build answers its reason
-        for as long as a fetched set is cached, so a store that is down costs
-        one wait, not one per search; *fresh* tries again at once.
+        The archive is built once per (target, generation), read only through
+        ``coverage`` and ``extent``, and closed when the target moves.
+        ``NO_SOURCE_REASON`` when the deployment's archive holds no history of
+        the target. A failed build answers its reason for as long as a fetched
+        set is cached; *fresh* tries again at once.
         """
         await self._sync()
         return await self._archive_connector(fresh=fresh)
 
-    async def archive_extent(self, *, fresh: bool = False) -> Extent | None:
+    async def archive_extent(self, *, fresh: bool = False) -> Any:
         """What the current target's archive holds, ``None`` when the target has none.
 
+        An ``ArchiveExtent``, or ``Unavailable`` when the archive cannot say.
         The answer, known or not, is cached like a fetched result set; *fresh*
         reads the store again.
         """
@@ -384,7 +379,7 @@ class DirectoryService:
         if snapshot is not None:
             await snapshot.aclose()
         if archive is not None:
-            await _disconnect(archive[0])
+            await _close(archive[0])
 
     async def _resolve(self, kind: str) -> tuple[Any, Any, str | None]:
         """``(backend, source, None)``, or ``(None, None, reason)`` when there is none."""
@@ -403,7 +398,7 @@ class DirectoryService:
 
     async def _build(self, kind: str, target: str) -> tuple[Any, Any, str | None]:
         table = service_targets(self._config)
-        spec: Any = table[_TARGETS_ROW.get(kind, kind)][target]
+        spec: Any = _row(table, kind)[target]
         if spec is None:
             return None, None, NO_SOURCE_REASON
         if kind == "alarm_state" and spec.settings.get("replay_file"):
@@ -445,11 +440,11 @@ class DirectoryService:
     # -- the archive -----------------------------------------------------
 
     def _has_archive(self) -> bool:
-        """Whether the deployment's archive serves the current target."""
+        """Whether the deployment's archive holds the current target's history."""
         if not DIRECTORY_CONNECTORS_AVAILABLE:
             return False
         target = self._at[0] if self._at else self._position()[0]
-        return target in archive_targets(self._config)
+        return target in history_targets(self._config)
 
     async def _archive_connector(self, *, fresh: bool = False) -> tuple[Any, Any, str | None]:
         if not DIRECTORY_CONNECTORS_AVAILABLE:
@@ -497,66 +492,60 @@ class DirectoryService:
             raise
 
     async def _build_archive(self, at: tuple[str, int] | None) -> tuple[Any, Any, str | None]:
-        section = self._config.get("archiver")
         target = at[0] if at else self._position()[0]
-        deadline = self._timeout()
+        spec: Any = _row(service_targets(self._config), "archive")[target]
         try:
-            connector = await asyncio.wait_for(
-                ConnectorFactory.create_archiver_connector(dict(section or {})), deadline
-            )
-        except TimeoutError:
-            reason = f"the archive did not answer within {deadline:g} s"
-            self._store(at, _ARCHIVE_FAILED, reason)
-            return None, None, reason
+            archive = await ConnectorFactory.create_service(spec, project_dir=self._project_dir)
         except Exception as failure:
-            logger.warning("cannot reach the archive", exc_info=True)
+            # The settings the archive's type refuses, read when it is built.
+            logger.warning("cannot build the archive", exc_info=True)
             reason = f"cannot reach the archive: {type(failure).__name__}"
             self._store(at, _ARCHIVE_FAILED, reason)
             return None, None, reason
         if self._at != at:
-            await _disconnect(connector)
+            await _close(archive)
             return None, None, _MOVED_REASON
-        source = Source(
-            kind="archive",
-            target=target,  # type: ignore[arg-type]
-            service=resolve_archiver_type(section),
-            rehearsal=target == "standin",
-        )
-        self._archive = (connector, source, None)
+        self._archive = (archive, archive.source, None)
         return self._archive
 
-    async def _extent(self, deadline: float, *, fresh: bool = False) -> Extent | None:
+    async def _extent(self, deadline: float, *, fresh: bool = False) -> Any:
+        """The store's extent, ``Unavailable`` when unknown, ``None`` with no archive."""
         if not self._has_archive():
             return None
         at = self._at
         if not fresh:
             cached = self._cached(at, _ARCHIVE_EXTENT)
-            if isinstance(cached, Extent):
+            if cached is not None:
                 return cached
         return await self._once(
             at,
             _ARCHIVE_EXTENT,
             lambda: self._read_extent(at, deadline),
-            Extent(reason=_MOVED_REASON),
+            Unavailable(cause="not_ready", reason=_MOVED_REASON),
         )
 
-    async def _read_extent(self, at: tuple[str, int] | None, deadline: float) -> Extent:
+    async def _read_extent(self, at: tuple[str, int] | None, deadline: float) -> Any:
         """Read the store's extent and cache the answer, known or not, like a fetched set."""
-        connector, _source, reason = await self._archive_connector()
-        extent = (
-            Extent(reason=reason) if connector is None else await read_extent(connector, deadline)
-        )
+        archive, _source, reason = await self._archive_connector()
+        if archive is None:
+            # The archive could not be built from its settings, or the target moved.
+            if reason == _MOVED_REASON:
+                extent = Unavailable(cause="not_ready", reason=reason)
+            else:
+                extent = Unavailable(cause="misconfigured", reason=reason or NO_SOURCE_REASON)
+        else:
+            extent = await self._bounded(archive.extent(timeout_s=deadline), deadline)
         self._store(at, _ARCHIVE_EXTENT, extent)
         return extent
 
     async def _archive_index(self, deadline: float) -> Any:
         """The channels the store records: a set, ``Unavailable`` when unknown, ``None`` with no archive."""
         extent = await self._extent(deadline)
-        if extent is None:
-            return None
-        if extent.channels is None:
-            return Unavailable(reason=extent.reason or "the archive does not say what it holds")
-        return extent.channels
+        if extent is None or isinstance(extent, Unavailable):
+            return extent
+        if extent.addresses is None:
+            return Unavailable(cause="unsupported", reason="the archive does not say what it holds")
+        return extent.addresses
 
     # -- searching -------------------------------------------------------
 
@@ -594,8 +583,8 @@ class DirectoryService:
             return _FullSet([], "")
         left = max(deadline - (time.monotonic() - started), 0.0)
         answer = await backend.search(evolve(server, page=0, page_size=total), timeout_s=left)
-        if answer.outcome == Outcome.UNAVAILABLE:
-            return Unavailable(reason=answer.reason or "no answer")
+        if isinstance(answer, Unavailable):
+            return answer
         fetched = _FullSet(list(answer.rows), answer.request)
         self._store(at, key, fetched)
         return fetched
@@ -608,16 +597,16 @@ class DirectoryService:
         """
         backend, _source, reason = await self._resolve("alarm_state")
         if backend is None:
-            return (
-                None if reason is None or reason == NO_SOURCE_REASON else Unavailable(reason=reason)
-            )
+            if reason is None or reason == NO_SOURCE_REASON:
+                return None
+            return Unavailable(cause="misconfigured", reason=reason)
         snapshot = await self.snapshot()
         if snapshot is None:
-            return Unavailable(reason="the target moved")
+            return Unavailable(cause="not_ready", reason=_MOVED_REASON)
         answer = await snapshot.states(deadline)
         if isinstance(answer, Unavailable):
             return answer
-        return {row.address: row.state for row in answer.rows}
+        return {row.address: row.condition for row in answer.rows}
 
     def _cut_page(
         self,
@@ -631,43 +620,36 @@ class DirectoryService:
         """The page of an origin-, alarm- or archive-filtered search, cut from the fetched set."""
         origins, alarms, archived = filters
         if marked is None:
-            return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": fetched.reason}
+            return _unavailable_page(fetched.reason)
         refused = _unfiltered(alarms, index, archived, held)
         if refused is not None:
-            return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": refused.reason}
+            return _unavailable_page(refused.reason)
         keeps = _kept(origins, alarms, archived, index, held)
         kept = [pair for pair in marked if keeps(*pair)]
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
         rows = kept[start : start + size]
         return {
-            "outcome": Outcome.FOUND if kept else Outcome.NO_MATCH,
+            "outcome": "found" if kept else "no_match",
             "request": fetched.request,
             "total": len(kept),
             "rows": rows,
             "truncated": start + len(rows) < len(kept),
         }
 
-    def _server_page(
-        self, backend: Any, page: Any, total: int | None, partial: list[Mapping[str, str]]
-    ) -> dict[str, Any]:
-        """The page the server answered, its rows marked."""
+    def _server_page(self, backend: Any, page: Any, total: int | None) -> dict[str, Any]:
+        """The page the server answered, its rows marked; *total* is the search's own count."""
         if isinstance(page, Unavailable):
-            return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": page.reason}
-        known = {entry["part"] for entry in partial}
-        partial.extend(
-            dict(entry)
-            for entry in page.partial
-            if entry.get("part") not in known
-            and not (entry.get("part") == "count" and total is not None)
-        )
+            return _unavailable_page(page.reason)
+        if total is None and isinstance(page.total, int):
+            total = page.total
         return {
             "outcome": page.outcome,
             "request": page.request,
-            "total": page.total if total is None else total,
+            "total": total,
             "rows": self._marked(backend, page.rows),
             "truncated": page.truncated,
-            "reason": page.reason,
+            "reason": page.note,
         }
 
     def _marked(self, backend: Any, rows: Iterable[Any]) -> list[tuple[Any, Origin]]:
@@ -703,10 +685,10 @@ class DirectoryService:
         try:
             return await asyncio.wait_for(call, deadline)
         except TimeoutError:
-            return Unavailable(reason=f"no answer within {deadline:g} s")
+            return Unavailable(cause="timeout", reason=f"no answer within {deadline:g} s")
         except Exception as failure:
             logger.warning("directory backend failed", exc_info=True)
-            return Unavailable(reason=service_failed(failure))
+            return Unavailable(cause="failed", reason=service_failed(failure))
 
     def _cached(self, at: Any, key: tuple[Any, ...]) -> Any:
         entry = self._sets.get((at, *key))
@@ -725,6 +707,12 @@ class DirectoryService:
             self._sets.popitem(last=False)
 
 
+def _row(table: Any, kind: str) -> Mapping[str, Any]:
+    """The row of ``service_targets``' table a section *kind* reads, keyed by target."""
+    row: Mapping[str, Any] = table.row(_TARGETS_ROW.get(kind, kind))
+    return row
+
+
 def _no_source_page(reason: str, target: str) -> dict[str, Any]:
     """The whole ``DirectoryPage`` a search answers with no source on *target*."""
     return {
@@ -738,6 +726,11 @@ def _no_source_page(reason: str, target: str) -> dict[str, Any]:
         "facets": None,
         "facets_reason": None,
     }
+
+
+def _unavailable_page(reason: str) -> dict[str, Any]:
+    """The fields of a search page that has no answer: it names no request it sent."""
+    return {"outcome": "unavailable", "request": "", "reason": reason}
 
 
 def _no_source_count(reason: str, target: str) -> dict[str, Any]:
@@ -755,14 +748,12 @@ async def _cancel(tasks: Iterable[asyncio.Task[Any]]) -> None:
 
 def _result(task: asyncio.Task[Any] | None, late: str) -> Any:
     """A finished task's answer; ``Unavailable`` when it is not done or raised."""
-    if task is None:
-        return Unavailable(reason=late)
-    if not task.done() or task.cancelled():
-        return Unavailable(reason=late)
+    if task is None or not task.done() or task.cancelled():
+        return Unavailable(cause="timeout", reason=late)
     failure = task.exception()
     if failure is not None:
         logger.warning("directory backend failed", exc_info=failure)
-        return Unavailable(reason=service_failed(failure))
+        return Unavailable(cause="failed", reason=service_failed(failure))
     return task.result()
 
 
@@ -770,12 +761,12 @@ async def _none() -> None:
     return None
 
 
-async def _disconnect(connector: Any) -> None:
-    """Disconnect an archiver connector; a failure is logged, never raised."""
+async def _close(archive: Any) -> None:
+    """Close an archive; a failure is logged, never raised."""
     try:
-        await connector.disconnect()
+        await archive.aclose()
     except Exception:
-        logger.warning("the archive connector did not disconnect cleanly", exc_info=True)
+        logger.warning("the archive did not close cleanly", exc_info=True)
 
 
 def _alarm_value(index: Mapping[str, Any], name: str) -> str:
@@ -797,12 +788,17 @@ def _unfiltered(
 ) -> Unavailable | None:
     """Why an alarm or archive filter cannot be applied: no answer, or no such service."""
     if alarms and not isinstance(index, dict):
-        reason = index.reason if isinstance(index, Unavailable) else NO_SOURCE_REASON
-        return Unavailable(reason=f"cannot filter by alarm: {reason}")
+        return _cannot_filter("alarm", index)
     if archived and not isinstance(held, frozenset):
-        reason = held.reason if isinstance(held, Unavailable) else NO_SOURCE_REASON
-        return Unavailable(reason=f"cannot filter by archive: {reason}")
+        return _cannot_filter("archive", held)
     return None
+
+
+def _cannot_filter(by: str, answer: Any) -> Unavailable:
+    """Why the *by* filter cannot be applied: its service's *answer*, or no such service."""
+    if isinstance(answer, Unavailable):
+        return evolve(answer, reason=f"cannot filter by {by}: {answer.reason}")
+    return Unavailable(cause="unsupported", reason=f"cannot filter by {by}: {NO_SOURCE_REASON}")
 
 
 def _kept(

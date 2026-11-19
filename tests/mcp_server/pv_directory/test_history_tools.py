@@ -35,12 +35,12 @@ from osprey.mcp_server.pv_directory.tools import (
 from osprey.services.pv_directory import _connectors
 from osprey.services.pv_directory.facts import panel_link
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord
+from osprey_connectors.alarm_state import AlarmCondition, AlarmConfiguration
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.put_log import PutRow
+from osprey_connectors.put_log import PutLogEntry
 from osprey_connectors.service_answers import (
-    HistoryPage,
-    Outcome,
+    LogPage,
+    NotListed,
     Source,
     Unavailable,
 )
@@ -83,13 +83,13 @@ class FakeBackend:
 
     def _page(self, rows: list[Any]) -> Any:
         if not rows:
-            return HistoryPage(
-                outcome=Outcome.NO_MATCH,
+            return LogPage(
+                outcome="no_match",
                 source=self.source,
-                reason=self.empty_reason,
+                note=self.empty_reason,
             )
-        return HistoryPage(
-            outcome=Outcome.FOUND,
+        return LogPage(
+            outcome="found",
             source=self.source,
             rows=rows,
         )
@@ -100,7 +100,7 @@ class FakeDirectory(FakeBackend):
         return 0
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return Outcome.NOT_LISTED
+        return NotListed(address=address)
 
 
 class FakeAlarmState(FakeBackend):
@@ -116,7 +116,7 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.states.get(address)
+        return self.states.get(address, NotListed(address=address))
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
@@ -127,8 +127,15 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        self.asked.append((address, since, limit))
+    async def history(
+        self,
+        address: str,
+        *,
+        start_at: Any = None,
+        limit: int,
+        timeout_s: float,  # noqa: ARG002
+    ) -> Any:
+        self.asked.append((address, start_at, limit))
         return self._page(self.rows)
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
@@ -140,8 +147,15 @@ class FakePutLog(FakeBackend):
     rows: list[Any] = []
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        self.asked.append((address, since, limit))
+    async def history(
+        self,
+        address: str,
+        *,
+        start_at: Any = None,
+        limit: int,
+        timeout_s: float,  # noqa: ARG002
+    ) -> Any:
+        self.asked.append((address, start_at, limit))
         return self._page(self.rows)
 
 
@@ -282,7 +296,7 @@ def test_each_tool_registers_only_with_its_sub_block(
 
 async def test_alarm_state_answers_each_channel_with_its_panel_link(tmp_path: Path) -> None:
     FakeAlarmState.states = {
-        "SR:BPM1": AlarmStateRecord(severity="MAJOR", status="HIHI"),
+        "SR:BPM1": AlarmCondition(severity="MAJOR", status="HIHI"),
     }
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
@@ -301,7 +315,7 @@ async def test_alarm_state_answers_each_channel_with_its_panel_link(tmp_path: Pa
 
 
 async def test_a_stale_alarm_state_is_reported_as_stale(tmp_path: Path) -> None:
-    FakeAlarmState.states = {"SR:BPM1": AlarmStateRecord(severity="MINOR", stale=True)}
+    FakeAlarmState.states = {"SR:BPM1": AlarmCondition(severity="MINOR", stale=True)}
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     result = json.loads(await alarm_state.alarm_state(["SR:BPM1"]))
@@ -314,8 +328,10 @@ async def test_a_stale_alarm_state_is_reported_as_stale(tmp_path: Path) -> None:
 
 async def test_a_channel_with_no_answer_is_missing_beside_the_answered(tmp_path: Path) -> None:
     FakeAlarmState.states = {
-        "SR:BPM1": AlarmStateRecord(severity="NO_ALARM"),
-        "SR:BPM2": Unavailable(reason="alarm broker cannot be reached: refused"),
+        "SR:BPM1": AlarmCondition(severity="OK"),
+        "SR:BPM2": Unavailable(
+            cause="unreachable", reason="alarm broker cannot be reached: refused"
+        ),
     }
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
@@ -326,8 +342,10 @@ async def test_a_channel_with_no_answer_is_missing_beside_the_answered(tmp_path:
 
 
 async def test_a_feed_still_loading_is_reported(tmp_path: Path) -> None:
-    FakeAlarmState.states = {"SR:BPM1": Unavailable(reason="alarm feed still loading")}
-    FakeAlarmState.config = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.states = {
+        "SR:BPM1": Unavailable(cause="not_ready", reason="alarm feed still loading")
+    }
+    FakeAlarmState.config = Unavailable(cause="not_ready", reason="alarm feed still loading")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     with assert_raises_error(error_type="nothing_answered") as refused:
@@ -405,7 +423,7 @@ async def test_alarm_state_takes_one_to_fifty_names(tmp_path: Path) -> None:
 
 
 async def test_alarm_config_from_the_feed_carries_its_label_and_link(tmp_path: Path) -> None:
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
+    FakeAlarmState.config = AlarmConfiguration(in_tree="yes", path="/SR/BPM1")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     result = json.loads(await alarm_config.alarm_config("SR:BPM1"))
@@ -417,7 +435,7 @@ async def test_alarm_config_from_the_feed_carries_its_label_and_link(tmp_path: P
 
 
 async def test_alarm_config_with_only_the_logger(tmp_path: Path) -> None:
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no")
+    FakeAlarmLog.config = AlarmConfiguration(in_tree="no")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_log": ALARM_LOG})
 
     result = json.loads(await alarm_config.alarm_config("ca://SR:BPM1"))
@@ -431,8 +449,8 @@ async def test_alarm_config_with_only_the_logger(tmp_path: Path) -> None:
 
 
 async def test_alarm_state_and_alarm_config_carry_the_configured_caveats(tmp_path: Path) -> None:
-    FakeAlarmState.states = {"SR:BPM1": AlarmStateRecord(severity="MINOR")}
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes")
+    FakeAlarmState.states = {"SR:BPM1": AlarmCondition(severity="MINOR")}
+    FakeAlarmState.config = AlarmConfiguration(in_tree="yes")
     caveats = ["covers the SR tree only"]
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": {**KAFKA, "caveats": caveats}})
 
@@ -475,7 +493,9 @@ async def test_an_empty_history_says_nothing_was_logged_with_its_caveats_and_lin
 
 
 async def test_a_history_answers_its_rows_newest_twenty_by_default(tmp_path: Path) -> None:
-    FakePutLog.rows = [PutRow(recorded_stamp="t2", address="SR:BPM1", old="1", new="2", user="op")]
+    FakePutLog.rows = [
+        PutLogEntry(recorded_stamp="t2", address="SR:BPM1", old="1", new="2", user="op")
+    ]
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG})
 
     result = json.loads(await put_history.put_history("SR:BPM1"))

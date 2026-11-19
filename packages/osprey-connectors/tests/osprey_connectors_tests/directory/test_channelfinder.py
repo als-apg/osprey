@@ -13,16 +13,16 @@ from typing import Any
 import pytest
 
 from osprey_connectors._service_http import ReadOnlyTransport
-from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory import DirectoryDetail, DirectoryQuery
 from osprey_connectors.directory._channelfinder import ChannelFinderDirectory
-from osprey_connectors.service_answers import BackendSpec, Outcome, Source, Unavailable
+from osprey_connectors.service_answers import BackendSpec, NotListed, Source, Unavailable
 
 DEADLINE = 6.0
 FIXTURES = Path(__file__).parent / "fixtures" / "channelfinder"
 CHANNELS = "/resources/channels"
 COUNT = "/resources/channels/count"
 PROPERTIES = "/resources/properties"
-DOWN = Unavailable(reason="no answer within 6 s")
+DOWN = Unavailable(cause="timeout", reason="no answer within 6 s")
 
 
 def recorded(name: str) -> Any:
@@ -81,7 +81,7 @@ class TestWordSearch:
 
         page = await directory.search(DirectoryQuery(words="cooling water"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.FOUND
+        assert page.outcome == "found"
         assert replay.params_to(CHANNELS) == [
             [("recordDesc", "*cooling*water*"), ("~size", 50), ("~from", 0)]
         ]
@@ -97,7 +97,7 @@ class TestWordSearch:
 
         page = await directory.search(DirectoryQuery(words="temp cav"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.FOUND
+        assert page.outcome == "found"
         assert replay.params_to(CHANNELS) == [
             [("recordDesc", "*temp*cav*"), ("~size", 50), ("~from", 0)],
             [("~name", "*temp*"), ("~name", "*cav*"), ("~size", 50), ("~from", 0)],
@@ -142,7 +142,7 @@ class TestWordSearch:
 
         page = await directory.search(DirectoryQuery(words="cooling"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.NO_MATCH
+        assert page.outcome == "no_match"
         assert page.total == 0
         assert page.rows == ()
         assert page.truncated is False
@@ -203,7 +203,7 @@ class TestNameTerms:
             DirectoryQuery(address_pattern="DEMO:NOPE*"), timeout_s=DEADLINE
         )
 
-        assert page.outcome is Outcome.NO_MATCH
+        assert page.outcome == "no_match"
 
     async def test_an_empty_query_asks_for_every_name(self):
         directory, replay = backend(always())
@@ -322,7 +322,7 @@ class TestPaging:
         page = await directory.search(DirectoryQuery(words="flow", page=1), timeout_s=DEADLINE)
 
         assert len(replay.params_to(CHANNELS)) == 1
-        assert page.outcome is Outcome.FOUND
+        assert page.outcome == "found"
         assert page.rows == ()
         assert page.total == 3
 
@@ -344,9 +344,8 @@ class TestPartial:
 
         page = await directory.search(DirectoryQuery(words="cooling"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.FOUND
-        assert page.total is None
-        assert page.partial == ({"part": "count", "reason": DOWN.reason},)
+        assert page.outcome == "found"
+        assert page.total == DOWN
         assert len(page.rows) == 2
         assert page.truncated is False
 
@@ -362,7 +361,7 @@ class TestPartial:
 
         assert page.truncated is True
 
-    async def test_a_page_that_failed_is_unavailable_with_its_reason(self):
+    async def test_a_page_that_failed_is_the_services_unavailable_answer(self):
         def answer(path, _pairs):
             return 412 if path == COUNT else DOWN
 
@@ -370,10 +369,7 @@ class TestPartial:
 
         page = await directory.search(DirectoryQuery(words="cooling"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.UNAVAILABLE
-        assert page.reason == DOWN.reason
-        assert page.total == 412
-        assert page.request.startswith("GET /resources/channels?recordDesc=")
+        assert page == DOWN
         assert len(replay.params_to(CHANNELS)) == 1
 
     async def test_a_first_page_with_no_rows_and_no_count_still_tries_the_names(self):
@@ -386,8 +382,8 @@ class TestPartial:
 
         page = await directory.search(DirectoryQuery(words="temp"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.FOUND
-        assert page.partial == ({"part": "count", "reason": DOWN.reason},)
+        assert page.outcome == "found"
+        assert page.total == DOWN
 
     async def test_a_later_page_with_no_rows_and_no_count_says_it_cannot_tell(self):
         def answer(path, _pairs):
@@ -397,7 +393,8 @@ class TestPartial:
 
         page = await directory.search(DirectoryQuery(words="temp", page=1), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.UNAVAILABLE
+        assert isinstance(page, Unavailable)
+        assert page.cause == DOWN.cause
         assert DOWN.reason in page.reason
         assert len(replay.params_to(CHANNELS)) == 1
 
@@ -411,9 +408,8 @@ class TestPartial:
             DirectoryQuery(address_pattern="DEMO:NOPE*"), timeout_s=DEADLINE
         )
 
-        assert page.outcome is Outcome.NO_MATCH
-        assert page.total is None
-        assert page.partial == ({"part": "count", "reason": DOWN.reason},)
+        assert page.outcome == "no_match"
+        assert page.total == DOWN
 
 
 class TestRows:
@@ -438,7 +434,7 @@ class TestRows:
         page = await directory.search(DirectoryQuery(status="Inactive"), timeout_s=DEADLINE)
 
         assert page.rows[1].status == "Inactive"
-        assert page.outcome is Outcome.FOUND
+        assert page.outcome == "found"
 
     async def test_every_property_is_optional(self):
         directory, _ = backend(always(rows=[{"name": "DEMO:BARE"}], total=1))
@@ -475,7 +471,7 @@ class TestRows:
 
         page = await directory.search(DirectoryQuery(address_pattern="DEMO*"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.UNAVAILABLE
+        assert isinstance(page, Unavailable)
         assert page.reason == "malformed response"
 
 
@@ -509,7 +505,7 @@ class TestCount:
 
         assert await directory.count(
             DirectoryQuery(address_pattern="DEMO*"), timeout_s=DEADLINE
-        ) == Unavailable(reason="malformed response")
+        ) == Unavailable(cause="bad_reply", reason="malformed response")
 
 
 class TestDescribe:
@@ -518,8 +514,8 @@ class TestDescribe:
 
         record = await directory.describe("DEMO:RF1:CAV:Temp-I", timeout_s=DEADLINE)
 
-        assert isinstance(record, DirectoryRecord)
-        assert record.row.status == "Active"
+        assert isinstance(record, DirectoryDetail)
+        assert record.entry.status == "Active"
         assert record.properties["caPort"] == "5064"
         assert record.properties["Engineer"] == "rf-group"
         assert record.tags == ()
@@ -534,12 +530,12 @@ class TestDescribe:
 
         record = await directory.describe(fixture["name"], timeout_s=DEADLINE)
 
-        assert isinstance(record, DirectoryRecord)
+        assert isinstance(record, DirectoryDetail)
         for field, prop in directory.field_properties.items():
             if field != "announced_at":  # the recorded time has no zone: recorded_stamp
-                assert getattr(record.row, field) == values[prop]
+                assert getattr(record.entry, field) == values[prop]
             assert prop not in record.properties
-        assert record.row.description == values["recordDesc"]
+        assert record.entry.description == values["recordDesc"]
 
     def test_field_properties_are_the_recsync_map_and_the_description_property(self):
         default, _ = backend(always())
@@ -564,25 +560,27 @@ class TestDescribe:
         record = await directory.describe("DEMO:RF2:CAV:Temp-I", timeout_s=DEADLINE)
 
         assert record.tags == ("archived",)
-        assert record.row.status == "Inactive"
+        assert record.entry.status == "Inactive"
         assert record.properties["alias"] == "DEMO:RF2:Temp"
 
     async def test_an_exact_miss_is_not_listed(self):
         directory, _ = backend(always(rows=[]))
 
-        assert await directory.describe("DEMO:NOPE", timeout_s=DEADLINE) is Outcome.NOT_LISTED
+        assert await directory.describe("DEMO:NOPE", timeout_s=DEADLINE) == NotListed(
+            address="DEMO:NOPE"
+        )
 
     async def test_an_answer_that_holds_other_names_is_not_listed(self):
         directory, _ = backend(always())
 
-        assert await directory.describe("DEMO:*", timeout_s=DEADLINE) is Outcome.NOT_LISTED
+        assert await directory.describe("DEMO:*", timeout_s=DEADLINE) == NotListed(address="DEMO:*")
 
     async def test_a_comma_in_the_name_still_finds_that_name(self):
         directory, replay = backend(always(rows=[{"name": "DEMO:A.B"}, {"name": "DEMO:A,B"}]))
 
         record = await directory.describe("DEMO:A,B", timeout_s=DEADLINE)
 
-        assert record.row.address == "DEMO:A,B"
+        assert record.entry.address == "DEMO:A,B"
         assert ("~name", "DEMO:A?B") in replay.params_to(CHANNELS)[0]
 
     async def test_a_failure_is_the_reason_not_a_miss(self):
@@ -685,13 +683,14 @@ class TestConstruction:
 
     async def test_a_login_page_reaches_the_page_as_its_reason(self):
         login = Unavailable(
-            reason="answered with a login page (an access proxy is in front of the service)"
+            cause="refused",
+            reason="answered with a login page (an access proxy is in front of the service)",
         )
         directory, _ = backend(lambda _path, _pairs: login)
 
         page = await directory.search(DirectoryQuery(address_pattern="DEMO*"), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.UNAVAILABLE
+        assert isinstance(page, Unavailable)
         assert page.reason == login.reason
 
     async def test_a_block_with_no_url_answers_a_reason(self):
@@ -705,7 +704,7 @@ class TestConstruction:
 
         page = await ChannelFinderDirectory(spec).search(DirectoryQuery(), timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.UNAVAILABLE
+        assert isinstance(page, Unavailable)
         assert page.reason
 
     async def test_every_request_passes_the_real_transports_allowlist(self, monkeypatch):
@@ -737,8 +736,8 @@ class TestConstruction:
         record = await directory.describe("DEMO:RF1:CAV:Temp-I", timeout_s=DEADLINE)
         evidence = await directory.probe(timeout_s=DEADLINE)
 
-        assert page.outcome is Outcome.FOUND
-        assert isinstance(record, DirectoryRecord)
+        assert page.outcome == "found"
+        assert isinstance(record, DirectoryDetail)
         assert isinstance(evidence, str)
         assert (
             "https://cf.demo.lab/ChannelFinder/resources/channels"

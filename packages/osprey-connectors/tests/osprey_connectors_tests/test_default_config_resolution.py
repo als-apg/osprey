@@ -8,9 +8,10 @@ have to give one answer. A project directory keeps its render at
 used to load the render through the first and nothing through the second, so a
 connector built from "the config" was built from an empty one.
 
-The factory's no-argument forms then turned that load failure into the
-simulator, whose own refusal says to run ``osprey build``. These tests hold
-them to reporting the load failure instead.
+The factory's no-argument form then turned that load failure into the
+simulator, whose own refusal says to run ``osprey build``. These tests hold it
+to reporting the load failure instead. The archive has no such form: it is
+built from the spec ``service_targets`` names in the config the caller loaded.
 """
 
 from __future__ import annotations
@@ -20,8 +21,10 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import connector_types
+from osprey_connectors.archiver import ChannelArchive
 from osprey_connectors.config import ConfigBuilder, default_config_path, get_config_value
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_targets import service_targets
 from osprey_connectors.workspace import load_osprey_config, resolve_config_path
 
 ARCHIVER_URL = "https://archiver.example.org:8443"
@@ -45,22 +48,35 @@ def project(tmp_path, monkeypatch) -> Path:
     return root
 
 
-class RecordingArchiver:
-    """Stands in for a facility archiver: records the settings it was connected with."""
+class RecordingArchiver(ChannelArchive):
+    """Stands in for an archive: records the settings it was built with."""
 
     settings: dict | None = None
 
-    async def connect(self, config: dict) -> None:
-        type(self).settings = config
+    def __init__(self, spec, *, project_dir=None, **seams) -> None:
+        super().__init__(spec, project_dir=project_dir, **seams)
+        type(self).settings = dict(spec.settings)
+
+    async def history(self, addresses, **_options):
+        raise NotImplementedError
+
+    async def coverage(self, addresses, *, timeout_s=None):
+        raise NotImplementedError
+
+
+def _recording(monkeypatch, archiver_type: str) -> type[RecordingArchiver]:
+    """Register :class:`RecordingArchiver` under *archiver_type*, for this test only."""
+    RecordingArchiver.settings = None
+    ConnectorFactory._ensure_builtins()
+    monkeypatch.setitem(
+        ConnectorFactory._service_backends["archive"], archiver_type, RecordingArchiver
+    )
+    return RecordingArchiver
 
 
 @pytest.fixture
 def facility_archiver(monkeypatch) -> type[RecordingArchiver]:
-    RecordingArchiver.settings = None
-    monkeypatch.setitem(
-        ConnectorFactory._archiver_connectors, connector_types.EPICS_ARCHIVER, RecordingArchiver
-    )
-    return RecordingArchiver
+    return _recording(monkeypatch, connector_types.EPICS_ARCHIVER)
 
 
 def test_a_lookup_in_a_project_directory_reads_the_render_under_build(project):
@@ -124,22 +140,15 @@ def test_a_missing_osprey_config_target_is_named(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_archiver_built_with_no_argument_is_the_renders(project, facility_archiver):
+async def test_the_archive_built_from_the_loaded_config_is_the_renders(project, facility_archiver):
     write_config(project / "build" / "config.yml")
 
-    connector = await ConnectorFactory.create_archiver_connector()
+    spec = service_targets(load_osprey_config()).archive["live"]
+    assert spec is not None
+    archive = await ConnectorFactory.create_service(spec)
 
-    assert isinstance(connector, facility_archiver)
+    assert isinstance(archive, facility_archiver)
     assert facility_archiver.settings == {"url": ARCHIVER_URL}
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("project")
-async def test_no_config_refuses_the_archiver_instead_of_building_the_mock(caplog):
-    with pytest.raises(FileNotFoundError, match="No config.yml found"):
-        await ConnectorFactory.create_archiver_connector()
-
-    assert connector_types.MOCK_ARCHIVER not in caplog.text
 
 
 @pytest.mark.usefixtures("project")
@@ -148,31 +157,26 @@ def test_no_config_refuses_the_control_system_instead_of_building_the_simulator(
         ConnectorFactory.build_control_system_connector()
 
 
-@pytest.mark.asyncio
-async def test_a_config_that_cannot_be_read_refuses_the_archiver(project, caplog):
-    # The mock is for a config that was read and names no archiver. One that
-    # could not be read says nothing about the archiver.
-    (project / "config.yml").write_text("archiver: [unclosed\n", encoding="utf-8")
+def test_a_config_that_cannot_be_read_refuses_the_control_system(project, caplog):
+    # The simulator is for a config that was read and names no control system.
+    # One that could not be read says nothing about the control system.
+    (project / "config.yml").write_text("control_system: [unclosed\n", encoding="utf-8")
 
     with pytest.raises(Exception, match="config.yml"):
-        await ConnectorFactory.create_archiver_connector()
+        ConnectorFactory.build_control_system_connector()
 
-    assert connector_types.MOCK_ARCHIVER not in caplog.text
+    assert connector_types.VIRTUAL_ACCELERATOR not in caplog.text
 
 
 @pytest.mark.asyncio
 async def test_a_render_with_no_archiver_section_still_builds_the_mock(project, monkeypatch):
     (project / "build").mkdir()
     (project / "build" / "config.yml").write_text("system:\n  timezone: UTC\n", encoding="utf-8")
-    built: list[dict] = []
+    mock = _recording(monkeypatch, connector_types.MOCK_ARCHIVER)
 
-    class Mock:
-        async def connect(self, config: dict) -> None:
-            built.append(config)
+    spec = service_targets(load_osprey_config()).archive["live"]
+    assert spec is not None
+    archive = await ConnectorFactory.create_service(spec)
 
-    monkeypatch.setitem(ConnectorFactory._archiver_connectors, connector_types.MOCK_ARCHIVER, Mock)
-
-    connector = await ConnectorFactory.create_archiver_connector()
-
-    assert isinstance(connector, Mock)
-    assert built == [{}]
+    assert isinstance(archive, mock)
+    assert mock.settings == {}

@@ -185,7 +185,8 @@ def initialize_connectors(
             if registration.connector_type == "control_system":
                 ConnectorFactory.register_control_system(registration.name, connector_class)
             elif registration.connector_type == "archiver":
-                ConnectorFactory.register_archiver(registration.name, connector_class)
+                # The registry's word for the archive: a service backend of kind ``archive``.
+                ConnectorFactory.register_service("archive", registration.name, connector_class)
             elif registration.connector_type in _DIRECTORY_CONNECTOR_KINDS:
                 register = getattr(ConnectorFactory, "register_service", None)
                 if register is None:

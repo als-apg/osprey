@@ -5,19 +5,19 @@ factory reaches from their type names.
 """
 
 from osprey_connectors.alarm_state._contract import (
-    AlarmConfigRecord,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
+    AlarmSeverity,
     AlarmState,
-    AlarmStateRecord,
-    AlarmStateRow,
     AlarmStates,
-    severity_rank,
 )
 
 __all__ = [
-    "AlarmConfigRecord",
+    "AlarmCondition",
+    "AlarmConfiguration",
+    "AlarmEntry",
+    "AlarmSeverity",
     "AlarmState",
-    "AlarmStateRecord",
-    "AlarmStateRow",
     "AlarmStates",
-    "severity_rank",
 ]

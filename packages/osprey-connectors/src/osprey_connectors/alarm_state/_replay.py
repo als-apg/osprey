@@ -20,9 +20,9 @@ from pydantic import AwareDatetime, ConfigDict, ValidationError, field_validator
 from typing_extensions import override
 
 from osprey_connectors.alarm_state._contract import (
-    AlarmConfigRecord,
+    AlarmCondition,
+    AlarmConfiguration,
     AlarmState,
-    AlarmStateRecord,
     AlarmStates,
 )
 from osprey_connectors.alarm_state._fold import (
@@ -36,7 +36,7 @@ from osprey_connectors.alarm_state._fold import (
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, parse_instant
-from osprey_connectors.service_answers import BackendSpec, Unavailable
+from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
 
 logger = get_logger("alarm_replay")
 
@@ -92,7 +92,7 @@ class ReplayAlarmState(AlarmState):
     @override
     async def state_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmStateRecord | Unavailable | None:
+    ) -> AlarmCondition | NotListed | Unavailable:
         await self._loading(timeout_s)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
@@ -112,7 +112,7 @@ class ReplayAlarmState(AlarmState):
     @override
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         await self._loading(timeout_s)
         snapshot = self._answering()
         return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, address)
@@ -136,7 +136,7 @@ class ReplayAlarmState(AlarmState):
     def _answering(self) -> FeedSnapshot | Unavailable:
         snapshot = self._loaded()
         if isinstance(snapshot, FeedSnapshot) and snapshot.messages == 0:
-            return Unavailable(reason=FEED_EMPTY)
+            return Unavailable(cause="unreachable", reason=FEED_EMPTY)
         return snapshot
 
     def _loaded(self) -> FeedSnapshot | Unavailable:
@@ -145,22 +145,31 @@ class ReplayAlarmState(AlarmState):
             return path
         if self._failed is not None:
             return self._failed
-        return self._snapshot if self._snapshot is not None else Unavailable(reason=FEED_LOADING)
+        return (
+            self._snapshot
+            if self._snapshot is not None
+            else Unavailable(cause="not_ready", reason=FEED_LOADING)
+        )
 
     def _replay_path(self) -> Path | Unavailable:
         value = self.spec.settings.get("replay_file")
         if not value:
-            return Unavailable(reason="alarm_state.replay_file is not set")
+            return Unavailable(cause="misconfigured", reason="alarm_state.replay_file is not set")
         if not isinstance(value, str | os.PathLike):
-            return Unavailable(reason="alarm_state.replay_file is not a path")
+            return Unavailable(
+                cause="misconfigured", reason="alarm_state.replay_file is not a path"
+            )
         if str(value).startswith("demo:"):
-            return Unavailable(reason=f"alarm replay {value} was not resolved to a file")
+            return Unavailable(
+                cause="misconfigured", reason=f"alarm replay {value} was not resolved to a file"
+            )
         path = Path(value)
         if path.is_absolute():
             return path
         if self.project_dir is None:
             return Unavailable(
-                reason=f"alarm replay file {value} is relative, with no project directory"
+                cause="misconfigured",
+                reason=f"alarm replay file {value} is relative, with no project directory",
             )
         return self.project_dir / path
 
@@ -171,7 +180,9 @@ class ReplayAlarmState(AlarmState):
         except Exception as exc:
             reason = str(exc) or type(exc).__name__
             logger.warning("alarm replay not loaded: %s", reason)
-            self._failed = Unavailable(reason=f"alarm replay file cannot be read: {reason}")
+            self._failed = Unavailable(
+                cause="failed", reason=f"alarm replay file cannot be read: {reason}"
+            )
 
 
 class _Message(FrozenModel):

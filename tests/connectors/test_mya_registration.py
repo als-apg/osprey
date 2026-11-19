@@ -5,8 +5,8 @@ tests pin the name across every layer that has to agree on it: the type
 constants, the factory's built-in registration, the framework registry, and the
 CLI choice list.
 
-``jlab_archiver_client`` is never imported here — the connector defers that
-import to ``connect()``, which is what makes registering it unconditionally
+``jlab_archiver_client`` is never imported here — the archive defers that
+import to its constructor, which is what makes registering it unconditionally
 safe on a machine with no JLab environment.
 """
 
@@ -36,14 +36,14 @@ class TestBuiltinRegistration:
         with isolated_connector_registries(clear=True):
             ConnectorFactory._ensure_builtins()
 
-            assert connector_types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
-            registered = ConnectorFactory._archiver_connectors[connector_types.MYA_ARCHIVER]
+            assert connector_types.MYA_ARCHIVER in ConnectorFactory.list_services("archive")
+            registered = ConnectorFactory._service_backends["archive"][connector_types.MYA_ARCHIVER]
             assert registered is MYAArchiverConnector
 
     def test_registration_needs_no_client_library(self, monkeypatch):
         """Registration must not import ``jlab_archiver_client``.
 
-        The connector imports it inside ``connect()``. If that ever moved to
+        The archive imports it when it is built. If that ever moved to
         module scope, registering the built-ins would raise ImportError on
         every machine without the library and take the whole framework down.
 
@@ -69,7 +69,7 @@ class TestBuiltinRegistration:
             ConnectorFactory._ensure_builtins()
 
             assert sys.modules[canonical] is not cached, "the connector was not re-imported"
-            assert connector_types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
+            assert connector_types.MYA_ARCHIVER in ConnectorFactory.list_services("archive")
 
 
 class TestFrameworkRegistryEntries:

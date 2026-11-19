@@ -32,15 +32,15 @@ from pathlib import Path
 from pydantic import ConfigDict, OnErrorOmit, TypeAdapter
 from typing_extensions import override
 
-from osprey_connectors._service_http import ReadOnlyTransport, Transport
-from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
-from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
+from osprey_connectors.alarm_log._contract import AlarmLog, AlarmLogEntry
+from osprey_connectors.alarm_state import AlarmConfiguration, AlarmSeverity
 from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
     BackendSpec,
-    HistoryPage,
-    Outcome,
+    LogPage,
+    PageOutcome,
     Unavailable,
     _instant,
     _Recorded,
@@ -54,7 +54,6 @@ _SETTINGS_KEY = "pv_directory.alarm_log.settings"
 _CONFIG_SEARCH_SIZE = 200
 
 _NO_LOGGED_EVENTS = "no logged events"
-_MALFORMED_REASON = "malformed response"
 _UNESCAPED_SLASH = re.compile(r"(?<!\\)/")
 _PV_SCHEME = re.compile(r"^(?:ca|pva)://")
 
@@ -141,28 +140,33 @@ class PhoebusAlarmLogger(AlarmLog):
 
     @override
     async def history(
-        self, address: str, start_at: datetime | None, limit: int, *, timeout_s: float
-    ) -> HistoryPage[AlarmHistoryRow]:
+        self,
+        address: str,
+        *,
+        start_at: datetime | None = None,
+        limit: int,
+        timeout_s: float,
+    ) -> LogPage[AlarmLogEntry] | Unavailable:
         if start_at is not None:
             require_aware(start_at, name="start_at")
         # One row more than asked for tells a full page from a longer history.
         answer = await self._search(address, limit + 1, start_at, timeout_s)
         if isinstance(answer, Unavailable):
-            return self._page(Outcome.UNAVAILABLE, reason=answer.reason)
+            return answer
         matching = _rows_of(answer, address)
         rows = [row for row in matching if _in_window(row, start_at)]
         if not rows:
-            return self._page(Outcome.NO_MATCH, reason=_NO_LOGGED_EVENTS)
+            return self._page("no_match", note=_NO_LOGGED_EVENTS)
         # A row older than the window means the page already reached the window's end.
         truncated = len(rows) > limit if len(rows) < len(matching) else len(answer) > limit
         return self._page(
-            Outcome.FOUND, rows=[_history_row(row) for row in rows[:limit]], truncated=truncated
+            "found", rows=[_history_row(row) for row in rows[:limit]], truncated=truncated
         )
 
     @override
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         started = time.monotonic()
         answer = await self._search(address, _CONFIG_SEARCH_SIZE, None, timeout_s)
         if isinstance(answer, Unavailable):
@@ -172,7 +176,7 @@ class PhoebusAlarmLogger(AlarmLog):
         if newest is not None:
             return _config_record(newest)
         if not rows:
-            return AlarmConfigRecord(in_tree="no")
+            return AlarmConfiguration(in_tree="no")
         # State rows prove a path but not the tree's entry, so nothing below answers "no".
         path = rows[0].tree_path
         if path is not None:
@@ -184,7 +188,7 @@ class PhoebusAlarmLogger(AlarmLog):
                 newest = _newest_config_row(_rows_of(fallback, address))
                 if newest is not None:
                     return _config_record(newest)
-        return AlarmConfigRecord(in_tree="unknown", path=path)
+        return AlarmConfiguration(in_tree="unknown", path=path)
 
     @override
     async def probe(self, *, timeout_s: float) -> str | Unavailable:
@@ -192,7 +196,7 @@ class PhoebusAlarmLogger(AlarmLog):
         if isinstance(answer, Unavailable):
             return answer
         if not isinstance(answer, Mapping):
-            return Unavailable(reason=_MALFORMED_REASON)
+            return MALFORMED
         service = " ".join(str(answer[key]) for key in ("name", "version") if answer.get(key))
         return f"root answered ({service or 'unnamed service'}); this does not prove ingestion"
 
@@ -207,22 +211,22 @@ class PhoebusAlarmLogger(AlarmLog):
         )
         if isinstance(answer, Unavailable | list):
             return answer
-        return Unavailable(reason=_MALFORMED_REASON)
+        return MALFORMED
 
     def _page(
         self,
-        outcome: Outcome,
+        outcome: PageOutcome,
         *,
-        rows: list[AlarmHistoryRow] | None = None,
+        rows: list[AlarmLogEntry] | None = None,
         truncated: bool = False,
-        reason: str | None = None,
-    ) -> HistoryPage[AlarmHistoryRow]:
-        return HistoryPage(
+        note: str | None = None,
+    ) -> LogPage[AlarmLogEntry]:
+        return LogPage(
             outcome=outcome,
             source=self.source,
             rows=tuple(rows or ()),
             truncated=truncated,
-            reason=reason,
+            note=note,
         )
 
 
@@ -244,15 +248,15 @@ def _newest_config_row(rows: list[_LoggedRow]) -> _LoggedRow | None:
     return next((row for row in rows if row.is_config), None)
 
 
-def _config_record(row: _LoggedRow) -> AlarmConfigRecord:
+def _config_record(row: _LoggedRow) -> AlarmConfiguration:
     """What a ``config:`` row says; one that cannot be read leaves the answer unknown."""
     path = row.tree_path
     body = _config_body(row)
     if body is None:
-        return AlarmConfigRecord(in_tree="unknown", path=path)
+        return AlarmConfiguration(in_tree="unknown", path=path)
     if body.deleted:
-        return AlarmConfigRecord(in_tree="no", path=path)
-    return AlarmConfigRecord(
+        return AlarmConfiguration(in_tree="no", path=path)
+    return AlarmConfiguration(
         in_tree="yes",
         path=path,
         guidance=body.guidance,
@@ -272,18 +276,20 @@ def _config_body(row: _LoggedRow) -> _ConfigBody | None:
         return None
 
 
-def _history_row(row: _LoggedRow) -> AlarmHistoryRow:
+def _history_row(row: _LoggedRow) -> AlarmLogEntry:
     if row.is_config:
         body = _config_body(row) or _ConfigBody()
-        return AlarmHistoryRow(
+        return AlarmLogEntry(
             event_at=_instant(row.message_time),
             message=body.delete if body.deleted else body.description,
             user=row.user,
             kind="config",
         )
-    return AlarmHistoryRow(
+    severity, acknowledged = AlarmSeverity.of_recorded(row.severity)
+    return AlarmLogEntry(
         event_at=row.event_at,
-        severity=row.severity,
+        severity=severity,
+        acknowledged=acknowledged,
         status=row.current_message,
         message=row.message,
         user=row.user,

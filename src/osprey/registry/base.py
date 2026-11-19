@@ -91,10 +91,11 @@ class ConnectorRegistration:
 
     :param name: Unique connector name (e.g., 'epics', 'tango')
     :type name: str
-    :param connector_type: Type of connector: 'control_system', 'archiver', or, for an
-        explicit out-of-tree backend, 'directory', 'alarm_log', 'alarm_state' or 'put_log'
-        (those four need an installed ``osprey-connectors`` whose factory has
-        ``register_service``)
+    :param connector_type: Type of connector: 'control_system', 'archiver' (a
+        ``ChannelArchive`` subclass, registered as a service backend of kind
+        ``archive``), or, for an explicit out-of-tree backend, 'directory',
+        'alarm_log', 'alarm_state' or 'put_log' (those four need an installed
+        ``osprey-connectors`` whose factory has ``register_service``)
     :type connector_type: str
     :param module_path: Python module path for lazy import
     :type module_path: str
@@ -132,7 +133,7 @@ class ConnectorRegistration:
     .. seealso::
        :class:`osprey_connectors.factory.ConnectorFactory` : Runtime connector factory
        :class:`osprey_connectors.control_system.ControlSystemConnector` : Base class for control system connectors
-       :class:`osprey_connectors.archiver.ArchiverConnector` : Base class for archiver connectors
+       :class:`osprey_connectors.archiver.ChannelArchive` : Base class for archiver connectors
     """
 
     name: str

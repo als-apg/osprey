@@ -7,7 +7,7 @@ Two behaviours, one task:
   artifact's metadata — the ``bin_size_source`` honesty rule applied to
   identity. The keys are always present: a deployment with no readable record
   stamps ``target_source="baseline"`` rather than leaving a reader to guess.
-* **The carve-out.** The archiver connector is HTTP/pymongo-class, never
+* **The carve-out.** The archive is HTTP/pymongo-class, never
   Channel Access, so an archiver read is not routed through the connector-host
   child and must serve identically while no child is alive. Pinned here by a
   full round trip that leaves the host supervisor unbuilt and the
@@ -223,6 +223,8 @@ async def test_read_never_touches_the_control_system(
     registry = get_server_context()
     assert registry._connector_hosts is None
     assert registry._connectors["control_system"].instance is None
+    # The one thing the read built is the session's target's archive.
+    assert list(registry._archives) == ["va"]
 
 
 # ── the health row ──────────────────────────────────────────────────────────

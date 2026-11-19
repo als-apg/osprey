@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
-from osprey_connectors.archiver import field_name
+from osprey_connectors.archive_store import field_name, mongo_client_kwargs
 from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.config import get_facility_timezone, load_config
 from osprey_connectors.connector_types import MONGODB_ARCHIVER
@@ -929,8 +929,6 @@ def archiver_collection(store: dict):
     """Open the archive collection named by :func:`archiver_store_config`."""
     _require_pymongo()
     from pymongo import MongoClient
-
-    from osprey_connectors.archiver import mongo_client_kwargs
 
     client: Any = MongoClient(
         **mongo_client_kwargs(

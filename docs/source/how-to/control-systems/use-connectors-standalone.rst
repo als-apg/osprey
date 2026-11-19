@@ -51,22 +51,26 @@ and Tango connectors need, which this package does not install.
 Read history
 ------------
 
-An archiver connector is built the same way, from the shape of a deployment's
-``archiver:`` section, and returns history as a pandas ``DataFrame``:
+An archive is a service backend, built from a ``BackendSpec`` of kind
+``archive`` by ``create_service``; ``settings`` is the shape of a deployment's
+``archiver.settings`` block. Building it sends nothing, and it returns history
+as a pandas ``DataFrame``:
 
 .. literalinclude:: examples/read_history.py
    :language: python
    :caption: read_history.py
 
-The frame is long: one row per sample, with ``timestamp`` (UTC), ``channel``
+The frame is long: one row per sample, with ``timestamp`` (UTC), ``address``
 and ``value`` columns:
 
 .. literalinclude:: examples/read_history.out
    :language: text
 
-``get_data`` also takes ``precision_ms``, a bin width, and ``processing``, how
+``history`` also takes ``precision_ms``, a bin width, and ``processing``, how
 each bin is reduced; the archiver section of
-:doc:`/reference/contracts/connectors` says what each mode returns.
+:doc:`/reference/contracts/connectors` says what each mode returns. An appliance
+that gives no answer is answered with ``Unavailable``, whose ``cause`` says why,
+rather than raised.
 
 Read the channel directory
 --------------------------
@@ -85,8 +89,9 @@ Against a directory listing those three BPM channels, it prints:
    :language: text
 
 Every answer is a value, never an exception: a search returns a page whose
-``outcome`` says how it ended, and ``describe`` returns the record,
-``Outcome.NOT_LISTED``, or ``Unavailable`` with the reason.
+``outcome`` says how it ended, or ``Unavailable`` with its ``cause`` and
+``reason``, and ``describe`` returns the record, ``NotListed``, or
+``Unavailable``.
 
 What needs a deployment
 -----------------------
@@ -116,10 +121,9 @@ The simulator
    else ``build/config.yml`` under the working directory, else ``config.yml``
    in it. A process started in a built project directory therefore reads that
    project's config with nothing set. The same file answers
-   ``create_control_system_connector()`` and ``create_archiver_connector()``
-   called with no dict, which build the connector its ``control_system:`` or
-   ``archiver:`` section selects. Without a config they raise
-   ``FileNotFoundError``, naming where they looked.
+   ``create_control_system_connector()`` called with no dict, which builds the
+   connector its ``control_system:`` section selects. Without a config it
+   raises ``FileNotFoundError``, naming where it looked.
 
 Writes
    Every write passes the verdict in :ref:`write-safety-config`: the write tier,

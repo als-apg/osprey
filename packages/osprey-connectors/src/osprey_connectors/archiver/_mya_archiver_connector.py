@@ -12,7 +12,7 @@ about:
 ``mysampler`` is deliberately NOT used. It answers on a grid shared by every
 requested channel, carrying the value last in effect at each grid point rather
 than a sample actually recorded there. That is forward-fill onto a shared index,
-which is exactly what :meth:`ArchiverConnector.get_data` forbids: the frame must
+which is exactly what :meth:`ChannelArchive.history` forbids: the frame must
 carry each channel's own real samples, with no bin for a period that had none.
 ``interval`` costs more bytes for a wide window and is the honest answer.
 
@@ -41,9 +41,11 @@ milliseconds have no such hour. This requires jlab-archiver-client 4.0.1; see
 :meth:`MYAArchiverConnector._localize`.
 
 Example:
-    >>> connector = MYAArchiverConnector()
-    >>> await connector.connect({'deployment': 'ops'})
-    >>> df = await connector.get_data(
+    >>> archive = MYAArchiverConnector(BackendSpec(
+    ...     kind='archive', type='mya_archiver', target='live', rehearsal=False,
+    ...     settings={'deployment': 'ops'},
+    ... ))
+    >>> frame = await archive.history(
     ...     ['IGLK100HVPSkVolts'],
     ...     start_at=datetime(2026, 9, 9, tzinfo=timezone.utc),
     ...     end_at=datetime(2026, 9, 11, tzinfo=timezone.utc),
@@ -53,8 +55,9 @@ Example:
 """
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
@@ -62,7 +65,7 @@ import pandas as pd
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver._base import ArchiveCoverage, ChannelArchive
 from osprey_connectors.archiver._timerange import (
     Processing,
     ProcessingMode,
@@ -75,15 +78,16 @@ from osprey_connectors.archiver._timerange import (
 )
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.connection import read_connection_settings
-from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.errors import ArchiveQueryError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 logger = get_logger("mya_archiver_connector")
 
 #: OSPREY processing mode -> the name mystats gives that statistic. mystats also
 #: reports duration/integration/rms/updateCount, which OSPREY has no mode for.
 #: ``median`` is absent because MYA does not compute one; see
-#: :meth:`MYAArchiverConnector.get_data`.
+#: :meth:`MYAArchiverConnector.history`.
 _MYSTATS_STAT: dict[ProcessingMode, str] = {
     "mean": "mean",
     "min": "min",
@@ -105,6 +109,14 @@ _DEFAULT_TIMEOUT_S = 60
 #: guard in :meth:`MYAArchiverConnector._localize` refuses that silently-wrong
 #: data rather than serving it.
 _REQUIRED_CLIENT = "4.0.1"
+
+
+class _ClientTooOldError(RuntimeError):
+    """The client library ignored ``unix_timestamps_ms``; private to this module."""
+
+
+class _NoStatisticError(ValueError):
+    """mystats answered without the statistic asked for; private to this module."""
 
 
 class _MyquerySettings(Protocol):
@@ -209,9 +221,8 @@ def _like_literal(address: str) -> str:
     The channel endpoint matches SQL patterns, where ``_`` stands for any single
     character -- and underscores are everywhere in accelerator channel names. So
     an unquoted address silently matches its siblings: ``IGLK100HVPSkVolt_``
-    matches ``IGLK100HVPSkVolts``, which would make :meth:`get_metadata` reject a
-    valid address as a pattern and :meth:`check_availability` call an archived
-    channel unavailable.
+    matches ``IGLK100HVPSkVolts``, which would make :meth:`coverage` call an
+    archived channel ambiguous, or not archived.
 
     Verified against epicsweb: the server honours backslash escapes, and quoting
     a name that needs no quoting returns it unchanged.
@@ -228,47 +239,37 @@ def _like_literal(address: str) -> str:
     return address
 
 
-class MYAArchiverConnector(ArchiverConnector):
-    """Archiver connector for Jefferson Lab's MYA, via the myquery service."""
+class MYAArchiverConnector(ChannelArchive):
+    """Archiver connector for Jefferson Lab's MYA, via the myquery service.
 
-    def __init__(self) -> None:
-        self._connected = False
-        # The client library, bound in connect() and read through _library().
-        self._client: _JlabArchiverClient | None = None
-        self._urls: dict[str, str] = {}
-        self._timeout: float = _DEFAULT_TIMEOUT_S
-        self._deployment = _DEFAULT_DEPLOYMENT
-        self._timezone: ZoneInfo | None = None
+    The spec's settings, every key optional:
 
-    # The config block is the archiver extension contract; this backend reads its keys unchecked.
-    @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
-        """Initialize the myquery client.
+    - ``myquery_server``: myquery host. Default: the client library's own
+      (``epicsweb.jlab.org``).
+    - ``protocol``: ``http`` or ``https``. Default: the library's.
+    - ``deployment``: MYA deployment to query. Default ``ops``.
+    - ``timeout_s``: Default request timeout in seconds. Default 60.
+    - ``auth`` and ``tls`` are refused: the client library sends every request
+      itself, with no login and no per-connection CA. A site CA reaches it
+      through the process trust store, which ``images.site_ca`` extends.
+    - ``timezone``: IANA zone the myquery server reads query bounds in.
+      Returned samples carry their own instant and need no zone; this is only
+      how a UTC window is spelled for the server, whose bounds are a naive
+      wall clock. Defaults to the facility timezone, which is right whenever
+      the archiver and the machine share a site.
 
-        Args:
-            config: Configuration block, every key optional:
+    Raises:
+        ValueError: If the block names ``auth``, ``tls`` or a flat ``timeout``.
+        ImportError: If ``jlab_archiver_client`` is not installed.
+        ConnectorUnavailableError: If the client cannot be initialized.
+    """
 
-                - ``myquery_server``: myquery host. Default: the client
-                  library's own (``epicsweb.jlab.org``).
-                - ``protocol``: ``http`` or ``https``. Default: the library's.
-                - ``deployment``: MYA deployment to query. Default ``ops``.
-                - ``timeout_s``: Default request timeout in seconds. Default 60.
-                - ``auth`` and ``tls`` are refused: the client library sends
-                  every request itself, with no login and no per-connection CA.
-                  A site CA reaches it through the process trust store, which
-                  ``images.site_ca`` extends.
-                - ``timezone``: IANA zone the myquery server reads query bounds
-                  in. Returned samples carry their own instant and need no zone;
-                  this is only how a UTC window is spelled for the server, whose
-                  bounds are a naive wall clock. Defaults to the facility
-                  timezone, which is right whenever the archiver and the machine
-                  share a site.
-
-        Raises:
-            ValueError: If the block names ``auth``, ``tls`` or a flat ``timeout``.
-            ImportError: If ``jlab_archiver_client`` is not installed.
-            ConnectorUnavailableError: If the client cannot be initialized.
-        """
+    def __init__(
+        self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
+    ) -> None:
+        super().__init__(spec, project_dir=project_dir, **seams)
+        # The settings block is the archive's extension contract; this backend reads its keys unchecked.
+        config: Mapping[str, ContractAny] = spec.settings
         connection = read_connection_settings(
             config,
             where="archiver.settings",
@@ -316,11 +317,10 @@ class MYAArchiverConnector(ArchiverConnector):
                 f"MYA archiver client initialization failed: {e}"
             ) from e
 
-        self._deployment = config.get("deployment") or _DEFAULT_DEPLOYMENT
-        self._timeout = connection.timeout_or(_DEFAULT_TIMEOUT_S)
+        self._deployment: str = config.get("deployment") or _DEFAULT_DEPLOYMENT
+        self._timeout: float = connection.timeout_or(_DEFAULT_TIMEOUT_S)
         zone = config.get("timezone")
-        self._timezone = ZoneInfo(zone) if zone else get_facility_timezone()
-        self._connected = True
+        self._timezone: ZoneInfo = ZoneInfo(zone) if zone else get_facility_timezone()
 
         logger.debug(
             "MYA archiver connected: %s (deployment=%s)",
@@ -329,24 +329,16 @@ class MYAArchiverConnector(ArchiverConnector):
         )
 
     @override
-    async def disconnect(self) -> None:
-        """Release the client. myquery is stateless HTTP; nothing to close."""
-        self._client = None
-        self._urls = {}
-        self._connected = False
-        logger.debug("MYA archiver disconnected")
-
-    @override
-    async def get_data(
+    async def history(
         self,
-        addresses: list[str],
+        addresses: Sequence[str],
         *,
         start_at: datetime,
         end_at: datetime,
         precision_ms: int = 1000,
-        timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
-    ) -> pd.DataFrame:
+        timeout_s: float | None = None,
+    ) -> pd.DataFrame | Unavailable:
         """Retrieve historical data for one or more channels.
 
         Args:
@@ -355,88 +347,87 @@ class MYAArchiverConnector(ArchiverConnector):
             end_at: End of the time range, timezone-aware.
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
                 resolution.
-            timeout_s: Optional timeout in seconds.
             processing: Aggregation within each bin. ``mean``/``min``/``max``/
                 ``std``/``count`` are computed by mystats server-side;
                 ``median`` is binned client-side from raw events because MYA
                 computes no median; ``raw`` decimates real events locally.
+            timeout_s: Optional timeout in seconds.
 
         Returns:
             The canonical long frame -- ``timestamp``/``address``/``value``,
-            sorted by address then timestamp.
+            sorted by address then timestamp -- or ``Unavailable`` when myquery
+            gives no answer, or the client library is too old to honour
+            ``unix_timestamps_ms`` (``misconfigured``).
 
         Raises:
-            RuntimeError: If the archiver is not connected, or the client
-                library is too old to honour ``unix_timestamps_ms``.
-            TimeoutError: If the request times out.
-            ConnectorUnavailableError: If myquery cannot be reached.
-            ValueError: If the time range or processing mode is invalid, or a
-                non-raw mode is asked of a non-numeric channel.
+            ArchiveQueryError: If the time range or processing mode is invalid,
+                or a non-raw mode is asked of a non-numeric channel.
         """
-        if not self._connected:
-            raise RuntimeError("MYA archiver not connected")
-
         if timeout_s is None:
             timeout_s = self._timeout
         start_utc, end_utc = utc_window(start_at, end_at)
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
         if end_utc <= start_utc:
-            raise ValueError(f"end_at must be after start_at (got {start_at} to {end_at})")
+            raise ArchiveQueryError(
+                f"end_at must be after start_at (got {start_at} to {end_at})", parameter="end_at"
+            )
 
         server_side = resolved.mode in _MYSTATS_STAT
+        channels = list(addresses)
 
         def fetch_all() -> dict[str, SampleSeries]:
             if server_side:
-                return self._fetch_stats(addresses, start_utc, end_utc, resolved)
-            return self._fetch_events(addresses, start_utc, end_utc)
+                return self._fetch_stats(channels, start_utc, end_utc, resolved)
+            return self._fetch_events(channels, start_utc, end_utc)
 
         try:
             series = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout_s)
-
-            if server_side:
-                # mystats already binned, so aggregate_series is skipped -- but
-                # its non-numeric check must still run: MYA answers an aggregate
-                # query on an enum channel with something, and handing that back
-                # labelled as a mean would be a lie.
-                for s in series.values():
-                    reject_non_numeric(s, resolved)
-                data = long_frame(series)
-            else:
-                # "raw" decimates, "median" aggregates; both client-side.
-                data = aggregate_long_frame(series, resolved)
-
-            logger.debug(
-                "Retrieved MYA archiver data: %d rows across %d channels "
-                "(processing=%s, precision_ms=%d)",
-                len(data),
-                len(addresses),
-                resolved.mode,
-                precision_ms,
+        except TimeoutError:
+            return Unavailable(
+                cause="timeout", reason=f"MYA archiver request timed out after {timeout_s}s"
             )
-            return data
-
-        except TimeoutError as e:
-            raise TimeoutError(f"MYA archiver request timed out after {timeout_s}s") from e
-        except ConnectionRefusedError as e:
-            raise ConnectorUnavailableError(
-                "Cannot connect to the MYA archiver. Check connectivity and configuration."
-            ) from e
+        except ConnectionRefusedError:
+            return Unavailable(
+                cause="unreachable",
+                reason="Cannot connect to the MYA archiver. Check connectivity and configuration.",
+            )
+        except _ClientTooOldError as e:
+            return Unavailable(cause="misconfigured", reason=str(e))
+        except _NoStatisticError as e:
+            return Unavailable(cause="bad_reply", reason=str(e))
         except Exception as e:
+            logger.warning("MYA archiver read failed", exc_info=True)
             if "connection" in str(e).lower():
-                raise ConnectorUnavailableError(
-                    f"Network issue reaching the MYA archiver: {e}"
-                ) from e
-            raise
+                return Unavailable(
+                    cause="unreachable", reason=f"Network issue reaching the MYA archiver: {e}"
+                )
+            return Unavailable(cause="failed", reason=f"the MYA archiver read failed: {e}")
+
+        if server_side:
+            # mystats already binned, so aggregate_series is skipped -- but
+            # its non-numeric check must still run: MYA answers an aggregate
+            # query on an enum channel with something, and handing that back
+            # labelled as a mean would be a lie.
+            for s in series.values():
+                reject_non_numeric(s, resolved)
+            data = long_frame(series)
+        else:
+            # "raw" decimates, "median" aggregates; both client-side.
+            data = aggregate_long_frame(series, resolved)
+
+        logger.debug(
+            "Retrieved MYA archiver data: %d rows across %d channels "
+            "(processing=%s, precision_ms=%d)",
+            len(data),
+            len(channels),
+            resolved.mode,
+            precision_ms,
+        )
+        return data
 
     def _library(self) -> _JlabArchiverClient:
-        """The client library connect() bound.
-
-        Raises:
-            RuntimeError: If the archiver is not connected.
-        """
-        if self._client is None:
-            raise RuntimeError("MYA archiver not connected")
+        """The client library the archive was built with."""
         return self._client
 
     def _server_local(self, moment: datetime) -> datetime:
@@ -550,7 +541,7 @@ class MYAArchiverConnector(ArchiverConnector):
         try:
             wide = frame.xs(stat, level="stat")
         except KeyError as e:
-            raise ValueError(
+            raise _NoStatisticError(
                 f"MYA returned no {stat!r} statistic for processing={resolved.mode!r}"
             ) from e
 
@@ -566,9 +557,9 @@ class MYAArchiverConnector(ArchiverConnector):
         a sample, so it contributes no row and is dropped here.
 
         Raises:
-            RuntimeError: If the index is not integral, which means the client
-                library ignored ``unix_timestamps_ms`` and has already parsed
-                the timestamps -- as nanoseconds, dating everything to 1970.
+            _ClientTooOldError: If the index is not integral, which means the
+                client library ignored ``unix_timestamps_ms`` and has already
+                parsed the timestamps -- as nanoseconds, dating everything to 1970.
         """
         if data is None or len(data) == 0:
             return self._empty(address)
@@ -583,7 +574,7 @@ class MYAArchiverConnector(ArchiverConnector):
             # is the exact symptom, and it needs no packaging dependency to
             # read. The failure it refuses is silent -- every timestamp lands
             # in January 1970 -- which an archiver must never serve.
-            raise RuntimeError(
+            raise _ClientTooOldError(
                 "MYA returned timestamps that are not epoch milliseconds, so "
                 "jlab_archiver_client ignored unix_timestamps_ms. Install "
                 f"jlab-archiver-client>={_REQUIRED_CLIENT}: earlier releases read those "
@@ -603,89 +594,83 @@ class MYAArchiverConnector(ArchiverConnector):
         found.run()
         return found.matches or []
 
-    @override
-    async def get_metadata(self, address: str) -> ArchiverMetadata:
-        """Look up archiving metadata for one channel.
-
-        Args:
-            address: Channel address.
-
-        Returns:
-            :class:`ArchiverMetadata` for the channel; ``is_archived`` is False
-            when MYA knows nothing about it.
-
-        Raises:
-            RuntimeError: If the archiver is not connected.
-            ValueError: If the address is a SQL pattern rather than a channel
-                name, or matched a channel other than the one asked for.
-        """
-        if not self._connected:
-            raise RuntimeError("MYA archiver not connected")
-        if "%" in address:
-            # `_` is a wildcard too, but it is also a legitimate character in
-            # accelerator channel names, so only `%` gives the caller away.
-            raise ValueError(
-                f"Archiver address {address!r} contains '%', a SQL wildcard. The address "
-                "looks like a pattern; archiver addresses are exact channel names."
-            )
-
-        def fetch_metadata() -> ArchiverMetadata:
-            matches = self._lookup(address)
-
-            if not matches:
-                return ArchiverMetadata(
-                    address=address,
-                    is_archived=False,
-                    description=f"Unknown channel: {address}",
-                )
-            if len(matches) > 1:
-                raise ValueError(
+    def _matched(self, address: str) -> ArchiveCoverage:
+        """One channel's coverage, from myquery's channel endpoint. Runs in a worker thread."""
+        matches = self._lookup(address)
+        if not matches:
+            return ArchiveCoverage(address=address, is_archived=False)
+        if len(matches) > 1:
+            return ArchiveCoverage(
+                address=address,
+                is_archived=None,
+                unknown_reason=(
                     f"Archiver matched more than one channel for {address!r}: "
                     f"{[m['name'] for m in matches]}."
-                )
-
-            match = matches[0]["name"]
-            if match != address:
-                raise ValueError(
-                    f"Archiver returned the wrong channel. Requested: {address}. Received: {match}."
-                )
-            return ArchiverMetadata(
-                address=address,
-                is_archived=True,
-                description=f"Archived channel: {match}",
+                ),
             )
-
-        return await asyncio.wait_for(asyncio.to_thread(fetch_metadata), timeout=self._timeout)
+        match = matches[0]["name"]
+        if match != address:
+            return ArchiveCoverage(
+                address=address,
+                is_archived=None,
+                unknown_reason=(
+                    f"Archiver returned the wrong channel. Requested: {address}. Received: {match}."
+                ),
+            )
+        return ArchiveCoverage(address=address, is_archived=True)
 
     @override
-    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
+    async def coverage(
+        self, addresses: Sequence[str], *, timeout_s: float | None = None
+    ) -> Mapping[str, ArchiveCoverage] | Unavailable:
         """Report which channels MYA archives.
+
+        MYA states no bounds, so a channel's coverage says only whether it is
+        archived; a lookup that matched another channel, or more than one,
+        cannot say, and names what it matched.
 
         Args:
             addresses: Channel addresses to check.
+            timeout_s: The seconds each channel's lookup may spend; ``None`` is
+                the configured default.
 
         Returns:
-            Mapping of channel address to whether MYA archives it.
+            One :class:`ArchiveCoverage` per address, or ``Unavailable`` when
+            a lookup gets no answer.
 
         Raises:
-            RuntimeError: If the archiver is not connected.
-            TimeoutError: If any one channel's lookup times out.
+            ArchiveQueryError: If an address is a SQL pattern rather than a
+                channel name.
         """
-        if not self._connected:
-            raise RuntimeError("MYA archiver not connected")
-
-        def probe(name: str) -> bool:
-            matches = self._lookup(name)
-            return len(matches) == 1 and matches[0]["name"] == name
-
-        available: dict[str, bool | None] = dict.fromkeys(addresses, False)
-        for name in addresses:
+        for address in addresses:
+            if "%" in address:
+                # `_` is a wildcard too, but it is also a legitimate character in
+                # accelerator channel names, so only `%` gives the caller away.
+                raise ArchiveQueryError(
+                    f"Archiver address {address!r} contains '%', a SQL wildcard. The address "
+                    "looks like a pattern; archiver addresses are exact channel names.",
+                    parameter="addresses",
+                    address=address,
+                )
+        bound = timeout_s if timeout_s is not None else self._timeout
+        covered: dict[str, ArchiveCoverage] = {}
+        for address in addresses:
             # Sequential on purpose: myquery answers one pattern per request,
             # and a burst of them from a wide channel list is what the server
             # would feel first. Bounded per channel rather than per sweep --
             # one timeout over the whole list would throw away every answer
             # already fetched, and could not be widened for a longer list.
-            available[name] = await asyncio.wait_for(
-                asyncio.to_thread(probe, name), timeout=self._timeout
-            )
-        return available
+            try:
+                covered[address] = await asyncio.wait_for(
+                    asyncio.to_thread(self._matched, address), timeout=bound
+                )
+            except TimeoutError:
+                return Unavailable(
+                    cause="timeout", reason=f"MYA channel lookup timed out after {bound}s"
+                )
+            except Exception as e:
+                logger.warning("MYA channel lookup failed", exc_info=True)
+                return Unavailable(
+                    cause="failed", reason=f"the MYA channel lookup failed: {type(e).__name__}"
+                )
+        return covered

@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory import DirectoryDetail, DirectoryQuery
 from osprey_connectors.directory._simulator import SimulatorDirectory
-from osprey_connectors.service_answers import BackendSpec, Outcome, Source, Unavailable
+from osprey_connectors.service_answers import BackendSpec, NotListed, Source, Unavailable
 from osprey_connectors.simulation.records import (
     AddressesDocument,
     ServedModelsDocument,
@@ -135,7 +135,7 @@ async def test_a_word_search_finds_the_description_and_no_name_carries_the_word(
 ) -> None:
     page = await directory.search(DirectoryQuery(words="cooling water"), timeout_s=DEADLINE)
 
-    assert page.outcome is Outcome.FOUND
+    assert page.outcome == "found"
     assert [row.address for row in page.rows] == [COOLING]
     assert page.total == 1
 
@@ -182,7 +182,7 @@ async def test_each_health_and_status_pv_says_what_it_is_in_plain_words(
     directory: SimulatorDirectory,
 ) -> None:
     rows = {
-        suffix: (await directory.describe(f"T:SIM:SR:{suffix}", timeout_s=DEADLINE)).row  # type: ignore[union-attr]
+        suffix: (await directory.describe(f"T:SIM:SR:{suffix}", timeout_s=DEADLINE)).entry  # type: ignore[union-attr]
         for suffix in ("HEARTBEAT", "UPTIME", "ENGINEER", "STATUS")
     }
 
@@ -204,10 +204,10 @@ async def test_each_status_and_health_row_carries_its_signal(
 ) -> None:
     for signal in (STATUS_SIGNAL, HEARTBEAT, UPTIME, ENGINEER):
         record = await directory.describe(f"T:SIM:SR:{signal}", timeout_s=DEADLINE)
-        assert isinstance(record, DirectoryRecord)
+        assert isinstance(record, DirectoryDetail)
         assert record.properties == {SERVED_SIGNAL_PROPERTY: signal}
     channel = await directory.describe(SETPOINT, timeout_s=DEADLINE)
-    assert isinstance(channel, DirectoryRecord)
+    assert isinstance(channel, DirectoryDetail)
     assert SERVED_SIGNAL_PROPERTY not in channel.properties
 
 
@@ -320,8 +320,8 @@ async def test_the_record_type_comes_from_role_and_value_type(
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.channel_type == record_type
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.channel_type == record_type
 
 
 @pytest.mark.parametrize(
@@ -340,8 +340,8 @@ async def test_the_description_is_the_first_sentence(tmp_path: Path, text: str, 
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.description == first
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.description == first
 
 
 @pytest.mark.parametrize("description", [None, "", "   "])
@@ -353,14 +353,18 @@ async def test_a_channel_with_no_description_has_none(
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.description is None
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.description is None
     assert await _names(directory, words="anything") == []
 
 
 async def test_an_exact_miss_is_not_listed(directory: SimulatorDirectory) -> None:
-    assert await directory.describe("T:NOT:THERE", timeout_s=DEADLINE) is Outcome.NOT_LISTED
-    assert await directory.describe(READBACK.lower(), timeout_s=DEADLINE) is Outcome.NOT_LISTED
+    assert await directory.describe("T:NOT:THERE", timeout_s=DEADLINE) == NotListed(
+        address="T:NOT:THERE"
+    )
+    assert await directory.describe(READBACK.lower(), timeout_s=DEADLINE) == NotListed(
+        address=READBACK.lower()
+    )
 
 
 @pytest.mark.parametrize(
@@ -372,7 +376,7 @@ async def test_a_search_with_no_rows_is_no_match_never_not_listed(
 ) -> None:
     page = await directory.search(DirectoryQuery(**fields), timeout_s=DEADLINE)
 
-    assert page.outcome is Outcome.NO_MATCH
+    assert page.outcome == "no_match"
     assert page.rows == ()
     assert page.total == 0
     assert await directory.count(DirectoryQuery(**fields), timeout_s=DEADLINE) == 0
@@ -391,8 +395,8 @@ async def test_a_channel_of_an_unserved_model_is_the_textures_as_the_composite_s
 ) -> None:
     record = await directory.describe(ORPHAN, timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.server == "sim-texture"
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.server == "sim-texture"
     assert await _names(directory, server="sim-LN") == []
 
 
@@ -402,9 +406,9 @@ async def test_a_record_carries_no_ports_and_no_engineer_property(
     record = await directory.describe(SETPOINT, timeout_s=DEADLINE)
     health = await directory.describe("T:SIM:SR:ENGINEER", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
+    assert isinstance(record, DirectoryDetail)
     assert record.properties == {"role": "setpoint", "unit": "A", "valueType": "float"}
-    assert isinstance(health, DirectoryRecord)
+    assert isinstance(health, DirectoryDetail)
     assert health.properties == {SERVED_SIGNAL_PROPERTY: ENGINEER}
     names = await directory.property_names(timeout_s=DEADLINE)
     assert isinstance(names, list)
@@ -416,7 +420,9 @@ async def test_a_view_from_a_build_without_ioc_health_still_answers(tmp_path: Pa
     directory = SimulatorDirectory(_spec(), project_dir=tmp_path)
 
     assert await _names(directory, server="sim-BARE") == ["T:SIM:BARE:STATUS"]
-    assert await directory.describe("T:SIM:SR:HEARTBEAT", timeout_s=DEADLINE) is Outcome.NOT_LISTED
+    assert await directory.describe("T:SIM:SR:HEARTBEAT", timeout_s=DEADLINE) == NotListed(
+        address="T:SIM:SR:HEARTBEAT"
+    )
 
 
 async def test_a_view_listing_an_unknown_health_signal_is_unavailable_and_says_rebuild(
@@ -427,8 +433,8 @@ async def test_a_view_listing_an_unknown_health_signal_is_unavailable_and_says_r
 
     page = await directory.search(DirectoryQuery(), timeout_s=DEADLINE)
 
-    assert page.outcome is Outcome.UNAVAILABLE
-    assert "rebuild" in (page.reason or "")
+    assert isinstance(page, Unavailable)
+    assert "rebuild" in page.reason
 
 
 async def test_the_request_is_the_search_in_words_and_never_a_url(
@@ -461,7 +467,7 @@ async def test_an_empty_search_lists_every_pv(directory: SimulatorDirectory) -> 
     page = await directory.search(DirectoryQuery(page_size=100), timeout_s=DEADLINE)
 
     assert page.searched == "every PV"
-    assert page.outcome is Outcome.FOUND
+    assert page.outcome == "found"
     # Five channels, two status addresses, three health addresses for each of three IOCs.
     assert page.total == 5 + 2 + 9
     assert [row.address for row in page.rows] == sorted(row.address for row in page.rows)
@@ -480,7 +486,7 @@ async def test_pages_slice_the_whole_result_and_say_when_more_follows(
     assert [row.address for row in (*first.rows, *last.rows)] == every
     assert (first.total, first.truncated) == (16, True)
     assert (last.total, last.truncated) == (16, False)
-    assert (beyond.outcome, beyond.rows, beyond.total) == (Outcome.FOUND, (), 16)
+    assert (beyond.outcome, beyond.rows, beyond.total) == ("found", (), 16)
 
 
 async def test_the_source_is_the_specs(directory: SimulatorDirectory) -> None:
@@ -529,10 +535,8 @@ def test_a_seam_it_does_not_take_is_ignored(tmp_path: Path) -> None:
 
 
 async def _every_answer(directory: SimulatorDirectory) -> list[Any]:
-    page = await directory.search(DirectoryQuery(words="x"), timeout_s=DEADLINE)
-    assert page.outcome is Outcome.UNAVAILABLE
     return [
-        Unavailable(reason=page.reason or ""),
+        await directory.search(DirectoryQuery(words="x"), timeout_s=DEADLINE),
         await directory.count(DirectoryQuery(), timeout_s=DEADLINE),
         await directory.describe("T:X", timeout_s=DEADLINE),
         await directory.property_names(timeout_s=DEADLINE),

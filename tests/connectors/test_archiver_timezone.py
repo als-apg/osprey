@@ -1,7 +1,7 @@
 """Integration guardrail: the archiver data path places daily ``at_time`` events
 at the facility wall-clock, independent of the deploy host's ``$TZ``.
 
-Drives the full ``MockArchiverConnector.get_data`` -> archive composite path over
+Drives the full ``MockArchiverConnector.history`` -> archive composite path over
 the demo build's ``vacuum-burst`` scenario (SR07 pressure spike at
 14:32:08) and asserts the spike materializes at 14:32 — and lands at the *same*
 wall-clock whether the box runs UTC or a wildly different zone. No LLM involved;
@@ -17,6 +17,7 @@ import pytest
 
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 from tests.facility.served_tree import in_process_config
 
 SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
@@ -38,17 +39,25 @@ def _vacuum_burst_view(built_demo, tmp_path: Path) -> Path:
 
 async def _sr07_window(view: Path):
     """SR07 pressure over a 10-min window straddling 14:32:08 UTC (per-second)."""
-    connector = MockArchiverConnector()
-    await connector.connect(in_process_config(view, sample_rate_hz=1.0))
+    connector = MockArchiverConnector(
+        BackendSpec(
+            kind="archive",
+            type="mock_archiver",
+            target="va",
+            settings=in_process_config(view, sample_rate_hz=1.0),
+            rehearsal=False,
+        )
+    )
     try:
         center = (datetime.now(UTC) - timedelta(days=1)).replace(
             hour=14, minute=32, second=8, microsecond=0
         )
         start = center - timedelta(minutes=5)
         end = center + timedelta(minutes=5)
-        df = await connector.get_data([SR07], start_at=start, end_at=end, precision_ms=1000)
+        df = await connector.history([SR07], start_at=start, end_at=end, precision_ms=1000)
     finally:
-        await connector.disconnect()
+        await connector.aclose()
+    assert not isinstance(df, Unavailable), df
     return df, center
 
 

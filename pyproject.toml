@@ -948,6 +948,10 @@ name = "The connector package's top-level modules, in layers"
 #
 # The read-only predicate lives in `execution_mode`, a leaf, so the write
 # switch no longer imports the control-system connectors that consult it.
+# `archive_store`, how the MongoDB archive names a channel and how a process
+# reaches the store, is a leaf too: the archive, the simulator's seed and the
+# framework's recorder all read it, and it imports only the standard library
+# and the package's `Any` alias.
 # `epics_env`, the inherited EPICS client environment and its scrub, is a leaf
 # of the standard library alone.
 #
@@ -1000,19 +1004,13 @@ layers = [
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.session_hold",
     "osprey_connectors.archiver_selection | osprey_connectors.limits_posture",
     "osprey_connectors.targets | osprey_connectors.write_tier",
-    "osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.epics_env | osprey_connectors.execution_mode | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.process | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
+    "osprey_connectors.archive_store | osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.epics_env | osprey_connectors.execution_mode | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.process | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
     "osprey_connectors.errors",
     "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model | osprey_connectors.refusals",
 ]
 ignore_imports = [
     # Edges that point up, each named so that no other can join them. The
-    # simulator's archive takes the stored field name from the archivers' own
-    # module rather than restating it. That module defines only string
-    # functions, but importing it runs the `archiver` package's `__init__`, so
-    # this is a real upward edge and the cycle archiver -> control_system ->
-    # simulation -> archiver is still there.
-    "osprey_connectors.simulation.archive -> osprey_connectors.archiver._field_names",
-    # The exception taxonomy names the write outcome the control-system contract
+    # exception taxonomy names the write outcome the control-system contract
     # defines: a type-checking import for the annotation, and one function-local
     # import that coerces the outcome a write error carries.
     "osprey_connectors.errors -> osprey_connectors.control_system",

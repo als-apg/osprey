@@ -19,11 +19,9 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD, field_name
 from osprey_connectors.simulation import archive
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
-    EXPIRE_FIELD,
     _prepare_collection,
     waveform_collection,
     waveform_document,

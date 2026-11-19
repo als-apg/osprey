@@ -65,7 +65,7 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import AwareDatetime, ValidationError, model_validator
 
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD, field_name
 from osprey_connectors.errors import ChannelNotFoundError, require_aware
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, FrozenTuple, evolve
@@ -97,8 +97,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = get_logger("archive")
 
 __all__ = [
-    "DATE_FIELD",
-    "EXPIRE_FIELD",
     "MANIFEST_ID",
     "ArchiveComposite",
     "FingerprintComparison",
@@ -126,14 +124,6 @@ MANIFEST_ID = "osprey:seed_manifest"
 #: existing store wrong rather than merely differently configured. It is part of
 #: the fingerprint, so a bump reseeds every deployment on upgrade.
 _SEED_SCHEMA_VERSION = 2
-
-#: Field naming the instant a document's sample was taken. The connector queries
-#: and sorts on it; the manifest document deliberately has none, which is what
-#: keeps it out of every archiver read without needing a filter.
-DATE_FIELD = "date"
-
-#: Field the TTL index acts on. A document without it never expires.
-EXPIRE_FIELD = "expireAt"
 
 #: Timestamps synthesized in one pass. Sized so the value matrix of a full
 #: channel set stays in the tens of megabytes: the whole point of chunking is
@@ -977,7 +967,7 @@ def waveform_document(
 
     The keys mirror a scalar snapshot document, so the same field naming and the
     same TTL index serve both: ``date`` holds ``sampled_at``, the channel's
-    :func:`~osprey_connectors.archiver.field_name` holds the trace,
+    :func:`~osprey_connectors.archive_store.field_name` holds the trace,
     and ``expireAt`` holds ``expire_at``, the document's own deadline. Both
     instants are aware.
 

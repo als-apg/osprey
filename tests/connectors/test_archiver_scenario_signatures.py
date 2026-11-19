@@ -5,7 +5,7 @@ diagnosis is only reachable if the archived data carries the signature the
 scenario documents. This module pins those signatures with no LLM: each case
 copies the demo build's simulator view, pins one scenario in its
 ``active_scenarios`` state file and reads the history through
-``MockArchiverConnector.get_data``, the path the agent's archiver tools take.
+``MockArchiverConnector.history``, the path the agent's archiver tools take.
 
 Signatures pinned:
 
@@ -43,6 +43,7 @@ from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConn
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.records import SeedRecord
 from tests.facility.served_tree import in_process_config
@@ -89,14 +90,22 @@ def _reader(view: Path) -> Reader:
     """Read channels' archived values over ``[start, end]`` at one sample per ``step``."""
 
     async def _read(channels, start, end, step):
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(view, sample_rate_hz=1.0))
+        connector = MockArchiverConnector(
+            BackendSpec(
+                kind="archive",
+                type="mock_archiver",
+                target="va",
+                settings=in_process_config(view, sample_rate_hz=1.0),
+                rehearsal=False,
+            )
+        )
         try:
-            frame = await connector.get_data(
+            frame = await connector.history(
                 channels, start_at=start, end_at=end, precision_ms=int(step.total_seconds() * 1000)
             )
         finally:
-            await connector.disconnect()
+            await connector.aclose()
+        assert not isinstance(frame, Unavailable), frame
         return {
             channel: frame.loc[frame["address"] == channel, "value"].to_numpy(dtype=float)
             for channel in channels

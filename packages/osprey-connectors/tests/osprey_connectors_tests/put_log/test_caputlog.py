@@ -12,9 +12,9 @@ from typing import Any
 import pytest
 
 from osprey_connectors.errors import NaiveDatetimeError
-from osprey_connectors.put_log import PutLog, PutRow
+from osprey_connectors.put_log import PutLog, PutLogEntry
 from osprey_connectors.put_log._caputlog import CaPutLog
-from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 PV = "DEMO:RF1:CAV:TempLimit-SP"
 
@@ -98,7 +98,7 @@ def _backend(answer: Any, **settings: Any) -> tuple[CaPutLog, _Transport]:
 async def test_the_search_is_the_measured_body_and_never_a_get() -> None:
     backend, transport = _backend(_envelope([]))
 
-    await backend.history(PV, None, 25, timeout_s=5.0)
+    await backend.history(PV, limit=25, timeout_s=5.0)
 
     assert len(transport.calls) == 1
     call = transport.calls[0]
@@ -114,11 +114,11 @@ async def test_the_search_is_the_measured_body_and_never_a_get() -> None:
 async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
     backend, _ = _backend(_envelope([RECORDED_HIT]))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
-    assert page.outcome is Outcome.FOUND
+    assert page.outcome == "found"
     assert page.rows == (
-        PutRow(
+        PutLogEntry(
             put_at=datetime(2026, 10, 28, 21, 3, 11, tzinfo=UTC),
             address=f"{PV}.HIHI",
             field=".HIHI",
@@ -130,14 +130,14 @@ async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
     )
     assert page.retention_known is False
     assert page.truncated is False
-    assert page.reason is None
+    assert page.note is None
     assert (page.source.target, page.source.service) == ("live", "caputlog")
 
 
 async def test_a_put_to_the_pv_itself_has_no_field() -> None:
     backend, _ = _backend(_envelope([_hit()]))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
     assert page.rows[0].address == PV
     assert page.rows[0].field is None
@@ -147,7 +147,7 @@ async def test_a_missing_ioc_stamp_falls_back_to_the_ingest_stamp() -> None:
     hit = _hit(ioctimestamp=None, **{"@timestamp": "2026-10-28T21:03:12.884Z"})
     backend, _ = _backend(_envelope([hit]))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
     assert page.rows[0].put_at == datetime(2026, 10, 28, 21, 3, 12, 884000, tzinfo=UTC)
     assert page.rows[0].recorded_stamp is None
@@ -156,7 +156,7 @@ async def test_a_missing_ioc_stamp_falls_back_to_the_ingest_stamp() -> None:
 async def test_a_field_absent_from_the_record_reads_none() -> None:
     backend, _ = _backend(_envelope([_hit(user=None, old=None)]))
 
-    row = (await backend.history(PV, None, 25, timeout_s=5.0)).rows[0]
+    row = (await backend.history(PV, limit=25, timeout_s=5.0)).rows[0]
 
     assert (row.user, row.old, row.new) == (None, None, "2")
 
@@ -170,7 +170,7 @@ async def test_rows_of_other_pvs_the_text_match_returned_are_not_this_pvs_histor
     ]
     backend, _ = _backend(_envelope(hits))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
     assert [row.address for row in page.rows] == [f"{PV}.HIHI"]
 
@@ -178,16 +178,16 @@ async def test_rows_of_other_pvs_the_text_match_returned_are_not_this_pvs_histor
 async def test_only_rows_of_other_pvs_is_no_logged_puts() -> None:
     backend, _ = _backend(_envelope([_hit(f"{PV}2")]))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
-    assert page.outcome is Outcome.NO_MATCH
+    assert page.outcome == "no_match"
     assert page.rows == ()
 
 
 async def test_rows_come_newest_first_whatever_order_the_service_ranks_them() -> None:
     backend, _ = _backend(_envelope([_hit(minute=1), _hit(minute=3), _hit(minute=2)]))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
     assert [row.put_at.minute for row in page.rows] == [3, 2, 1]
 
@@ -195,7 +195,7 @@ async def test_rows_come_newest_first_whatever_order_the_service_ranks_them() ->
 async def test_one_row_past_the_limit_truncates_and_keeps_the_newest() -> None:
     backend, _ = _backend(_envelope([_hit(minute=1), _hit(minute=3), _hit(minute=2)]))
 
-    page = await backend.history(PV, None, 2, timeout_s=5.0)
+    page = await backend.history(PV, limit=2, timeout_s=5.0)
 
     assert [row.put_at.minute for row in page.rows] == [3, 2]
     assert page.truncated is True
@@ -204,7 +204,7 @@ async def test_one_row_past_the_limit_truncates_and_keeps_the_newest() -> None:
 async def test_a_page_that_exactly_fills_the_limit_is_not_truncated() -> None:
     backend, _ = _backend(_envelope([_hit(minute=1), _hit(minute=2)]))
 
-    page = await backend.history(PV, None, 2, timeout_s=5.0)
+    page = await backend.history(PV, limit=2, timeout_s=5.0)
 
     assert len(page.rows) == 2
     assert page.truncated is False
@@ -213,7 +213,7 @@ async def test_a_page_that_exactly_fills_the_limit_is_not_truncated() -> None:
 async def test_matches_the_service_holds_beyond_the_page_truncate() -> None:
     backend, _ = _backend(_envelope([_hit(f"{PV}2"), _hit(minute=1), _hit(f"{PV}3")], total=132))
 
-    page = await backend.history(PV, None, 2, timeout_s=5.0)
+    page = await backend.history(PV, limit=2, timeout_s=5.0)
 
     assert len(page.rows) == 1
     assert page.truncated is True
@@ -222,7 +222,7 @@ async def test_matches_the_service_holds_beyond_the_page_truncate() -> None:
 async def test_other_pvs_filling_a_fully_read_page_do_not_truncate() -> None:
     backend, _ = _backend(_envelope([_hit(f"{PV}2"), _hit(minute=1), _hit(f"{PV}3")]))
 
-    page = await backend.history(PV, None, 2, timeout_s=5.0)
+    page = await backend.history(PV, limit=2, timeout_s=5.0)
 
     assert len(page.rows) == 1
     assert page.truncated is False
@@ -233,7 +233,7 @@ async def test_without_a_total_a_full_page_still_says_truncated() -> None:
     del answer["totalResults"]
     backend, _ = _backend(answer)
 
-    page = await backend.history(PV, None, 2, timeout_s=5.0)
+    page = await backend.history(PV, limit=2, timeout_s=5.0)
 
     assert page.truncated is True
 
@@ -241,7 +241,9 @@ async def test_without_a_total_a_full_page_still_says_truncated() -> None:
 async def test_since_narrows_the_page_on_this_side_and_is_not_sent() -> None:
     backend, transport = _backend(_envelope([_hit(minute=1), _hit(minute=3)]))
 
-    page = await backend.history(PV, datetime(2026, 10, 28, 21, 2, tzinfo=UTC), 25, timeout_s=5.0)
+    page = await backend.history(
+        PV, start_at=datetime(2026, 10, 28, 21, 2, tzinfo=UTC), limit=25, timeout_s=5.0
+    )
 
     assert [row.put_at.minute for row in page.rows] == [3]
     assert "@timestamp" not in json.dumps(transport.calls[0]["json_body"])
@@ -253,7 +255,7 @@ async def test_since_compares_instants_across_zones() -> None:
     pacific = timezone(timedelta(hours=-7))
 
     zoned = await backend.history(
-        PV, datetime(2026, 10, 28, 14, 2, tzinfo=pacific), 25, timeout_s=5.0
+        PV, start_at=datetime(2026, 10, 28, 14, 2, tzinfo=pacific), limit=25, timeout_s=5.0
     )
 
     assert [row.put_at.minute for row in zoned.rows] == [3]
@@ -263,7 +265,7 @@ async def test_a_naive_start_is_refused_and_nothing_is_sent() -> None:
     backend, transport = _backend(_envelope([_hit(minute=1), _hit(minute=3)]))
 
     with pytest.raises(NaiveDatetimeError) as refused:
-        await backend.history(PV, datetime(2026, 10, 28, 21, 2), 25, timeout_s=5.0)
+        await backend.history(PV, start_at=datetime(2026, 10, 28, 21, 2), limit=25, timeout_s=5.0)
 
     assert refused.value.parameter == "start_at"
     assert transport.calls == []
@@ -276,7 +278,9 @@ async def test_a_row_whose_time_cannot_be_placed_keeps_its_text_stays_and_sorts_
     hits = [_hit(ioctimestamp=stamp), _hit(minute=3), _hit(minute=1)]
     backend, _ = _backend(_envelope(hits))
 
-    page = await backend.history(PV, datetime(2026, 10, 28, 21, 2, tzinfo=UTC), 25, timeout_s=5.0)
+    page = await backend.history(
+        PV, start_at=datetime(2026, 10, 28, 21, 2, tzinfo=UTC), limit=25, timeout_s=5.0
+    )
 
     assert [(row.put_at, row.recorded_stamp) for row in page.rows] == [
         (datetime(2026, 10, 28, 21, 3, tzinfo=UTC), None),
@@ -286,7 +290,7 @@ async def test_a_row_whose_time_cannot_be_placed_keeps_its_text_stays_and_sorts_
 
 def test_a_row_holds_an_instant_or_the_stamp_it_could_not_place_never_both() -> None:
     with pytest.raises(ValueError, match="recorded_stamp"):
-        PutRow(
+        PutLogEntry(
             put_at=datetime(2026, 10, 28, 21, 3, tzinfo=UTC),
             recorded_stamp="28-Oct-26 14:03:11",
             address=PV,
@@ -296,34 +300,33 @@ def test_a_row_holds_an_instant_or_the_stamp_it_could_not_place_never_both() -> 
 async def test_since_past_every_row_is_no_logged_puts() -> None:
     backend, _ = _backend(_envelope([_hit(minute=1)]))
 
-    page = await backend.history(PV, datetime(2027, 1, 1, tzinfo=UTC), 25, timeout_s=5.0)
+    page = await backend.history(
+        PV, start_at=datetime(2027, 1, 1, tzinfo=UTC), limit=25, timeout_s=5.0
+    )
 
-    assert page.outcome is Outcome.NO_MATCH
-    assert page.reason == "no logged puts"
+    assert page.outcome == "no_match"
+    assert page.note == "no logged puts"
 
 
 async def test_an_empty_result_says_no_logged_puts_and_never_that_it_never_changed() -> None:
     backend, _ = _backend(_envelope([]))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
-    assert page.outcome is Outcome.NO_MATCH
+    assert page.outcome == "no_match"
     assert page.rows == ()
-    assert page.reason == "no logged puts"
-    assert "never" not in page.reason
+    assert page.note == "no logged puts"
+    assert "never" not in page.note
     assert page.retention_known is False
     assert page.truncated is False
 
 
 async def test_a_service_with_no_answer_is_unavailable_with_its_reason() -> None:
-    backend, _ = _backend(Unavailable(reason="no answer within 5 s"))
+    backend, _ = _backend(Unavailable(cause="timeout", reason="no answer within 5 s"))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
-    assert page.outcome is Outcome.UNAVAILABLE
-    assert page.reason == "no answer within 5 s"
-    assert page.rows == ()
-    assert page.retention_known is False
+    assert page == Unavailable(cause="timeout", reason="no answer within 5 s")
 
 
 @pytest.mark.parametrize(
@@ -338,9 +341,9 @@ async def test_a_service_with_no_answer_is_unavailable_with_its_reason() -> None
 async def test_an_answer_that_is_not_the_envelope_is_malformed(answer: Any) -> None:
     backend, _ = _backend(answer)
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
-    assert page.outcome is Outcome.UNAVAILABLE
+    assert isinstance(page, Unavailable)
     assert page.reason == "malformed response"
 
 
@@ -348,7 +351,7 @@ async def test_an_answer_that_is_not_the_envelope_is_malformed(answer: Any) -> N
 async def test_the_limit_is_bounded_before_it_reaches_the_service(limit: int, asked: int) -> None:
     backend, transport = _backend(_envelope([]))
 
-    await backend.history(PV, None, limit, timeout_s=5.0)
+    await backend.history(PV, limit=limit, timeout_s=5.0)
 
     assert transport.calls[0]["json_body"]["state"]["resultsPerPage"] == asked
 
@@ -365,14 +368,14 @@ async def test_probe_says_the_search_answered_through_the_only_allowed_request()
 @pytest.mark.parametrize(
     ("answer", "reason"),
     [
-        (Unavailable(reason="answered HTTP 503"), "answered HTTP 503"),
+        (Unavailable(cause="bad_reply", reason="answered HTTP 503"), "answered HTTP 503"),
         ({"status": "ok"}, "malformed response"),
     ],
 )
 async def test_probe_reports_why_not(answer: Any, reason: str) -> None:
     backend, _ = _backend(answer)
 
-    assert await backend.probe(timeout_s=3.0) == Unavailable(reason=reason)
+    assert await backend.probe(timeout_s=3.0) == Unavailable(cause="bad_reply", reason=reason)
 
 
 def test_it_is_a_put_log_and_building_one_touches_nothing() -> None:
@@ -416,9 +419,9 @@ async def test_without_a_transport_it_builds_the_read_only_one_from_its_settings
     url, received = caputlog_server
     backend = CaPutLog(_spec(url=url))
 
-    page = await backend.history(PV, None, 25, timeout_s=5.0)
+    page = await backend.history(PV, limit=25, timeout_s=5.0)
 
-    assert page.outcome is Outcome.FOUND
+    assert page.outcome == "found"
     assert page.rows[0].field == ".HIHI"
     assert received[0]["path"] == "/caputlog-server/search"
     assert received[0]["body"]["state"]["searchTerm"] == f"{PV}.*"

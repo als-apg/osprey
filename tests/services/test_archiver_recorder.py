@@ -53,6 +53,7 @@ from osprey.services.archiver_recorder.config import (
     RecordingFacts,
     read_recording_facts,
 )
+from osprey_connectors.service_answers import Unavailable
 from osprey_connectors.simulation.archive import waveform_collection, waveform_document
 from osprey_connectors.simulation.records import VariablesDocument
 from tests._simulator_view import view_channel
@@ -1159,29 +1160,34 @@ async def _connected_reader(
     password: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """The agent's archive connector, connected to the collection ``settings`` names."""
-    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    """The agent's archive, reading the collection ``settings`` names."""
+    from osprey_connectors.archive_store import _HOST_OVERRIDE_ENV, _PORT_OVERRIDE_ENV
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.service_answers import BackendSpec
 
-    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
     monkeypatch.setenv("RECORDER_SHAPE_PASSWORD", password)
-    connector = MongoDBArchiverConnector()
-    await connector.connect(
-        {
-            "host": mongodb_container["host"],
-            "port": mongodb_container["port"],
-            "name": settings.database,
-            "collection": settings.collection,
-            "auth": {
-                "source": mongodb_container["auth_db"],
-                "username": mongodb_container["username"],
-                "password_env": "RECORDER_SHAPE_PASSWORD",
+    return MongoDBArchiverConnector(
+        BackendSpec(
+            kind="archive",
+            type="mongodb_archiver",
+            target="va",
+            rehearsal=False,
+            settings={
+                "host": mongodb_container["host"],
+                "port": mongodb_container["port"],
+                "name": settings.database,
+                "collection": settings.collection,
+                "auth": {
+                    "source": mongodb_container["auth_db"],
+                    "username": mongodb_container["username"],
+                    "password_env": "RECORDER_SHAPE_PASSWORD",
+                },
+                "timeout_s": 10,
             },
-            "timeout_s": 10,
-        }
+        )
     )
-    return connector
 
 
 async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
@@ -1194,7 +1200,7 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     The stored field is ``field_name`` of the address, so MongoDB never reads
     the ``.`` as a path into a sub-document nor the leading ``$`` as an operator.
     """
-    from osprey_connectors.archiver._field_names import field_name
+    from osprey_connectors.archive_store import field_name
 
     settings, collection, password = archive_collection
     samples = {"SR:REC.RBV": 1.5, "SR:REC.HLS": 0.0, "$SR:LEAD": 2.0}
@@ -1214,18 +1220,22 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
 
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
-        frame = await connector.get_data(
+        frame = await connector.history(
             list(samples),
             start_at=timestamp - timedelta(seconds=5),
             end_at=timestamp + timedelta(seconds=5),
         )
-        availability = await connector.check_availability(list(samples))
+        coverage = await connector.coverage(list(samples))
     finally:
-        await connector.disconnect()
+        await connector.aclose()
 
+    assert not isinstance(frame, Unavailable), frame
+    assert not isinstance(coverage, Unavailable), coverage
     read = dict(zip(frame["address"], frame["value"], strict=True))
     assert read == samples
-    assert availability == dict.fromkeys(samples, True)
+    assert {address: c.is_archived for address, c in coverage.items()} == dict.fromkeys(
+        samples, True
+    )
 
 
 async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
@@ -1238,7 +1248,7 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     The sample document keeps its ``date``, ``expireAt`` and ``_id``; the seed
     manifest beside it in the collection is never read as a channel's history.
     """
-    from osprey_connectors.archiver._field_names import field_name
+    from osprey_connectors.archive_store import field_name
     from osprey_connectors.simulation.archive import (
         SeedKnobs,
         SeedReport,
@@ -1278,21 +1288,25 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
 
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
-        frame = await connector.get_data(
+        frame = await connector.history(
             list(samples),
             start_at=timestamp - timedelta(seconds=5),
             end_at=timestamp + timedelta(seconds=5),
         )
-        availability = await connector.check_availability([*samples, "seeded_at"])
-        metadata = await connector.get_metadata("fingerprint")
+        coverage = await connector.coverage([*samples, "seeded_at"])
     finally:
-        await connector.disconnect()
+        await connector.aclose()
 
+    assert not isinstance(frame, Unavailable), frame
+    assert not isinstance(coverage, Unavailable), coverage
     read = dict(zip(frame["address"], frame["value"], strict=True))
     assert read == samples
-    assert availability == {**dict.fromkeys(samples, True), "seeded_at": False}
-    assert metadata.is_archived is True
-    assert metadata.first_sample_at == timestamp
+    assert {address: c.is_archived for address, c in coverage.items()} == {
+        **dict.fromkeys(samples, True),
+        "seeded_at": False,
+    }
+    assert coverage["fingerprint"].is_archived is True
+    assert coverage["fingerprint"].first_sample_at == timestamp
 
 
 def test_writing_an_instant_twice_merges_and_never_restamps_expiry(archive_collection) -> None:

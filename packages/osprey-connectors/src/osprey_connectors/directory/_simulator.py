@@ -17,18 +17,17 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable, Mapping
-from typing import Literal
 
 from typing_extensions import override
 
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
     DirectoryQuery,
-    DirectoryRecord,
-    DirectoryRow,
 )
-from osprey_connectors.service_answers import Outcome, Unavailable
+from osprey_connectors.service_answers import NotListed, Unavailable
 from osprey_connectors.simulation.records import ChannelRecord
 from osprey_connectors.simulation.view import (
     ENGINEER,
@@ -77,13 +76,13 @@ def _first_sentence(text: str | None) -> str | None:
     return (f"{head}." if sep else head) or None
 
 
-def _channel_record(channel: ChannelRecord, server: str) -> DirectoryRecord:
+def _channel_record(channel: ChannelRecord, server: str) -> DirectoryDetail:
     types = _OUTPUT_RECORD_TYPES if channel.role == SETPOINT else _INPUT_RECORD_TYPES
     properties: dict[str, str] = {"role": channel.role, "valueType": channel.value_type}
     if channel.unit is not None:
         properties["unit"] = str(channel.unit)
-    return DirectoryRecord(
-        row=DirectoryRow(
+    return DirectoryDetail(
+        entry=DirectoryEntry(
             address=channel.address,
             status="Active",
             description=_first_sentence(channel.description),
@@ -95,10 +94,10 @@ def _channel_record(channel: ChannelRecord, server: str) -> DirectoryRecord:
     )
 
 
-def _served_record(address: str, server: str, signal: str) -> DirectoryRecord:
+def _served_record(address: str, server: str, signal: str) -> DirectoryDetail:
     channel_type, description = _SERVED_ADDRESSES[signal]
-    return DirectoryRecord(
-        row=DirectoryRow(
+    return DirectoryDetail(
+        entry=DirectoryEntry(
             address=address,
             status="Active",
             description=description.format(server=server),
@@ -110,7 +109,7 @@ def _served_record(address: str, server: str, signal: str) -> DirectoryRecord:
     )
 
 
-def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
+def _read_records(view: SimulatorView) -> dict[str, DirectoryDetail]:
     """Every PV of ``view``, sorted by name."""
     physics = {model.name for model in view.physics_models()}
     records = {}
@@ -140,8 +139,8 @@ def _name_matcher(term: str) -> Callable[[str], object]:
     return re.compile(pattern, re.IGNORECASE).fullmatch
 
 
-def _passes_filters(record: DirectoryRecord, query: DirectoryQuery) -> bool:
-    row = record.row
+def _passes_filters(record: DirectoryDetail, query: DirectoryQuery) -> bool:
+    row = record.entry
     return (
         (query.status is None or row.status == query.status)
         and (not query.server or row.server in query.server)
@@ -150,7 +149,7 @@ def _passes_filters(record: DirectoryRecord, query: DirectoryQuery) -> bool:
     )
 
 
-def _matching(records: Iterable[DirectoryRecord], query: DirectoryQuery) -> list[DirectoryRecord]:
+def _matching(records: Iterable[DirectoryDetail], query: DirectoryQuery) -> list[DirectoryDetail]:
     """The records ``query`` matches, in the order given."""
     words = query.words.split()
     matchers = [
@@ -164,17 +163,17 @@ def _matching(records: Iterable[DirectoryRecord], query: DirectoryQuery) -> list
     kept = [
         record
         for record in records
-        if _passes_filters(record, query) and all(match(record.row.address) for match in matchers)
+        if _passes_filters(record, query) and all(match(record.entry.address) for match in matchers)
     ]
     if not plain:
         return kept
     in_description = [
         record
         for record in kept
-        if all(word in (record.row.description or "").casefold() for word in plain)
+        if all(word in (record.entry.description or "").casefold() for word in plain)
     ]
     return in_description or [
-        record for record in kept if all(word in record.row.address.casefold() for word in plain)
+        record for record in kept if all(word in record.entry.address.casefold() for word in plain)
     ]
 
 
@@ -197,42 +196,42 @@ def _searched(query: DirectoryQuery) -> str:
 class SimulatorDirectory(ChannelDirectory):
     """Every PV the virtual accelerator serves, from the simulator view under ``project_dir``."""
 
-    _records_read: Mapping[str, DirectoryRecord] | None = None
+    _records_read: Mapping[str, DirectoryDetail] | None = None
 
-    def _records(self) -> Mapping[str, DirectoryRecord] | Unavailable:
+    def _records(self) -> Mapping[str, DirectoryDetail] | Unavailable:
         if self._records_read is not None:
             return self._records_read
         if self.project_dir is None:
-            return Unavailable(reason="no project directory to find the simulator view under")
+            return Unavailable(
+                cause="misconfigured",
+                reason="no project directory to find the simulator view under",
+            )
         try:
             self._records_read = _read_records(SimulatorView.of_project(self.project_dir))
         except NoSimulatorViewError as absent:
-            return Unavailable(reason=str(absent))
+            return Unavailable(cause="misconfigured", reason=str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:
-            return Unavailable(reason=f"the simulator view cannot be read: {failure}")
+            return Unavailable(
+                cause="failed", reason=f"the simulator view cannot be read: {failure}"
+            )
         return self._records_read
 
     @override
-    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
-        searched = _searched(query)
-        request = f"{_REQUEST_PREFIX} · {searched}"
+    async def search(
+        self, query: DirectoryQuery, *, timeout_s: float
+    ) -> DirectoryPage | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
-            return DirectoryPage(
-                outcome=Outcome.UNAVAILABLE,
-                searched=searched,
-                request=request,
-                source=self.source,
-                reason=records.reason,
-            )
+            return records
+        searched = _searched(query)
         hits = _matching(records.values(), query)
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
-        rows = [record.row for record in hits[start : start + size]]
+        rows = [record.entry for record in hits[start : start + size]]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched=searched,
-            request=request,
+            request=f"{_REQUEST_PREFIX} · {searched}",
             source=self.source,
             total=len(hits),
             rows=tuple(rows),
@@ -252,12 +251,12 @@ class SimulatorDirectory(ChannelDirectory):
         address: str,
         *,
         timeout_s: float,
-    ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
+    ) -> DirectoryDetail | NotListed | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records
         record = records.get(address)
-        return Outcome.NOT_LISTED if record is None else record
+        return NotListed(address=address) if record is None else record
 
     @override
     async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:

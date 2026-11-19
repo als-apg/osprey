@@ -20,7 +20,7 @@ router = APIRouter()
 
 #: The largest page a search answers.
 MAX_PAGE_SIZE = 50
-#: The CSV columns: the ``DirectoryRow`` fields, in Contracts order, then the alarm
+#: The CSV columns: the ``DirectoryEntry`` fields, in Contracts order, then the alarm
 #: severity and whether the archive records the PV.
 _COLUMNS = (
     "name",

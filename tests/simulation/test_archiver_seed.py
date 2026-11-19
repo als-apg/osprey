@@ -35,13 +35,11 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD, field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.errors import NaiveDatetimeError
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
-    EXPIRE_FIELD,
     MANIFEST_ID,
     FingerprintComparison,
     SeedKnobs,
@@ -229,28 +227,36 @@ def read_back(mongo_store, monkeypatch):
         from osprey_connectors.archiver._mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
+        from osprey_connectors.service_answers import BackendSpec, Unavailable
 
-        connector = MongoDBArchiverConnector()
-        await connector.connect(
-            {
-                "host": mongo_store["host"],
-                "port": mongo_store["port"],
-                "name": mongo_store["database"],
-                "collection": mongo_store["collection"],
-                "auth": {
-                    "source": mongo_store["auth_db"],
-                    "username": mongo_store["username"],
-                    "password_env": password_env,
+        connector = MongoDBArchiverConnector(
+            BackendSpec(
+                kind="archive",
+                type="mongodb_archiver",
+                target="va",
+                rehearsal=False,
+                settings={
+                    "host": mongo_store["host"],
+                    "port": mongo_store["port"],
+                    "name": mongo_store["database"],
+                    "collection": mongo_store["collection"],
+                    "auth": {
+                        "source": mongo_store["auth_db"],
+                        "username": mongo_store["username"],
+                        "password_env": password_env,
+                    },
+                    "timeout_s": 10,
                 },
-                "timeout_s": 10,
-            }
+            )
         )
         try:
-            return await connector.get_data(
+            frame = await connector.history(
                 list(channels), start_at=start, end_at=end, precision_ms=0
             )
         finally:
-            await connector.disconnect()
+            await connector.aclose()
+        assert not isinstance(frame, Unavailable), frame
+        return frame
 
     return query
 

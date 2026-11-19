@@ -8,30 +8,86 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import Literal
+from enum import StrEnum
+from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, SerializerFunctionWrapHandler, model_serializer
+from pydantic import (
+    AwareDatetime,
+    BeforeValidator,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
+from typing_extensions import override
 
 from osprey_connectors.model import FrozenModel
-from osprey_connectors.service_answers import Unavailable, _Backend
+from osprey_connectors.service_answers import NotListed, Unavailable, _Backend
 
-_SEVERITY_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
-
-
-def severity_rank(severity: object) -> int:
-    """The severity's rank, higher is worse; an unknown one ranks highest, never as recovered."""
-    unknown = len(_SEVERITY_RANK)
-    return _SEVERITY_RANK.get(severity, unknown) if isinstance(severity, str) else unknown
+#: What an alarm service appends to a severity an operator has acknowledged.
+_ACK_SUFFIX = "_ACK"
 
 
-class AlarmStateRecord(FrozenModel):
+class AlarmSeverity(StrEnum):
+    """How bad an alarm is, as the alarm services spell it; members are in order, worst last."""
+
+    OK = "OK"
+    MINOR = "MINOR"
+    MAJOR = "MAJOR"
+    INVALID = "INVALID"
+    UNDEFINED = "UNDEFINED"
+
+    @property
+    def rank(self) -> int:
+        """The severity's place in the order, higher is worse: ``OK`` is 0."""
+        return _RANKS[self]
+
+    @classmethod
+    def of_recorded(cls, word: object) -> tuple[AlarmSeverity | None, bool]:
+        """``(severity, acknowledged)`` of the severity word an alarm service recorded.
+
+        A word ending in ``_ACK`` is that severity, acknowledged. ``None`` stays
+        ``None``; any other value is read as its text, and a word that is no
+        severity reads as ``UNDEFINED``, so it is never taken for a recovery.
+        """
+        if word is None:
+            return None, False
+        recorded = word if isinstance(word, str) else str(word)
+        bare = recorded.removesuffix(_ACK_SUFFIX)
+        try:
+            severity = cls(bare)
+        except ValueError:
+            severity = cls.UNDEFINED
+        return severity, bare != recorded
+
+
+_RANKS = {severity: rank for rank, severity in enumerate(AlarmSeverity)}
+
+
+def _severity_member(value: object) -> object:
+    """A severity field's value as its :class:`AlarmSeverity` member, from the member or its word.
+
+    Any other value is passed on, for the field to refuse.
+    """
+    if isinstance(value, str) and not isinstance(value, AlarmSeverity):
+        try:
+            return AlarmSeverity(value)
+        except ValueError:
+            return value
+    return value
+
+
+#: A record's severity: a member, or its word, which the strict model reads as the member.
+_Severity = Annotated[AlarmSeverity | None, BeforeValidator(_severity_member)]
+
+
+class AlarmCondition(FrozenModel):
     """What one channel's alarm is now. The backend alone sets ``stale``; others pass it on.
 
+    ``severity`` is the alarm server's, its ``_ACK`` folded into ``acknowledged``.
     ``event_at`` is when the alarm server says the state began, ``None`` when it
     gave no time it could be placed by.
     """
 
-    severity: str | None = None
+    severity: _Severity = None
     status: str | None = None
     latched: bool = False
     acknowledged: bool = False
@@ -40,7 +96,7 @@ class AlarmStateRecord(FrozenModel):
     stale: bool = False
 
 
-class AlarmStateRow(FrozenModel):
+class AlarmEntry(FrozenModel):
     """One channel the feed holds a state for.
 
     ``address`` is the channel address; ``path`` is the alarm-tree place the state
@@ -50,7 +106,7 @@ class AlarmStateRow(FrozenModel):
 
     address: str
     path: str | None
-    state: AlarmStateRecord
+    condition: AlarmCondition
 
 
 class AlarmStates(FrozenModel):
@@ -63,7 +119,7 @@ class AlarmStates(FrozenModel):
     is derived, never passed, and is part of the record's dump.
     """
 
-    rows: tuple[AlarmStateRow, ...]
+    rows: tuple[AlarmEntry, ...]
     stale: bool
     last_contact_at: AwareDatetime | None
 
@@ -72,9 +128,9 @@ class AlarmStates(FrozenModel):
         """The rows per severity, by severity name."""
         counts: dict[str, int] = {}
         for row in self.rows:
-            severity = row.state.severity
+            severity = row.condition.severity
             if severity is not None:
-                counts[severity] = counts.get(severity, 0) + 1
+                counts[severity.value] = counts.get(severity.value, 0) + 1
         return dict(sorted(counts.items()))
 
     @model_serializer(mode="wrap")
@@ -83,7 +139,7 @@ class AlarmStates(FrozenModel):
         return {**dumped, "counts": self.counts}
 
 
-class AlarmConfigRecord(FrozenModel):
+class AlarmConfiguration(FrozenModel):
     """One channel's place in the alarm tree."""
 
     in_tree: Literal["yes", "no", "unknown"]
@@ -99,18 +155,21 @@ class AlarmState(_Backend, ABC):
 
     :meth:`start` begins whatever feeds the snapshot and :meth:`aclose` ends it;
     both are idempotent. Until the feed has caught up, reads answer
-    ``Unavailable(reason="alarm feed still loading")``, and once caught up with no
-    message at all, ``Unavailable(reason="no message from the feed yet")``: never a
+    ``Unavailable(cause="not_ready", reason="alarm feed still loading")``, and once
+    caught up with no message at all, ``Unavailable(cause="unreachable",
+    reason="no message from the feed yet")``: never a
     clear state and never ``in_tree: "no"``. A read of a started feed waits for
     catch-up up to its deadline and only then answers ``alarm feed still
     loading``; a feed that already knows its answer, unreachable or unbuildable,
     answers at once.
     """
 
+    @override
     @abstractmethod
     async def start(self) -> None:
         """Begin feeding the snapshot."""
 
+    @override
     @abstractmethod
     async def aclose(self) -> None:
         """Stop feeding the snapshot."""
@@ -118,10 +177,10 @@ class AlarmState(_Backend, ABC):
     @abstractmethod
     async def state_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmStateRecord | Unavailable | None:
+    ) -> AlarmCondition | NotListed | Unavailable:
         """The alarm state of *address*, waiting up to *timeout_s* seconds for catch-up.
 
-        ``None`` is a caught-up feed that holds none for it.
+        :class:`NotListed` is a caught-up feed that holds none for it.
         """
 
     @abstractmethod
@@ -134,7 +193,7 @@ class AlarmState(_Backend, ABC):
     @abstractmethod
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         """The live alarm configuration of *address*, waiting up to *timeout_s* seconds for catch-up."""
 
     @abstractmethod

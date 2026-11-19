@@ -1,7 +1,8 @@
 """What every read-only service backend answers, whatever its kind.
 
-A backend is read-only and never raises: a service that gives no answer is a
-value, :class:`Unavailable`, or a page whose outcome says so. Every method is
+A backend is read-only and never raises: every method answers its value or
+:class:`Unavailable`, the one shape of "no answer, and why", and an exact lookup
+that finds nothing answers :class:`NotListed`. Every method is
 async and takes the keyword ``timeout_s``, the seconds this call may spend; the caller owns
 the overall budget and hands the same figure to calls it runs concurrently.
 
@@ -27,57 +28,68 @@ exception to "never raises".
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Generic, Literal, Self, TypeVar
+from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import (
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
-    model_validator,
 )
 
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, parse_instant
 
-#: The row record a :class:`HistoryPage` holds.
+#: The row record a :class:`Page` holds.
 _RowT = TypeVar("_RowT")
 #: The type a :data:`_Recorded` field holds.
 _RecordedT = TypeVar("_RecordedT")
 
 __all__ = [
     "BackendSpec",
-    "HistoryPage",
-    "Outcome",
+    "LogPage",
+    "NotListed",
+    "Page",
+    "PageOutcome",
     "ServiceKind",
     "Source",
     "SourceKind",
     "Unavailable",
+    "UnavailableCause",
 ]
 
 #: A service kind this package builds a backend for, as ``BackendSpec.kind``
 #: spells it.
-ServiceKind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
+ServiceKind = Literal["directory", "alarm_log", "alarm_state", "put_log", "archive"]
 
-#: Every kind of service an answer can come from: a :data:`ServiceKind`, or one
-#: the framework answers from itself (the logbook, the archive).
-SourceKind = Literal[ServiceKind, "logbook", "archive"]
+#: Every kind of service an answer can come from: a :data:`ServiceKind`, or the
+#: logbook, which the framework answers from itself.
+SourceKind = Literal[ServiceKind, "logbook"]
 
-
-class Outcome(StrEnum):
-    """How a lookup ended. ``NOT_LISTED`` is only an exact-name lookup's answer."""
-
-    FOUND = "found"
-    INACTIVE = "inactive"
-    NOT_LISTED = "not_listed"
-    NO_MATCH = "no_match"
-    UNAVAILABLE = "unavailable"
-
-
-def _require_reason(outcome: Outcome, reason: str | None) -> None:
-    if outcome is Outcome.UNAVAILABLE and not reason:
-        raise ValueError("an unavailable outcome carries its reason")
+#: Why a service gave no answer, as a caller branches on it:
+#:
+#: - ``unreachable``: the service could not be reached, or was never heard from.
+#: - ``timeout``: it did not answer within the call's budget.
+#: - ``bad_reply``: it answered, but not with an answer: an error status, an
+#:   oversized or malformed body.
+#: - ``refused``: the answer was refused before it was asked or read: a request
+#:   the backend may not send, or an access proxy's login page.
+#: - ``misconfigured``: the deployment's block cannot be used: a bad url, missing
+#:   settings, a missing client library.
+#: - ``not_ready``: the service is still coming up, or the session moved under
+#:   the call; asking again later can answer.
+#: - ``unsupported``: the service cannot answer this question at all.
+#: - ``failed``: the backend raised, or failed in a way none of the above names.
+UnavailableCause = Literal[
+    "unreachable",
+    "timeout",
+    "bad_reply",
+    "refused",
+    "misconfigured",
+    "not_ready",
+    "unsupported",
+    "failed",
+]
 
 
 def _require_one_time(placed: datetime | None, recorded_stamp: str | None) -> None:
@@ -129,9 +141,19 @@ _Recorded = Annotated[_RecordedT | None, WrapValidator(_none_unless_valid)]
 
 
 class Unavailable(FrozenModel):
-    """The service gave no answer, and why, in words a reader can act on."""
+    """The service gave no answer: ``cause`` for a caller to branch on, ``reason`` for a reader.
 
+    ``reason`` is the words a reader acts on; no caller compares it.
+    """
+
+    cause: UnavailableCause
     reason: str
+
+
+class NotListed(FrozenModel):
+    """An exact lookup's answer when the service holds nothing at *address*."""
+
+    address: str
 
 
 class Source(FrozenModel):
@@ -156,33 +178,53 @@ class BackendSpec(FrozenModel):
     rehearsal: bool
 
 
-class HistoryPage(FrozenModel, Generic[_RowT]):
-    """Logged rows of one PV. No rows means nothing was logged, not that nothing happened.
+#: How a page of rows ended: rows matched, or none did.
+PageOutcome = Literal["found", "no_match"]
 
-    ``rows`` are the records of the kind that answered.
+
+class Page(FrozenModel, Generic[_RowT]):
+    """One page of the rows a service answered for a search or a channel's history.
+
+    ``rows`` are the records of the kind that answered; ``truncated`` says more
+    rows match than the page holds. ``note`` says, in a reader's words, why a
+    page holds no rows. A service that gave no answer answers
+    :class:`Unavailable` instead of a page.
     """
 
-    outcome: Outcome
+    outcome: PageOutcome
     source: Source
     rows: FrozenTuple[_RowT] = ()
     truncated: bool = False
-    retention_known: bool = False
-    reason: str | None = None
+    note: str | None = None
 
-    @model_validator(mode="after")
-    def _unavailable_says_why(self) -> Self:
-        _require_reason(self.outcome, self.reason)
-        return self
+
+class LogPage(Page[_RowT], Generic[_RowT]):
+    """Logged rows of one channel. No rows means nothing was logged, not that nothing happened.
+
+    ``retention_known`` says whether the log states how far back it keeps rows.
+    """
+
+    retention_known: bool = False
 
 
 class _Backend:
-    """The construction and the source every backend kind shares."""
+    """The construction, the lifecycle and the source every backend kind shares.
+
+    :meth:`start` and :meth:`aclose` do nothing here; a kind whose backends
+    hold something open between calls overrides them.
+    """
 
     def __init__(
         self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> None:
         self.spec = spec
         self.project_dir = project_dir
+
+    async def start(self) -> None:
+        """Begin whatever the backend keeps open between calls; nothing by default."""
+
+    async def aclose(self) -> None:
+        """End what :meth:`start` began; nothing by default. Idempotent."""
 
     @property
     def source(self) -> Source:

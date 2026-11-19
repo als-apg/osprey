@@ -18,18 +18,18 @@ from enum import Enum
 from typing import Literal
 
 from osprey_connectors.alarm_state._contract import (
-    AlarmConfigRecord,
-    AlarmStateRecord,
-    AlarmStateRow,
-    severity_rank,
+    _ACK_SUFFIX,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
+    AlarmSeverity,
 )
 from osprey_connectors.errors import require_aware
-from osprey_connectors.service_answers import _flag, _instant, _text
+from osprey_connectors.service_answers import NotListed, _flag, _instant, _text
 
 FEED_LOADING = "alarm feed still loading"
 FEED_EMPTY = "no message from the feed yet"
 
-_ACK_SUFFIX = "_ACK"
 _UNESCAPED_SLASH = re.compile(r"(?<!\\)/")
 _PV_SCHEME = re.compile(r"^(?:ca|pva)://")
 
@@ -83,15 +83,17 @@ def fold_message(
     return snapshot
 
 
-def state_record(snapshot: FeedSnapshot, address: str, *, stale: bool) -> AlarmStateRecord | None:
-    """The alarm state of *address*, or ``None`` when the feed holds none for it."""
+def state_record(
+    snapshot: FeedSnapshot, address: str, *, stale: bool
+) -> AlarmCondition | NotListed:
+    """The alarm state of *address*, or :class:`NotListed` when the feed holds none for it."""
     paths = snapshot.states.get(pv_name(address))
     if not paths:
-        return None
+        return NotListed(address=address)
     return _state_of(list(paths.values())[-1], stale=stale)
 
 
-def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, ...]:
+def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmEntry, ...]:
     """One row per channel whose latest state is a leaf's, under the path it was reported on.
 
     A leaf's state carries ``current_severity``. The alarm server also publishes
@@ -103,22 +105,20 @@ def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, .
         path, body = list(paths.items())[-1]
         if "current_severity" in body:
             rows.append(
-                AlarmStateRow(address=channel, path=path, state=_state_of(body, stale=stale))
+                AlarmEntry(address=channel, path=path, condition=_state_of(body, stale=stale))
             )
     return tuple(rows)
 
 
-def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmStateRecord:
+def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmCondition:
     recorded = body.get("severity")
-    if recorded is not None:
-        recorded = str(recorded)
-    severity = recorded.removesuffix(_ACK_SUFFIX) if recorded is not None else None
-    acknowledged = severity != recorded
-    return AlarmStateRecord(
+    severity, acknowledged = AlarmSeverity.of_recorded(recorded)
+    bare = None if recorded is None else str(recorded).removesuffix(_ACK_SUFFIX)
+    return AlarmCondition(
         severity=severity,
         status=_text(body.get("current_message")),
         latched=not acknowledged
-        and severity_rank(body.get("current_severity")) < severity_rank(severity),
+        and _rank_or_worst(body.get("current_severity")) < _rank_or_worst(bare),
         acknowledged=acknowledged,
         message=_text(body.get("message")),
         event_at=_event_at(body.get("time")),
@@ -126,7 +126,19 @@ def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmStateRecord:
     )
 
 
-def config_record(snapshot: FeedSnapshot, address: str) -> AlarmConfigRecord:
+def _rank_or_worst(word: object) -> int:
+    """The rank of a recorded severity word, higher is worse.
+
+    ``None`` and a word that is no severity rank above ``UNDEFINED``, so an
+    unknown severity is never taken for a recovery.
+    """
+    try:
+        return AlarmSeverity(word).rank if isinstance(word, str) else len(AlarmSeverity)
+    except ValueError:
+        return len(AlarmSeverity)
+
+
+def config_record(snapshot: FeedSnapshot, address: str) -> AlarmConfiguration:
     """Where *address* sits in the alarm tree, as the feed last configured it.
 
     A state with no configuration beside it proves the path but not the tree's
@@ -137,10 +149,10 @@ def config_record(snapshot: FeedSnapshot, address: str) -> AlarmConfigRecord:
     if not paths:
         states = snapshot.states.get(name)
         if states:
-            return AlarmConfigRecord(in_tree="unknown", path=list(states)[-1])
-        return AlarmConfigRecord(in_tree="no")
+            return AlarmConfiguration(in_tree="unknown", path=list(states)[-1])
+        return AlarmConfiguration(in_tree="no")
     path, body = list(paths.items())[-1]
-    return AlarmConfigRecord(
+    return AlarmConfiguration(
         in_tree="yes",
         path=path,
         guidance=body.get("guidance"),

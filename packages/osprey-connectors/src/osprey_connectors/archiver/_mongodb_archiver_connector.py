@@ -13,20 +13,28 @@ from __future__ import annotations
 import asyncio
 import os
 import urllib.parse
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeGuard
 
 import pandas as pd
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.archiver._base import ArchiveExtent, ArchiverConnector, ArchiverMetadata
-from osprey_connectors.archiver._field_names import _RESERVED_FIELDS, _address_of, field_name
-from osprey_connectors.archiver._mongo_client import (
+from osprey_connectors.archive_store import (
     CA_FILE_ERRORS,
+    RESERVED_FIELDS,
+    _address_of,
     address_overrides,
+    field_name,
     mongo_client_kwargs,
+)
+from osprey_connectors.archiver._base import (
+    ArchiveCoverage,
+    ArchiveExtent,
+    ChannelArchive,
+    _NoAnswer,
 )
 from osprey_connectors.archiver._timerange import (
     Processing,
@@ -38,8 +46,9 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.connection import read_connection_settings
-from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.errors import ArchiveQueryError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.service_answers import BackendSpec, Unavailable, UnavailableCause
 from osprey_connectors.simulation.archive import stored_date_utc, waveform_collection
 
 if TYPE_CHECKING:
@@ -54,7 +63,7 @@ logger = get_logger("mongodb_archiver_connector")
 #: The block's key, named in every message the connection reader raises.
 _WHERE = "archiver.settings"
 
-# Appended to every connect()-time failure. On an OSPREY-deployed stack the store
+# Appended to every failure to open the store. On an OSPREY-deployed stack the store
 # is a container the project brings up itself, and "built but never deployed" is
 # by far the most common way to reach these errors — the password is minted into
 # the project's .env by `osprey up`, so before that first run there is nothing to
@@ -158,7 +167,7 @@ def _log_route_once(by_url: bool, store: str) -> None:
         logger.info(f"MongoDB archiver reaches its store at {store} by `host` and `port`")
 
 
-class MongoDBArchiverConnector(ArchiverConnector):
+class MongoDBArchiverConnector(ChannelArchive):
     """
     MongoDB archiver connector for historical channel data.
 
@@ -166,92 +175,85 @@ class MongoDBArchiverConnector(ArchiverConnector):
     Documents are expected to have the structure:
     {date: ISODate(...), CHANNEL1: value1, CHANNEL2: value2, ...}
 
+    The spec's settings:
+
+    - url: A ``mongodb://`` or ``mongodb+srv://`` connection string
+      (optional). When set it names the store verbatim: ``host``, ``port`` and
+      the address overrides are not applied, and ``auth:`` is optional,
+      ``auth.source`` included.
+    - host: MongoDB host (required without ``url``)
+    - port: MongoDB host port (required without ``url`` — no default; see the
+      ``port`` resolution below for why there is none)
+    - name: Database name (required)
+    - collection: Collection name (required)
+    - auth.source: Authentication database, the one the user is defined in
+      (required without ``url``)
+    - auth.username: MongoDB username (required without ``url``)
+    - auth.password_env: Environment variable name for password (required
+      with ``auth.username``)
+    - timeout_s: Default timeout in seconds (default: 60)
+    - tls.ca_bundle: Absolute path of a CA file to trust (optional); setting
+      it turns TLS on. Unset, a ``tls=true`` url checks the store's
+      certificate against the image trust store.
+
+    The settings are read when the archive is built; the client is opened, and
+    the store pinged, on the first call, and a store that cannot be reached
+    answers ``Unavailable`` with the deploy hint.
+
+    Raises:
+        ImportError: If pymongo is not installed
+        ValueError: If required config *keys* are missing — an authoring
+            error in config.yml, not a runtime condition
+        ConnectorUnavailableError: If ``auth.password_env`` names a variable
+            that is not set. That is the state a not-yet-deployed project is
+            in, so it carries the deploy hint and reaches the agent as a
+            ``connection_error`` rather than an internal error.
+
     Example:
-        >>> config = {
-        >>>     'host': 'mongodb.example.org',
-        >>>     'port': 27017,  # osprey:not-a-port — an external facility store
-        >>>                     # on MongoDB's own protocol port. A store this
-        >>>                     # deployment publishes is on its `mongo` layout
-        >>>                     # slot instead, written by the build.
-        >>>     'name': 'my-archiver-database',
-        >>>     'collection': 'my-archiver-collection',
-        >>>     'auth': {
-        >>>         'source': 'database-auth',
-        >>>         'username': 'my-username',
-        >>>         'password_env': 'MONGODB_READONLY_PASSWORD',
+        >>> archive = MongoDBArchiverConnector(BackendSpec(
+        >>>     kind="archive", type="mongodb_archiver", target="va", rehearsal=False,
+        >>>     settings={
+        >>>         'host': 'mongodb.example.org',
+        >>>         'port': 27017,  # osprey:not-a-port — an external facility store
+        >>>                         # on MongoDB's own protocol port. A store this
+        >>>                         # deployment publishes is on its `mongo` layout
+        >>>                         # slot instead, written by the build.
+        >>>         'name': 'my-archiver-database',
+        >>>         'collection': 'my-archiver-collection',
+        >>>         'auth': {
+        >>>             'source': 'database-auth',
+        >>>             'username': 'my-username',
+        >>>             'password_env': 'MONGODB_READONLY_PASSWORD',
+        >>>         },
+        >>>         'timeout_s': 60,
         >>>     },
-        >>>     'timeout_s': 60,
-        >>> }
-        >>> connector = MongoDBArchiverConnector()
-        >>> await connector.connect(config)
-        >>> df = await connector.get_data(
+        >>> ))
+        >>> frame = await archive.history(
         >>>     ['BEAM:CURRENT'],
         >>>     start_at=datetime(2024, 1, 1, tzinfo=UTC),
         >>>     end_at=datetime(2024, 1, 2, tzinfo=UTC),
         >>> )
     """
 
-    # pymongo's connection-failure class, bound by connect(). Declared here so
-    # every method can reference it on a connector that never completed a
-    # connect() — including the stub connectors tests wire up by hand.
-    _ConnectionFailure: type[Exception] | None = None
-
-    def __init__(self) -> None:
-        self._connected = False
+    def __init__(
+        self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
+    ) -> None:
+        super().__init__(spec, project_dir=project_dir, **seams)
+        # The settings block is the archive's extension contract; this backend reads its keys unchecked.
+        config: Mapping[str, ContractAny] = spec.settings
         self._client: MongoClient[_Document] | None = None
         self._collection: Collection[_Document] | None = None
         # The waveform sibling of ``_collection``; None on a connector wired to
         # a single collection, which then reads scalars only.
         self._waveforms: Collection[_Document] | None = None
-        self._timeout: float = 60
-
-    # The config block is the archiver extension contract; this backend reads its keys unchecked.
-    @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
-        """
-        Initialize MongoDB connection.
-
-        Args:
-            config: Configuration with keys:
-                - url: A ``mongodb://`` or ``mongodb+srv://`` connection string
-                  (optional). When set it names the store verbatim: ``host``,
-                  ``port`` and the address overrides are not applied, and
-                  ``auth:`` is optional, ``auth.source`` included.
-                - host: MongoDB host (required without ``url``)
-                - port: MongoDB host port (required without ``url`` — no
-                  default; see the ``port`` resolution below for why there is none)
-                - name: Database name (required)
-                - collection: Collection name (required)
-                - auth.source: Authentication database, the one the user
-                  is defined in (required without ``url``)
-                - auth.username: MongoDB username (required without ``url``)
-                - auth.password_env: Environment variable name for password
-                  (required with ``auth.username``)
-                - timeout_s: Default timeout in seconds (default: 60)
-                - tls.ca_bundle: Absolute path of a CA file to trust (optional);
-                  setting it turns TLS on. Unset, a ``tls=true`` url checks the
-                  store's certificate against the image trust store.
-
-        Raises:
-            ImportError: If pymongo is not installed
-            ValueError: If required config *keys* are missing — an authoring
-                error in config.yml, not a runtime condition
-            ConnectorUnavailableError: If the store cannot be reached or authenticated
-                against, including when ``auth.password_env`` names a variable that
-                is not set. These are the states a not-yet-deployed project is
-                in, so they carry the deploy hint and reach the agent as a
-                ``connection_error`` rather than an internal error.
-        """
+        #: The one open of the store in flight, shared by every call that waits on it.
+        self._opening: asyncio.Future[None] | None = None
         try:
-            from pymongo import MongoClient
-            from pymongo.errors import ConfigurationError, ConnectionFailure
-
-            # Imported here, not at module scope, so the module imports without
-            # pymongo; the failure class is kept for get_data's handler, which
-            # runs outside this method.
-            self._ConnectionFailure = ConnectionFailure
+            from pymongo.errors import ConnectionFailure
         except ImportError as e:
             raise ImportError(PYMONGO_INSTALL_HINT) from e
+        # pymongo's connection-failure class, kept for the readers' handlers.
+        self._ConnectionFailure: type[Exception] = ConnectionFailure
 
         raw_url: object = config.get("url")
         if raw_url is not None and not isinstance(raw_url, str):
@@ -266,7 +268,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         else:
             # Where the store is. The configured value is the host-side truth; a
             # containerized consumer is handed the in-network address through the
-            # environment and that wins (see HOST_OVERRIDE_ENV). Resolved before the
+            # environment and that wins (see _HOST_OVERRIDE_ENV). Resolved before the
             # required-ness check so an environment-only address is a legitimate
             # one, and the error below still fires when neither source names a host.
             override_host, override_port = address_overrides()
@@ -325,7 +327,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             ),
             extra_auth_keys=frozenset({"source"}),
         )
-        self._timeout = settings.timeout_or(60)
+        self._timeout: float = settings.timeout_or(60)
         login = settings.login
         username = login.username if login is not None else None
         password_env = login.password_env if login is not None else None
@@ -349,63 +351,118 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 )
 
         # The url itself is never logged or put in a message: its query can name key files.
-        store = f"the store named by {_WHERE}.url" if url is not None else f"{host}:{port}"
-        _log_route_once(url is not None, store)
+        self._store = f"the store named by {_WHERE}.url" if url is not None else f"{host}:{port}"
+        _log_route_once(url is not None, self._store)
+        self._names = (str(db_name), str(collection_name))
+        self._ca_bundle = ca_bundle
+        self._client_kwargs: dict[str, ContractAny] = mongo_client_kwargs(
+            url=url,
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            auth_source=auth_source,
+            ca_bundle=ca_bundle,
+            timeout_s=self._timeout,
+        )
 
+    def _connect(self) -> None:
+        """Open the client, ping the store and bind its collections. Runs in a worker thread.
+
+        Raises:
+            _NoAnswer: The store cannot be reached or authenticated against
+                (``unreachable``), or the client cannot be built from the block
+                (``misconfigured``: a pymongo configuration error, or a CA file
+                that does not load).
+        """
+        from pymongo import MongoClient
+        from pymongo.errors import ConfigurationError
+
+        store = self._store
         try:
-            client: MongoClient[_Document] = MongoClient(
-                **mongo_client_kwargs(
-                    url=url,
-                    host=host,
-                    port=port,
-                    username=username,
-                    password=password,
-                    auth_source=auth_source,
-                    ca_bundle=ca_bundle,
-                    timeout_s=self._timeout,
-                )
-            )
-            self._client = client
-
-            # Test connection
-            def test_connection() -> None:
+            client: MongoClient[_Document] = MongoClient(**self._client_kwargs)
+            try:
                 client.admin.command("ping")
-
-            await asyncio.to_thread(test_connection)
-
-            # Get collection
-            self._collection = client[db_name][collection_name]
-            self._waveforms = client[db_name][waveform_collection(collection_name)]
-
-            self._connected = True
-            logger.debug(
-                f"MongoDB Archiver connector initialized: {store}/{db_name}.{collection_name}"
-            )
-
-        except ConnectionFailure as e:
-            raise ConnectorUnavailableError(
-                f"Cannot connect to MongoDB at {store}. "
-                f"Please check connectivity and authentication. {DEPLOY_HINT}"
+            except BaseException:
+                client.close()
+                raise
+        except self._ConnectionFailure as e:
+            raise _NoAnswer(
+                Unavailable(
+                    cause="unreachable",
+                    reason=f"Cannot connect to MongoDB at {store}. "
+                    f"Please check connectivity and authentication. {DEPLOY_HINT}",
+                )
             ) from e
         except ConfigurationError as e:
-            raise ConnectorUnavailableError(f"MongoDB configuration error: {e}") from e
+            raise _NoAnswer(
+                Unavailable(cause="misconfigured", reason=f"MongoDB configuration error: {e}")
+            ) from e
         except (TimeoutError, OSError) as e:
             # pymongo loads the CA file while it builds the client, before any ping.
-            if ca_bundle is not None and isinstance(e, CA_FILE_ERRORS):
-                raise ConnectorUnavailableError(
-                    f"MongoDB TLS setup failed: the CA file named by {_WHERE}.tls.ca_bundle "
-                    f"could not be loaded: {e}"
+            if self._ca_bundle is not None and isinstance(e, CA_FILE_ERRORS):
+                raise _NoAnswer(
+                    Unavailable(
+                        cause="misconfigured",
+                        reason=f"MongoDB TLS setup failed: the CA file named by "
+                        f"{_WHERE}.tls.ca_bundle could not be loaded: {e}",
+                    )
                 ) from e
-            raise ConnectorUnavailableError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
+            raise _NoAnswer(
+                Unavailable(
+                    cause="unreachable", reason=f"MongoDB connection failed: {e}. {DEPLOY_HINT}"
+                )
+            ) from e
         except Exception as e:
-            # Last resort - log and re-raise as the connector's own loss
             logger.error(f"Unexpected error connecting to MongoDB: {e}", exc_info=True)
-            raise ConnectorUnavailableError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
+            raise _NoAnswer(
+                Unavailable(cause="failed", reason=f"MongoDB connection failed: {e}. {DEPLOY_HINT}")
+            ) from e
+
+        db_name, collection_name = self._names
+        self._client = client
+        self._collection = client[db_name][collection_name]
+        self._waveforms = client[db_name][waveform_collection(collection_name)]
+        logger.debug(f"MongoDB Archiver connector initialized: {store}/{db_name}.{collection_name}")
+
+    async def _opened(self, bound: float) -> Unavailable | None:
+        """Open the store on the first call; ``None`` once it is open, else why it is not.
+
+        One open runs at a time and every call waits on it for at most *bound*
+        seconds, its own budget: a store that does not answer costs each call
+        its budget, never pymongo's longer server-selection wait, and the open
+        keeps running for the next call. A store that could not be opened is
+        tried again on the next call, so the archive reopens itself once the
+        store comes up.
+        """
+        if self._is_open():
+            return None
+        opening = self._opening
+        if opening is None or (opening.done() and not self._is_open()):
+            opening = self._opening = asyncio.ensure_future(asyncio.to_thread(self._connect))
+            # An open nobody waited out still has its failure read, so it is not logged as lost.
+            opening.add_done_callback(lambda done: done.cancelled() or done.exception())
+        try:
+            await asyncio.wait_for(asyncio.shield(opening), timeout=bound)
+        except TimeoutError:
+            return Unavailable(
+                cause="timeout", reason=f"MongoDB at {self._store} did not answer within {bound}s"
+            )
+        except _NoAnswer as failure:
+            return failure.answer
+        return None
+
+    def _is_open(self) -> bool:
+        return self._collection is not None
 
     @override
-    async def disconnect(self) -> None:
-        """Cleanup MongoDB connection."""
+    async def aclose(self) -> None:
+        """Close the MongoDB client; the next call opens a new one."""
         client = self._client
+        self._client = None
+        self._collection = None
+        self._waveforms = None
+        self._opening = None
         if client:
             try:
 
@@ -415,12 +472,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 await asyncio.to_thread(close_connection)
             except Exception as e:
                 logger.warning(f"Error closing MongoDB connection: {e}")
-
-        self._client = None
-        self._collection = None
-        self._waveforms = None
-        self._connected = False
-        logger.debug("MongoDB Archiver connector disconnected")
+        logger.debug("MongoDB Archiver connector closed")
 
     def _connection_error_types(self) -> tuple[type[BaseException], ...]:
         """pymongo's connection-class exceptions, as an ``except``-ready tuple.
@@ -428,34 +480,33 @@ class MongoDBArchiverConnector(ArchiverConnector):
         ``ConnectionFailure`` is the root of pymongo's network-and-server
         family — ``AutoReconnect``, ``NetworkTimeout`` and
         ``ServerSelectionTimeoutError`` all derive from it — so catching it
-        covers every way a live connection can go away mid-session. Returns an
-        empty tuple when ``connect()`` never ran and the classes were never
-        bound; an empty tuple in an ``except`` clause simply never matches,
-        which is the correct behaviour there.
+        covers every way a live connection can go away mid-session.
         """
-        return (self._ConnectionFailure,) if self._ConnectionFailure is not None else ()
-
-    def _require_connected(self) -> None:
-        """Raise ``RuntimeError`` unless a live collection is available.
-
-        Raises:
-            RuntimeError: If the connector is not connected.
-        """
-        if not self._connected or self._collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+        return (self._ConnectionFailure,)
 
     def _stores(self) -> tuple[Collection[_Document], ...]:
         """Every collection a read covers: the snapshots, then the waveform sibling.
 
         Raises:
-            RuntimeError: If the connector holds no collection.
+            RuntimeError: If the archive holds no collection, which an opened one always does.
         """
         collection = self._collection
         if collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+            raise RuntimeError("the MongoDB archive was read before it was opened")
         if self._waveforms is None:
             return (collection,)
         return (collection, self._waveforms)
+
+    def _unread(self, e: BaseException) -> Unavailable:
+        """A read of the store that raised *e*, as the answer it gives."""
+        cause: UnavailableCause = (
+            "unreachable"
+            if isinstance(e, (ConnectionError, *self._connection_error_types()))
+            else "failed"
+        )
+        return Unavailable(
+            cause=cause, reason=f"the MongoDB archive could not be read: {type(e).__name__}"
+        )
 
     def _refuse_aggregated_waveforms(self, fields: Mapping[str, str], resolved: Processing) -> None:
         """Refuse a non-raw mode on any requested channel the waveform store holds.
@@ -464,28 +515,30 @@ class MongoDBArchiverConnector(ArchiverConnector):
         outside its stored range, so the answer cannot depend on the dates asked.
 
         Raises:
-            ValueError: naming the first waveform channel found.
+            ArchiveQueryError: naming the first waveform channel found.
         """
         if resolved.mode == "raw" or self._waveforms is None:
             return
         for channel, field in fields.items():
             if self._waveforms.count_documents({field: {"$exists": True}}, limit=1):
-                raise ValueError(
+                raise ArchiveQueryError(
                     f"Cannot apply processing={resolved.mode!r} to waveform channel "
-                    f"{channel!r}: only processing='raw' is defined for waveforms"
+                    f"{channel!r}: only processing='raw' is defined for waveforms",
+                    parameter="processing",
+                    address=channel,
                 )
 
     @override
-    async def get_data(
+    async def history(
         self,
-        addresses: list[str],
+        addresses: Sequence[str],
         *,
         start_at: datetime,
         end_at: datetime,
         precision_ms: int = 1000,
-        timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
-    ) -> pd.DataFrame:
+        timeout_s: float | None = None,
+    ) -> pd.DataFrame | Unavailable:
         """
         Retrieve historical data from MongoDB collection.
 
@@ -494,37 +547,36 @@ class MongoDBArchiverConnector(ArchiverConnector):
             start_at: Start of the time range, timezone-aware.
             end_at: End of the time range, timezone-aware.
             precision_ms: Time precision in milliseconds (for downsampling)
-            timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
-                client-side via pandas resampling. Anything else raises ValueError.
+                client-side via pandas resampling. Anything else raises
+                ArchiveQueryError.
+            timeout_s: Optional timeout in seconds
 
         Returns:
-            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
+            The canonical long frame — see :meth:`ChannelArchive.history` — or
+            ``Unavailable`` when the store cannot be opened or read.
 
         Raises:
-            RuntimeError: If archiver not connected
-            TimeoutError: If operation times out
-            ConnectorUnavailableError: If MongoDB cannot be reached, or the
-                connection is lost mid-query; its supervisor rebuilds the
-                connector
             TypeError: If start_at or end_at is not a datetime
             NaiveDatetimeError: If start_at or end_at is naive
-            ValueError: If channels is empty, data retrieval fails, or a
-                non-raw processing mode is requested for a channel that
-                carries non-numeric values
+            ArchiveQueryError: If channels is empty, or a non-raw processing
+                mode is requested for a channel that carries non-numeric values
+                or is a waveform channel
         """
         bound: float = timeout_s if timeout_s is not None else self._timeout
-
-        self._require_connected()
 
         # pymongo reads naive datetimes as UTC, so the bounds go to it in UTC.
         start_utc, end_utc = utc_window(start_at, end_at)
 
         if not addresses:
-            raise ValueError("channels cannot be empty")
+            raise ArchiveQueryError("channels cannot be empty", parameter="addresses")
 
         resolved = resolve_processing(processing, precision_ms, start_utc)
+
+        unopened = await self._opened(bound)
+        if unopened is not None:
+            return unopened
 
         def fetch_data() -> pd.DataFrame:
             """Synchronous data fetch function."""
@@ -589,61 +641,64 @@ class MongoDBArchiverConnector(ArchiverConnector):
         try:
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
             data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=bound)
-
-            logger.debug(
-                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(addresses)} channels"
-            )
-            return data
-
-        except TimeoutError as e:
-            raise TimeoutError(f"MongoDB query timed out after {bound}s") from e
+        except TimeoutError:
+            return Unavailable(cause="timeout", reason=f"MongoDB query timed out after {bound}s")
+        except ArchiveQueryError:
+            raise
         except ConnectionError as e:
-            raise ConnectorUnavailableError(f"Network connectivity issue with MongoDB: {e}") from e
+            return Unavailable(
+                cause="unreachable", reason=f"Network connectivity issue with MongoDB: {e}"
+            )
         except self._connection_error_types() as e:
             # A pymongo connection-class failure means the store went away
-            # mid-session: the connector is unavailable (not the ValueError
-            # the generic branch below would produce), and the supervisor
-            # rebuilds an unavailable archiver, so the next tool call
-            # reconnects instead of reusing a dead client.
-            raise ConnectorUnavailableError(f"Lost connection to MongoDB: {e}") from e
+            # mid-session; the client reconnects on the next call.
+            return Unavailable(cause="unreachable", reason=f"Lost connection to MongoDB: {e}")
         except (ValueError, TypeError) as e:
-            raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
+            return Unavailable(cause="bad_reply", reason=f"Error retrieving data from MongoDB: {e}")
         except Exception as e:
             # Log unexpected errors for debugging
             logger.error(f"Unexpected error retrieving data: {e}", exc_info=True)
-            raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
+            return Unavailable(cause="failed", reason=f"Error retrieving data from MongoDB: {e}")
+
+        logger.debug(
+            f"Retrieved MongoDB archiver data: {len(data)} rows across {len(addresses)} channels"
+        )
+        return data
 
     @override
-    async def get_metadata(self, address: str) -> ArchiverMetadata:
+    async def coverage(
+        self, addresses: Sequence[str], *, timeout_s: float | None = None
+    ) -> Mapping[str, ArchiveCoverage] | Unavailable:
         """
-        Get archiving metadata for a channel.
+        Whether each channel is archived, and the span the store holds for it.
 
         ``first_sample_at`` and ``last_sample_at`` are the instants, in UTC, of
-        the oldest and newest documents actually holding this channel, read from the
+        the oldest and newest documents actually holding the channel, read from the
         store — not a declared or assumed coverage window. An agent that asks
         how far back the history goes gets the real answer, so a query outside
         the stored range reads as "not archived that far back" rather than as
         missing data inside a range it was told existed.
 
         Args:
-            address: Name of the process variable
+            addresses: Names of the process variables
+            timeout_s: Optional timeout in seconds
 
         Returns:
-            ArchiverMetadata; ``is_archived`` is False and both bounds are None
-            when the channel has no stored samples, and ``None`` with the reason
-            in ``description`` when the store cannot be queried. The bounds span
-            the snapshot collection and its waveform sibling, so a waveform-only
-            channel is found.
-
-        Raises:
-            RuntimeError: If archiver not connected
+            One :class:`ArchiveCoverage` per address: ``is_archived`` is False
+            and both bounds are None when the channel has no stored samples.
+            The bounds span the snapshot collection and its waveform sibling,
+            so a waveform-only channel is found. ``Unavailable`` when the store
+            cannot be opened or read.
         """
-        self._require_connected()
+        bound: float = timeout_s if timeout_s is not None else self._timeout
+        unopened = await self._opened(bound)
+        if unopened is not None:
+            return unopened
 
-        def stored_extent() -> tuple[datetime | None, datetime | None]:
+        def stored_extent(address: str) -> ArchiveCoverage:
             """Timestamps of the oldest and newest documents carrying this channel.
 
-            A ``date`` that is not a datetime counts as none, as ``get_data`` skips it.
+            A ``date`` that is not a datetime counts as none, as ``history`` skips it.
             """
             # Sorting on 'date' rides the mandatory {date: 1} index, so this is
             # two index-ordered lookups rather than a collection scan.
@@ -660,81 +715,42 @@ class MongoDBArchiverConnector(ArchiverConnector):
                     firsts.append(stored_date_utc(oldest_at))
                 if isinstance(newest_at := (newest or {}).get("date"), datetime):
                     lasts.append(stored_date_utc(newest_at))
-            return min(firsts, default=None), max(lasts, default=None)
-
-        try:
-            first, last = await asyncio.to_thread(stored_extent)
-        except Exception as e:
-            logger.warning(f"Error checking channel metadata: {e}")
-            return ArchiverMetadata(
+            first, last = min(firsts, default=None), max(lasts, default=None)
+            return ArchiveCoverage(
                 address=address,
-                is_archived=None,
-                description=f"the MongoDB archive could not be read: {type(e).__name__}",
+                is_archived=first is not None,
+                first_sample_at=first,
+                last_sample_at=last,
             )
 
-        return ArchiverMetadata(
-            address=address,
-            is_archived=first is not None,
-            first_sample_at=first,
-            last_sample_at=last,
-            description=f"MongoDB archived channel: {address}",
-        )
-
-    @override
-    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
-        """
-        Check which channels are archived in the MongoDB collection or its
-        waveform sibling.
-
-        A read that fails part-way reports every channel as unknown (``None``)
-        rather than raising: availability is a question the store could not
-        answer, not a fault to surface to the caller.
-
-        Args:
-            addresses: Channel addresses to check
-
-        Returns:
-            Dictionary mapping channel address to availability status
-
-        Raises:
-            RuntimeError: If archiver not connected
-        """
-        self._require_connected()
-
-        def check_channels() -> dict[str, bool]:
-            """Check which channels exist in the collection."""
-            availability = {}
-            for channel in addresses:
-                query = {field_name(channel): {"$exists": True}}
-                availability[channel] = any(
-                    store.count_documents(query, limit=1) > 0 for store in self._stores()
-                )
-            return availability
+        def read_all() -> dict[str, ArchiveCoverage]:
+            return {address: stored_extent(address) for address in addresses}
 
         try:
-            return dict(await asyncio.to_thread(check_channels))
+            return await asyncio.wait_for(asyncio.to_thread(read_all), timeout=bound)
+        except TimeoutError:
+            return Unavailable(cause="timeout", reason=f"MongoDB query timed out after {bound}s")
         except Exception as e:
-            logger.warning(f"Error checking channel availability: {e}")
-            return dict[str, bool | None].fromkeys(addresses, None)
+            logger.warning(f"Error checking channel coverage: {e}")
+            return self._unread(e)
 
     @override
-    async def store_extent(self) -> ArchiveExtent:
+    async def extent(self, *, timeout_s: float | None = None) -> ArchiveExtent | Unavailable:
         """The channels the store records now, and its oldest and newest sample.
 
-        ``channels`` is every channel field of the newest documents of the
+        ``addresses`` is every channel field of the newest documents of the
         snapshot collection and of its waveform sibling (a waveform document
         holds one channel, so every document at the sibling's newest instant is
         read). ``oldest_at`` and ``newest_at`` span both collections, in UTC. Four or more
         index-ordered reads on ``date``; never a collection scan.
 
         Returns:
-            The extent; every part ``None`` and a ``reason`` when the store
-            cannot be read.
-
-        Raises:
-            RuntimeError: If archiver not connected
+            The extent, or ``Unavailable`` when the store cannot be opened or read.
         """
-        self._require_connected()
+        bound: float = timeout_s if timeout_s is not None else self._timeout
+        unopened = await self._opened(bound)
+        if unopened is not None:
+            return unopened
 
         def read_extent() -> ArchiveExtent:
             channels: set[str] = set()
@@ -752,7 +768,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 newest.append(stored_date_utc(last_at))
                 for document in store.find({"date": last_at}):
                     channels.update(
-                        _address_of(field) for field in document if field not in _RESERVED_FIELDS
+                        _address_of(field) for field in document if field not in RESERVED_FIELDS
                     )
             return ArchiveExtent(
                 addresses=frozenset(channels),
@@ -761,9 +777,18 @@ class MongoDBArchiverConnector(ArchiverConnector):
             )
 
         try:
-            return await asyncio.to_thread(read_extent)
+            return await asyncio.wait_for(asyncio.to_thread(read_extent), timeout=bound)
+        except TimeoutError:
+            return Unavailable(cause="timeout", reason=f"MongoDB query timed out after {bound}s")
         except Exception as e:
             logger.warning(f"Error reading the archive's extent: {e}")
-            return ArchiveExtent(
-                reason=f"the MongoDB archive could not be read: {type(e).__name__}"
-            )
+            return self._unread(e)
+
+    @override
+    async def probe(self, *, timeout_s: float | None = None) -> str | Unavailable:
+        """Whether the store answers a ping: it is pinged when the archive opens it."""
+        bound: float = timeout_s if timeout_s is not None else self._timeout
+        unopened = await self._opened(bound)
+        if unopened is not None:
+            return unopened
+        return f"the MongoDB store at {self._store} answered a ping"

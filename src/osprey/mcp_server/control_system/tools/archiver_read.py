@@ -5,23 +5,31 @@ import logging
 import math
 from collections import Counter
 from datetime import UTC, datetime, timedelta
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 import pandas as pd
 
 from osprey.channel_roster import registered_channels
 from osprey.mcp_server.control_system import target_banner
-from osprey.mcp_server.control_system.error_handling import connector_error_handler
+from osprey.mcp_server.control_system.error_handling import (
+    connector_error_handler,
+    refuse_unavailable,
+)
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.archiver import PROCESSING_MODES, ProcessingMode
 from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_context import published_machine_kind
-from osprey_connectors.deployment.archive_targets import archive_targets, archive_withheld
+from osprey_connectors.errors import ArchiveQueryError
 from osprey_connectors.refusals import KIND_WORDS
+from osprey_connectors.service_answers import Unavailable
+from osprey_connectors.service_targets import service_targets
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
+
+if TYPE_CHECKING:
+    from osprey_connectors.archiver import ArchiveCoverage, ChannelArchive
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
 
@@ -133,10 +141,9 @@ def _parse_time(time_str: str) -> datetime:
 
 
 class _CoverageProbe(NamedTuple):
-    """What the connector could say about one empty channel."""
+    """What the archive could say about one empty channel: its coverage, or why not."""
 
-    available: bool | None
-    metadata: Any  # ArchiverMetadata | None — untyped to keep the import lazy
+    coverage: "ArchiveCoverage | None"
     note: str | None
 
 
@@ -149,13 +156,13 @@ def _classify_coverage(
     start_utc: datetime, end_utc: datetime, probe: _CoverageProbe
 ) -> dict[str, Any]:
     """One empty channel's entry: a verdict, plus bounds when they are known."""
-    md = probe.metadata
-    # ``None`` from either probe is "this archiver cannot say", never "not archived".
-    if probe.available is False or (md is not None and md.is_archived is False):
+    covered = probe.coverage
+    # ``None`` is "this archive cannot say", never "not archived".
+    if covered is not None and covered.is_archived is False:
         return {"verdict": "never_recorded"}
-    # Aware by the connector contract; served in UTC whatever zone they carry.
-    a_start = _utc(md.first_sample_at) if md is not None else None
-    a_end = _utc(md.last_sample_at) if md is not None else None
+    # Aware by the archive contract; served in UTC whatever zone they carry.
+    a_start = _utc(covered.first_sample_at) if covered is not None else None
+    a_end = _utc(covered.last_sample_at) if covered is not None else None
     if a_start is None or a_end is None:
         entry: dict[str, Any] = {"verdict": "coverage_unknown"}
         if probe.note:
@@ -220,35 +227,27 @@ def _coverage_message(
     )
 
 
-async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _CoverageProbe]:
-    """Ask the connector about each empty channel; a failed probe is a note.
+async def _probe_coverage(
+    archive: "ChannelArchive", channels: list[str]
+) -> dict[str, _CoverageProbe]:
+    """Ask the archive about each empty channel; an archive that gave no answer is a note.
 
-    A note names the failure's class only; its text, which can carry the
-    archiver's URL, goes to the server log.
-
-    A refused availability probe (an archiver that is not connected refuses
-    it) is the note of a channel whose metadata answered. Failures degrade to
-    ``coverage_unknown`` downstream rather than raising:
-    the data that DID come back must never be lost to its own explanation.
+    A coverage the archive could not give degrades to ``coverage_unknown``
+    downstream rather than raising: the data that DID come back must never be
+    lost to its own explanation. The note names the answer's cause only; its
+    reason, which can name the archive's host, goes to the server log, because
+    the note is saved with the data. A channel the archive refuses to be asked
+    about is that refusal's note, for the same reason.
     """
-    refused: str | None = None
     try:
-        availability = await connector.check_availability(channels)
-    except Exception as exc:  # any probe failure degrades, none propagate
-        logger.warning("archiver availability probe failed", exc_info=True)
-        availability = {}
-        refused = f"availability probe failed: {type(exc).__name__}"
-    probes: dict[str, _CoverageProbe] = {}
-    for ch in channels:
-        try:
-            md = await connector.get_metadata(ch)
-        except Exception as exc:
-            logger.warning("archiver metadata probe failed for %s", ch, exc_info=True)
-            note = f"metadata probe failed: {type(exc).__name__}"
-            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=None, note=note)
-        else:
-            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=md, note=refused)
-    return probes
+        answer = await archive.coverage(channels)
+    except ArchiveQueryError as refused:
+        return {ch: _CoverageProbe(coverage=None, note=str(refused)) for ch in channels}
+    if isinstance(answer, Unavailable):
+        logger.warning("archiver coverage probe gave no answer: %s", answer.reason)
+        note = f"coverage probe gave no answer: {answer.cause}"
+        return {ch: _CoverageProbe(coverage=None, note=note) for ch in channels}
+    return {ch: _CoverageProbe(coverage=answer.get(ch), note=None) for ch in channels}
 
 
 def _compose_coverage(
@@ -273,7 +272,7 @@ def _compose_coverage(
 
 
 def _provenance(
-    archiver_section: Any, connector: Any, situation: target_banner.TargetSituation
+    archiver_section: Any, archive: Any, situation: target_banner.TargetSituation
 ) -> dict[str, str]:
     """Who served this read: the session's control-system target and the archiver.
 
@@ -293,20 +292,20 @@ def _provenance(
     * ``archiver_type`` — the configured archiver type, resolved by the same
       :func:`~osprey_connectors.archiver_selection.resolve_archiver_type` the factory uses, so
       the stamp cannot disagree with what was actually built.
-    * ``archiver_backend`` — the connector class that served it. The class name
+    * ``archiver_backend`` — the archive class that served it. The class name
       and nothing else: an endpoint or connection string would put a host — or a
       credential — into an artifact that outlives the session.
 
     Args:
         archiver_section: The ``archiver`` config block.
-        connector: The archiver connector instance that served this read.
+        archive: The archive instance that served this read.
         situation: The session's target, as resolved once for this read.
     """
     return {
         "target": situation.control_target,
         "target_source": TARGET_SOURCE_SESSION if situation.switched else TARGET_SOURCE_BASELINE,
         "archiver_type": resolve_archiver_type(archiver_section),
-        "archiver_backend": type(connector).__name__,
+        "archiver_backend": type(archive).__name__,
     }
 
 
@@ -535,13 +534,16 @@ async def archiver_read(
 
         # The archive belongs to the machine. One `archiver:` block serves the
         # deployment, and it holds the past of some targets and not others
-        # (osprey_connectors.deployment.archive_targets): the facility's appliance for the
-        # live machine and the stand-in that rehearses it, the deployment's own
-        # store for the virtual accelerator. A session on any other target is
-        # told it has no archive, never shown another machine's past.
+        # (the archive row of osprey_connectors.service_targets): the facility's
+        # appliance for the live machine and the stand-in that rehearses it, the
+        # deployment's own store for the virtual accelerator. A session on any
+        # other target is told it has no archive, never shown another machine's past.
         situation = target_banner.resolve_target_situation()
-        if archive_withheld(registry.config.raw, situation.control_target):
-            served = sorted(archive_targets(registry.config.raw))
+        table = service_targets(registry.config.raw)
+        # A target the table does not name has no archive, as one it withholds.
+        spec = next((s for t, s in table.archive.items() if t == situation.control_target), None)
+        if spec is None:
+            served = sorted(table.history_targets())
             holds = ", ".join(_machine_words(t) for t in served) or "no machine"
             return make_error(
                 "no_archive",
@@ -556,14 +558,14 @@ async def archiver_read(
                 details={"target": situation.control_target, "archive_targets": served},
             )
 
-        # The archiver connector is HTTP/pymongo-class — an appliance or a
-        # database, never Channel Access — so this read is NOT routed through
-        # the connector-host child that serves the control system, and must
-        # never be gated on that child being alive: history stays readable
-        # exactly when a diagnosis needs it most. Beyond the gate above, the
-        # only thing the control target contributes is provenance.
-        connector = await registry.archiver()
-        provenance = _provenance(registry.config.archiver, connector.connector, situation)
+        # The archive is HTTP/pymongo-class — an appliance or a database, never
+        # Channel Access — so this read is NOT routed through the connector-host
+        # child that serves the control system, and must never be gated on that
+        # child being alive: history stays readable exactly when a diagnosis
+        # needs it most. Beyond the gate above, the control target picks the
+        # archive's spec and contributes provenance.
+        archive = await registry.archive(spec)
+        provenance = _provenance(registry.config.archiver, archive, situation)
 
         # Deduplicate: all counts below must describe what was actually queried.
         unique_channels = list(dict.fromkeys(channels))
@@ -583,16 +585,18 @@ async def archiver_read(
                 ([ch for ch in unique_channels if ch in labels], "raw"),
             ]
             requests = [(chans, mode) for chans, mode in requests if chans]
-        frames = [
-            await connector.get_data(
+        frames: list[pd.DataFrame] = []
+        for chans, mode in requests:
+            answer = await archive.history(
                 chans,
                 start_at=start_dt,
                 end_at=end_dt,
                 precision_ms=resolved_bin * 1000,
                 processing=mode,
             )
-            for chans, mode in requests
-        ]
+            if isinstance(answer, Unavailable):
+                refuse_unavailable("archiver_read", "archiver", answer)
+            frames.append(answer)
         df = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
 
         series: dict[str, dict[str, list[Any]]] = {}
@@ -705,7 +709,7 @@ async def archiver_read(
         empty_channels = [ch for ch in unique_channels if per_channel[ch]["points"] == 0]
         coverage = None
         if empty_channels:
-            probes = await _probe_coverage(connector, empty_channels)
+            probes = await _probe_coverage(archive, empty_channels)
             coverage = _compose_coverage(start_dt.astimezone(UTC), end_dt.astimezone(UTC), probes)
 
         # Full data payload goes to file; compact summary returned inline

@@ -1,13 +1,14 @@
 """Tests for the ``archiver_freshness`` probe.
 
 Pins the archiver-freshness contract: a missing ``channel`` and a missing
-``archiver:`` block are config-style errors; an unreachable archiver (or a
-raising query) is an error carrying ``str(exc)``; a sample within ``max_age_s``
-is ``ok`` with its age reported; a sample older than the threshold — or an empty
-query window — is a ``warning``; a frame that breaks the long-format contract is
-*not* laundered into a staleness warning. The archiver connector is acquired
-lazily via ``ctx.runtime.get_archiver`` with the ``ctx.config`` archiver block
-taking precedence, and one test drives the real in-tree
+``archiver:`` block are config-style errors; a block that serves no target, an
+archive whose settings are refused, or one that gives no answer is an error
+carrying the reason; a sample within ``max_age_s`` is ``ok`` with its age
+reported; a sample older than the threshold — or an empty query window — is a
+``warning``; a frame that breaks the long-format contract is *not* laundered
+into a staleness warning. The archive is acquired lazily via
+``ctx.runtime.get_archive`` with the first target's spec of the archive row,
+``ctx.config`` taking precedence, and one test drives the real in-tree
 :class:`MockArchiverConnector` end to end through a real :class:`HealthRuntime`.
 """
 
@@ -26,48 +27,54 @@ from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe
 from osprey.health.probes.archiver_freshness import run
 from osprey.health.runtime import HealthRuntime
+from osprey_connectors.connector_types import TARGET_LIVE, TARGET_VA
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 
 class _SpyArchiver:
-    """Returns a preset DataFrame from ``get_data``; records the query args."""
+    """Answers a preset DataFrame (or ``Unavailable``) from ``history``; records the query args."""
 
     def __init__(
         self,
         frame: pd.DataFrame | None = None,
-        raise_exc: Exception | None = None,
+        unavailable: Unavailable | None = None,
     ) -> None:
         self._frame = frame if frame is not None else pd.DataFrame()
-        self._raise_exc = raise_exc
-        self.get_data_calls: list[tuple[list[str], Any, Any, Any]] = []
-        self.disconnected = False
+        self._unavailable = unavailable
+        self.history_calls: list[tuple[list[str], Any, Any, Any]] = []
+        self.closed = False
 
-    async def get_data(
+    async def history(
         self,
-        channels: list[str],
+        addresses: list[str],
         *,
         start_at: Any,
         end_at: Any,
-        precision_ms: int = 1000,  # noqa: ARG002 - the archiver connector interface fixes this signature
-        timeout_s: int | None = None,
-    ) -> pd.DataFrame:
-        self.get_data_calls.append((channels, start_at, end_at, timeout_s))
-        if self._raise_exc is not None:
-            raise self._raise_exc
+        precision_ms: int = 1000,  # noqa: ARG002 - the archive contract fixes this signature
+        processing: str = "raw",  # noqa: ARG002 - the archive contract fixes this signature
+        timeout_s: float | None = None,
+    ) -> pd.DataFrame | Unavailable:
+        self.history_calls.append((addresses, start_at, end_at, timeout_s))
+        if self._unavailable is not None:
+            return self._unavailable
         return self._frame
 
-    async def disconnect(self) -> None:
-        self.disconnected = True
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class _SpyRuntime:
-    """Lazy archiver owner: hands out the connector only when asked."""
+    """Lazy archive owner: hands out the archive only when asked."""
 
-    def __init__(self, archiver: Any) -> None:
+    def __init__(self, archiver: Any, *, refuse: Exception | None = None) -> None:
         self._archiver = archiver
-        self.get_archiver_calls: list[dict[str, Any]] = []
+        self._refuse = refuse
+        self.get_archive_calls: list[BackendSpec] = []
 
-    async def get_archiver(self, archiver_config: dict[str, Any]) -> Any:
-        self.get_archiver_calls.append(archiver_config)
+    async def get_archive(self, spec: BackendSpec) -> Any:
+        self.get_archive_calls.append(spec)
+        if self._refuse is not None:
+            raise self._refuse
         return self._archiver
 
 
@@ -122,7 +129,7 @@ async def test_missing_channel_is_error() -> None:
     result = await run({}, ctx)
     assert result.status is Status.ERROR
     assert "channel" in result.message
-    assert runtime.get_archiver_calls == []  # never touched the archiver
+    assert runtime.get_archive_calls == []  # never touched the archiver
 
 
 async def test_no_archiver_block_is_error() -> None:
@@ -130,7 +137,7 @@ async def test_no_archiver_block_is_error() -> None:
     result = await run({"channel": "BEAM:CURRENT"}, ctx)
     assert result.status is Status.ERROR
     assert "no archiver configured" in result.message
-    assert runtime.get_archiver_calls == []  # misconfig detected before construction
+    assert runtime.get_archive_calls == []  # misconfig detected before construction
 
 
 async def test_empty_archiver_block_is_error() -> None:
@@ -144,13 +151,40 @@ async def test_empty_archiver_block_is_error() -> None:
 
 
 async def test_unreachable_archiver_is_error_with_details() -> None:
-    archiver = _SpyArchiver(raise_exc=ConnectionError("archiver refused connection"))
+    unreachable = Unavailable(cause="unreachable", reason="archiver refused connection")
+    archiver = _SpyArchiver(unavailable=unreachable)
     ctx, _runtime = _ctx(archiver)
     result = await run({"channel": "BEAM:CURRENT"}, ctx)
     assert result.status is Status.ERROR
     assert "archiver unreachable" in result.message
-    assert "archiver refused connection" in result.details
+    assert result.details == "archiver refused connection"
     assert result.latency_ms > 0  # latency measured on the failure branch
+
+
+async def test_refused_settings_are_error_with_details() -> None:
+    """The archive reads its settings when it is built; a refused block is the error."""
+    refused = ValueError("archiver URL is required for EPICS archiver")
+    runtime = _SpyRuntime(_SpyArchiver(), refuse=refused)
+    block = {"type": "epics_archiver", "settings": {"url": "https://arch.example"}}
+    ctx = ProbeContext(runtime=runtime, config={"archiver": block})  # type: ignore[arg-type]
+    result = await run({"channel": "BEAM:CURRENT"}, ctx)
+    assert result.status is Status.ERROR
+    assert "archiver unreachable" in result.message
+    assert result.details == "archiver URL is required for EPICS archiver"
+
+
+async def test_a_block_serving_no_target_is_error() -> None:
+    """A facility archive naming no address holds no target's past: nothing is built."""
+    runtime = _SpyRuntime(_SpyArchiver())
+    ctx = ProbeContext(
+        runtime=runtime,  # type: ignore[arg-type]
+        config={"archiver": {"type": "epics_archiver", "settings": {}}},
+    )
+    result = await run({"channel": "BEAM:CURRENT"}, ctx)
+    assert result.status is Status.ERROR
+    assert "archiver unreachable" in result.message
+    assert result.details == "this deployment's archiver block serves no control target"
+    assert runtime.get_archive_calls == []
 
 
 # --- Freshness grading ------------------------------------------------------
@@ -265,38 +299,51 @@ async def test_archiver_acquired_lazily_with_config_block() -> None:
     archiver = _SpyArchiver(_frame(newest_age_s=10))
     block = {"type": "epics_archiver", "epics_archiver": {"url": "https://arch.example"}}
     ctx, runtime = _ctx(archiver, config={"archiver": block})
-    assert runtime.get_archiver_calls == []  # nothing acquired before the run
+    assert runtime.get_archive_calls == []  # nothing acquired before the run
     await run({"channel": "BEAM:CURRENT"}, ctx)
-    assert runtime.get_archiver_calls == [block]  # ctx.config block passed through, once
+    # The ctx.config block, as the first target's spec of the archive row, once.
+    (spec,) = runtime.get_archive_calls
+    assert (spec.kind, spec.type, spec.target) == ("archive", "epics_archiver", TARGET_LIVE)
+    assert dict(spec.settings) == {"url": "https://arch.example"}
 
 
-async def test_timeout_passed_to_get_data() -> None:
+async def test_the_store_is_probed_on_the_target_it_holds() -> None:
+    """The mongodb store holds the virtual accelerator's past, so its spec is ``va``'s."""
+    block = {"type": "mongodb_archiver", "settings": {"host": "localhost"}}
+    config = {"archiver": block, "services": {"virtual_accelerator": {"port": 5064}}}
+    ctx, runtime = _ctx(_SpyArchiver(_frame(newest_age_s=10)), config=config)
+    await run({"channel": "BEAM:CURRENT"}, ctx)
+    (spec,) = runtime.get_archive_calls
+    assert (spec.type, spec.target) == ("mongodb_archiver", TARGET_VA)
+
+
+async def test_timeout_passed_to_history() -> None:
     archiver = _SpyArchiver(_frame(newest_age_s=10))
     ctx, _runtime = _ctx(archiver)
     await run({"channel": "BEAM:CURRENT", "timeout_s": 7.0}, ctx)
-    channels, _start, _end, timeout = archiver.get_data_calls[0]
+    channels, _start, _end, timeout = archiver.history_calls[0]
     assert channels == ["BEAM:CURRENT"]
-    assert timeout == 7  # float seconds coerced to the connector's int timeout
+    assert timeout == 7
 
 
 # --- Global-config fallback (ctx.config is None) -----------------------------
 
 
-async def test_none_config_falls_back_to_global_archiver_block(
+async def test_none_config_falls_back_to_global_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CLI/standalone: with no per-run config the block comes from the global
-    singleton via ``get_config_value("archiver", ...)`` and the run proceeds."""
+    """CLI/standalone: with no per-run config the config comes from the global
+    singleton via ``load_config()`` and the run proceeds."""
     import osprey_connectors.config as config_module
 
-    block = {"type": "mock_archiver"}
-    keys_asked: list[str] = []
+    loaded = {"archiver": {"type": "mock_archiver", "settings": {"sample_rate_hz": 2}}}
+    loads: list[None] = []
 
-    def fake_get_config_value(key: str, _default: Any = None) -> Any:
-        keys_asked.append(key)
-        return block
+    def fake_load_config(_config_path: str | None = None) -> Any:
+        loads.append(None)
+        return loaded
 
-    monkeypatch.setattr(config_module, "get_config_value", fake_get_config_value)
+    monkeypatch.setattr(config_module, "load_config", fake_load_config)
     archiver = _SpyArchiver(_frame(newest_age_s=10))
     runtime = _SpyRuntime(archiver)
     ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
@@ -304,29 +351,31 @@ async def test_none_config_falls_back_to_global_archiver_block(
     result = await run({"channel": "BEAM:CURRENT"}, ctx)
 
     assert result.status is Status.OK
-    assert keys_asked == ["archiver"]
-    assert runtime.get_archiver_calls == [block]  # the global block reached the runtime
+    assert len(loads) == 1
+    # The global block reached the runtime, as the first target's spec.
+    (spec,) = runtime.get_archive_calls
+    assert (spec.type, dict(spec.settings)) == ("mock_archiver", {"sample_rate_hz": 2})
 
 
-def _raising_get_config_value(_key: str, _default: Any = None) -> Any:
+def _raising_load_config(_config_path: str | None = None) -> Any:
     raise RuntimeError("config file not found")
 
 
 @pytest.mark.parametrize(
-    "get_config_value",
+    "load_config",
     [
-        pytest.param(_raising_get_config_value, id="config-load-raises"),
-        pytest.param(lambda key, default=None: "epics", id="scalar-archiver-value"),
+        pytest.param(_raising_load_config, id="config-load-raises"),
+        pytest.param(lambda _config_path=None: {"archiver": "epics"}, id="scalar-archiver-value"),
     ],
 )
 async def test_none_config_with_unusable_global_config_is_error(
-    monkeypatch: pytest.MonkeyPatch, get_config_value: Any
+    monkeypatch: pytest.MonkeyPatch, load_config: Any
 ) -> None:
     """Config unavailability -- a raising loader or a scalar ``archiver:`` value
     -- degrades to the misconfiguration error, not a crash."""
     import osprey_connectors.config as config_module
 
-    monkeypatch.setattr(config_module, "get_config_value", get_config_value)
+    monkeypatch.setattr(config_module, "load_config", load_config)
     runtime = _SpyRuntime(_SpyArchiver())
     ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
 
@@ -334,7 +383,7 @@ async def test_none_config_with_unusable_global_config_is_error(
 
     assert result.status is Status.ERROR
     assert "no archiver configured" in result.message
-    assert runtime.get_archiver_calls == []
+    assert runtime.get_archive_calls == []
 
 
 # --- Real in-tree MockArchiverConnector end to end --------------------------
@@ -352,6 +401,6 @@ async def test_real_mock_archiver_is_fresh(tmp_path: Path, monkeypatch: pytest.M
         assert result.status is Status.OK
         assert result.name == "arch"
         assert result.value  # a reading was captured
-        assert runtime.archiver_ever_constructed
+        assert runtime.archive_ever_constructed
     finally:
         await runtime.shutdown()

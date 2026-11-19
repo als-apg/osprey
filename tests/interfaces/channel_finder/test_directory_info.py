@@ -28,10 +28,10 @@ from osprey.interfaces.channel_finder import directory_api
 from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
 from osprey.services.pv_directory import _connectors, service
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmStateRecord
-from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
+from osprey_connectors.alarm_state import AlarmCondition
+from osprey_connectors.directory import ChannelDirectory, DirectoryEntry, DirectoryPage
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.service_answers import Outcome, Source
+from osprey_connectors.service_answers import Source
 
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -355,11 +355,9 @@ def test_the_fixture_search_is_a_directory_page() -> None:
             if k not in ("origin", "alarm", "archived")
         }
 
-    rows = [DirectoryRow(**_fields(row)) for row in page["rows"]]
+    rows = [DirectoryEntry(**_fields(row)) for row in page["rows"]]
     states = {
-        row["name"]: AlarmStateRecord(**_fields(row["alarm"]))
-        for row in page["rows"]
-        if row["alarm"]
+        row["name"]: AlarmCondition(**_fields(row["alarm"])) for row in page["rows"] if row["alarm"]
     }
     held = frozenset(row["name"] for row in page["rows"] if row["archived"])
     served = page["source"]
@@ -370,15 +368,25 @@ def test_the_fixture_search_is_a_directory_page() -> None:
         rehearsal=served["rehearsal"],
     )
     rebuilt = DirectoryPage(
-        **{**page, "outcome": Outcome(page["outcome"]), "source": source, "rows": rows}
+        outcome=page["outcome"],
+        searched=page["searched"],
+        request=page["request"],
+        source=source,
+        total=page["total"],
+        rows=rows,
+        truncated=page["truncated"],
     )
     payload = _connectors.as_payload(rebuilt)
     payload["rows"] = [
         service._served_row(row, served["origin"], states, held)
         for row, served in zip(rows, page["rows"], strict=True)
     ]
+    from_the_page = ("outcome", "searched", "request", "source", "total", "rows", "truncated")
 
-    assert payload == page
+    assert {key: payload[key] for key in from_the_page} == {key: page[key] for key in from_the_page}
+    assert page["reason"] == payload["note"]
+    # The framework adds what the search computed over the page, in its served place.
+    assert list(page) == [*from_the_page, "partial", "facets", "facets_reason", "reason"]
 
 
 def test_the_fixture_value_rows_carry_int_severity_and_iso_timestamps() -> None:

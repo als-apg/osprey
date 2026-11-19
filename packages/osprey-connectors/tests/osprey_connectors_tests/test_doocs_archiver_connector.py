@@ -13,7 +13,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from osprey_connectors.archiver import ArchiveCoverage
 from osprey_connectors.errors import NaiveDatetimeError
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 # --------------------------------------------------------------------------------------
 # Helpers
@@ -32,6 +34,23 @@ def _make_raw_chunk(n=20, t_start=None, t_end=None):
     t_end = t_end or _END_TS
     times = np.linspace(t_start, t_end, n)
     return [(float(t), 0, 0, float(i)) for i, t in enumerate(times)]
+
+
+def _spec(settings: dict | None = None) -> BackendSpec:
+    return BackendSpec(
+        kind="archive",
+        type="doocs_archiver",
+        target="live",
+        settings=settings or {},
+        rehearsal=False,
+    )
+
+
+def _no_answer(answer: object, cause: str) -> str:
+    """*answer*'s reason, after asserting it is ``Unavailable`` with *cause*."""
+    assert isinstance(answer, Unavailable), answer
+    assert answer.cause == cause, answer
+    return answer.reason
 
 
 def _make_doocs4py(chunk=None, names_result=None):
@@ -60,7 +79,7 @@ def _make_doocs4py(chunk=None, names_result=None):
 
 @pytest.fixture
 async def archiver():
-    """DOOCSArchiverConnector connected with a mock doocs4py."""
+    """DOOCSArchiverConnector built with a mock doocs4py."""
     mock_d4py = _make_doocs4py()
 
     with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
@@ -68,10 +87,9 @@ async def archiver():
             DOOCSArchiverConnector,
         )
 
-        conn = DOOCSArchiverConnector()
-        await conn.connect({})
+        conn = DOOCSArchiverConnector(_spec())
         yield conn, mock_d4py
-        await conn.disconnect()
+        await conn.aclose()
 
 
 # --------------------------------------------------------------------------------------
@@ -79,31 +97,29 @@ async def archiver():
 # --------------------------------------------------------------------------------------
 
 
-class TestArchiverConnect:
-    async def test_connect_sets_connected(self):
+class TestArchiverBuild:
+    async def test_building_asks_the_ens_nothing(self):
         mock_d4py = _make_doocs4py()
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
             from osprey_connectors.archiver._doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            assert conn._connected is False
-            await conn.connect({})
-            assert conn._connected is True
-            await conn.disconnect()
+            conn = DOOCSArchiverConnector(_spec())
+            assert conn._doocs4py is mock_d4py
+            assert mock_d4py.names.call_count == 0
+            await conn.aclose()
 
-    async def test_connect_raises_import_error_without_doocs4py(self):
+    async def test_build_raises_import_error_without_doocs4py(self):
         with patch.dict(sys.modules, {"doocs4py": None}):
             from osprey_connectors.archiver._doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
             with pytest.raises(ImportError, match="doocs4py"):
-                await conn.connect({})
+                DOOCSArchiverConnector(_spec())
 
-    async def test_connect_raises_on_ens_failure(self):
+    async def test_the_probe_names_an_ens_failure(self):
         mock_d4py = _make_doocs4py()
         mock_d4py.names.side_effect = RuntimeError("ENS down")
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
@@ -111,26 +127,27 @@ class TestArchiverConnect:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            with pytest.raises(Exception, match="ENS"):
-                await conn.connect({})
+            conn = DOOCSArchiverConnector(_spec())
+            reason = _no_answer(await conn.probe(), "unreachable")
+            assert reason == "DOOCS archiver connector failed to connect to the ENS."
 
-    async def test_connect_stores_avg_window(self):
+    async def test_the_probe_counts_the_facilities_the_ens_lists(self, archiver):
+        conn, mock_d4py = archiver
+        mock_d4py.names.return_value = [("FACILITY", "XFEL"), ("FACILITY", "FLASH")]
+
+        assert await conn.probe() == "the ENS lists 2 facilities"
+        assert mock_d4py.names.call_args[0][0] == "*"
+
+    async def test_build_stores_avg_window(self):
         mock_d4py = _make_doocs4py()
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
             from osprey_connectors.archiver._doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            await conn.connect({"avg_window": 30})
+            conn = DOOCSArchiverConnector(_spec({"avg_window": 30}))
             assert conn._avg_window == 30
-            await conn.disconnect()
-
-    async def test_disconnect_clears_connected(self, archiver):
-        conn, _ = archiver
-        await conn.disconnect()
-        assert conn._connected is False
+            await conn.aclose()
 
 
 # --------------------------------------------------------------------------------------
@@ -155,10 +172,8 @@ class TestConnectionSettings:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
             with pytest.raises(ValueError, match=rf"`archiver\.settings\.{key}`.*doocs4py"):
-                await conn.connect(block)
-            assert conn._connected is False
+                DOOCSArchiverConnector(_spec(block))
 
     async def test_a_flat_timeout_is_refused_naming_timeout_s(self):
         with patch.dict(sys.modules, {"doocs4py": _make_doocs4py()}):
@@ -166,24 +181,11 @@ class TestConnectionSettings:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
             with pytest.raises(ValueError, match=r"`archiver\.settings\.timeout_s`"):
-                await conn.connect({"timeout": 7})
+                DOOCSArchiverConnector(_spec({"timeout": 7}))
 
 
 class TestGetDataValidation:
-    async def test_raises_when_not_connected(self):
-        mock_d4py = _make_doocs4py()
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey_connectors.archiver._doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            # Never called connect()
-            with pytest.raises(RuntimeError, match="not connected"):
-                await conn.get_data(["ADDR"], start_at=_START, end_at=_END)
-
     @pytest.mark.parametrize(
         ("bound", "start", "end"),
         [("start_at", "2026-01-01", _END), ("end_at", _START, 1234567890)],
@@ -192,7 +194,7 @@ class TestGetDataValidation:
     async def test_non_datetime_bound_is_rejected(self, archiver, bound, start, end):
         conn, _ = archiver
         with pytest.raises(TypeError, match=bound):
-            await conn.get_data(["ADDR"], start_at=start, end_at=end)
+            await conn.history(["ADDR"], start_at=start, end_at=end)
 
 
 # --------------------------------------------------------------------------------------
@@ -205,20 +207,22 @@ class TestGetDataSinglePV:
         """The canonical long frame, carrying exactly the requested channel and
         every one of the fixture chunk's 20 archived samples."""
         conn, _ = archiver
-        df = await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
+        df = await conn.history(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
 
         assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["timestamp", "address", "value"]
         assert set(df["address"]) == {"FAC/DEV/LOC/PROP"}
         assert len(df) == 20
 
-    async def test_unreadable_history_raises_runtime_error(self, archiver):
-        """A channel whose history cannot be read fails loudly, not as an empty frame."""
+    async def test_unreadable_history_answers_failed(self, archiver):
+        """A channel whose history cannot be read answers why, not an empty frame."""
         conn, mock_d4py = archiver
         mock_d4py.get.side_effect = RuntimeError("DOOCS error")
 
-        with pytest.raises(RuntimeError, match="Cannot read history for FAC/DEV/LOC/PROP"):
-            await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
+        answer = await conn.history(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
+        assert _no_answer(answer, "failed") == (
+            "DOOCS archiver connector: Cannot read history for FAC/DEV/LOC/PROP"
+        )
 
 
 class TestGetDataTimeout:
@@ -248,17 +252,22 @@ class TestGetDataTimeout:
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
-        await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
+        await conn.history(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
 
         assert seen["timeout"] == 60
 
     async def test_configured_default_is_honored(self, archiver, monkeypatch):
         """A ``timeout_s`` in the connector config reaches ``wait_for``."""
-        conn, _ = archiver
-        await conn.connect({"timeout_s": 7})
+        _, mock_d4py = archiver
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey_connectors.archiver._doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector(_spec({"timeout_s": 7}))
         seen = self._spy_wait_for(monkeypatch)
 
-        await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
+        await conn.history(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
 
         assert seen["timeout"] == 7
 
@@ -266,7 +275,7 @@ class TestGetDataTimeout:
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
-        await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END, timeout_s=3)
+        await conn.history(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END, timeout_s=3)
 
         assert seen["timeout"] == 3
 
@@ -275,8 +284,8 @@ class TestGetDataTimeout:
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
-        with pytest.raises(TimeoutError):
-            await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END, timeout_s=0)
+        answer = await conn.history(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END, timeout_s=0)
+        assert _no_answer(answer, "timeout") == "DOOCS archiver request timed out after 0s"
 
         assert seen["timeout"] == 0
 
@@ -288,15 +297,15 @@ class TestGetDataTimeout:
 
 class TestReadHistory:
     def _make_connector_with_d4py(self, mock_d4py):
-        """Return a DOOCSArchiverConnector with _doocs4py already set (no connect)."""
+        """Return a DOOCSArchiverConnector built with *mock_d4py* as its doocs4py."""
+        mock_d4py.__version__ = "2.0.0"
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
             from osprey_connectors.archiver._doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
+            conn = DOOCSArchiverConnector(_spec())
             conn._doocs4py = mock_d4py
-            conn._connected = True
             conn._avg_window = None
             return conn
 
@@ -490,35 +499,42 @@ class TestReadHistory:
 
 
 # --------------------------------------------------------------------------------------
-# check_availability
+# coverage
 # --------------------------------------------------------------------------------------
 
 
-class TestCheckAvailability:
-    async def test_available_when_names_returns_result(self, archiver):
+class TestCoverage:
+    async def test_archived_when_names_returns_result(self, archiver):
         conn, mock_d4py = archiver
         mock_d4py.names.return_value = [("FAC/DEV/LOC/PROP.HIST", "some_value")]
 
-        avail = await conn.check_availability(["FAC/DEV/LOC/PROP"])
+        coverage = await conn.coverage(["FAC/DEV/LOC/PROP"])
 
-        assert avail["FAC/DEV/LOC/PROP"] is True
+        # DOOCS states no bounds.
+        assert coverage == {
+            "FAC/DEV/LOC/PROP": ArchiveCoverage(address="FAC/DEV/LOC/PROP", is_archived=True)
+        }
 
-    async def test_unavailable_when_names_returns_empty(self, archiver):
+    async def test_not_archived_when_names_returns_empty(self, archiver):
         conn, mock_d4py = archiver
         mock_d4py.names.return_value = []
 
-        avail = await conn.check_availability(["FAC/DEV/LOC/MISSING"])
+        coverage = await conn.coverage(["FAC/DEV/LOC/MISSING"])
 
-        assert avail["FAC/DEV/LOC/MISSING"] is False
+        assert coverage["FAC/DEV/LOC/MISSING"].is_archived is False
 
     async def test_a_failed_lookup_is_unknown(self, archiver):
-        """A lookup that raises answers ``None``: the archiver could not say."""
+        """A lookup that raises answers ``None``: the archiver could not say, and why."""
         conn, mock_d4py = archiver
         mock_d4py.names.side_effect = RuntimeError("lookup failed")
 
-        avail = await conn.check_availability(["FAC/DEV/LOC/PROP"])
+        coverage = await conn.coverage(["FAC/DEV/LOC/PROP"])
 
-        assert avail["FAC/DEV/LOC/PROP"] is None
+        assert coverage["FAC/DEV/LOC/PROP"] == ArchiveCoverage(
+            address="FAC/DEV/LOC/PROP",
+            is_archived=None,
+            unknown_reason="the DOOCS name service could not be asked: RuntimeError",
+        )
 
     @pytest.mark.parametrize(
         "address", ["FAC/DEV/LOC/PROP", "FAC/DEV/LOC/PROP.HIST"], ids=["bare", "already_hist"]
@@ -528,62 +544,19 @@ class TestCheckAvailability:
         conn, mock_d4py = archiver
         mock_d4py.names.return_value = []
 
-        await conn.check_availability([address])
+        await conn.coverage([address])
 
         assert mock_d4py.names.call_args[0][0] == "FAC/DEV/LOC/PROP.HIST"
 
 
 # --------------------------------------------------------------------------------------
-# get_metadata
+# Closing / timezone
 # --------------------------------------------------------------------------------------
 
 
-class TestGetMetadata:
-    async def test_get_metadata_does_not_claim_the_channel_archived(self, archiver):
-        """``get_metadata`` asks nothing, so membership is unknown (``None``)."""
-        from osprey_connectors.archiver._base import ArchiverMetadata
-
-        conn, _ = archiver
-        meta = await conn.get_metadata("FAC/DEV/LOC/PROP")
-
-        assert isinstance(meta, ArchiverMetadata)
-        assert meta.address == "FAC/DEV/LOC/PROP"
-        assert meta.is_archived is None
-
-
-# --------------------------------------------------------------------------------------
-# Disconnected guard / timezone
-# --------------------------------------------------------------------------------------
-
-
-class TestDisconnectedGuard:
-    """A disconnected connector must not reach the ENS."""
-
-    async def test_never_connected_refuses_without_lookups(self):
-        """A client object alone does not make the connector usable.
-
-        The client is planted by hand so the ``_connected`` guard, not a missing
-        client, is what keeps the lookup from happening.
-        """
-        from osprey_connectors.archiver._doocs_archiver_connector import (
-            DOOCSArchiverConnector,
-        )
-
-        mock_d4py = _make_doocs4py(names_result=[("FAC/DEV/LOC/P.HIST", "value")])
-        conn = DOOCSArchiverConnector()
-        conn._doocs4py = mock_d4py
-
-        with pytest.raises(RuntimeError, match="not connected"):
-            await conn.check_availability(["FAC/DEV/LOC/P"])
-
-        assert mock_d4py.names.call_count == 0
-
-    async def test_after_disconnect_refuses_without_lookups(self):
-        """``disconnect()`` alone keeps a live-looking client away from the ENS.
-
-        ``disconnect()`` also drops ``_doocs4py``, which would hide a missing
-        ``_connected`` guard, so the client is put back to isolate the guard.
-        """
+class TestClose:
+    async def test_double_close_is_safe_and_reads_go_on(self):
+        """The archive holds nothing open: closing twice is safe, and it still answers."""
         mock_d4py = _make_doocs4py(names_result=[("FAC/DEV/LOC/P.HIST", "value")])
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
@@ -591,32 +564,12 @@ class TestDisconnectedGuard:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            await conn.disconnect()
-            conn._doocs4py = mock_d4py
+            conn = DOOCSArchiverConnector(_spec())
+            await conn.aclose()
+            await conn.aclose()
 
-            mock_d4py.names.reset_mock()
-            with pytest.raises(RuntimeError, match="not connected"):
-                await conn.check_availability(["FAC/DEV/LOC/P"])
-
-        assert mock_d4py.names.call_count == 0
-
-    async def test_double_disconnect_is_safe(self):
-        mock_d4py = _make_doocs4py()
-
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey_connectors.archiver._doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            await conn.disconnect()
-            await conn.disconnect()
-
-        assert conn._doocs4py is None
-        assert conn._connected is False
+        coverage = await conn.coverage(["FAC/DEV/LOC/P"])
+        assert coverage["FAC/DEV/LOC/P"].is_archived is True
 
 
 class TestQueryWindowTimezone:
@@ -625,7 +578,7 @@ class TestQueryWindowTimezone:
     async def test_a_naive_bound_is_refused(self, archiver):
         conn, _ = archiver
         with pytest.raises(NaiveDatetimeError, match="start_at"):
-            await conn.get_data(["FAC/DEV/LOC/P"], start_at=datetime(2026, 7, 30), end_at=_END)
+            await conn.history(["FAC/DEV/LOC/P"], start_at=datetime(2026, 7, 30), end_at=_END)
 
     async def test_aware_bounds_are_the_same_instant_on_any_host(
         self, archiver, monkeypatch, request
@@ -659,7 +612,7 @@ class TestQueryWindowTimezone:
 
         conn._read_history = _spy
 
-        await conn.get_data(
+        await conn.history(
             ["FAC/DEV/LOC/P"],
             start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=pacific),
             end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=pacific),
@@ -691,16 +644,15 @@ class TestProcessingSparseData:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
+            conn = DOOCSArchiverConnector(_spec())
+            df = await conn.history(
                 ["FAC/DEV/LOC/P"],
                 start_at=start,
                 end_at=end,
                 precision_ms=1000,
                 processing="mean",
             )
-            await conn.disconnect()
+            await conn.aclose()
 
         # Naive 1 s resampling of ~1-hour-apart data would inflate this to
         # ~21,601 mostly-NaN rows.
@@ -762,16 +714,15 @@ class TestProcessingGenuineAggregation:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
+            conn = DOOCSArchiverConnector(_spec())
+            df = await conn.history(
                 ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
                 start_at=_START,
                 end_at=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
                 precision_ms=1000,
                 processing=processing,
             )
-            await conn.disconnect()
+            await conn.aclose()
 
         assert df.loc[df["address"] == "FAC/DEV/LOC/A", "value"].tolist() == pytest.approx(expected)
         assert df.loc[df["address"] == "FAC/DEV/LOC/B", "value"].tolist() == pytest.approx(expected)
@@ -787,16 +738,15 @@ class TestProcessingGenuineAggregation:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
+            conn = DOOCSArchiverConnector(_spec())
+            df = await conn.history(
                 ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
                 start_at=_START,
                 end_at=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
                 precision_ms=1000,
                 # processing defaults to "raw"
             )
-            await conn.disconnect()
+            await conn.aclose()
 
         # The last real sample of each of the 3 true 1s bins: chunk indices
         # 9, 19, 29 (values 9.0, 19.0, 29.0), at their own real timestamps.
@@ -859,16 +809,15 @@ class TestProcessingGenuineAggregation:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
+            conn = DOOCSArchiverConnector(_spec())
+            df = await conn.history(
                 ["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
                 start_at=_START,
                 end_at=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
                 precision_ms=1000,
                 processing=processing,
             )
-            await conn.disconnect()
+            await conn.aclose()
 
         fast_values = df.loc[df["address"] == "FAC/DEV/LOC/FAST", "value"].tolist()
         slow_values = df.loc[df["address"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
@@ -897,16 +846,15 @@ class TestProcessingGenuineAggregation:
                 DOOCSArchiverConnector,
             )
 
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
+            conn = DOOCSArchiverConnector(_spec())
+            df = await conn.history(
                 ["FAST", "SLOW"],
                 start_at=_START,
                 end_at=datetime(2026, 1, 1, 0, 0, 5, tzinfo=UTC),
                 precision_ms=1000,
                 processing="count",
             )
-            await conn.disconnect()
+            await conn.aclose()
 
         fast_counts = df.loc[df["address"] == "FAST", "value"].tolist()
         slow_counts = df.loc[df["address"] == "SLOW", "value"].tolist()

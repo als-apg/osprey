@@ -2,7 +2,7 @@
 
 Archives store a ``bool`` or ``enum`` channel as its option index. The read tool
 loads the labels once from the channel roster and returns, per sample, the
-index and the label, whichever connector served the series, so an agent says
+index and the label, whichever archive served the series, so an agent says
 "User operation" rather than "0". A labelled channel is always requested raw
 (the last real sample per bin): a mean of option indices names no state.
 """
@@ -79,41 +79,48 @@ def _labelled_tree() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# A connector serving indices (the MongoDB shape, or any other backend)
+# An archive serving indices (the MongoDB shape, or any other backend)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def stubbed(tmp_path, monkeypatch):
-    """``(tool, connector, project)``: a project with a facility file and a stub connector.
+    """``(tool, archive, project)``: a project with a facility file and a stub archive.
 
     The stub stands for any backend that serves the archived option index
     (the MongoDB store does): the labels come from the roster, not from it.
     """
-    from osprey_connectors.archiver._base import ArchiverMetadata
-
     monkeypatch.chdir(tmp_path)
-    # The config names the in-process archiver so the session's target owns
-    # the archive; the connector itself is the stub below.
+    # The config names the in-process archiver so the session's target opens
+    # an archive; the archive itself is the stub below.
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
     write_facility_file(tmp_path, _labelled_tree())
     initialize_server_context()
 
-    connector = AsyncMock()
-    connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
-    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(address=ch, is_archived=True)
+    archive = _stub_archive()
     with patch(
-        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_service",
         new_callable=AsyncMock,
-        return_value=connector,
+        return_value=archive,
     ):
-        yield _tool(), connector, tmp_path
+        yield _tool(), archive, tmp_path
+
+
+def _stub_archive() -> AsyncMock:
+    """A stand-in archive whose coverage answers every channel archived, boundless."""
+    from osprey_connectors.archiver import ArchiveCoverage
+
+    archive = AsyncMock()
+    archive.coverage.side_effect = lambda chans, **_: {
+        ch: ArchiveCoverage(address=ch, is_archived=True) for ch in chans
+    }
+    return archive
 
 
 class TestIndexAndLabel:
     async def test_each_sample_carries_its_index_and_its_label(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [0, 1, 3]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [0, 1, 3]})
 
         data = extract_response_dict(
             await fn(channels=[MODE], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -127,8 +134,8 @@ class TestIndexAndLabel:
         json.dumps(data, allow_nan=False)
 
     async def test_the_summary_names_the_last_state_by_its_label(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [2, 0]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [2, 0]})
 
         data = extract_response_dict(
             await fn(channels=[MODE], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -146,8 +153,8 @@ class TestIndexAndLabel:
         assert "max" not in entry
 
     async def test_float_indices_from_a_numeric_column_are_read_as_indices(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [0.0, 2.0], DCCT: [500.1, 500.2]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [0.0, 2.0], DCCT: [500.1, 500.2]})
 
         data = extract_response_dict(
             await fn(channels=[MODE, DCCT], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -158,8 +165,8 @@ class TestIndexAndLabel:
         assert series["labels"] == ["User operation", "Machine studies"]
 
     async def test_a_bool_without_options_takes_the_default_labels(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({"SR:VALVE:OPEN": [False, True]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({"SR:VALVE:OPEN": [False, True]})
 
         data = extract_response_dict(
             await fn(channels=["SR:VALVE:OPEN"], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -170,8 +177,8 @@ class TestIndexAndLabel:
         assert series["labels"] == ["FALSE", "TRUE"]
 
     async def test_a_backend_serving_the_label_gets_its_index(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: ["Injection", "User operation"]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: ["Injection", "User operation"]})
 
         data = extract_response_dict(
             await fn(channels=[MODE], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -182,8 +189,8 @@ class TestIndexAndLabel:
         assert series["labels"] == ["Injection", "User operation"]
 
     async def test_a_null_sample_has_no_index_and_no_label(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [0.0, float("nan"), 1.0]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [0.0, float("nan"), 1.0]})
 
         data = extract_response_dict(
             await fn(channels=[MODE], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -196,8 +203,8 @@ class TestIndexAndLabel:
         json.dumps(data, allow_nan=False)
 
     async def test_an_index_outside_the_options_keeps_its_value_and_has_no_label(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [7]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [7]})
 
         data = extract_response_dict(
             await fn(channels=[MODE], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -208,8 +215,8 @@ class TestIndexAndLabel:
         assert series["labels"] == [None]
 
     async def test_an_unlabelled_channel_is_untouched(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({DCCT: [500.1, 500.3]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({DCCT: [500.1, 500.3]})
 
         data = extract_response_dict(
             await fn(channels=[DCCT], start_time="2024-01-15T10:00:00", bin_size=60)
@@ -227,18 +234,18 @@ class TestIndexAndLabel:
 
 class TestLabelledChannelsAreReadRaw:
     async def test_raw_reads_everything_in_one_request(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [0], DCCT: [500.0]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [0], DCCT: [500.0]})
 
         await fn(channels=[MODE, DCCT], start_time="2024-01-15T10:00:00", bin_size=60)
 
-        assert connector.get_data.await_count == 1
-        assert connector.get_data.call_args.kwargs["processing"] == "raw"
+        assert archive.history.await_count == 1
+        assert archive.history.call_args.kwargs["processing"] == "raw"
 
     async def test_an_aggregate_read_requests_the_labelled_channels_raw_at_the_same_bin(
         self, stubbed
     ):
-        fn, connector, _ = stubbed
+        fn, archive, _ = stubbed
 
         def serve(channels, *_window, **_request):
             data = {}
@@ -248,7 +255,7 @@ class TestLabelledChannelsAreReadRaw:
                 data[DCCT] = [500.2]
             return _frame(data)
 
-        connector.get_data.side_effect = serve
+        archive.history.side_effect = serve
 
         data = extract_response_dict(
             await fn(
@@ -262,7 +269,7 @@ class TestLabelledChannelsAreReadRaw:
 
         calls = {
             tuple(c.args[0]): {k: c.kwargs[k] for k in ("precision_ms", "processing")}
-            for c in connector.get_data.await_args_list
+            for c in archive.history.await_args_list
         }
         assert calls == {
             (DCCT,): {"precision_ms": 60_000, "processing": "mean"},
@@ -277,8 +284,8 @@ class TestLabelledChannelsAreReadRaw:
         ]
 
     async def test_an_aggregate_read_of_only_labelled_channels_never_aggregates(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [3]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [3]})
 
         await fn(
             channels=[MODE],
@@ -287,13 +294,13 @@ class TestLabelledChannelsAreReadRaw:
             bin_size=60,
         )
 
-        assert [c.kwargs["processing"] for c in connector.get_data.await_args_list] == ["raw"]
+        assert [c.kwargs["processing"] for c in archive.history.await_args_list] == ["raw"]
 
 
 class TestTheRosterIsLoadedOnce:
     async def test_one_read_loads_the_labels_once(self, stubbed):
-        fn, connector, _ = stubbed
-        connector.get_data.return_value = _frame({MODE: [0], "SR:VALVE:OPEN": [1]})
+        fn, archive, _ = stubbed
+        archive.history.return_value = _frame({MODE: [0], "SR:VALVE:OPEN": [1]})
 
         from osprey.mcp_server.control_system.tools import archiver_read as module
 
@@ -309,20 +316,15 @@ class TestTheRosterIsLoadedOnce:
         assert roster.call_count == 1
 
     async def test_no_facility_file_leaves_every_channel_as_served(self, tmp_path, monkeypatch):
-        from osprey_connectors.archiver._base import ArchiverMetadata
-
         monkeypatch.chdir(tmp_path)
         (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
         initialize_server_context()
-        connector = AsyncMock()
-        connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
-            address=ch, is_archived=True
-        )
-        connector.get_data.return_value = _frame({MODE: [0, 1]})
+        archive = _stub_archive()
+        archive.history.return_value = _frame({MODE: [0, 1]})
         with patch(
-            "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_service",
             new_callable=AsyncMock,
-            return_value=connector,
+            return_value=archive,
         ):
             data = extract_response_dict(
                 await _tool()(channels=[MODE], start_time="2024-01-15T10:00:00", bin_size=60)

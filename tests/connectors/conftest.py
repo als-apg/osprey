@@ -84,10 +84,10 @@ def mongodb_config(mongodb_container, monkeypatch):
     The in-network address overrides are cleared: they beat the config, so a
     shell that sets them would send these tests to another store.
     """
-    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archive_store import _HOST_OVERRIDE_ENV, _PORT_OVERRIDE_ENV
 
-    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
     password_env = "MONGODB_TEST_PASSWORD"
     monkeypatch.setenv(password_env, mongodb_container["password"])
 

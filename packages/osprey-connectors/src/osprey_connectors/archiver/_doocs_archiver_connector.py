@@ -8,8 +8,9 @@ Date: 2026-07-01
 """
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
+from pathlib import Path
 from typing import Protocol, TypedDict
 
 import numpy as np
@@ -18,7 +19,7 @@ import pandas as pd
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver._base import ArchiveCoverage, ChannelArchive
 from osprey_connectors.archiver._timerange import (
     ProcessingMode,
     aggregate_long_frame,
@@ -27,6 +28,7 @@ from osprey_connectors.archiver._timerange import (
 )
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 logger = get_logger("doocs_archiver_connector")
 
@@ -66,7 +68,7 @@ class _History(TypedDict):
     data: npt.NDArray[np.float64]
 
 
-class DOOCSArchiverConnector(ArchiverConnector):
+class DOOCSArchiverConnector(ChannelArchive):
     """
     DOOCS local history connector.
 
@@ -76,41 +78,36 @@ class DOOCSArchiverConnector(ArchiverConnector):
     It averages over a real time span, so it operates on the archived samples at
     their own irregular timestamps -- no resampling onto a uniform grid.
 
+    The spec's settings, every key optional:
+
+    - avg_window: Centered moving-average window in seconds (default: None,
+      no smoothing)
+    - timeout_s: Default request timeout in seconds (default: 60)
+
+    The ENS is not asked when the archive is built; :meth:`probe` asks it.
+
+    Raises:
+        ValueError: If the block names ``auth``, ``tls`` or a flat ``timeout``
+        ImportError: If doocs4py is not installed
+
     Example:
-        >>> config = {
-        >>>     'avg_window': 20
-        >>> }
-        >>> connector = DOOCSArchiverConnector()
-        >>> await connector.connect(config)
-        >>> df = await connector.get_data(
+        >>> archive = DOOCSArchiverConnector(BackendSpec(
+        >>>     kind="archive", type="doocs_archiver", target="live", rehearsal=False,
+        >>>     settings={'avg_window': 20},
+        >>> ))
+        >>> frame = await archive.history(
         >>>     ['FACILITY/DEVICE/LOCATION/PROPERTY'],
         >>>     start_at=datetime(2026, 7, 1, tzinfo=UTC),
         >>>     end_at=datetime(2026, 7, 2, tzinfo=UTC),
         >>> )
     """
 
-    def __init__(self) -> None:
-        self._connected = False
-        self._avg_window: float | None = None
-        self._doocs4py: _Doocs4py | None = None
-        self._timeout: float = 60
-
-    # The config block is the archiver extension contract; this backend reads its keys unchecked.
-    @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
-        """
-        Configure DOOCS environment and test connection.
-
-        Args:
-            config: Configuration with optional keys:
-                - avg_window: Centered moving-average window in seconds
-                  (default: None, no smoothing)
-                - timeout_s: Default request timeout in seconds (default: 60)
-
-        Raises:
-            ValueError: If the block names ``auth``, ``tls`` or a flat ``timeout``
-            ImportError: If doocs4py is not installed
-        """
+    def __init__(
+        self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
+    ) -> None:
+        super().__init__(spec, project_dir=project_dir, **seams)
+        # The settings block is the archive's extension contract; this backend reads its keys unchecked.
+        config: Mapping[str, ContractAny] = spec.settings
         connection = read_connection_settings(
             config,
             where="archiver.settings",
@@ -131,40 +128,40 @@ class DOOCSArchiverConnector(ArchiverConnector):
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
-        # Test connection using a doocs4py.names call, listing all FACILITYs
-        try:
-            facilities = [f[1] for f in library.names("*")]
-            logger.debug(
-                "DOOCS archiver connector: ENS connection successful."
-                f"Available FACILITIEs: {len(facilities)}"
-            )
-        except Exception:
-            raise Exception("DOOCS archiver connector failed to connect to the ENS.") from None
-
-        self._avg_window = config.get("avg_window")
-        self._timeout = connection.timeout_or(60)
-
-        self._connected = True
+        self._avg_window: float | None = config.get("avg_window")
+        self._timeout: float = connection.timeout_or(60)
         logger.debug("DOOCS archiver connector initialized")
 
     @override
-    async def disconnect(self) -> None:
-        """Cleanup archiver."""
-        self._connected = False
-        self._doocs4py = None
-        logger.debug("DOOCS archiver connector disconnected")
+    async def probe(self, *, timeout_s: float | None = None) -> str | Unavailable:
+        """Whether the ENS answers: how many facilities it lists, or why not."""
+        bound = timeout_s if timeout_s is not None else self._timeout
+
+        def list_facilities() -> int:
+            return len([f[1] for f in self._doocs4py.names("*")])
+
+        try:
+            facilities = await asyncio.wait_for(asyncio.to_thread(list_facilities), timeout=bound)
+        except TimeoutError:
+            return Unavailable(cause="timeout", reason=f"the ENS did not answer within {bound}s")
+        except Exception:
+            return Unavailable(
+                cause="unreachable",
+                reason="DOOCS archiver connector failed to connect to the ENS.",
+            )
+        return f"the ENS lists {facilities} facilities"
 
     @override
-    async def get_data(
+    async def history(
         self,
-        addresses: list[str],
+        addresses: Sequence[str],
         *,
         start_at: datetime,
         end_at: datetime,
         precision_ms: int = 1000,
-        timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
-    ) -> pd.DataFrame:
+        timeout_s: float | None = None,
+    ) -> pd.DataFrame | Unavailable:
         """
         Retrieve historical data from the DOOCS local histories.
 
@@ -173,36 +170,33 @@ class DOOCSArchiverConnector(ArchiverConnector):
             start_at: Start of the time range, timezone-aware.
             end_at: End of the time range, timezone-aware.
             precision_ms: Time precision (affects downsampling)
-            timeout_s: Timeout in seconds. ``None`` falls back to the connector's
-                configured default rather than waiting indefinitely.
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
-                client-side via pandas resampling. Anything else raises ValueError.
+                client-side via pandas resampling. Anything else raises
+                ArchiveQueryError.
+            timeout_s: Timeout in seconds. ``None`` falls back to the connector's
+                configured default rather than waiting indefinitely.
 
         Returns:
-            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
+            The canonical long frame — see :meth:`ChannelArchive.history` — or
+            ``Unavailable`` when a DOOCS property's history cannot be read, or
+            the request times out.
 
         Raises:
-            RuntimeError: If archiver not connected, or a DOOCS property's
-                history cannot be read
             TypeError: If start_at or end_at is not a datetime
             NaiveDatetimeError: If start_at or end_at is naive
-            TimeoutError: If the request times out
-            ValueError: If a non-raw processing mode is requested for a
+            ArchiveQueryError: If a non-raw processing mode is requested for a
                 channel that carries non-numeric values
         """
 
         # asyncio.wait_for(timeout=None) would block indefinitely.
         bound: float = timeout_s if timeout_s is not None else self._timeout
 
-        if not self._connected:
-            raise RuntimeError("DOOCS archiver not connected")
-
         start_utc, end_utc = utc_window(start_at, end_at)
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
         # Quoted: ``pd.Series`` is not subscriptable at runtime.
-        def fetch_all() -> "dict[str, pd.Series[float]]":
+        def fetch_all() -> "dict[str, pd.Series[float]] | Unavailable":
             data: dict[str, pd.Series[float]] = {}
             for add in addresses:
                 hist_data_dict = self._read_history(
@@ -212,63 +206,67 @@ class DOOCSArchiverConnector(ArchiverConnector):
                     self._avg_window,
                 )
                 if hist_data_dict is None:
-                    raise RuntimeError(f"DOOCS archiver connector: Cannot read history for {add}")
+                    return Unavailable(
+                        cause="failed",
+                        reason=f"DOOCS archiver connector: Cannot read history for {add}",
+                    )
                 timestamps = pd.to_datetime(hist_data_dict["time"], unit="s", utc=True)
                 data[add] = pd.Series(hist_data_dict["data"], index=timestamps, name=add)
             return data
 
         try:
             series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=bound)
-
-            data = aggregate_long_frame(series_dict, resolved)
-
-            logger.debug(
-                f"Retrieved DOOCS archiver data: {len(data)} rows "
-                f"across {len(addresses)} DOOCS properties"
+        except TimeoutError:
+            return Unavailable(
+                cause="timeout", reason=f"DOOCS archiver request timed out after {bound}s"
             )
-            return data
+        if isinstance(series_dict, Unavailable):
+            return series_dict
 
-        except TimeoutError as e:
-            raise TimeoutError(f"DOOCS archiver request timed out after {bound}s") from e
+        data = aggregate_long_frame(series_dict, resolved)
 
-    @override
-    async def get_metadata(self, address: str) -> ArchiverMetadata:
-        """Get archiver metadata; membership is unknown (``None``), nothing is asked."""
-        return ArchiverMetadata(
-            address=address,
-            is_archived=None,
-            description=(
-                "the DOOCS archiver connector does not look up whether this channel "
-                "is archived here; check_availability does"
-            ),
+        logger.debug(
+            f"Retrieved DOOCS archiver data: {len(data)} rows "
+            f"across {len(addresses)} DOOCS properties"
         )
+        return data
 
     @override
-    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
-        """Check availability based on .HIST property name extension.
+    async def coverage(
+        self, addresses: Sequence[str], *, timeout_s: float | None = None
+    ) -> Mapping[str, ArchiveCoverage] | Unavailable:
+        """Whether each channel is archived, from its ``.HIST`` property name extension.
 
-        A lookup that raises answers ``None``: the archiver could not say.
-
-        Raises:
-            RuntimeError: If the archiver is not connected.
+        A lookup that raises answers ``is_archived`` ``None``: the archiver
+        could not say. DOOCS states no bounds.
         """
-        if not self._connected or self._doocs4py is None:
-            raise RuntimeError("DOOCS archiver not connected")
+        bound = timeout_s if timeout_s is not None else self._timeout
+        doocs4py = self._doocs4py
 
-        avail: dict[str, bool | None] = {}
-        for add in addresses:
-            hist_address = add
-            if not hist_address.endswith(".HIST"):
-                hist_address = add + ".HIST"
-            try:
-                if self._doocs4py.names(hist_address):
-                    avail[add] = True
+        def lookup_all() -> dict[str, ArchiveCoverage]:
+            covered: dict[str, ArchiveCoverage] = {}
+            for add in addresses:
+                hist_address = add
+                if not hist_address.endswith(".HIST"):
+                    hist_address = add + ".HIST"
+                try:
+                    archived = bool(doocs4py.names(hist_address))
+                except Exception as e:
+                    covered[add] = ArchiveCoverage(
+                        address=add,
+                        is_archived=None,
+                        unknown_reason=(
+                            f"the DOOCS name service could not be asked: {type(e).__name__}"
+                        ),
+                    )
                 else:
-                    avail[add] = False
-            except Exception:
-                avail[add] = None
+                    covered[add] = ArchiveCoverage(address=add, is_archived=archived)
+            return covered
 
-        return avail
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(lookup_all), timeout=bound)
+        except TimeoutError:
+            return Unavailable(cause="timeout", reason=f"the ENS did not answer within {bound}s")
 
     def _read_history(
         self,
@@ -300,8 +298,6 @@ class DOOCSArchiverConnector(ArchiverConnector):
         stop_ts: int = int(end_time)
 
         doocs4py = self._doocs4py
-        if doocs4py is None:
-            return None
 
         try:
             if not address.endswith(".HIST"):

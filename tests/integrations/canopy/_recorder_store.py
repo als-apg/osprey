@@ -21,7 +21,8 @@ from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 
 from osprey.services.archiver_recorder.config import RecorderSettings
 from osprey.services.archiver_recorder.store import ArchiveWriter
-from osprey_connectors.simulation.archive import DATE_FIELD, EXPIRE_FIELD, MANIFEST_ID
+from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD
+from osprey_connectors.simulation.archive import MANIFEST_ID
 
 #: The collection every test reads, as a deployment names it.
 COLLECTION = "pv_history"

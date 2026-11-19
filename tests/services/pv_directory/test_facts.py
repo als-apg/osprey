@@ -27,23 +27,25 @@ import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import _connectors, facts, service
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
 from osprey_connectors import control_context
-from osprey_connectors.alarm_log import AlarmHistoryRow
+from osprey_connectors.alarm_log import AlarmLogEntry
 from osprey_connectors.alarm_state import (
-    AlarmConfigRecord,
-    AlarmStateRecord,
-    AlarmStateRow,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
+    AlarmSeverity,
     AlarmStates,
 )
+from osprey_connectors.archiver import ArchiveCoverage, ArchiveExtent
 from osprey_connectors.directory import (
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
-    DirectoryRecord,
-    DirectoryRow,
 )
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.put_log import PutRow
+from osprey_connectors.put_log import PutLogEntry
 from osprey_connectors.service_answers import (
-    HistoryPage,
-    Outcome,
+    LogPage,
+    NotListed,
     Source,
     Unavailable,
 )
@@ -129,32 +131,26 @@ class FakeDirectory(FakeBackend):
 
     def _hits(self, query: Any) -> list[Any]:
         return [
-            record.row
+            record.entry
             for record in self.records.values()
-            if (not query.server or record.row.server in query.server)
-            and (query.status is None or record.row.status == query.status)
+            if (not query.server or record.entry.server in query.server)
+            and (query.status is None or record.entry.status == query.status)
             and (
                 query.address_pattern is None
-                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+                or fnmatch.fnmatchcase(record.entry.address, query.address_pattern)
             )
-            and query.words in record.row.address
+            and query.words in record.entry.address
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
     async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return DirectoryPage(
-                outcome=Outcome.UNAVAILABLE,
-                searched="",
-                request="",
-                source=self.source,
-                reason=self.fail,
-            )
+            return Unavailable(cause="unreachable", reason=self.fail)
         hits = self._hits(query)
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="",
             request="GET /fake",
             source=self.source,
@@ -165,13 +161,13 @@ class FakeDirectory(FakeBackend):
 
     async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(reason=self.fail)
+            return Unavailable(cause="unreachable", reason=self.fail)
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(reason=self.fail)
-        return self.records.get(address, Outcome.NOT_LISTED)
+            return Unavailable(cause="unreachable", reason=self.fail)
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakeAlarmState(FakeBackend):
@@ -191,7 +187,7 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.state
+        return NotListed(address=address) if self.state is None else self.state
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
@@ -202,13 +198,13 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     delay = 0.0
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, **_: Any) -> Any:  # noqa: ARG002 - a fake
         await asyncio.sleep(self.delay)
-        return self.page or HistoryPage(
-            outcome=Outcome.FOUND,
+        return self.page or LogPage(
+            outcome="found",
             source=self.source,
             rows=[
-                AlarmHistoryRow(
+                AlarmLogEntry(
                     event_at=datetime(2026, 11, 11, 6, tzinfo=UTC),
                     severity="MAJOR",
                     user="operator one",
@@ -223,12 +219,14 @@ class FakeAlarmLog(FakeBackend):
 class FakePutLog(FakeBackend):
     page: Any = None
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        return self.page or HistoryPage(
-            outcome=Outcome.FOUND,
+    async def history(self, address: str, **_: Any) -> Any:
+        return self.page or LogPage(
+            outcome="found",
             source=self.source,
             rows=[
-                PutRow(recorded_stamp="t2", address=address, old="1", new="2", user="operator two")
+                PutLogEntry(
+                    recorded_stamp="t2", address=address, old="1", new="2", user="operator two"
+                )
             ],
         )
 
@@ -314,12 +312,12 @@ def _facts(config: dict[str, Any], tmp_path: Path) -> Any:
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = DirectoryRow(address=name, server=ioc, host="host-a", status=status)
-    return DirectoryRecord(row=row, properties=properties)
+    row = DirectoryEntry(address=name, server=ioc, host="host-a", status=status)
+    return DirectoryDetail(entry=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.address: record for record in records}
+    return {record.entry.address: record for record in records}
 
 
 def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -331,8 +329,8 @@ def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 async def test_every_configured_section_answers(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1", recordDesc="beam position"))
-    FakeAlarmState.state = AlarmStateRecord(severity="MINOR", stale=True)
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
+    FakeAlarmState.state = AlarmCondition(severity="MINOR", stale=True)
+    FakeAlarmState.config = AlarmConfiguration(in_tree="yes", path="/SR/BPM1")
     page = _facts(_config(tmp_path, LIVE_BUILD, EVERY_SERVICE, "SR:BPM1"), tmp_path)
 
     answer = await page.pv_facts("SR:BPM1")
@@ -467,19 +465,27 @@ async def test_a_slow_history_misses_its_own_deadline_only(tmp_path: Path) -> No
     assert sections["put_history"]["outcome"] == "found"
 
 
-async def test_an_unavailable_history_page_keeps_its_reason(tmp_path: Path) -> None:
+async def test_an_unavailable_history_is_served_as_a_timed_out_one_is(tmp_path: Path) -> None:
     section = {**FACILITY, "put_log": PUT_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
-    FakePutLog.page = HistoryPage(
-        outcome=Outcome.UNAVAILABLE,
-        source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
-        reason="malformed response",
-    )
+    FakePutLog.page = Unavailable(cause="bad_reply", reason="malformed response")
 
     history = _sections(await page.pv_facts("SR:BPM1"))["put_history"]
 
-    assert history["outcome"] == "unavailable"
-    assert history["reason"] == "malformed response"
+    # No ``truncated`` or ``retention_known``: the backend gave no page to say them.
+    assert history == {
+        "section": "put_history",
+        "outcome": "unavailable",
+        "source": {
+            "target": "live",
+            "service": "caputlog",
+            "label": "caputlog",
+            "rehearsal": False,
+        },
+        "caveats": [],
+        "rows": [],
+        "reason": "malformed response",
+    }
 
 
 async def test_sections_with_no_source_on_the_target(tmp_path: Path, record: _Record) -> None:
@@ -520,9 +526,9 @@ async def test_a_backend_that_cannot_be_built_says_why(
 
 
 async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path: Path) -> None:
-    FakeAlarmState.state = Unavailable(reason="alarm feed still loading")
-    FakeAlarmState.config = Unavailable(reason="alarm feed still loading")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no")
+    FakeAlarmState.state = Unavailable(cause="not_ready", reason="alarm feed still loading")
+    FakeAlarmState.config = Unavailable(cause="not_ready", reason="alarm feed still loading")
+    FakeAlarmLog.config = AlarmConfiguration(in_tree="no")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -539,8 +545,8 @@ async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path
 
 
 async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Path) -> None:
-    FakeAlarmState.config = Unavailable(reason="no message from the feed yet")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
+    FakeAlarmState.config = Unavailable(cause="unreachable", reason="no message from the feed yet")
+    FakeAlarmLog.config = AlarmConfiguration(in_tree="yes", path="/SR/BPM1")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -553,7 +559,7 @@ async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Pa
 
 
 async def test_the_logger_alone_answers_the_configuration(tmp_path: Path) -> None:
-    FakeAlarmLog.config = Unavailable(reason="second step failed")
+    FakeAlarmLog.config = Unavailable(cause="unreachable", reason="second step failed")
     section = {**FACILITY, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -607,8 +613,10 @@ async def test_alarm_state_on_va_from_the_replay(
 
 
 def _row(channel: str, severity: str | None, time: str, **state: Any) -> Any:
-    record = AlarmStateRecord(severity=severity, event_at=datetime.fromisoformat(time), **state)
-    return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=record)
+    """A feed's row of *channel*, its recorded *severity* word read as the fold reads it."""
+    member, _acknowledged = AlarmSeverity.of_recorded(severity)
+    record = AlarmCondition(severity=member, event_at=datetime.fromisoformat(time), **state)
+    return AlarmEntry(address=channel, path=f"/SR/{channel}", condition=record)
 
 
 def _listed(*rows: Any, stale: bool = False) -> Any:
@@ -639,20 +647,19 @@ async def test_active_alarms_serve_the_counts_over_every_channel_and_the_active_
     assert answer["outcome"] == "found"
     assert answer["source"]["service"] == "phoebus_alarm_server"
     assert answer["counts"] == {
-        "DISCONNECTED": 1,
         "INVALID": 1,
         "MAJOR": 1,
         "MINOR": 2,
         "OK": 1,
-        "UNDEFINED": 1,
+        "UNDEFINED": 2,
     }
     assert answer["total"] == 8
     assert answer["stale"] is False
     assert answer["last_contact"] == "2026-11-11T08:00:00.000Z"
     assert answer["truncated"] is False
     assert [row["pv"] for row in answer["rows"]] == [
-        "SR:UNKNOWN",
         "SR:UNDEFINED",
+        "SR:UNKNOWN",
         "SR:INVALID",
         "SR:MAJOR",
         "SR:MINOR:NEW",
@@ -691,7 +698,7 @@ async def test_active_alarms_say_whether_the_feed_is_live_or_a_replay(
     assert answer["feed"] == feed
 
 
-async def test_an_unknown_severity_leads_the_active_rows_as_the_fold_ranks_it(
+async def test_an_unknown_severity_is_served_as_undefined_and_leads_major(
     tmp_path: Path,
 ) -> None:
     FakeAlarmState.listed = _listed(
@@ -702,7 +709,10 @@ async def test_an_unknown_severity_leads_the_active_rows_as_the_fold_ranks_it(
 
     answer = await page.active_alarms()
 
-    assert [row["pv"] for row in answer["rows"]] == ["SR:UNKNOWN", "SR:MAJOR"]
+    assert [(row["pv"], row["severity"]) for row in answer["rows"]] == [
+        ("SR:UNKNOWN", "UNDEFINED"),
+        ("SR:MAJOR", "MAJOR"),
+    ]
 
 
 async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
@@ -717,7 +727,7 @@ async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
 
     assert [row["pv"] for row in minor["rows"]] == ["SR:MINOR:NEW", "SR:MINOR:OLD"]
     assert minor["counts"]["MAJOR"] == 1
-    assert [row["pv"] for row in cut["rows"]] == ["SR:UNKNOWN", "SR:UNDEFINED"]
+    assert [row["pv"] for row in cut["rows"]] == ["SR:UNDEFINED", "SR:UNKNOWN"]
     assert cut["truncated"] is True
     assert cut["counts"] == minor["counts"]
     assert counts_only["rows"] == []
@@ -726,7 +736,7 @@ async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
 
 
 async def test_active_alarms_of_a_feed_that_cannot_answer_keep_its_reason(tmp_path: Path) -> None:
-    FakeAlarmState.listed = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.listed = Unavailable(cause="not_ready", reason="alarm feed still loading")
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
 
     answer = await page.active_alarms()
@@ -773,8 +783,8 @@ async def test_active_alarms_on_va_from_the_replay(
 
 async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1"))
-    FakeAlarmState.state = AlarmStateRecord(severity="MINOR")
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes")
+    FakeAlarmState.state = AlarmCondition(severity="MINOR")
+    FakeAlarmState.config = AlarmConfiguration(in_tree="yes")
     section = {
         **FACILITY,
         "caveats": ["names only, no values"],
@@ -796,8 +806,8 @@ async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_pat
 
 
 async def test_the_logged_configuration_carries_the_logger_caveats(tmp_path: Path) -> None:
-    FakeAlarmState.config = Unavailable(reason="no message from the feed yet")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes")
+    FakeAlarmState.config = Unavailable(cause="unreachable", reason="no message from the feed yet")
+    FakeAlarmLog.config = AlarmConfiguration(in_tree="yes")
     section = {
         **FACILITY,
         "alarm_state": {**KAFKA, "caveats": ["covers the SR tree only"]},
@@ -849,10 +859,10 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
     tmp_path: Path, outcome: str
 ) -> None:
     if outcome == "no_match":
-        FakePutLog.page = HistoryPage(
-            outcome=Outcome.NO_MATCH,
+        FakePutLog.page = LogPage(
+            outcome="no_match",
             source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
-            reason="no logged puts",
+            note="no logged puts",
         )
     section = {
         **FACILITY,
@@ -868,14 +878,27 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
     assert puts["caveats"] == ["puts through the gateway only"]
     assert puts["outcome"] == outcome
     if outcome == "no_match":
+        # The page's note is served as its ``reason``, after the fields it always had.
         assert puts["reason"] == "no logged puts"
+        assert list(puts) == [
+            "section",
+            "outcome",
+            "source",
+            "caveats",
+            "rows",
+            "truncated",
+            "retention_known",
+            "reason",
+        ]
+    else:
+        assert "reason" not in puts
     history = await page.history("put_log", "SR:BPM1")
     assert history["caveats"] == ["puts through the gateway only"]
 
 
 async def test_an_answered_history_names_its_configured_source(tmp_path: Path) -> None:
-    FakePutLog.page = HistoryPage(
-        outcome=Outcome.FOUND,
+    FakePutLog.page = LogPage(
+        outcome="found",
         source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
     )
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
@@ -919,8 +942,8 @@ async def test_an_unlisted_pv_with_logged_puts_is_not_listed(tmp_path: Path) -> 
 
 
 async def test_an_unlisted_pv_nothing_else_found_is_unknown(tmp_path: Path) -> None:
-    FakePutLog.page = HistoryPage(
-        outcome=Outcome.FOUND,
+    FakePutLog.page = LogPage(
+        outcome="found",
         source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
     )
     section = {**FACILITY, "alarm_state": KAFKA, "put_log": PUT_LOG}
@@ -1216,7 +1239,7 @@ async def test_a_feed_still_loading_leaves_the_ioc_alarms_unavailable_never_zero
     tmp_path: Path,
 ) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1"))
-    FakeAlarmState.listed = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.listed = Unavailable(cause="not_ready", reason="alarm feed still loading")
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
 
     alarms = (await page.ioc_facts("ioc-a"))["alarms"]
@@ -1254,54 +1277,48 @@ async def test_an_ioc_without_a_configured_feed_carries_no_alarms(tmp_path: Path
 APPLIANCE = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
 
 
-class _Metadata:
-    """An ``ArchiverMetadata`` answer."""
-
-    def __init__(self, archived: bool | None, **fields: Any) -> None:
-        self.is_archived = archived
-        self.first_sample_at = fields.get("start")
-        self.last_sample_at = fields.get("end")
-        self.sampling_period = fields.get("period")
-        self.description = fields.get("description")
-
-
-class _Held:
-    """A ``store_extent`` answer."""
-
-    def __init__(self, addresses: Any = None, reason: str | None = None, **times: Any) -> None:
-        self.addresses = addresses
-        self.oldest_at = times.get("oldest")
-        self.newest_at = times.get("newest")
-        self.reason = reason
+def _covered(archived: bool | None, **fields: Any) -> dict[str, Any]:
+    """The fields of an ``ArchiveCoverage`` answer, but its address."""
+    return {
+        "is_archived": archived,
+        "first_sample_at": fields.get("start"),
+        "last_sample_at": fields.get("end"),
+        "sampling_period_s": fields.get("period"),
+        "unknown_reason": fields.get("unknown_reason"),
+    }
 
 
-class FakeArchiver:
-    """An archiver connector answering ``metadata`` and ``held``; ``fail`` makes reads raise."""
+class FakeArchiver(FakeBackend):
+    """An archive answering ``covered`` and ``held``; ``fail`` makes reads raise."""
 
-    metadata: Any = None
+    covered: Any = None
     held: Any = None
     fail = False
 
-    async def get_metadata(self, channel: str) -> Any:  # noqa: ARG002 - a fake
+    async def coverage(self, addresses: Any, *, timeout_s: float | None = None) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             raise RuntimeError("store down")
-        return self.metadata
+        return {address: ArchiveCoverage(address=address, **self.covered) for address in addresses}
 
-    async def store_extent(self) -> Any:
+    async def extent(self, *, timeout_s: float | None = None) -> Any:  # noqa: ARG002 - a fake
         return self.held
 
-    async def disconnect(self) -> None:
+    async def aclose(self) -> None:
         pass
 
 
 @pytest.fixture
 def archiver(monkeypatch: pytest.MonkeyPatch) -> type[FakeArchiver]:
-    async def create(config: Any) -> FakeArchiver:  # noqa: ARG001 - the factory's signature
-        return FakeArchiver()
+    async def create(spec: Any, **kwargs: Any) -> FakeArchiver:
+        return FakeArchiver(spec, **kwargs)
 
-    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", create)
-    monkeypatch.setattr(FakeArchiver, "metadata", _Metadata(None, description="cannot say"))
-    monkeypatch.setattr(FakeArchiver, "held", _Held(reason="this archiver does not say"))
+    patch_create_service(monkeypatch, "archive", create)
+    monkeypatch.setattr(FakeArchiver, "covered", _covered(None, unknown_reason="cannot say"))
+    monkeypatch.setattr(
+        FakeArchiver,
+        "held",
+        Unavailable(cause="unsupported", reason="this archiver does not say"),
+    )
     monkeypatch.setattr(FakeArchiver, "fail", False)
     return FakeArchiver
 
@@ -1355,7 +1372,7 @@ async def test_an_archiver_that_cannot_say_answers_found_with_archived_null(tmp_
 async def test_an_archived_pv_answers_its_samples_in_utc(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
-    archiver.metadata = _Metadata(
+    archiver.covered = _covered(
         True,
         start=datetime(2026, 11, 1, tzinfo=UTC),
         end=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
@@ -1388,10 +1405,10 @@ async def test_a_raised_archive_read_is_unavailable_with_its_reason(
 async def test_a_raised_archive_read_never_serves_the_exception_text(
     tmp_path: Path, archiver: type[FakeArchiver], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def leaking(self: FakeArchiver, channel: str) -> Any:  # noqa: ARG001 - a fake
+    async def leaking(self: FakeArchiver, addresses: Any, **_kwargs: Any) -> Any:  # noqa: ARG001 - a fake
         raise ConnectionError("cannot reach https://reader:secret@archiver.example/mgmt")
 
-    monkeypatch.setattr(archiver, "get_metadata", leaking)
+    monkeypatch.setattr(archiver, "coverage", leaking)
     page = _facts(_archived(tmp_path), tmp_path)
 
     section = _sections(await page.pv_facts("SR:BPM1"))["archive"]
@@ -1416,7 +1433,7 @@ async def _leak(*_args: Any, **_kwargs: Any) -> Any:
     ("section", "reads"),
     [
         ("directory", [(FakeDirectory, "describe")]),
-        ("archive", [(FakeArchiver, "get_metadata")]),
+        ("archive", [(FakeArchiver, "coverage")]),
         ("alarm_state", [(AlarmSnapshot, "state_for")]),
         ("alarm_config", [(AlarmSnapshot, "config_for"), (FakeAlarmLog, "config_for")]),
         ("alarm_history", [(FakeAlarmLog, "history")]),
@@ -1472,10 +1489,10 @@ async def test_an_archive_on_another_target_says_not_available(
 async def test_the_archive_summary_counts_the_directory_per_ioc(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
-    archiver.held = _Held(
+    archiver.held = ArchiveExtent(
         addresses=frozenset({"SR:BPM1", "SR:RF1", "SR:GONE"}),
-        oldest=datetime(2026, 10, 13, tzinfo=UTC),
-        newest=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
+        oldest_at=datetime(2026, 10, 13, tzinfo=UTC),
+        newest_at=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
     )
     page = _facts(_archived(tmp_path), tmp_path)
 
@@ -1510,7 +1527,7 @@ async def test_an_archive_that_cannot_list_its_channels_counts_nothing(tmp_path:
 async def test_above_the_filter_cap_the_summary_gives_the_caps_reason(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
-    archiver.held = _Held(addresses=frozenset({"SR:BPM1"}))
+    archiver.held = ArchiveExtent(addresses=frozenset({"SR:BPM1"}))
     page = _facts(_archived(tmp_path, filter_cap=2), tmp_path)
 
     summary = await page.archive_summary()
