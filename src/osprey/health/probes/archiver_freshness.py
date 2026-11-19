@@ -194,8 +194,8 @@ def _config(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     Resolution precedence mirrors :mod:`~osprey.health.probes.provider_canary`:
     an explicit per-run *config* (from ``ctx.config``, e.g. the web surface) is
     authoritative when present — the global singleton is never consulted in that
-    case — otherwise the config falls back to the global singleton via
-    :func:`~osprey_connectors.config.load_config`. The whole config, not the
+    case — otherwise the config falls back to the one this process reads
+    (:func:`~osprey_connectors.config.current_config`). The whole config, not the
     ``archiver:`` block: which target the archive serves turns on whether the
     deployment built a simulator. Any failure to load config is swallowed to an
     empty config, which the caller grades as a misconfiguration.
@@ -203,9 +203,9 @@ def _config(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     if config is not None:
         return config
     try:
-        from osprey_connectors.config import load_config
+        from osprey_connectors.config import current_config
 
-        return load_config()
+        return current_config().raw_tree()
     except Exception:  # config unavailability degrades to no config
         return {}
 
