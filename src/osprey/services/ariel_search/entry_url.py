@@ -7,7 +7,7 @@ One producer for both egress surfaces (the MCP tools and the web API):
 - :func:`build_entry_url` — the config-driven ``ariel.entry_url_template``
   rendered with the entry id, or ``None``.
 
-``current_config().get`` resolves the default config, which the MCP server and the
+``current_config()`` answers with the process config, which the MCP server and the
 web lifespan (through ``get_registry(config_path=...)``) both set to the
 deployment's ``config.yml``, so the two processes read the same template.
 """

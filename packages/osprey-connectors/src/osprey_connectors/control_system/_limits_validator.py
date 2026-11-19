@@ -40,8 +40,8 @@ LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
 #: The config key the last-resort path anchor is read from.
 _PROJECT_ROOT_CONFIG_KEY = "project_root"
 
-#: The signature every ``config_lookup`` here has: that of
-#: :func:`osprey_connectors.config.get_config_value`.
+#: The signature every ``config_lookup`` here has: ``(dotted_key, default) -> value``,
+#: as :meth:`osprey_connectors.config.LoadedConfig.get` answers.
 ConfigLookup = Callable[[str, object], object]
 
 #: The signature of the fresh-read primitive :meth:`LimitsValidator.validate`
@@ -191,7 +191,7 @@ def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
 
 
 def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
-    """A ``get_config_value``-shaped lookup over an already-loaded config.
+    """A ``(dotted_key, default) -> value`` lookup over an already-loaded config.
 
     For the callers that hold the config as a dict rather than through the
     live configurable -- the build reading a render's ``config.yml``, the
@@ -359,9 +359,10 @@ class LimitsValidator:
         is the loader's finding, with the loader's message.
 
         Args:
-            config_lookup: Where the key is read from, with the signature of
-                :func:`osprey_connectors.config.get_config_value`. Defaults to
-                that function, which reads the live configurable; pass
+            config_lookup: Where the key is read from, as
+                ``(dotted_key, default) -> value``. Defaults to the process
+                config's :meth:`~osprey_connectors.config.LoadedConfig.get`
+                (:func:`osprey_connectors.config.current_config`); pass
                 :func:`mapping_config_lookup` for a config held as a dict.
             config_path: The config file the lookup answers from, which is the
                 anchor a relative path resolves against (see
@@ -374,10 +375,12 @@ class LimitsValidator:
             The resolved path as a string, or ``None``.
         """
         if config_lookup is None:
-            from osprey_connectors.config import active_config, get_config_value
+            from osprey_connectors.config import active_config, current_config
 
-            # Bound through a ConfigLookup, so the lookup answers ``object``.
-            live_lookup: ConfigLookup = get_config_value
+            def live_lookup(key: str, default: object) -> object:
+                # Loaded at the lookup, not here: the anchor below is read first.
+                return current_config().get(key, default)
+
             config_lookup = live_lookup
             if config_path is None:
                 # Read before the lookup below loads anything, as the anchor

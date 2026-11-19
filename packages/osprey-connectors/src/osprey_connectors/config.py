@@ -79,8 +79,6 @@ __all__ = [
     "connector_block",
     "current_config",
     "facility_timezone",
-    "get_agent_dir",
-    "get_config_value",
     "install_config",
     "is_unresolved_placeholder",
     "load_config",
@@ -926,110 +924,6 @@ def subsection(section: Mapping[str, object], name: str) -> dict[str, object]:
 def connector_block(config: object, connector_type: str) -> object:
     """The ``control_system.connector.<type>`` block, as written."""
     return subsection(config_section(config, "control_system"), "connector").get(connector_type)
-
-
-def _as_path(value: object, key: str) -> Path:
-    """*value*, a configured path, as a :class:`~pathlib.Path`.
-
-    Raises:
-        TypeError: *value* is not a string or path-like, as ``Path(value)`` raises.
-    """
-    if isinstance(value, str | os.PathLike):
-        return Path(value)
-    raise TypeError(f"'{key}' must be a path, got {type(value).__name__}")
-
-
-def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
-    """
-    Get the target directory path within the agent data directory using absolute paths.
-
-    The root comes from ``agent_data.base_dir`` — the single key naming this
-    directory — while ``file_paths`` supplies the subdirectory names. A
-    subdirectory key absent from ``file_paths`` falls back to its own name.
-
-    Args:
-        sub_dir: Subdirectory name (e.g., 'registry_exports_dir')
-        host_path: If True, force return of host filesystem path even when running in container
-
-    Returns:
-        Absolute path to the target directory
-    """
-    from osprey_connectors.workspace import agent_data_base_dir
-
-    config = current_config()
-
-    project_root = config.get("project_root")
-    main_file_paths = config.get("file_paths", {})
-    agent_data_root = agent_data_base_dir(config.raw_tree())
-
-    if not isinstance(main_file_paths, Mapping):
-        # Refused rather than probed: on a list or a str, ``in`` and indexing
-        # either raised TypeError or matched by accident.
-        raise TypeError(f"'file_paths' must be a mapping, got {type(main_file_paths).__name__}")
-    if sub_dir in main_file_paths:
-        sub_dir_path = _as_path(main_file_paths[sub_dir], f"file_paths.{sub_dir}")
-        logger.debug(f"Found {sub_dir} in file_paths: {sub_dir_path}")
-    else:
-        sub_dir_path = Path(sub_dir)
-        logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
-
-    if project_root:
-        project_root_path = _as_path(project_root, "project_root")
-
-        if host_path:
-            logger.debug(f"Forcing host path resolution for: {sub_dir}")
-            path = project_root_path / agent_data_root / sub_dir_path
-        elif not project_root_path.exists():
-            # A configured root written on the host does not exist inside a
-            # container; the repo the loaded config belongs to is the project
-            # root here — a fact rather than a guess at a container layout.
-            logger.debug(
-                f"Configured project root {project_root} is absent; anchoring on "
-                f"the loaded config's repo root {config.repo_root}"
-            )
-            path = config.repo_root / agent_data_root / sub_dir_path
-        else:
-            path = project_root_path / agent_data_root / sub_dir_path
-    else:
-        logger.warning("No project root configured, using relative path for agent data directory")
-        path = Path(agent_data_root) / sub_dir_path
-        path = path.resolve()
-
-    return str(path)
-
-
-def get_config_value(path: str, default: object = None, config_path: str | None = None) -> object:
-    """The value at the dotted *path* of the process's config, as a copy.
-
-    The config is :func:`current_config`'s, or the file *config_path* names,
-    loaded by the lazy default's rule (cached until it changes, the working
-    directory's env chain applied before it loads).
-
-    Args:
-        path: Dot-separated configuration path (e.g., "execution.timeout")
-        default: Default value to return if path is not found
-        config_path: Optional explicit path to configuration file
-
-    Returns:
-        The configuration value at the specified path, or default if not found.
-        It is typed ``object`` because the YAML decides its shape: a caller
-        checks for the shape it needs before using it.
-
-    Raises:
-        ConfigurationError: If path is empty.
-        ConfigLoadError: If the config does not load (see :func:`current_config`).
-
-    Examples:
-        >>> timeout = get_config_value("execution.timeout", 30)
-        >>> debug_mode = get_config_value("development.debug", False)
-
-        >>> # With explicit config path
-        >>> timeout = get_config_value("execution.timeout", 30, "/path/to/config.yml")
-    """
-    if not path:
-        raise ConfigurationError("Configuration path cannot be empty or None")
-    config = current_config() if config_path is None else _cached_load(Path(config_path))
-    return config.get(path, default)
 
 
 def facility_timezone(config: LoadedConfig | None = None) -> ZoneInfo:

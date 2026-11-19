@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, NoReturn
 
 import click
 
-# Import current_config().get at module level for easier patching in tests
 from osprey_connectors.config import current_config
 
 from . import output

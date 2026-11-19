@@ -308,7 +308,7 @@ class ConnectorFactory:
             config: The ``control_system`` section, read
                 (:meth:`~osprey_connectors.config_sections.ControlSystemSection.read`),
                 or None to read the section of the config this process loads
-                (see :func:`osprey_connectors.config.get_config_value`). Its
+                (see :func:`osprey_connectors.config.current_config`). Its
                 keys:
 
                 - type: Connector type (e.g., 'epics', 'virtual_accelerator').

@@ -80,7 +80,7 @@ def _provider_block(provider_name: str, config: Mapping[str, Any] | None) -> Map
     ``ctx.config``, e.g. the web surface) is authoritative when present — the
     global config singleton is never consulted in that case, keeping a
     config-driven run free of process-default side effects; otherwise the block
-    falls back to the global singleton via :func:`current_config().get` (the
+    falls back to the process config (:func:`~osprey_connectors.config.current_config`; the
     CLI/standalone path).
 
     Any failure to load config (no ``config.yml``, unparseable YAML) is

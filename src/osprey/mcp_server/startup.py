@@ -48,7 +48,7 @@ def prime_config_builder() -> None:
     """Install config.yml from OSPREY_CONFIG as the process config.
 
     Installs it (:func:`osprey_connectors.config.install_config`) so that
-    ``get_config_value()`` works throughout MCP tool code. Does NOT initialize the full framework
+    ``current_config()`` answers with it throughout MCP tool code. Does NOT initialize the full framework
     registry — MCP servers don't need it (they use their own lightweight
     registries for connectors, ARIEL, channel-finder, etc.).
     """

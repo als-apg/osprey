@@ -2093,10 +2093,10 @@ keys:
     evidence: 'config\.get\("file_paths", \{\}\)'
     default: {}
   file_paths.registry_exports_dir:
-    evidence: 'get_agent_dir\("registry_exports_dir"\)'
+    evidence: 'file_paths\.get\("registry_exports_dir", "registry_exports_dir"\)'
     note: >-
       Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
-      (utils/config.get_agent_dir), so a missing entry silently renames the
+      (registry.manager.initialize_registry), so a missing entry silently renames the
       directory rather than failing.
     default: derived
     default_note: >-

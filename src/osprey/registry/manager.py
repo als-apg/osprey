@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.errors import ConfigurationError, RegistryError  # re-exported
-from osprey_connectors.config import current_config, get_agent_dir
+from osprey_connectors.config import current_config
 from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig, RegistryConfigProvider  # noqa: F401 (re-exported)
@@ -485,7 +485,17 @@ def initialize_registry(
 
     if auto_export:
         try:
-            export_dir = Path(get_agent_dir("registry_exports_dir"))
+            config = current_config()
+            file_paths = config.get("file_paths", {})
+            if not isinstance(file_paths, dict):
+                raise TypeError(f"'file_paths' must be a mapping, got {type(file_paths).__name__}")
+            # Absent, the directory is named after the key itself.
+            exports = file_paths.get("registry_exports_dir", "registry_exports_dir")
+            if not isinstance(exports, str):
+                raise TypeError(
+                    f"'file_paths.registry_exports_dir' must be a path, got {exports!r}"
+                )
+            export_dir = config.agent_data_root / exports
             export_dir.mkdir(parents=True, exist_ok=True)
             registry.export_registry_to_json(str(export_dir))
         except Exception as e:

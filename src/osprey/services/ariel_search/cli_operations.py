@@ -2,7 +2,7 @@
 
 Extracted from ``osprey.cli.ariel`` so that the CLI handlers are thin
 wrappers around these service-layer functions.  Each function accepts a
-raw config dict (from ``get_config_value("ariel", {})``) and returns a
+raw config dict (from ``current_config().get("ariel", {})``) and returns a
 structured result; the CLI layer handles Click decorators, output
 formatting, and ``SystemExit`` translation.
 
