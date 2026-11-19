@@ -2263,9 +2263,10 @@ def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
     assert width(None) == layout.BLOCK_LEAST  # the facility's unit, A, fits the least
 
 
-def test_a_member_card_shows_its_shared_supply_read_only_and_links_to_it(tmp_path) -> None:
+def _family_supply_graph(tmp_path):
+    """The fixture with one family supply whose two channels have the ring's first
+    quadrupoles as endpoints."""
     from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import Link, Target, ValueRow
     from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 
     def supply(document) -> None:
@@ -2285,7 +2286,13 @@ def test_a_member_card_shows_its_shared_supply_read_only_and_links_to_it(tmp_pat
         + "FamilySupply,set-point,*:Setpoint,device,entry,A,,,set point,stated,S,,\n"
         + "FamilySupply,reset,*:Reset,device,action,,,1,Reset,stated,S,,\n"
     )
-    graph = load_graph(write_fixture_facility(tmp_path / "f.json", supply), tables)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", supply), tables)
+
+
+def test_a_member_card_shows_its_shared_supply_read_only_and_links_to_it(tmp_path) -> None:
+    from osprey.facility.panels.view import Link, Target, ValueRow
+
+    graph = _family_supply_graph(tmp_path)
     view = device_card(graph, "XR01:QF1")
     (section,) = [s for s in view.sections if s.title == "shared supply XR:FAMILY-PS"]
     link, row = section.items
@@ -2305,3 +2312,24 @@ def test_a_member_card_shows_its_shared_supply_read_only_and_links_to_it(tmp_pat
     ]
     texts = [n["props"].get("text") for n in nodes(doc)]
     assert "set point (shared)" in texts
+
+
+@pytest.mark.parametrize("write_under", [(), ("XR/XR01",)])
+def test_a_shared_supply_on_a_member_card_links_to_no_unwritten_channels_list(
+    tmp_path, write_under
+) -> None:
+    """A channel drawn under its supply is shown, not hidden: the member card offers
+    the full list only when the list is a screen, in a whole write or a scoped one."""
+    from osprey.facility.panels.emit import Draw, check, write
+    from osprey.facility.panels.view import ChannelGrid
+
+    graph = _family_supply_graph(tmp_path)
+    view = device_card(graph, "XR01:QF1")
+    (grid,) = [i for s in view.sections for i in s.items if isinstance(i, ChannelGrid)]
+    assert (grid.hidden, grid.full) == (0, None)
+    out = tmp_path / "out"
+    draw = Draw(write_under=write_under)
+    write(graph, out, draw=draw)
+    assert not list(out.glob("channels/channels-XR01*"))
+    problems = check(graph, out, draw=draw)
+    assert not [p for p in problems if p.failing], problems

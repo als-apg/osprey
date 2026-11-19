@@ -1454,7 +1454,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    unit and the divisor its raw value is shown through), ``channel_roles.csv``
    (what a channel is to a device card, by class and name pattern) and
    ``card_recipes.csv`` (a class's card recipe, optionally for the devices under a
-   place or whose id matches a pattern; the first row that takes a device wins),
+   place, a part by its whole's place, or whose id matches a pattern; the first
+   row that takes a device wins),
    ``card_sections.csv`` (a recipe's drawn sections in order) and ``chains.csv``
    (the hops of a recipe's chains: each walks one relation in one direction from
    the device or an earlier hop, keeps the things its ``to`` filter takes, and
@@ -1553,8 +1554,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    under, devices, attribute, when, owner_relation, owner_direction, owner_to,
    reason, source) holds the exceptions: ``action`` ``keep`` gives the devices a
    row selects a card, ``drop`` takes theirs. ``class`` ``*`` matches any class,
-   ``under`` holds a device whose place (or whose whole's place) is it or lies
-   within it, ``devices`` is an id pattern, ``attribute`` is ``name=value``, a
+   ``under`` holds a device whose place is it or lies within it, and a part by
+   its whole's place (a part with no place of its own sits where its whole sits), ``devices`` is an id pattern, ``attribute`` is ``name=value``, a
    value the device's ``attributes`` map states (a list value matches each of its
    items), and ``when`` is ``no-channel`` (no channel its card shows),
    ``no-drawing`` (no recipe, no picture) or both joined by ``;``. Every selector a

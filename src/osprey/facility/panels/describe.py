@@ -2991,12 +2991,13 @@ def _drawn_card(
     hits = graph.roles(thing.id)
     every = graph.channels(thing.id, thing.kind)
     channels = _listed(graph, thing.id, every)  # the driver-internal never shown
+    hidden = len(every) - len(channels)  # read only in the full list
     shared = _shared(graph, index, thing)
     drawn_shared = {
         row.channel for _title, items in shared for row in items if isinstance(row, ValueRow)
     }
-    channels = [c for c in channels if c.name not in drawn_shared]  # once, under its supply
-    hidden = len(every) - len(channels)
+    # once, under its supply: shown there, so not hidden and no reason for the full list
+    channels = [c for c in channels if c.name not in drawn_shared]
     tiles = _key_tiles(graph, thing, hits)
     name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
     drawings: list[tuple[str, list[Item]]] = []

@@ -909,8 +909,8 @@ def _channel_role(**columns: Any) -> ChannelRole:
 @dataclass(frozen=True)
 class CardRecipe:
     """One row of ``card_recipes.csv``: the card recipe of the devices of ``cls``
-    (under the place ``under``, and whose id matches the pattern ``devices``, when
-    given). ``recipe`` names it: the key the card's key numbers (``metrics.csv``
+    (under the place ``under``, a part by its whole's place, and whose id matches
+    the pattern ``devices``, when given). ``recipe`` names it: the key the card's key numbers (``metrics.csv``
     rows of view ``card`` whose ``level`` is the recipe) attach to. Its
     ``description`` is the title line's sentence, ``{relation}`` slots filled from
     the device's claims (``on {located_in}``); ``channels_cols`` the columns of its
@@ -1002,7 +1002,8 @@ class CardRule:
     """One row of ``cards.csv``, an exception to the card default (a device gets a
     card when it has a channel or a drawing): ``keep`` gives the selected devices a
     card, ``drop`` takes it. A row selects the devices of ``cls`` (``*``: of any
-    class) under the place ``under``, whose id matches ``devices``, that carry the
+    class) under the place ``under`` (a part by its whole's place), whose id
+    matches ``devices``, that carry the
     attribute ``attribute`` (a name and a value) and meet every condition of
     ``when``; every selector a row states must hold, and the first row that
     selects a device decides. A dropped device is drawn inside its owner, the thing
