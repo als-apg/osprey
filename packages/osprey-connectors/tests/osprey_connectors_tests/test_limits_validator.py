@@ -11,7 +11,6 @@ Covers two contracts:
    guards against re-introducing a fail-open path.)
 """
 
-import copy
 import json
 from pathlib import Path
 
