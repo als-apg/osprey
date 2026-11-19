@@ -444,7 +444,7 @@ def test_a_concept_opened_during_start_up_outlives_the_late_overview(
         held: list[Route] = []
         context.route("**/api/structure", lambda route: held.append(route))
         page = context.new_page()
-        page.goto(f"{url}/", wait_until="domcontentloaded")
+        page.goto(f"{url}/", wait_until="domcontentloaded")  # page-ready: the subject is start-up
         _wait_until(page, lambda: len(held) == 1)
 
         page.evaluate("location.hash = '#devices/bpm'")
