@@ -2132,6 +2132,21 @@ class _Records:
                     "remove `writable`; only a setpoint is writable",
                 )
             bounds = [slot for slot in _LIMIT_BOUNDS if record.get(slot) is not None]
+            if (
+                record.get("writable") is True
+                and channel.get("role") == "setpoint"
+                and value_type in NUMERIC_TYPES
+                and (record.get("min_value") is None or record.get("max_value") is None)
+            ):
+                yield self._error(
+                    "limit-invalid",
+                    "limit",
+                    address,
+                    files,
+                    f"`writable: true` on a {value_type} setpoint without both `min_value` and "
+                    "`max_value`",
+                    "state `min_value` and `max_value`",
+                )
             if bounds and value_type not in NUMERIC_TYPES:
                 yield self._error(
                     "value-invalid",
