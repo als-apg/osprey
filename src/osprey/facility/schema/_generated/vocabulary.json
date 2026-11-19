@@ -1143,6 +1143,16 @@
     },
     {
       "aliases": [
+        "firmware",
+        "firmware version",
+        "firmware revision"
+      ],
+      "description": "Firmware version a device reports of itself.",
+      "name": "firmware_version_readback",
+      "nameplate": true
+    },
+    {
+      "aliases": [
         "frequency readback",
         "measured frequency",
         "frequency reading"
@@ -1281,6 +1291,17 @@
       ],
       "description": "Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).",
       "name": "magnet_voltage_readback"
+    },
+    {
+      "aliases": [
+        "model",
+        "model name",
+        "device model",
+        "model number"
+      ],
+      "description": "Model name a device reports of itself.",
+      "name": "model_readback",
+      "nameplate": true
     },
     {
       "aliases": [],
@@ -1632,6 +1653,16 @@
       "aliases": [],
       "description": "Screen-extracted state readback.",
       "name": "screen_out_status"
+    },
+    {
+      "aliases": [
+        "serial",
+        "serial number",
+        "serial no"
+      ],
+      "description": "Serial number a device reports of itself.",
+      "name": "serial_number_readback",
+      "nameplate": true
     },
     {
       "aliases": [],

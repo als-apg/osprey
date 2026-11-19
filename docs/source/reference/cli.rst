@@ -1461,7 +1461,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    beside its readback, a readback as a value; ``record_types.csv`` names its
    record type and, where its ``drawn_as`` is not empty, any other drawing), and a channel on a device that states a
    ``signal`` plays that signal as its role on the device's card, shown as an
-   entry, a word or a value by how it is drawn, a state that ``health.csv`` rows
+   entry, a word or a value by how it is drawn, a state that ``panels/health.csv`` rows
    rule as a lamp; such a role says what the channel is, never how it is pressed:
    a writable channel no row names is offered as any such channel is (a choice
    of its stated words, an action, an entry) (``channel_roles.csv`` names

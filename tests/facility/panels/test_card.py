@@ -2494,23 +2494,23 @@ def test_a_state_its_health_rows_rule_is_a_lamp_by_default(tmp_path) -> None:
 
 def test_a_nameplate_signal_says_what_a_device_is_and_is_no_key_tile(tmp_path) -> None:
     """A role of a signal the facility marks ``nameplate`` (it names the unit, as a
-    firmware version does) is never a key tile; unmarked, the same channel is one;
+    bootloader version does) is never a key tile; unmarked, the same channel is one;
     a row that gives the channel another role word overrides the mark."""
     from osprey.facility.panels import load_graph
     from osprey.facility.panels.view import KeyTile
     from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 
-    firmware = "XR01-IP1:Firmware-RB"
+    firmware = "XR01-IP1:Bootloader-RB"
 
     def facility(marked: bool):
         def change(document) -> None:
-            signal = {"name": "firmware_version_readback", "description": "Firmware version."}
+            signal = {"name": "bootloader_version_readback", "description": "Bootloader version."}
             if marked:
                 signal["nameplate"] = True
             document.setdefault("signals", []).append(signal)
             document["channels"].append(
                 {"id": firmware, "on": {"device": "XR01:IP1"}, "role": "readback",
-                 "signal": "firmware_version_readback"}
+                 "signal": "bootloader_version_readback"}
             )  # fmt: skip
 
         return write_fixture_facility(tmp_path / f"f-{marked}.json", change)
@@ -2521,10 +2521,35 @@ def test_a_nameplate_signal_says_what_a_device_is_and_is_no_key_tile(tmp_path) -
 
     tables = copy_tables(tmp_path / "panels")
     marked = load_graph(facility(True), tables)
-    assert "firmware_version_readback" in marked.identity
+    assert "bootloader_version_readback" in marked.identity
     assert firmware not in tiles(marked)
     assert firmware in tiles(load_graph(facility(False), tables))
     (tables / "channel_roles.csv").write_text(
-        ROLES_HEADER + "Pump,firmware,*:Firmware-RB,device,value,,,,,stated,S,,\n"
+        ROLES_HEADER + "Pump,bootloader,*:Bootloader-RB,device,value,,,,,stated,S,,\n"
     )
     assert firmware in tiles(load_graph(facility(True), tables))  # a row's word decides
+
+
+def test_the_vocabularys_nameplate_signals_say_what_a_device_is_with_no_table(tmp_path) -> None:
+    """The shipped vocabulary marks its model, serial number and firmware version
+    signals nameplate: a channel stating one is never a key tile, with no row."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    signals = ("model_readback", "serial_number_readback", "firmware_version_readback")
+
+    def change(document) -> None:
+        for n, signal in enumerate(signals):
+            document["channels"].append(
+                {"id": f"XR01-IP1:Plate{n}-RB", "on": {"device": "XR01:IP1"},
+                 "role": "readback", "signal": signal}
+            )  # fmt: skip
+
+    graph = load_graph(
+        write_fixture_facility(tmp_path / "f.json", change), copy_tables(tmp_path / "p")
+    )
+    assert set(signals) <= graph.identity
+    view = device_card(graph, "XR01:IP1")
+    tiles = {i.channel for s in view.sections for i in s.items if isinstance(i, KeyTile)}
+    assert not {c for c in tiles if ":Plate" in c}
