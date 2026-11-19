@@ -245,6 +245,22 @@ def test_an_address_one_record_names_twice_stops_the_build(tmp_path: Path) -> No
     )
 
 
+def test_a_second_record_on_one_monitor_reading_stops_the_build(tmp_path: Path) -> None:
+    """Two records on one reading were served wrongly before; the build now names ``also``."""
+    tree = _tree()
+    del _record(tree, READING)["also"]
+    model(tree, "SR")["wiring"].append(
+        {"address": READING_ALSO, "element": "BPM1", "engine": {"axis": "x"}}
+    )
+
+    assert _stop(tmp_path, tree) == (
+        "facility: engine-invalid: model SR — BPM1:X and RACK3:UNIT1:X both read x of monitor "
+        "BPM1, which has one reading per axis; state RACK3:UNIT1:X under `also` of BPM1:X's "
+        "record; fix: correct the model's settings or wiring so its pyat engine can declare "
+        "its faults"
+    )
+
+
 # --- scenarios ------------------------------------------------------------------
 
 
