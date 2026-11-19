@@ -1745,6 +1745,7 @@ class Channel(ConfiguredBaseModel):
     role: Optional[RoleEnum] = Field(default=None, description="""Absent means readback.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     pair: Optional[str] = Field(default=None, description="""The readback address of a setpoint. Absent, the build pairs the setpoint with the one readback on the same device, place or nothing whose signal names the same quantity, else with itself.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     tolerance: Optional[Tolerance] = Field(default=None, description="""On a float setpoint: how close its readback (its pair, else itself) must come.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    idle: Optional[Any] = Field(default=None, description="""On a readback a command pairs with: what it reads while no act runs. A label on a bool or enum channel, a number otherwise.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     on: Optional[OnTarget] = Field(default=None, description="""Absent means the channel belongs to nothing.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     endpoint_of: Optional[list[str]] = Field(default=None, description="""The devices sharing this channel as an endpoint.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     signal: Optional[str] = Field(default=None, description="""A vocabulary signal role.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
@@ -1768,6 +1769,7 @@ class Channel(ConfiguredBaseModel):
     precision: Optional[int] = Field(default=None, description="""The decimals a display shows, 0 to 17; only on a float channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     simulation: Optional[Seed] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     command: Optional[bool] = Field(default=None, description="""Computed; true on a command, a setpoint fired rather than set: its vocabulary signal is a command word or a model's engine marks its wiring record command. Absent on every other channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    timeout_s: Optional[float] = Field(default=None, description="""On a command whose status states `idle`: the longest one act may take, in seconds.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
                        'Device',
                        'Channel',
