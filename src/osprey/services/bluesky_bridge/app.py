@@ -198,10 +198,10 @@ def queue_autostart_configured() -> bool:
     # The same resolution as every other config read in this process
     # (`qserver_startup.worker_writes_enabled`): the deployed ``CONFIG_FILE``
     # first, then ``config.yml`` in the working directory.
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("bluesky", {})
+        section = current_config().get("bluesky", {})
     except Exception:  # config trouble must not become an armed queue
         return False
     return isinstance(section, dict) and section.get("queue_autostart") is True

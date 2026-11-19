@@ -18,7 +18,7 @@ from pathlib import Path
 
 import click
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 
 from .output import fail, note, report, warn
 from .repo_resolver import repo_option
@@ -47,7 +47,7 @@ def _resolve_bundle(bundle: Path | None) -> Path:
 
     from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
 
-    raw = get_config_value("facility_knowledge.bundle_path", None)
+    raw = current_config().get("facility_knowledge.bundle_path", None)
     if raw is None:
         raise click.UsageError(
             "No bundle path given and facility_knowledge.bundle_path is not set in config."

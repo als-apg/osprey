@@ -125,7 +125,7 @@ def _assert_limits_readable_if_writable() -> None:
             parseable) — never the database's file contents or any other
             secret value.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
     from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.limits_posture import target_limits_posture
 
@@ -134,7 +134,7 @@ def _assert_limits_readable_if_writable() -> None:
     lane, lane_target = resolve_lane_identity()
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return
 

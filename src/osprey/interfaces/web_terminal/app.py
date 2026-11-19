@@ -1397,21 +1397,21 @@ def _create_lifespan(
         # The route handlers re-read the two timeouts off app.state via getattr
         # with these same defaults, so the attribute names are load-bearing.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
             chat_turn_timeout_s = float(
                 _chat_pool_number(
-                    get_config_value("web.chat_turn_timeout_s", 600), "web.chat_turn_timeout_s"
+                    current_config().get("web.chat_turn_timeout_s", 600), "web.chat_turn_timeout_s"
                 )
             )
             chat_idle_timeout_s = float(
                 _chat_pool_number(
-                    get_config_value("web.chat_idle_timeout_s", 1800), "web.chat_idle_timeout_s"
+                    current_config().get("web.chat_idle_timeout_s", 1800), "web.chat_idle_timeout_s"
                 )
             )
             chat_max_sessions = int(
                 _chat_pool_number(
-                    get_config_value("web.chat_max_sessions", 5), "web.chat_max_sessions"
+                    current_config().get("web.chat_max_sessions", 5), "web.chat_max_sessions"
                 )
             )
         except Exception:  # never let config load block startup
@@ -1853,13 +1853,13 @@ def _create_lifespan(
         # whether the leaf outranks the owner block. Every other key reads with
         # its default, as before.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            raw_docs_url = get_config_value("web.docs_url", DEFAULT_DOCS_URL)
-            raw_github_repo = get_config_value("web.feedback.github_repo", None)
-            raw_email = get_config_value("web.feedback.email", None)
-            raw_trackers = get_config_value("web.feedback.trackers", None)
-            raw_owner = get_config_value("web.feedback.owner", None)
+            raw_docs_url = current_config().get("web.docs_url", DEFAULT_DOCS_URL)
+            raw_github_repo = current_config().get("web.feedback.github_repo", None)
+            raw_email = current_config().get("web.feedback.email", None)
+            raw_trackers = current_config().get("web.feedback.trackers", None)
+            raw_owner = current_config().get("web.feedback.owner", None)
         except Exception:  # never let config load block startup
             logger.warning(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
@@ -1894,11 +1894,11 @@ def _create_lifespan(
         # Nothing here varies per report, so it is resolved once at startup:
         # no per-submission composition, and no fitting to a URL length cap.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            raw_preset = get_config_value("provenance.preset", None)
-            raw_preset_hash = get_config_value("provenance.preset_hash", None)
-            raw_finder_mode = get_config_value("channel_finder.pipeline_mode", None)
+            raw_preset = current_config().get("provenance.preset", None)
+            raw_preset_hash = current_config().get("provenance.preset_hash", None)
+            raw_finder_mode = current_config().get("channel_finder.pipeline_mode", None)
         except Exception:  # an unreadable identity is not fatal
             logger.warning("Could not read the deployment identity keys", exc_info=True)
             raw_preset = raw_preset_hash = raw_finder_mode = None
@@ -2062,10 +2062,10 @@ def _create_lifespan(
         # The sidecar startup wait, resolved once here after the config cache
         # reset; every sidecar launch, startup or retry, reads it from app.state.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
             app.state.sidecar_ready_timeout_s = resolve_sidecar_ready_timeout(
-                get_config_value(SIDECAR_READY_TIMEOUT_KEY, DEFAULT_SIDECAR_READY_TIMEOUT_S)
+                current_config().get(SIDECAR_READY_TIMEOUT_KEY, DEFAULT_SIDECAR_READY_TIMEOUT_S)
             )
         except Exception:  # never let config load block startup
             logger.warning(

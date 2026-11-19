@@ -253,9 +253,9 @@ def _stamped_generation() -> int | None:
 
 def _control_system_section() -> dict[str, Any]:
     """The deployment's ``control_system`` section, as loaded; empty when absent."""
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     return section if isinstance(section, dict) else {}
 
 
@@ -427,11 +427,11 @@ def _target_connector_config() -> dict[str, Any] | None:
     if target is None:
         return None
 
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
     from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import resolve_target
 
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     if not isinstance(section, dict):
         section = {}
     config = dict(section)

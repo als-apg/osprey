@@ -36,7 +36,7 @@ from typing import NamedTuple, TypeAlias
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 
 __all__ = [
     "ComponentLogger",
@@ -326,11 +326,11 @@ def _read_handler_settings() -> tuple[_HandlerSettings, Exception | None]:
         # Read for their truth, as RichHandler reads them.
         return (
             _HandlerSettings(
-                rich_tracebacks=bool(get_config_value("logging.rich_tracebacks", True)),
+                rich_tracebacks=bool(current_config().get("logging.rich_tracebacks", True)),
                 show_traceback_locals=bool(
-                    get_config_value("logging.show_traceback_locals", False)
+                    current_config().get("logging.show_traceback_locals", False)
                 ),
-                show_full_paths=bool(get_config_value("logging.show_full_paths", False)),
+                show_full_paths=bool(current_config().get("logging.show_full_paths", False)),
             ),
             None,
         )

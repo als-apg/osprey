@@ -67,7 +67,7 @@ from osprey.apps.sdk import (
     write_verdict,
 )
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.control_system import ControlSystem
@@ -146,7 +146,7 @@ def panel_dir() -> Path:
 
 
 def _section() -> dict[str, Any]:
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     return section if isinstance(section, dict) else {}
 
 

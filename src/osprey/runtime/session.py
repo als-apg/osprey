@@ -277,10 +277,10 @@ class Subscription:
 
 def _control_system_section() -> dict[str, Any]:
     """The deployment's ``control_system:`` section, or an empty one."""
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except Exception:
         logger.warning("The control_system config could not be read", exc_info=True)
         return {}
@@ -371,13 +371,13 @@ def _verdict(target: str, session_keys: SessionKeys = None) -> WriteVerdict:
     environment's when ``None``). A config or a key list that cannot be read
     refuses as ``record_unavailable``. Never raises.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
     from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.refusals import VerdictReason
     from osprey_connectors.write_switch import Refused, execution_verdict
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
         keys = _keys_now(session_keys)
     except Exception:
         logger.warning(

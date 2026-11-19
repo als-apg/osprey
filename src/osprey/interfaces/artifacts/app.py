@@ -842,9 +842,9 @@ def _max_timeseries_file_bytes() -> int:
     """
     megabytes = DEFAULT_MAX_TIMESERIES_FILE_MB
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        configured = get_config_value(
+        configured = current_config().get(
             "artifact_server.max_timeseries_file_mb", DEFAULT_MAX_TIMESERIES_FILE_MB
         )
     except Exception:
@@ -873,9 +873,9 @@ def _page_size() -> int:
     """
     size = DEFAULT_PAGE_SIZE
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        configured = get_config_value("artifact_server.page_size", DEFAULT_PAGE_SIZE)
+        configured = current_config().get("artifact_server.page_size", DEFAULT_PAGE_SIZE)
     except Exception:
         logger.debug("No config available for artifact_server.page_size", exc_info=True)
         configured = None

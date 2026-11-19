@@ -707,11 +707,11 @@ def _target_is_resolvable(target: str) -> bool:
     from osprey_connectors.errors import ConfigLoadError
 
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
         from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import resolve_target
 
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
         resolve_target(
             ControlSystemSection.read(section if isinstance(section, dict) else {}), target
         )
