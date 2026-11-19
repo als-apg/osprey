@@ -1505,8 +1505,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    only those whose id matches a pattern: one of the drawing's symbols and a
    lane above, on or below the beam pipe; a place's strip has one lane off the
    beam; a class no row names is not drawn on a strip). ``draw.json`` keeps
-   only ``rack_classes``, ``colours`` and ``annotate`` (both keyed by symbol)
-   and ``write_under``. A strip section draws the devices of its
+   only ``colours`` and ``annotate`` (both keyed by symbol) and
+   ``write_under``; a rack is a place some ``located_in`` claim gives a unit in. A strip section draws the devices of its
    classes within its window of the device along the beam, to scale, each with
    the value of the section's role (a window of 3 m either side when the section
    states none); a device placed only by a place around it is drawn in a dashed

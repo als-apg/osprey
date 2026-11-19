@@ -60,7 +60,6 @@ from tests.facility.panels._fixture import (
 )
 from tests.facility.panels._views import with_symbols
 
-SECTORS = frozenset({"sector"})  # a level marked as a rack by parameter
 EXCLUDED = ("XR02:SAF1", "XR/XR02/SAFE", "XR/XR02/SAFE/CAB1", "XR02:SAF2")
 
 
@@ -396,8 +395,6 @@ def test_a_place_card_lists_its_screens_and_what_is_within(panel_graph):
     assert sector not in [
         item.target for item in _section(device_card(panel_graph, "XR/XR01"), "screens").items
     ]
-    marked = device_card(panel_graph, "XR/XR01", rack_classes=SECTORS)
-    assert sector in [item.target for item in _section(marked, "screens").items]
 
 
 def test_a_thing_with_no_screen_is_a_fact_not_a_link(panel_graph):
@@ -430,11 +427,8 @@ def test_targets_name_each_screen_with_view_kind_thing_kind_and_id(panel_graph):
     for place in ("XR", "XR/XR01", "XR/XR02", "XR/XR01/RK1"):
         assert Target("card", "place", place) in found
         assert Target("place", "place", place) in found
-    assert Target("rack", "place", "XR/XR01/RK1") in found  # unit claims, no parameter
-    assert Target("rack", "place", "XR/XR01") not in found
-    marked = set(targets(panel_graph, rack_classes=SECTORS))
-    assert Target("rack", "place", "XR/XR01") in marked
-    assert Target("rack", "place", "XR") not in marked  # level machine
+    assert Target("rack", "place", "XR/XR01/RK1") in found  # a unit claim makes a rack
+    assert Target("rack", "place", "XR/XR01") not in found  # its level alone does not
     for group in ("XR01-VAC", "XR02-VAC", "XR-QUAD"):
         assert Target("card", "group", group) in found
         assert Target("set", "group", group) in found
@@ -457,17 +451,14 @@ def test_a_set_needs_members_that_share_one_class(tmp_path):
     assert Target("set", "group", "XR01-MIX") not in found
 
 
-def _every_view(
-    graph: PanelGraph, rack_classes: frozenset[str] = frozenset(), **params: Any
-) -> list[View]:
-    found = targets(graph, rack_classes=rack_classes)
-    return [describe(graph, target, rack_classes=rack_classes, **params) for target in found]
+def _every_view(graph: PanelGraph, **params: Any) -> list[View]:
+    return [describe(graph, target, **params) for target in targets(graph)]
 
 
 def test_every_link_target_is_a_screen(panel_graph):
-    found = set(targets(panel_graph, rack_classes=SECTORS))
-    views = _every_view(panel_graph, SECTORS)
-    assert [view.id for view in views] == targets(panel_graph, rack_classes=SECTORS)
+    found = set(targets(panel_graph))
+    views = _every_view(panel_graph)
+    assert [view.id for view in views] == targets(panel_graph)
     links = [link for view in views for link in _links(view)]
     assert links
     assert {link.target for link in links} <= found
@@ -480,7 +471,7 @@ def test_every_link_target_is_a_screen_with_contested_and_unknown_relations(tmp_
 
 
 def test_views_carry_channel_names_never_values(panel_graph):
-    for view in _every_view(panel_graph, SECTORS):
+    for view in _every_view(panel_graph):
         for item in _walk(view):
             assert not {"value", "values"} & {field.name for field in dataclasses.fields(item)}
 

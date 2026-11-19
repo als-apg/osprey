@@ -12,9 +12,8 @@ Which things get which screens:
   a ``cards.csv`` row keeps (and none it drops), every place, every group;
 - ``set``: every group whose members are devices of one class;
 - ``place``: every place with anything within it;
-- ``rack``: every place some ``located_in`` claim names a unit in, and every
-  place whose ``level`` is one of the ``rack_classes`` passed in (both
-  markers are data; no level or place name is written here);
+- ``rack``: every place some ``located_in`` claim names a unit in (the claim is
+  data; no level or place name is written here);
 - ``rollup`` (by ``place`` and by ``system``) and ``checkout``: every place
   with a rule-bearing channel within it, at any depth.
 
@@ -467,9 +466,7 @@ def _applies_in(graph: PanelGraph, kind: CalibrationKind, group_id: str) -> bool
     return any(m.kind == "device" and graph.applies(kind, m.id) for m in graph.members(group_id))
 
 
-def _has(
-    graph: PanelGraph, index: _Index, target: Target, rack_classes: frozenset[str] = frozenset()
-) -> bool:
+def _has(graph: PanelGraph, index: _Index, target: Target) -> bool:
     """Whether *target* is a screen of the graph."""
     view, kind, thing_id = target.view, target.kind, target.id
     if view == "home":
@@ -510,11 +507,7 @@ def _has(
     if view == "place":
         return thing_id in index.place_views
     if view == "rack":
-        if thing_id in index.racked:
-            return True
-        return _holds(graph, thing_id, "place") and graph.thing(thing_id, "place").level in (
-            rack_classes
-        )
+        return thing_id in index.racked
     if view == "rollup":
         if target.system is not None:
             return target.by == "system" and target.system in index.systems.get(thing_id, ())
@@ -530,12 +523,11 @@ def _holds(graph: PanelGraph, thing_id: str, kind: ThingKind) -> bool:
     return True
 
 
-def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) -> list[Target]:
+def targets(graph: PanelGraph) -> list[Target]:
     """Every screen the graph gets, by thing in graph order, then by view kind.
 
     Args:
         graph: The panel graph.
-        rack_classes: The place levels that mark a rack.
 
     Returns:
         The screens' addresses, each once.
@@ -568,7 +560,7 @@ def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) ->
                 ),
                 Target("checkout", "place", thing.id),
             ]
-        found += [target for target in candidates if _has(graph, index, target, rack_classes)]
+        found += [target for target in candidates if _has(graph, index, target)]
     for target in _UNPLACED_TARGETS:
         if _has(graph, index, target):
             found.append(target)
@@ -843,13 +835,13 @@ def _edge_item(graph: PanelGraph, index: _Index, title: str, edge: Edge) -> Item
     return Fact(title, edge.other, citation=edge.source, standing=edge.standing, basis=edge.basis)
 
 
-def _placement(graph: PanelGraph, index: _Index, edge: Edge, rack_classes: frozenset[str]) -> Item:
+def _placement(graph: PanelGraph, index: _Index, edge: Edge) -> Item:
     """A ``located_in`` claim as a placement: its rack view when there is one, else a card."""
     target = Target("card", edge.other_kind, edge.other)
     rack = Target("rack", "place", edge.other)
-    if edge.other_kind == "place" and _has(graph, index, rack, rack_classes):
+    if edge.other_kind == "place" and _has(graph, index, rack):
         target = rack
-    if not _has(graph, index, target, rack_classes):
+    if not _has(graph, index, target):
         return Fact(
             PLACE_RELATION,
             edge.other,
@@ -865,9 +857,7 @@ def _placement(graph: PanelGraph, index: _Index, edge: Edge, rack_classes: froze
     )
 
 
-def _where(
-    graph: PanelGraph, index: _Index, thing: Thing, rack_classes: frozenset[str]
-) -> list[Item]:
+def _where(graph: PanelGraph, index: _Index, thing: Thing) -> list[Item]:
     """The built place, every ``located_in`` claim of the thing, then its poses.
 
     A device with neither is in the place of its nearest placed whole: that
@@ -882,13 +872,13 @@ def _where(
     if whole is not None:
         text = f"in {', '.join(whole[1])}, as part of {whole[0]}"
         target = Target("card", "device", whole[0])
-        if _has(graph, index, target, rack_classes):
+        if _has(graph, index, target):
             items.append(Link(text, target, basis="inferred"))
         else:
             items.append(Fact("where", text, basis="inferred"))
     if thing.kind != "group":
         claims = graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ())
-        items += [_placement(graph, index, e, rack_classes) for e in claims if e.outgoing]
+        items += [_placement(graph, index, e) for e in claims if e.outgoing]
         items += [_pose_fact(pose) for pose in graph.poses(thing.id)]
     if thing.kind == "device":
         items += _beam_fact(graph, thing)
@@ -1000,9 +990,7 @@ _SCREEN_TITLES = {
 }
 
 
-def _screens(
-    graph: PanelGraph, index: _Index, thing: Thing, rack_classes: frozenset[str]
-) -> list[Item]:
+def _screens(graph: PanelGraph, index: _Index, thing: Thing) -> list[Item]:
     """Links to the thing's other screens."""
     if thing.kind == "group":
         candidates = [Target("set", "group", thing.id)]
@@ -1019,7 +1007,7 @@ def _screens(
     return [
         Link(_SCREEN_TITLES[(target.view, target.by)], target)
         for target in candidates
-        if _has(graph, index, target, rack_classes)
+        if _has(graph, index, target)
     ]
 
 
@@ -1093,8 +1081,6 @@ def device_card(
     graph: PanelGraph,
     thing_id: str,
     kind: ThingKind | None = None,
-    *,
-    rack_classes: frozenset[str] = frozenset(),
 ) -> View:
     """The card of a device, a place or a group.
 
@@ -1110,7 +1096,6 @@ def device_card(
         graph: The panel graph.
         thing_id: The thing.
         kind: Picks between things that share an id.
-        rack_classes: The place levels that mark a rack, as passed to :func:`targets`.
 
     Raises:
         KeyError: No such thing, or it is excluded.
@@ -1128,7 +1113,7 @@ def device_card(
         sets = tuple(
             Link(group, Target("set", "group", group)) for group in index.sets_of.get(thing.id, ())
         )
-        foot = _card_foot(thing, _where(graph, index, thing, rack_classes), sets)
+        foot = _card_foot(thing, _where(graph, index, thing), sets)
         sections = _drawn_card(graph, index, thing, extra, [("foot", [foot])])
         return View(
             Target("card", "device", thing.id), thing.id, crumbs, sections, alias=thing.short_name
@@ -1150,7 +1135,7 @@ def device_card(
     sources = _sources(thing)
     sections = _sections(
         [
-            ("screens", _screens(graph, index, thing, rack_classes)),
+            ("screens", _screens(graph, index, thing)),
             ("within", within),
             ("members", members),
             ("signals", signals),
@@ -1160,7 +1145,7 @@ def device_card(
             (PROBE_SECTION, _probe(graph, thing)),
             ("calibration", _calibration(graph, index, thing)),
             ("picture", _pictures(graph, thing)),
-            ("where", _where(graph, index, thing, rack_classes)),
+            ("where", _where(graph, index, thing)),
             ("sources", sources),
         ]
     )
@@ -4393,7 +4378,6 @@ def describe(
     graph: PanelGraph,
     target: Target,
     *,
-    rack_classes: frozenset[str] = frozenset(),
     annotate: Mapping[str, tuple[str, ...]] = MappingProxyType({}),
     system_of: Callable[[Thing], str | None] | None = None,
 ) -> View:
@@ -4408,7 +4392,7 @@ def describe(
     if target.view == "home":
         return home(graph)
     if target.view == "card":
-        return device_card(graph, target.id, target.kind, rack_classes=rack_classes)
+        return device_card(graph, target.id, target.kind)
     if target.view == "channels":
         return channel_list(graph, target.id)
     if target.view == "set":

@@ -216,8 +216,8 @@ def test_a_change_of_the_draw_settings_is_named_as_a_stamp_problem(panel_graph, 
 
 
 def test_the_draw_digest_does_not_depend_on_order():
-    one = Draw(rack_classes=frozenset({"a", "b"}), colours={"bend": "#4c78d8", "bpm": "#2f9e52"})
-    two = Draw(rack_classes=frozenset({"b", "a"}), colours={"bpm": "#2f9e52", "bend": "#4c78d8"})
+    one = Draw(colours={"bend": "#4c78d8", "bpm": "#2f9e52"})
+    two = Draw(colours={"bpm": "#2f9e52", "bend": "#4c78d8"})
     assert one.digest == two.digest != Draw().digest
 
 
@@ -230,13 +230,10 @@ def _draw_file(tmp_path: Path, content) -> Path:
 def test_a_draw_file_gives_the_settings(tmp_path):
     path = _draw_file(
         tmp_path,
-        {
-            "rack_classes": ["rack"],
-            "colours": {"quadrupole": "#2f9e52"},
-        },
+        {"colours": {"quadrupole": "#2f9e52"}, "write_under": ["XR/XR01"]},
     )
     draw = emit.load_draw(path)
-    assert draw == Draw(rack_classes=frozenset({"rack"}), colours={"quadrupole": "#2f9e52"})
+    assert draw == Draw(colours={"quadrupole": "#2f9e52"}, write_under=("XR/XR01",))
 
 
 @pytest.mark.parametrize(
@@ -245,8 +242,7 @@ def test_a_draw_file_gives_the_settings(tmp_path):
         ("{nope", "draw.json"),
         ("[]", "object"),
         ({"racks": []}, "racks"),
-        ({"rack_classes": "rack"}, "rack_classes"),
-        ({"rack_classes": [1]}, "rack_classes"),
+        ({"rack_classes": ["rack"]}, "rack_classes"),  # a unit claim makes a rack
         ({"symbols": {"A": "bend"}}, "symbols"),  # symbols.csv holds them
         ({"above": ["A"]}, "above"),
         ({"colours": {"no_such_symbol": "#2f9e52"}}, "no_such_symbol"),

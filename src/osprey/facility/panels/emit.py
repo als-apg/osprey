@@ -178,7 +178,6 @@ class Problem:
 class Draw:
     """The parameters a screen is described with; ``write`` and ``check`` must agree on them."""
 
-    rack_classes: frozenset[str] = frozenset()
     colours: Mapping[str, str] = field(default_factory=dict)
     annotate: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     #: The places a write keeps to (:func:`write_scope`); empty: everything. The
@@ -190,7 +189,6 @@ class Draw:
         """16 hex digits naming these settings, whatever the order they were given in."""
         text = json.dumps(
             {
-                "rack_classes": sorted(self.rack_classes),
                 "colours": sorted(self.colours.items()),
                 "annotate": sorted((k, list(v)) for k, v in self.annotate.items()),
             },
@@ -208,8 +206,7 @@ def _strings(value: Any, name: str, path: Path) -> list[str]:
 def load_draw(path: Path) -> Draw:
     """Read the drawing settings from a JSON file.
 
-    The keys are ``rack_classes`` (place levels that mark a rack, besides the
-    places a ``located_in`` claim names a unit in), ``colours`` (symbol name to
+    The keys are ``colours`` (symbol name to
     the ``#rrggbb`` its strip symbols are filled with) and ``annotate`` (symbol
     name to at most :data:`MAX_ANNOTATIONS` stated signals whose values a strip
     shows under its symbols) and ``write_under``
@@ -229,11 +226,10 @@ def load_draw(path: Path) -> Draw:
         raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
     if not isinstance(document, dict):
         raise EmitError(f"{path}: the file must hold one JSON object")
-    keys = {"rack_classes", "colours", "annotate", "write_under"}
+    keys = {"colours", "annotate", "write_under"}
     unknown = sorted(set(document) - keys)
     if unknown:
         raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
-    racks = _strings(document.get("rack_classes", []), "rack_classes", path)
     write_under = _strings(document.get("write_under", []), "write_under", path)
     known = {*WIDTH_UNITS, "generic"}
     colours = document.get("colours", {})
@@ -260,7 +256,6 @@ def load_draw(path: Path) -> Draw:
         if len(signals) > MAX_ANNOTATIONS:
             raise EmitError(f"{path}: annotate {name} lists more than {MAX_ANNOTATIONS} signals")
     return Draw(
-        rack_classes=frozenset(racks),
         colours={name: colour.lower() for name, colour in colours.items()},
         annotate={name: tuple(signals) for name, signals in annotate.items()},
         write_under=tuple(dict.fromkeys(write_under)),
@@ -504,7 +499,6 @@ def _generate(
     view = describe(
         graph,
         target,
-        rack_classes=draw.rack_classes,
         annotate=draw.annotate,
     )
     document = layout.render(
@@ -663,7 +657,7 @@ def write(
             owned[name] = entry
         else:
             ignored.append(str(name))
-    found = targets(graph, rack_classes=draw.rack_classes)
+    found = targets(graph)
     ids = screen_ids(found)
     paths = {_path(t, ids) for t in found}
     # Pre-flight: every path the run will write, delete or prune is looked at
@@ -958,7 +952,7 @@ def check(
         problems.append(
             Problem("stamp", INDEX, f"written from other {' and '.join(changed)} than now")
         )
-    found = targets(graph, rack_classes=draw.rack_classes)
+    found = targets(graph)
     ids = screen_ids(found)
     wanted = {_path(t, ids): t for t in found}
     scope = write_scope(graph, draw.write_under) if draw.write_under else None
