@@ -462,17 +462,8 @@ SECTION_KINDS: tuple[str, ...] = (
     "curve",
     "ladder",
 )
-#: The symbols a card's strip draws a member as, and the lanes it puts them in.
-STRIP_SYMBOL_WORDS: tuple[str, ...] = (
-    "pump",
-    "gauge",
-    "valve",
-    "dipole",
-    "quad",
-    "sext",
-    "bpm",
-    "sensor",
-)
+#: The lanes a strip puts a symbol in (a place's strip has one lane off the beam:
+#: ``above`` and ``below`` both draw there).
 STRIP_LANES: tuple[str, ...] = ("below", "beam", "above")
 #: Which way a chain hop walks its relation: from the subject (``out``) or to it.
 DIRECTIONS: tuple[str, ...] = ("out", "in")
@@ -542,7 +533,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CARD_RECIPES: {},
         CARD_SECTIONS: {"kind": SECTION_KINDS},
         CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
-        STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
+        STRIP_SYMBOLS: {"lane": STRIP_LANES},
         FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS, "apart": ("no",)},
         CARDS: {"action": CARD_ACTIONS, "owner_direction": DIRECTIONS},
     }
@@ -984,15 +975,26 @@ class ChainStep:
 
 @dataclass(frozen=True)
 class StripSymbol:
-    """One row of ``symbols.csv``: a card's strip draws the devices of ``cls`` (whose
-    id matches the pattern ``devices``, when given) as ``symbol`` in ``lane``; the
-    first row that takes a device wins."""
+    """One row of ``symbols.csv``: every strip (a card's and a place's) draws the
+    devices of ``cls`` (whose id matches the pattern ``devices``, when given) as
+    ``symbol``, one of the drawing's symbol kinds, in ``lane``; the first row that
+    takes a device wins. A class no row names is not drawn on a strip."""
 
     cls: str
     devices: str | None
     symbol: str
     lane: str
     source: str | None
+
+
+def _check_symbol(row: StripSymbol, line: int) -> None:
+    """A ``symbols.csv`` row names a symbol the drawing knows."""
+    from osprey.facility.panels.symbols import KINDS  # the drawing's, read at run time
+
+    if row.symbol not in KINDS:
+        raise PanelTableError(
+            STRIP_SYMBOLS, line, f"symbol is {row.symbol!r}, not one of {', '.join(KINDS)}"
+        )
 
 
 def _strip_symbol(**columns: Any) -> StripSymbol:
@@ -1448,6 +1450,8 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_metric(rows[-1], line, seen_metric)
         if name == FRONTS:
             _check_front_row(rows[-1], line)
+        if name == STRIP_SYMBOLS:
+            _check_symbol(rows[-1], line)
         if name == CARDS:
             _check_card_rule(rows[-1], line)
         if name == PROBE_PICTURES:

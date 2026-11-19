@@ -289,19 +289,6 @@ CARD_LEAST_SPAN = 1e-9  # m: a window of no length is drawn as this
 CARD_ABOVE_ROOM = 2 * ROW + CARD_LANE  # over the pipe: a lane, a name, a value
 CARD_BELOW_ROOM = 3 * ROW + CARD_LANE  # under it: a lane, a name, a value
 _STRIP_TRIES = 200  # lines a strip's name or value moves out, at most, to clear the others
-#: The drawing kind of each strip symbol word ``symbols.csv`` may name.
-STRIP_KINDS: Mapping[str, str] = MappingProxyType(
-    {
-        "pump": "ion_pump",
-        "gauge": "gauge",
-        "valve": "gate_valve",
-        "dipole": "bend",
-        "quad": "quadrupole",
-        "sext": "sextupole",
-        "bpm": "bpm",
-        "sensor": "generic",
-    }
-)
 _DIPOLE_DRAWN = "dipoles drawn {:g} m long"
 _HERE = "{} · here"
 _NOWHERE = "where it sits is not stated"
@@ -2583,10 +2570,10 @@ class _Page:
         self.s.widget("text-label", x, y, w, h, props, rules=[rule])
 
     def _strip_nodes(self, member: Any, x: float, y: float, scale: float) -> list[dict[str, Any]]:
-        """A card strip member's symbol at (*x*, *y*): a dipole a box round the pipe
+        """A card strip member's symbol at (*x*, *y*): a bend a box round the pipe
         its stated length long, any other its symbol."""
-        if member.symbol != "dipole":
-            return symbols.draw(STRIP_KINDS[member.symbol], x, y, unit=CARD_SYMBOL_UNIT)
+        if member.symbol != "bend":
+            return symbols.draw(member.symbol, x, y, unit=CARD_SYMBOL_UNIT)
         w, h = CARD_DIPOLE_M * scale, CARD_DIPOLE_HEIGHT
         props: dict[str, Any] = {
             "lineColor": symbols.FOCUS if member.focus else PAGE_TEXT,
@@ -2641,13 +2628,13 @@ class _Page:
             label = _HERE.format(member.label) if member.focus else member.label
             lw = min(text_width(label, SMALL_SIZE), CARD_STRIP_VALUE * 2)
             lx = min(max(x - lw / 2, self.x0), self.x0 + STRIP_WIDTH - lw)
-            up = member.lane == "above" or member.lane == "beam" and member.symbol == "dipole"
+            up = member.lane == "above" or member.lane == "beam" and member.symbol == "bend"
             sign = -1 if up else 1
             ty = top - SMALL_LINE - ROW_GAP if up else bottom + ROW_GAP
             ty = free(lx, ty, lw, SMALL_LINE, sign * SMALL_LINE)
             vx: float | None = None
             vy = 0.0
-            if member.channel is not None and member.symbol != "dipole":
+            if member.channel is not None and member.symbol != "bend":
                 vx = min(
                     max(x - CARD_STRIP_VALUE / 2, self.x0), self.x0 + STRIP_WIDTH - CARD_STRIP_VALUE
                 )
@@ -2668,7 +2655,7 @@ class _Page:
         for member, x, y, (left, top, right, bottom) in drawn:
             if member.lane != "beam":
                 self.line([(x, axis), (x, axis + y)], MUTED_TEXT)  # its stem to the pipe
-            dipoles = dipoles or member.symbol == "dipole"
+            dipoles = dipoles or member.symbol == "bend"
             for node in self._strip_nodes(member, x, axis + y, scale):
                 if member.focus:
                     node["props"]["lineColor"] = symbols.FOCUS

@@ -70,6 +70,7 @@ from tests.facility.panels._views import (
     rollup_view,
     strip_view,
     stub_render,
+    with_symbols,
 )
 
 #: Widget types the pinned viewer's catalog (its ir-map.json) maps.
@@ -429,7 +430,7 @@ def test_each_row_of_a_strip_has_a_locator_of_its_own_stretch(panel_graph) -> No
 
 
 def test_the_tray_is_a_dashed_box_of_its_entries_with_their_reason(panel_graph) -> None:
-    view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR02")
     (section,) = [s for s in view.sections if s.title == "strip"]
     (item,) = section.items
     assert item.tray
@@ -625,7 +626,7 @@ def test_a_strip_symbols_state_is_a_live_ring_and_word_never_its_fill(tmp_path) 
                 f"{channel},{value},{state},database-severity,stated,xr-ioc,0a1b2c3,m.db:1\n"
             )
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
-    view = place_view(graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(graph, SYMBOLS, ABOVE), "XR/XR01")
     doc = stub_render(view, graph, colours={"quadrupole": "#2f9e52"})
     ring, word = _ring(doc, "XR01:QF1")
     for node in _shapes(doc, "XR01:QF1"):
@@ -644,7 +645,7 @@ def test_a_strip_symbols_state_is_a_live_ring_and_word_never_its_fill(tmp_path) 
 
 def test_a_strip_symbol_with_no_rule_has_a_dashed_outline_and_no_ring(panel_graph) -> None:
     shown = {**SYMBOLS, "Infrastructure": "generic"}  # mapped on purpose: drawn, no rule
-    view = place_view(panel_graph, "XR/XR02", symbols=shown, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, shown, ABOVE), "XR/XR02")
     doc, _ = draw(view, panel_graph)
     shapes = _shapes(doc, "XR02:SHIELD1")
     assert shapes and _ring(doc, "XR02:SHIELD1") == (None, None)
@@ -1119,7 +1120,7 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
         row.sort(key=lambda n: n["geometry"]["x"])
         for a, b in zip(row, row[1:], strict=False):
             assert a["geometry"]["x"] + a["geometry"]["width"] <= b["geometry"]["x"]
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
     doc, _ = draw(view, panel_graph)
     assert {"F1", "D1"} <= set(_texts(doc))  # the stated short names
     assert "IP1" in _texts(doc)  # a badge's name stands right of it, not under the axis
@@ -1133,7 +1134,7 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
 
 
 def test_the_devices_off_the_beamline_are_one_line_that_opens_the_place_card(panel_graph):
-    view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR02")
     doc, screens = draw(view, panel_graph)
     assert "3 other things in this place" in _texts(doc)  # XR02:SHIELD1 has no symbol
     files = [a["file"] for n in _links_drawn(doc) for a in n["props"]["actions"]]
@@ -1457,7 +1458,7 @@ def test_the_scale_caption_stands_above_the_bar_at_its_left_end(panel_graph) -> 
 
 
 def test_a_strip_label_is_the_stated_short_name_and_the_link_keeps_the_id(panel_graph) -> None:
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
     doc, screens = draw(view, panel_graph)
     texts = _texts(doc)
     assert {"F1", "D1"} <= set(texts) and "QF1" not in texts
@@ -1498,7 +1499,7 @@ def _values(doc: dict) -> dict[str, dict]:
 def test_a_strip_shows_the_annotated_values_under_its_symbols_and_beside_its_badges(
     panel_graph,
 ) -> None:
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=ANNOTATE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01", annotate=ANNOTATE)
     doc, _ = draw(view, panel_graph)
     values = _values(doc)
     quad, pump = values["XR01-QF1:Current-RB"], values["XR01-IP1:Pressure-RB"]
@@ -1527,7 +1528,7 @@ def _names_bottom(doc: dict, names: set[str]) -> float:
 
 def test_strip_values_are_bare_text_stacked_under_their_own_name(panel_graph) -> None:
     two = {"quadrupole": ("current_readback", "current_setpoint")}
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=two)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01", annotate=two)
     doc, _ = draw(view, panel_graph)
     values = _values(doc)
     first = [values["XR01-QF1:Current-RB"], values["XR01-QD1:Current-RB"]]
@@ -1553,7 +1554,7 @@ def test_strip_values_are_bare_text_stacked_under_their_own_name(panel_graph) ->
 def test_a_lifted_badge_carries_its_name_right_of_it_and_its_value_under_the_name(
     panel_graph,
 ) -> None:
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=ANNOTATE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01", annotate=ANNOTATE)
     doc, _ = draw(view, panel_graph)
     (circle,) = [
         n
@@ -1595,7 +1596,7 @@ def test_a_badge_name_that_would_collide_is_left_out(panel_graph) -> None:
 def test_over_the_budget_values_are_dropped_not_symbols_and_the_strip_says_so(
     panel_graph, monkeypatch
 ) -> None:
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=ANNOTATE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01", annotate=ANNOTATE)
     full, _ = draw(view, panel_graph)
     monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 0)
     doc, _ = draw(view, panel_graph)

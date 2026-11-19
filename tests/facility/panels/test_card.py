@@ -802,7 +802,7 @@ def _stripped(tmp_path, *, place_pose: bool = False, change=None):
         "pump,1,strip,Where it sits,,Pump;Quadrupole,3,pressure,the strip's caption,S\n"
     )
     (tables / "symbols.csv").write_text(
-        "class,devices,symbol,lane,source\nPump,,pump,below,S\nQuadrupole,*:QF*,quad,beam,S\n"
+        "class,devices,symbol,lane,source\nPump,,pump,below,S\nQuadrupole,*:QF*,quadrupole,beam,S\n"
     )
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
@@ -824,7 +824,7 @@ def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
     assert strip.window == (-1.75, 4.25) and strip.bracket is None
     assert [(m.thing, m.symbol, m.lane, m.focus) for m in strip.members] == [
         ("XR01:IP1", "pump", "below", True),
-        ("XR01:QF1", "quad", "beam", False),  # QD1 matches no symbols row: not drawn
+        ("XR01:QF1", "quadrupole", "beam", False),  # QD1 matches no symbols row: not drawn
     ]
     assert strip.members[0].channel == "XR01-IP1:Pressure-RB"
     doc = stub_render(view, graph)

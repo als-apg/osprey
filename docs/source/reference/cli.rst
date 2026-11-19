@@ -1501,8 +1501,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the device or an earlier hop, keeps the things its ``to`` filter takes, and
    shows its roles in the block; a hop that reaches nothing is a dashed "not
    stated" block, two answers are stacked as contested) and ``symbols.csv`` (how
-   a card's strip draws a device of a class: a symbol and a lane above, on or
-   below the beam pipe). A strip section draws the devices of its
+   every strip, a card's and a place's, draws a device of a class, optionally
+   only those whose id matches a pattern: one of the drawing's symbols and a
+   lane above, on or below the beam pipe; a place's strip has one lane off the
+   beam; a class no row names is not drawn on a strip). ``draw.json`` keeps
+   only ``rack_classes``, ``colours`` and ``annotate`` (both keyed by symbol)
+   and ``write_under``. A strip section draws the devices of its
    classes within its window of the device along the beam, to scale, each with
    the value of the section's role (a window of 3 m either side when the section
    states none); a device placed only by a place around it is drawn in a dashed

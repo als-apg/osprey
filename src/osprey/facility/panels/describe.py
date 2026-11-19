@@ -953,7 +953,7 @@ def _within(graph: PanelGraph, index: _Index, place: Thing) -> list[Item]:
     return items
 
 
-def _pictures(graph: PanelGraph, thing: Thing, symbols: Mapping[str, str]) -> list[Item]:
+def _pictures(graph: PanelGraph, thing: Thing) -> list[Item]:
     """A device's drawing per view of its class, each row with the channel its
     ``signal`` resolves to on this device (:meth:`PanelGraph.picture_channel`)."""
     if thing.kind != "device" or thing.cls is None:
@@ -963,7 +963,8 @@ def _pictures(graph: PanelGraph, thing: Thing, symbols: Mapping[str, str]) -> li
         if part.signal is not None:
             part = dataclasses.replace(part, channel=graph.picture_channel(thing.id, part.signal))
         views.setdefault(part.view, []).append(part)
-    symbol = symbols.get(thing.cls)
+    found = graph.strip_symbol(thing)
+    symbol = found.symbol if found is not None else None
     return [Picture(thing.cls, view, tuple(parts), symbol) for view, parts in views.items()]
 
 
@@ -1094,7 +1095,6 @@ def device_card(
     kind: ThingKind | None = None,
     *,
     rack_classes: frozenset[str] = frozenset(),
-    symbols: Mapping[str, str] = _EMPTY,
 ) -> View:
     """The card of a device, a place or a group.
 
@@ -1111,7 +1111,6 @@ def device_card(
         thing_id: The thing.
         kind: Picks between things that share an id.
         rack_classes: The place levels that mark a rack, as passed to :func:`targets`.
-        symbols: Device class to strip symbol; a picture is drawn in its symbol's colour.
 
     Raises:
         KeyError: No such thing, or it is excluded.
@@ -1121,7 +1120,7 @@ def device_card(
     if thing.kind == "device":
         extra = [
             (PROBE_SECTION, _probe(graph, thing)),
-            ("picture", _pictures(graph, thing, symbols)),
+            ("picture", _pictures(graph, thing)),
             ("calibration", _calibration(graph, index, thing)),
         ]
         # up to the place's view where it has one: the way back to where it sits
@@ -1130,7 +1129,7 @@ def device_card(
             Link(group, Target("set", "group", group)) for group in index.sets_of.get(thing.id, ())
         )
         foot = _card_foot(thing, _where(graph, index, thing, rack_classes), sets)
-        sections = _drawn_card(graph, index, thing, extra, [("foot", [foot])], symbols)
+        sections = _drawn_card(graph, index, thing, extra, [("foot", [foot])])
         return View(
             Target("card", "device", thing.id), thing.id, crumbs, sections, alias=thing.short_name
         )
@@ -1160,7 +1159,7 @@ def device_card(
             *_neighbours(graph, index, thing),
             (PROBE_SECTION, _probe(graph, thing)),
             ("calibration", _calibration(graph, index, thing)),
-            ("picture", _pictures(graph, thing, symbols)),
+            ("picture", _pictures(graph, thing)),
             ("where", _where(graph, index, thing, rack_classes)),
             ("sources", sources),
         ]
@@ -2583,7 +2582,6 @@ def part_section(
     hits: list[RoleHit],
     recipe: str,
     section: CardSection,
-    symbols: Mapping[str, str] = _EMPTY,
 ) -> list[Item]:
     """A part's section: its owner (the thing the section's ``focus`` relation
     names) drawn with the part in focus (the owner's picture rows whose ``signal``
@@ -2601,7 +2599,7 @@ def part_section(
     else:
         owner = graph.thing(owners[0], "device")
         mine = [c.name for c in graph.channels(thing.id, "device")]
-        pictures = _pictures(graph, owner, symbols)
+        pictures = _pictures(graph, owner)
         if not pictures:
             missing.append(_NO_DRAWING.format(owner.id))
         focused = False
@@ -3055,7 +3053,6 @@ def _drawn_card(
     thing: Thing,
     extra: list[tuple[str, list[Item]]],
     after: list[tuple[str, list[Item]]],
-    symbols: Mapping[str, str] = _EMPTY,
 ) -> tuple[Section, ...]:
     """The sections of a device's drawn card: the title line, the key tiles, the
     relations chain, the drawings *extra* holds (probe, picture, calibration), the
@@ -3086,9 +3083,7 @@ def _drawn_card(
             chain, _used, _state = recipe_chain(graph, index, thing, hits, name, row)
             drawings.append((row.title, [chain]))
         elif row.kind == "section" and row.focus:
-            drawings.append(
-                (row.title, part_section(graph, index, thing, hits, name, row, symbols))
-            )
+            drawings.append((row.title, part_section(graph, index, thing, hits, name, row)))
         elif row.kind == "curve":
             drawings.append((row.title, [card_curve(graph, thing, row)]))
         elif row.kind == "ladder":
@@ -3631,15 +3626,13 @@ def place_view(
     graph: PanelGraph,
     place_id: str,
     *,
-    symbols: Mapping[str, str] = _EMPTY,
-    above: frozenset[str] = frozenset(),
     annotate: Mapping[str, tuple[str, ...]] = MappingProxyType({}),
 ) -> View:
     """The devices of a place's contents in beam order, the rest in a tray or counted.
 
-    Only a device whose class has a symbol belongs on the beamline (a class
-    meant to show without a picture of its own is mapped to ``generic`` in
-    the data). Such a device with a true ring position
+    Only a device ``symbols.csv`` draws belongs on the beamline (a class meant to
+    show without a picture of its own is given ``generic`` there), on the beam
+    or, for lane ``above`` or ``below``, the lane off it. Such a device with a true ring position
     (:attr:`Pose.is_beam_position`) is a strip element; with none it is in
     the tray with ``no position`` or what its position assumes. Every other
     device, a ring position or not, is counted on one line, ``<n> other
@@ -3654,13 +3647,9 @@ def place_view(
     Args:
         graph: The panel graph.
         place_id: The place.
-        symbols: Device class -> symbol; a class not named is not drawn.
         annotate: Symbol -> the stated signals whose values its elements
             show: per signal, the device's first channel (by name) that
             states it, with its unit.
-        above: The symbols drawn on the lane above the beam (the draw settings
-            name classes; :func:`~osprey.facility.panels.emit.load_draw` gives
-            their symbols).
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -3674,7 +3663,11 @@ def place_view(
     beams = {t.id: _beam_of(graph, t) for t in devices}
     # one beam path per strip: the frame most of its drawn devices are placed in
     frames = Counter(
-        found[0] for t in devices if t.cls in symbols for found in [beams[t.id]] if found
+        found[0]
+        for t in devices
+        if graph.strip_symbol(t) is not None
+        for found in [beams[t.id]]
+        if found
     )
     frame = frames.most_common(1)[0][0] if frames else None
     s_of = _unwrapped(
@@ -3687,10 +3680,11 @@ def place_view(
         pose = _pose_of(graph, thing)
         s_m = s_of.get(thing.id)
         cls = thing.cls
-        drawn = cls is not None and cls in symbols
-        if cls is not None and cls in symbols and s_m is not None:
-            symbol = symbols[cls]
-            lane = "above" if symbol in above else "beam"
+        drawn_as = graph.strip_symbol(thing)
+        drawn = cls is not None and drawn_as is not None
+        if drawn_as is not None and cls is not None and s_m is not None:
+            symbol = drawn_as.symbol
+            lane = "beam" if drawn_as.lane == "beam" else "above"
             channels = tuple(rule_channels(graph, thing.id, "device"))
             elements.append(
                 StripElement(
@@ -4400,8 +4394,6 @@ def describe(
     target: Target,
     *,
     rack_classes: frozenset[str] = frozenset(),
-    symbols: Mapping[str, str] = _EMPTY,
-    above: frozenset[str] = frozenset(),
     annotate: Mapping[str, tuple[str, ...]] = MappingProxyType({}),
     system_of: Callable[[Thing], str | None] | None = None,
 ) -> View:
@@ -4416,9 +4408,7 @@ def describe(
     if target.view == "home":
         return home(graph)
     if target.view == "card":
-        return device_card(
-            graph, target.id, target.kind, rack_classes=rack_classes, symbols=symbols
-        )
+        return device_card(graph, target.id, target.kind, rack_classes=rack_classes)
     if target.view == "channels":
         return channel_list(graph, target.id)
     if target.view == "set":
@@ -4426,7 +4416,7 @@ def describe(
     if target.view == "calibration":
         return calibration_overview(graph, target.id, target.system or "")
     if target.view == "place":
-        return place_view(graph, target.id, symbols=symbols, above=above, annotate=annotate)
+        return place_view(graph, target.id, annotate=annotate)
     if target.view == "rack":
         return rack_elevation(graph, target.id)
     if target.view == "rollup" and target.kind == "device":

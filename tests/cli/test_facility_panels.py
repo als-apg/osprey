@@ -156,7 +156,7 @@ def test_a_corrupt_index_stops_write_and_check(facility_file, tmp_path):
 
 def test_a_draw_file_is_read_and_part_of_the_stamp(facility_file, tmp_path):
     draw = tmp_path / "draw.json"
-    draw.write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    draw.write_text(json.dumps({"colours": {"quadrupole": "#2f9e52"}}))
     out = str(tmp_path / "out")
     assert _run(facility_file, "write", "--out", out, "--draw", str(draw)).exit_code == 0
     assert _run(facility_file, "check", "--out", out, "--draw", str(draw)).exit_code == 0
@@ -186,7 +186,7 @@ def test_draw_json_beside_the_tables_is_the_default(facility_file, tmp_path):
         ],
     )
     assert "no draw.json" in result.output
-    (tables / "draw.json").write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    (tables / "draw.json").write_text(json.dumps({"colours": {"quadrupole": "#2f9e52"}}))
     result = CliRunner().invoke(
         cli,
         [
@@ -209,7 +209,7 @@ def test_draw_json_beside_the_tables_is_the_default(facility_file, tmp_path):
 
 def test_a_bad_draw_file_stops_the_command(facility_file, tmp_path):
     draw = tmp_path / "draw.json"
-    draw.write_text(json.dumps({"symbols": {"Quadrupole": "no_such_symbol"}}))
+    draw.write_text(json.dumps({"colours": {"no_such_symbol": "#2f9e52"}}))
     result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--draw", str(draw))
     assert result.exit_code == 1 and "no_such_symbol" in result.output
     assert not (tmp_path / "out").exists()

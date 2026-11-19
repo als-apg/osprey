@@ -20,6 +20,7 @@ from tests.facility.panels._views import (
     invented_views,
     strip_view,
     stub_render,
+    with_symbols,
 )
 
 #: The colour roles each element kind may draw in.
@@ -138,7 +139,7 @@ def test_a_strip_of_eight_or_more_spans_nine_tenths_of_the_width(panel_graph) ->
 
 
 def test_a_badge_is_a_circle_of_at_least_14_px_on_a_stem(panel_graph) -> None:
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
     doc = stub_render(view, panel_graph)
     (circle,) = [
         n
@@ -178,7 +179,7 @@ def test_leaders_run_below_the_names_and_never_cross(panel_graph) -> None:
 
 
 def test_a_place_view_names_its_place_once(panel_graph) -> None:
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
     doc = stub_render(view, panel_graph)
     texts = [n["props"]["text"] for n in _nodes(doc) if n["type"] == "text-label"]
     assert sum("XR/XR01" in t for t in texts) == 1  # in the header

@@ -179,8 +179,6 @@ class Draw:
     """The parameters a screen is described with; ``write`` and ``check`` must agree on them."""
 
     rack_classes: frozenset[str] = frozenset()
-    symbols: Mapping[str, str] = field(default_factory=dict)
-    above: frozenset[str] = frozenset()
     colours: Mapping[str, str] = field(default_factory=dict)
     annotate: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     #: The places a write keeps to (:func:`write_scope`); empty: everything. The
@@ -193,8 +191,6 @@ class Draw:
         text = json.dumps(
             {
                 "rack_classes": sorted(self.rack_classes),
-                "symbols": sorted(self.symbols.items()),
-                "above": sorted(self.above),
                 "colours": sorted(self.colours.items()),
                 "annotate": sorted((k, list(v)) for k, v in self.annotate.items()),
             },
@@ -212,9 +208,8 @@ def _strings(value: Any, name: str, path: Path) -> list[str]:
 def load_draw(path: Path) -> Draw:
     """Read the drawing settings from a JSON file.
 
-    The keys are ``rack_classes`` (place levels that mark a rack), ``symbols``
-    (device class to symbol name), ``above`` (device classes drawn on the
-    upper lane of a strip; each needs a symbol), ``colours`` (symbol name to
+    The keys are ``rack_classes`` (place levels that mark a rack, besides the
+    places a ``located_in`` claim names a unit in), ``colours`` (symbol name to
     the ``#rrggbb`` its strip symbols are filled with) and ``annotate`` (symbol
     name to at most :data:`MAX_ANNOTATIONS` stated signals whose values a strip
     shows under its symbols) and ``write_under``
@@ -234,23 +229,12 @@ def load_draw(path: Path) -> Draw:
         raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
     if not isinstance(document, dict):
         raise EmitError(f"{path}: the file must hold one JSON object")
-    keys = {"rack_classes", "symbols", "above", "colours", "annotate", "write_under"}
+    keys = {"rack_classes", "colours", "annotate", "write_under"}
     unknown = sorted(set(document) - keys)
     if unknown:
         raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
     racks = _strings(document.get("rack_classes", []), "rack_classes", path)
     write_under = _strings(document.get("write_under", []), "write_under", path)
-    above = _strings(document.get("above", []), "above", path)
-    symbols = document.get("symbols", {})
-    if not isinstance(symbols, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in symbols.items()
-    ):
-        raise EmitError(f"{path}: symbols must map class names to symbol names")
-    for name in sorted(set(symbols.values()) - set(WIDTH_UNITS) - {"generic"}):
-        raise EmitError(f"{path}: {name} is not a symbol of the engine")
-    for cls in above:
-        if cls not in symbols:
-            raise EmitError(f"{path}: above names {cls}, which has no entry in symbols")
     known = {*WIDTH_UNITS, "generic"}
     colours = document.get("colours", {})
     if not isinstance(colours, dict) or not all(isinstance(v, str) for v in colours.values()):
@@ -277,8 +261,6 @@ def load_draw(path: Path) -> Draw:
             raise EmitError(f"{path}: annotate {name} lists more than {MAX_ANNOTATIONS} signals")
     return Draw(
         rack_classes=frozenset(racks),
-        symbols=dict(symbols),
-        above=frozenset(symbols[cls] for cls in above),
         colours={name: colour.lower() for name, colour in colours.items()},
         annotate={name: tuple(signals) for name, signals in annotate.items()},
         write_under=tuple(dict.fromkeys(write_under)),
@@ -523,8 +505,6 @@ def _generate(
         graph,
         target,
         rack_classes=draw.rack_classes,
-        symbols=draw.symbols,
-        above=draw.above,
         annotate=draw.annotate,
     )
     document = layout.render(

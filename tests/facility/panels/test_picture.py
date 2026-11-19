@@ -17,7 +17,7 @@ from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.model import load_graph
 from osprey.facility.panels.tables import COLUMNS, PanelTableError, read_tables
 from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_facility
-from tests.facility.panels._views import bound, nodes, stub_render
+from tests.facility.panels._views import bound, nodes, stub_render, with_symbols
 
 PICTURES = "pictures.csv"
 HEADER = ",".join(c for c in COLUMNS[PICTURES] if c not in ("under", "devices"))  # reads
@@ -65,7 +65,7 @@ def _switches(document) -> None:
 
 
 def _card(graph) -> dict:
-    view = device_card(graph, "XR01:QF1", symbols={"Quadrupole": "quadrupole"})
+    view = device_card(with_symbols(graph, {"Quadrupole": "quadrupole"}), "XR01:QF1")
     return stub_render(view, graph, colours={"quadrupole": COLOUR})
 
 
