@@ -239,6 +239,10 @@ classes:
           True for a signal that names the unit it is read from rather than its
           state (its model, serial number, firmware version): read once, never a
           live quantity.
+      title:
+        description: >-
+          The short word a screen names the signal by, on a tile or a value row
+          (``Hi`` for a high alarm limit); with none, its name.
 
   Provenance:
     description: Which sources, fixes and defaults produced a record.

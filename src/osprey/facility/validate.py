@@ -404,6 +404,28 @@ def nameplate_signals(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[st
     return frozenset(names)
 
 
+def signal_titles(signals: Iterable[Mapping[str, Any]] = ()) -> dict[str, str]:
+    """The short words screens name signal roles by: each role's stated ``title``.
+
+    Args:
+        signals: ``signals.yaml``'s records (the facility document's ``signals``).
+
+    Returns:
+        The vocabulary's titled signal roles joined with the facility's, by name.
+    """
+    titles = {
+        str(role["name"]): str(role["title"])
+        for role in vocabulary()["signal_roles"]
+        if role.get("title")
+    }
+    titles.update(
+        (str(row["name"]), row["title"])
+        for row in signals
+        if isinstance(row.get("name"), str) and isinstance(row.get("title"), str) and row["title"]
+    )
+    return titles
+
+
 def relation_types() -> dict[str, dict[str, Any]]:
     """The vocabulary's relation types, keyed by name.
 

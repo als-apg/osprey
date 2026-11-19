@@ -1259,27 +1259,29 @@ def _role_title(role: str) -> str:
 
 def _role_word(row: ChannelRole) -> str:
     """What a card calls a role row's channel, on a tile or over a group: the row's
-    ``label`` as stated, else the role's name as a title. A choice's label is the
-    word of its own segment, so a choice is called by its role."""
+    ``label`` as stated, else its signal's ``title``, else the role's name as a
+    title. A choice's label is the word of its own segment, so a choice is called
+    by its role."""
     if row.label and row.shown_as != "choice":
         return row.label
-    return _role_title(row.role)
+    return row.title or _role_title(row.role)
 
 
 def _plate_word(row: ChannelRole) -> str:
     """A nameplate role's name in the device's block: its ``label`` as stated, else
-    the quantity its signal names (``model`` for ``model_readback``)."""
-    if row.label:
-        return row.label
+    its signal's ``title``, else the quantity its signal names (``model`` for
+    ``model_readback``)."""
+    if row.label or row.title:
+        return row.label or row.title or ""
     return _role_title(signal_quantity(row.role, "readback") or row.role).lower()
 
 
 def _row_word(row: ChannelRole) -> str:
     """A role row's name on a value row of a block: its ``label`` as stated, else
-    the role's name in lower case."""
+    its signal's ``title`` as stated, else the role's name in lower case."""
     if row.label and row.shown_as != "choice":
         return row.label
-    return _role_title(row.role).lower()
+    return row.title or _role_title(row.role).lower()
 
 
 #: A card key number's measures over every channel of its role on the device.
@@ -1583,7 +1585,7 @@ def _operate(
                     unstated.append(hit.channel)
                     continue
                 shade = _status(graph, hit, status) if kind == "choice" else None
-                label = hit.role.label or _role_title(role)
+                label = hit.role.label or hit.role.title or _role_title(role)
                 inferred = hit.role.press_value is not None and hit.role.basis == "inferred"
                 items.append(Control(label, hit.channel, press, shade or hit.channel, inferred))
                 used.add(hit.channel)
@@ -1867,7 +1869,8 @@ def _block_rows(
         if not found:
             found = [h for h in hits if h.role.role == role]
         if not found:
-            rows.append(BlockRow(_role_title(role).lower(), None, shown_as="value"))
+            word = graph.titles.get(role) or _role_title(role).lower()
+            rows.append(BlockRow(word, None, shown_as="value"))
             continue
         hit = found[0]
         shown = hit.role.shown_as if hit.role.shown_as in ("value", "word", "lamp") else "value"
@@ -2437,7 +2440,7 @@ def _connector_roles(
                 if press is None:
                     continue  # no value stated: no press (the card's count has it)
                 inferred = hit.role.press_value is not None and hit.role.basis == "inferred"
-                label = hit.role.label or _role_title(role)
+                label = hit.role.label or hit.role.title or _role_title(role)
                 controls.append(Control(label, hit.channel, press, None, inferred))
             elif hit.channel != lamp or graph.state_words(hit.channel):
                 shown = hit.role.shown_as if hit.role.shown_as != "lamp" else "word"
@@ -2653,7 +2656,9 @@ def limit_ladder(
         found = own.get(role)
         title = (
             found.role.label
-            if found is not None and found.role.label
+            or found.role.title
+            or _role_title(role.removeprefix(_THRESHOLD_PREFIX))
+            if found is not None
             else _role_title(role.removeprefix(_THRESHOLD_PREFIX))
         )
         if found is None:
@@ -4232,13 +4237,30 @@ def home(graph: PanelGraph) -> View:
     that get a card, with their count, each opening that class's index
     (:func:`unplaced_index`), which opens each card. A device in no place is
     reached that way or from no screen at all.
+
+    Under a write scope (the graph's ``write_scope``, set by
+    :func:`~osprey.facility.panels.emit.scoped`) it lists only what the scope keeps
+    and says once, first, which places the write keeps to.
     """
     index = _index(graph)
+    scope = graph.write_scope
     machines = _machine_places(graph)
+    if scope is not None:  # a kept place at the top is a machine when it holds a model's device
+        machines = frozenset(
+            place
+            for place in scope.places
+            if graph.thing(place, "place").place not in scope.places
+            and any(t.kind == "device" and t.model for t in graph.contents(place))
+        )
     tops: list[Node] = []
     others: list[Node] = []
     for thing in graph.things():
-        if thing.kind != "place" or thing.place is not None:
+        if thing.kind != "place":
+            continue
+        if scope is not None:  # the kept places whose parent is not kept stand at the top
+            if thing.id not in scope.places or thing.place in scope.places:
+                continue
+        elif thing.place is not None:
             continue
         link = None
         for view, by in (("place", None), ("rollup", "place"), ("card", None)):
@@ -4249,22 +4271,30 @@ def home(graph: PanelGraph) -> View:
         (tops if thing.id in machines or not machines else others).append(_node(thing.id, link, ()))
     by_class: dict[str, list[Node]] = {}
     for group in sorted(index.sets):
+        if scope is not None and group not in scope.groups:
+            continue
         cls = index.set_class[group]
         set_link = Link(group, Target("set", "group", group))
         by_class.setdefault(cls, []).append(_node(group, set_link, ()))
     # a group of several classes, or of no device, has no set view: its card
-    unset = sorted(t.id for t in graph.things() if t.kind == "group" and t.id not in index.sets)
+    unset = sorted(
+        t.id
+        for t in graph.things()
+        if t.kind == "group" and t.id not in index.sets and (scope is None or t.id in scope.groups)
+    )
     groups = [_node(group, Link(group, Target("card", "group", group)), ()) for group in unset]
     not_placed: list[Item] = []
     if _has(graph, index, _UNPLACED_ROLLUP):
         not_placed.append(Link(f"{NOT_PLACED} health", _UNPLACED_ROLLUP))
     classes = [
         _node(f"{cls} ({len(found)})", Link(cls, _unplaced_page(cls)), ())
-        for cls, found in index.loose.items()
+        for cls, found in _loose_kept(graph, index).items()
     ]
     if classes:  # one index per class: every card of a device in no place is reached
         not_placed.append(Group(_BY_CLASS, "chips", tuple(classes)))
     places: list[Item] = []
+    if scope is not None:
+        places.append(Fact(_SCOPED, _SCOPED_TEXT.format(", ".join(scope.under))))
     if tops:
         places.append(Group(_MACHINES if machines else _TOP_PLACES, "chips", tuple(tops)))
     if others:
@@ -4276,6 +4306,22 @@ def home(graph: PanelGraph) -> View:
         [(_TOP_PLACES, places), (SETS_SECTION, sets), (_NOT_PLACED_SECTION, not_placed)]
     )
     return View(HOME_TARGET, HOME, (), sections)
+
+
+_SCOPED = "this write"
+_SCOPED_TEXT = "keeps to {}; the screens outside it are not written"
+
+
+def _loose_kept(graph: PanelGraph, index: _Index) -> dict[str, tuple[str, ...]]:
+    """The devices in no place that get a card, by class; under a write scope, only
+    the kept ones."""
+    scope = graph.write_scope
+    out: dict[str, tuple[str, ...]] = {}
+    for cls, found in index.loose.items():
+        kept = tuple(d for d in found if scope is None or d in scope.devices)
+        if kept:
+            out[cls] = kept
+    return out
 
 
 def _machine_places(graph: PanelGraph) -> frozenset[str]:
@@ -4302,11 +4348,11 @@ def unplaced_index(graph: PanelGraph, cls: str) -> View:
         KeyError: No device of that class is in no place with a card.
     """
     index = _index(graph)
-    if cls not in index.loose:
+    loose = _loose_kept(graph, index)
+    if cls not in loose:
         raise KeyError(f"no device of class {cls!r} is in no place with a card")
     chips = tuple(
-        _node(device, Link(device, Target("card", "device", device)), ())
-        for device in index.loose[cls]
+        _node(device, Link(device, Target("card", "device", device)), ()) for device in loose[cls]
     )
     section = Section(_NOT_PLACED_SECTION, (Group(cls, "chips", chips),))
     title = f"{cls} · {NOT_PLACED}"

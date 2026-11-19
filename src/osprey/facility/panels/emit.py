@@ -48,6 +48,7 @@ Ownership
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -57,6 +58,7 @@ import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import layout
@@ -169,7 +171,8 @@ class Problem:
 
     @property
     def failing(self) -> bool:
-        """False for a note: a link to a target outside the written set, or a card or
+        """False for a note: a screen a scoped write names without a link (or a link
+        to a target outside the written set), or a card or
         checkout over its budget (:data:`NOTED_OVER_BUDGET`)."""
         return not self.note and self.kind not in NOTE_KINDS
 
@@ -425,6 +428,12 @@ class Scope:
     groups: frozenset[str]
     #: The classes of the kept devices in no place.
     loose_classes: frozenset[str]
+    #: The places the write was asked to keep to.
+    under: tuple[str, ...] = ()
+    #: Each kept group's members cut to the kept devices, in the group's order.
+    members: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: The groups cut to the same members as a kept one: written once, as that one.
+    dropped: frozenset[str] = frozenset()
 
     def __call__(self, target: Target) -> bool:
         if target.view == "home":
@@ -471,12 +480,50 @@ def write_scope(graph: PanelGraph, places: Iterable[str]) -> Scope:
             loose.add(thing.id)
             classes.add(thing.cls or NO_CLASS)
     devices = placed | loose
+    cut: dict[str, tuple[str, ...]] = {}
+    whole: set[str] = set()  # the groups all of whose members are kept
+    for thing in graph.things():
+        if thing.kind != "group":
+            continue
+        members = [m.id for m in graph.members(thing.id)]
+        kept = tuple(m for m in members if m in devices or m in kept_places)
+        if kept:
+            cut[thing.id] = kept
+            if len(kept) == len(members):
+                whole.add(thing.id)
+    # a group cut to the same members as another is written once: the one the
+    # facility defined whole within the scope, else the first by id
+    by_members: dict[frozenset[str], list[str]] = {}
+    for group, kept in cut.items():
+        by_members.setdefault(frozenset(kept), []).append(group)
     groups = {
-        thing.id
-        for thing in graph.things()
-        if thing.kind == "group" and any(m.id in devices for m in graph.members(thing.id))
+        min(same, key=lambda group: (group not in whole, group)) for same in by_members.values()
     }
-    return Scope(frozenset(kept_places), frozenset(devices), frozenset(groups), frozenset(classes))
+    return Scope(
+        frozenset(kept_places),
+        frozenset(devices),
+        frozenset(groups),
+        frozenset(classes),
+        tuple(places),
+        MappingProxyType({group: cut[group] for group in sorted(groups)}),
+        frozenset(cut) - frozenset(groups),
+    )
+
+
+def scoped(graph: PanelGraph, scope: Scope) -> PanelGraph:
+    """*graph* as a write kept to *scope* describes it: each kept group holds only its
+    kept members (:attr:`Scope.members`), a dropped duplicate (:attr:`Scope.dropped`)
+    none, so no screen of the write links to it rather than to the kept one, and the
+    home and the not-placed indexes list only what the scope keeps (the graph carries
+    it as ``write_scope``)."""
+    out = copy.copy(graph)
+    out._members = {
+        **graph._members,
+        **scope.members,
+        **dict.fromkeys(scope.dropped, ()),
+    }
+    out.write_scope = scope
+    return out
 
 
 # -- drawing --------------------------------------------------------------------------
@@ -488,11 +535,17 @@ def _stamp(graph: PanelGraph, draw: Draw) -> str:
 
 def _generate(
     graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw: Draw
-) -> tuple[bytes, str, View]:
-    """The bytes of a target's file, its title and its view."""
+) -> tuple[bytes, str, View, tuple[Target, ...]]:
+    """The bytes of a target's file, its title, its view, and the screens it names
+    without a link because a write kept to ``write_under`` does not produce them."""
     own = _path(target, ids)
+    scope = graph.write_scope
+    unlinked: list[Target] = []
 
-    def screens(other: Target) -> str:
+    def screens(other: Target) -> str | None:
+        if scope is not None and not scope(other):
+            unlinked.append(other)
+            return None  # a written screen links only to a file of the same write
         # Every file sits one directory below ``out``, so this is relative to it.
         return "../" + _path(other, ids)
 
@@ -508,7 +561,7 @@ def _generate(
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
-    return (text + "\n").encode("utf-8"), view.title, view
+    return (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked))
 
 
 def _atomic(path: Path, data: bytes) -> None:
@@ -641,6 +694,7 @@ def write(
     check_draw(graph, draw)
     if draw.write_under:
         scope = write_scope(graph, draw.write_under)
+        graph = scoped(graph, scope)
         given = only
         only = scope if given is None else (lambda t: scope(t) and given(t))
     out = Path(out)
@@ -721,7 +775,7 @@ def write(
     for target in found:
         relative = _path(target, ids)
         if only is None or only(target):
-            data, title, _view = _generate(graph, target, ids, draw)
+            data, title, _view, _unlinked = _generate(graph, target, ids, draw)
             written.append(_put(out, relative, data, seen))
             entries[relative] = _entry(target, ids, title, len(data))
         elif relative in owned and _guard(out, relative, seen).is_file():
@@ -956,6 +1010,8 @@ def check(
     ids = screen_ids(found)
     wanted = {_path(t, ids): t for t in found}
     scope = write_scope(graph, draw.write_under) if draw.write_under else None
+    if scope is not None:
+        graph = scoped(graph, scope)
     listed = {e["file"]: e for e in index["screens"] if isinstance(e, dict) and "file" in e}
     outside = {e["file"] for e in index.get("outside", ()) if isinstance(e, dict) and "file" in e}
     problems.extend(
@@ -1180,7 +1236,16 @@ def _check_file(
             Problem("stamp", relative, f"written from other {' and '.join(changed)} than now")
         )
     problems += _long_formulas(document, relative)
-    fresh, _title, view = _generate(graph, target, ids, draw)
+    fresh, _title, view, unlinked = _generate(graph, target, ids, draw)
+    problems.extend(
+        Problem(
+            "outside_set",
+            relative,
+            f"names {other.kind} {other.id} without a link: its {other.view} screen is "
+            "outside the written set",
+        )
+        for other in unlinked
+    )
     if target.view == "rollup" and _reads(graph, view) and not _live(document):
         unopened = _unopened(graph, view, ids, valid)
         if unopened:

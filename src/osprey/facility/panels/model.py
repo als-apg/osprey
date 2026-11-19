@@ -92,7 +92,7 @@ from osprey.facility.panels.tables import (
 )
 from osprey.facility.records import FacilityRecords
 from osprey.facility.relations import END_KINDS, end_identity
-from osprey.facility.validate import nameplate_signals
+from osprey.facility.validate import nameplate_signals, signal_titles
 
 __all__ = [
     "CalibrationState",
@@ -493,7 +493,9 @@ def _role_reading(hits: list[RoleHit]) -> tuple[tuple[Any, ...], ...]:
     )  # fmt: skip
 
 
-def signal_role(cls: str, channel: Channel, ruled: bool = False) -> ChannelRole | None:
+def signal_role(
+    cls: str, channel: Channel, ruled: bool = False, title: str | None = None
+) -> ChannelRole | None:
     """The role a channel plays on its device when no ``channel_roles.csv`` row names
     it: its stated ``signal``, shown by how it is drawn (an entry for a setpoint, a
     word for a state, a lamp for a state *ruled* by health rows, a value), with
@@ -507,7 +509,7 @@ def signal_role(cls: str, channel: Channel, ruled: bool = False) -> ChannelRole 
         shown = "lamp"
     return ChannelRole(
         cls, channel.signal, channel.name, "device", shown, None, None, None, None,
-        "stated", None, None, None, stated=False,
+        "stated", None, None, None, stated=False, title=title,
     )  # fmt: skip
 
 
@@ -536,6 +538,10 @@ class PanelGraph:
 
     Built by :func:`load_graph`; see the module docstring for what it leaves out.
     """
+
+    #: The write scope a write kept to ``write_under`` describes the graph under
+    #: (:func:`~osprey.facility.panels.emit.scoped`); ``None`` for the whole facility.
+    write_scope: Any = None
 
     def __init__(
         self,
@@ -566,6 +572,8 @@ class PanelGraph:
         #: signal of the vocabulary or ``signals.yaml``): a role of one of these
         #: words says what a device is, never how it is.
         self.identity: frozenset[str] = nameplate_signals(records.document.get("signals") or ())
+        #: The short word each titled signal role is named by on a screen.
+        self.titles: dict[str, str] = signal_titles(records.document.get("signals") or ())
         self.redundant: dict[str, int] = {}
         #: Per ``table column``: the rows whose value in it is the default, while
         #: another column of the row is read (the row stays, the value may go).
@@ -614,7 +622,8 @@ class PanelGraph:
         self._roles_of: dict[str, list[ChannelRole]] = {}
         for role in tables.channel_roles:
             if role.source not in self._excluded_documents:
-                self._roles_of.setdefault(role.cls, []).append(role)
+                titled = dataclasses.replace(role, title=self.titles.get(role.role))
+                self._roles_of.setdefault(role.cls, []).append(titled)
         self._recipes: dict[str, list[CardRecipe]] = {}
         for recipe in tables.card_recipes:
             self._recipes.setdefault(recipe.cls, []).append(recipe)
@@ -1657,7 +1666,9 @@ class PanelGraph:
 
     def _signal_role(self, cls: str, channel: Channel) -> ChannelRole | None:
         """:func:`signal_role`, a state with health rows shown as a lamp."""
-        return signal_role(cls, channel, ruled=bool(self._rules.get(channel.name)))
+        ruled = bool(self._rules.get(channel.name))
+        title = self.titles.get(channel.signal or "")
+        return signal_role(cls, channel, ruled=ruled, title=title)
 
     def redundant_rows(self) -> dict[str, int]:
         """Per table, how many rows only restate what the facility file says, no

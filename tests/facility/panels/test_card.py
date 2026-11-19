@@ -2559,3 +2559,58 @@ def test_the_vocabularys_nameplate_signals_say_what_a_device_is_with_no_table(tm
     (own,) = [b for b in chain.blocks if b.focus]
     # in the device's own block, each by the quantity its signal names
     assert [r.label for r in own.rows] == ["model", "serial number", "firmware version"]
+
+
+def test_a_signal_s_title_names_its_channel_and_a_row_label_wins(tmp_path) -> None:
+    """A channel whose signal states a ``title`` (the vocabulary's alarm-limit word,
+    or one the facility gives its own signal) is called by it; a row's ``label``
+    still decides."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    limit, trip = "XR01-IP1:TempHi-RB", "XR01-IP1:Trip-RB"
+
+    def change(document) -> None:
+        document.setdefault("signals", []).append(
+            {"name": "trip_level_readback", "description": "Trip level.", "title": "Trip"}
+        )
+        for channel, signal in (
+            (limit, "temperature_hi_limit_readback"),
+            (trip, "trip_level_readback"),
+        ):
+            document["channels"].append(
+                {"id": channel, "on": {"device": "XR01:IP1"}, "role": "readback",
+                 "signal": signal}
+            )  # fmt: skip
+
+    def titles(graph) -> dict[str, str]:
+        view = device_card(graph, "XR01:IP1")
+        tiles = [i for s in view.sections for i in s.items if isinstance(i, KeyTile)]
+        return {t.channel: t.title for t in tiles if t.channel in (limit, trip)}
+
+    tables = copy_tables(tmp_path / "panels")
+    facility = write_fixture_facility(tmp_path / "f.json", change)
+    graph = load_graph(facility, tables)
+    assert graph.titles["temperature_hi_limit_readback"] == "Hi"  # the vocabulary's word
+    assert titles(graph) == {limit: "Hi", trip: "Trip"}
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "Pump,temperature_hi_limit_readback,*:TempHi-RB,device,value,,,,High limit,stated,S,,\n"
+    )
+    assert titles(load_graph(facility, tables))[limit] == "High limit"
+
+
+def test_the_vocabulary_titles_its_general_signals_with_the_operator_s_word() -> None:
+    from osprey.facility.validate import signal_titles
+
+    titles = signal_titles()
+    assert {name: titles[name] for name in (
+        "current_readback", "current_setpoint", "voltage_readback", "ramp_rate_setpoint",
+        "power_on_command", "temperature_lolo_limit_readback", "temperature_hihi_limit_setpoint",
+    )} == {
+        "current_readback": "Current", "current_setpoint": "Setpoint",
+        "voltage_readback": "Voltage", "ramp_rate_setpoint": "Ramp rate",
+        "power_on_command": "On command", "temperature_lolo_limit_readback": "Lolo",
+        "temperature_hihi_limit_setpoint": "Hihi",
+    }  # fmt: skip

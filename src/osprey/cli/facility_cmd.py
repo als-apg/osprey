@@ -1437,7 +1437,8 @@ def panels_check(
     a child has no screen to open), long_formula (an expression the formula engine
     would refuse as too long) or over_budget (more rules or channels than one
     screen may bind).
-    A link to a screen outside the written set (``outside_set``), a card or
+    A screen named without a link because a scoped write does not produce it, or
+    a link to a screen outside the written set (``outside_set``), a card or
     checkout over its budget, a probe row whose signal no channel states
     (``unbound_probe``), a pictures row whose signal resolves to no channel
     (``unbound_picture``) and one whose signal matches channels of several devices

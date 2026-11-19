@@ -1401,8 +1401,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``write_under`` lists place ids a write keeps to: the home, those places and
    the places within them, the devices placed there, each device in no place one
    relation joins to one of those, and each group with one of those devices as a
-   member; links to the other screens are still written and ``index.json`` lists
-   them under ``outside``. ``check`` reads the same key: a screen outside it may
+   member. A written screen links only to files of the same write: it names a
+   screen the write does not produce as text, without a link, and
+   ``index.json`` lists those screens under ``outside``. Under it the home lists
+   only what the write keeps,
+   the kept places that lie in no kept place at the top and one line naming the
+   places the write keeps to, and the not-placed indexes only kept devices; a
+   group is cut to its kept members, and a group cut to the same members as
+   another is written once (the one all of whose members are kept, else the
+   first by id); the other holds no members under the scope, so screens name the
+   kept one. ``check`` reads the same key: a screen outside it may
    be absent, and only the health rules of what it keeps must be read. The
    screens are
    Canopy Screen-IR documents, one file per screen, in nine view kinds:
