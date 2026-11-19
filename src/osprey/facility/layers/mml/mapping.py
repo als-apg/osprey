@@ -32,7 +32,7 @@ judgment the export pends, and what each model wires. The document shape is::
     families: {<raw family>: {rename?, branch?, class?, devices?, aliases,
                               description, provenance, channels,
                               fields: {<field>: {description, provenance,
-                                                 signal?}}}}
+                                                 signal?, by_model?}}}}
     directions: {<raw family>.<field>: {direction: read | write | null,
                                         provenance, override?}}
     judgments: {<raw family>: {rows_beyond_devices?, unbound_devices?,
@@ -75,12 +75,15 @@ build pairs each setpoint with the readback of its quantity.
 ``section_order`` lists every model once, classes and branches resolve against
 the vocabulary, a ``devices`` answer names another family, one-word device
 names or a one-word stem, every direction and wiring family names a field the mapping
-describes, a field's ``signal`` is a vocabulary signal role, a model's
+describes, a field's ``signal`` and each ``by_model`` answer is a vocabulary
+signal role, a ``by_model`` key names a model, a model's
 ``places`` answers name families and its own sectors with PN_LOCAL names, and
 -- given the
 export -- the mapping names exactly the export's
 systems and families, gives every channel-bearing field a direction, a
-``stated`` direction agrees with the export's own vote unless ``override``, and
+``stated`` direction agrees with the export's own vote unless ``override``, a
+current signal is given only to a model whose units for the field are a current
+(or unstated), and
 the judgment answers match what the export pends: every pending row, unbound
 device and shared supply has a slot, every answer names a judgment the export
 pends, an owner is a member of its supply group, and a ``field:`` answer is a
@@ -112,6 +115,7 @@ import functools
 import math
 import re
 import textwrap
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from collections.abc import Mapping as Map
 from dataclasses import dataclass, field
@@ -385,12 +389,20 @@ class Field:
     """The description of one family field, and the signal role its channels play.
 
     ``signal`` is a vocabulary signal role every channel of the field takes,
-    or ``None`` for a field that plays none.
+    or ``None`` for a field that plays none. ``by_model`` answers it for the
+    models, keyed by their raw system token, whose channels of the field play
+    another role (or none): the same family can carry a current in one model and
+    another quantity in the next.
     """
 
     description: str | None
     provenance: str
     signal: str | None = None
+    by_model: Map[str, str | None] = field(default_factory=dict)
+
+    def signal_of(self, model: str) -> str | None:
+        """The signal role the field's channels play in the model *model* (its raw token)."""
+        return self.by_model.get(model, self.signal)  # a null answer stands
 
 
 @dataclass(frozen=True)
@@ -641,7 +653,7 @@ _FAMILY_REQUIRED = frozenset({"aliases", "description", "provenance", "channels"
 _FAMILY_OPTIONAL = frozenset({"rename", "branch", "class", "devices"})
 _ENTRY_KEYS = ("same_as", "coordinates")
 _FIELD_KEYS = frozenset({"description", "provenance"})
-_FIELD_OPTIONAL = frozenset({"signal"})
+_FIELD_OPTIONAL = frozenset({"signal", "by_model"})
 _DIRECTION_REQUIRED = frozenset({"direction", "provenance"})
 _DIRECTION_OPTIONAL = frozenset({"override"})
 _JUDGMENT_KINDS = frozenset({ROWS_BEYOND_KIND, UNBOUND_KIND, SHARED_KIND})
@@ -819,8 +831,27 @@ def _fields(value: Any, key: str) -> dict[str, Field]:
             description=_str(body, "description", path, nullable=True),
             provenance=_str(body, "provenance", path, nullable=False),
             signal=_str(body, "signal", path, nullable=True),
+            by_model=_by_model(body, path),
         )
     return fields
+
+
+def _by_model(body: dict, path: str) -> dict[str, str | None]:
+    """A field's ``by_model`` answer: ``{<raw model>: <signal role | null>}``."""
+    value = body.get("by_model")
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise MappingError(f"{path}.by_model", f"must be a mapping, got {_type_name(value)}")
+    answers: dict[str, str | None] = {}
+    for model, signal in value.items():
+        key = f"{path}.by_model.{model}"
+        if not isinstance(model, str):
+            raise MappingError(key, f"key must be a model, got {_type_name(model)}")
+        if signal is not None and not isinstance(signal, str):
+            raise MappingError(key, f"must be a signal role or null, got {_type_name(signal)}")
+        answers[model] = signal
+    return answers
 
 
 def _channels(body: dict, path: str) -> int:
@@ -1369,11 +1400,16 @@ def _field_signals(mapping: Mapping, roles: frozenset[str] | None = None) -> Ite
         roles = signal_roles()
     for raw, family in mapping.families.items():
         for name, fld in family.fields.items():
+            path = f"families.{raw}.fields.{name}"
             if fld.signal is not None and fld.signal not in roles:
-                yield Problem(
-                    f"families.{raw}.fields.{name}.signal",
-                    f"{fld.signal!r} is no vocabulary signal role",
-                )
+                yield Problem(f"{path}.signal", f"{fld.signal!r} is no vocabulary signal role")
+            for model, signal in fld.by_model.items():
+                if model not in mapping.models:
+                    yield Problem(f"{path}.by_model.{model}", f"{model} is no model")
+                elif signal is not None and signal not in roles:
+                    yield Problem(
+                        f"{path}.by_model.{model}", f"{signal!r} is no vocabulary signal role"
+                    )
 
 
 def _direction_fields(mapping: Mapping) -> Iterator[Problem]:
@@ -1529,7 +1565,44 @@ def _against_export(mapping: Mapping, ao: dict) -> Iterator[Problem]:
             "set override: true to keep it",
         )
 
+    yield from _unit_contradictions(mapping, views)
     yield from _judgment_problems(mapping, _pending_by_family(ao))
+
+
+def _unit_contradictions(mapping: Mapping, views: dict[str, dict[str, Any]]) -> Iterator[Problem]:
+    """Refuse a current signal for a model whose units for the field are no current.
+
+    One family entry serves every model carrying the family, so a ``signal``
+    drafted from one model's units can be wrong for another. Such a model is
+    answered by the field's ``by_model``; the problem names the answer to give.
+    A model the field answers there is settled, even where the answer keeps the
+    current: the export's units may be the stale fact.
+    """
+    for raw, family in mapping.families.items():
+        for name, fld in family.fields.items():
+            for model, system in views.items():
+                view = system.get(raw)
+                if view is None or name not in view.fields or model in fld.by_model:
+                    continue  # an answer for the model is the reviewer's, units or not
+                signal = fld.signal_of(model)
+                if signal is None or not _is_current(signal):
+                    continue
+                unit = _one_unit(view.fields[name].body.get("HWUnits"))
+                if unit is None or unit.lower() in _CURRENT_UNITS:
+                    continue
+                yield Problem(
+                    f"families.{raw}.fields.{name}",
+                    f"{signal!r} is a current, and {model} states {name} in {unit!r}; "
+                    f"answer by_model: {{{model}: <its signal role, or null>}}",
+                )
+
+
+def _is_current(signal: str) -> bool:
+    """Whether *signal* names a current, of any qualifier (``current_x``)."""
+    from osprey.facility.pairing import signal_quantity
+
+    found = signal_quantity(signal, "setpoint") or signal_quantity(signal, "readback")
+    return found is not None and found.split("_")[0] == "current"
 
 
 # -- judgment answers against the export ---------------------------------------
@@ -2012,8 +2085,48 @@ def _current_field(views: list[Any], name: str) -> bool:
     return bool(units) and units <= _CURRENT_UNITS
 
 
+def _draft_field_signal(
+    views: list[Any],
+    name: str,
+    directions: Map[str, Map[str, Any]],
+    raw: str,
+    fields: Map[str, Any],
+) -> dict[str, Any]:
+    """A family field's drafted ``signal``, and ``by_model`` where a model differs.
+
+    Each model carrying the family is drafted from its own units and the
+    family's lattice type, which any model's export may state
+    (:func:`_draft_signal`). The family ``signal`` is the one most of them give
+    (the first model's on a tie); a model that gives another, or none where the
+    others give one, is answered under ``by_model``, keyed by its raw token.
+    """
+    direction = directions[f"{raw}.{name}"]["direction"]
+    token = next((found for view in views if (found := _lattice_type(view)) is not None), None)
+    per_model: dict[str, str | None] = {}
+    for view in views:
+        if name not in view.fields:
+            continue
+        current_writes = frozenset(
+            other
+            for other in fields
+            if directions[f"{raw}.{other}"]["direction"] == "write"
+            and _current_field([view], other)
+        )
+        per_model[view.system] = _draft_signal([view], name, direction, current_writes, token)
+    if not per_model:
+        return {"signal": None}
+    counts = Counter(per_model.values())
+    signal = max(per_model.values(), key=lambda found: counts[found])  # first on a tie
+    by_model = {model: found for model, found in per_model.items() if found != signal}
+    return {"signal": signal, "by_model": by_model} if by_model else {"signal": signal}
+
+
 def _draft_signal(
-    views: list[Any], name: str, direction: str | None, current_writes: frozenset[str]
+    views: list[Any],
+    name: str,
+    direction: str | None,
+    current_writes: frozenset[str],
+    token: str | None = None,
 ) -> str | None:
     """The signal role a family field's channels play, where the export decides it.
 
@@ -2022,9 +2135,11 @@ def _draft_signal(
     a kick -- whose field states its hardware in a current commands that
     current where the field is the family's one written current field
     (``current_writes``), and reads it back through its ``Monitor``. Every
-    other field is left for the reviewer.
+    other field is left for the reviewer. ``token`` is the family's lattice
+    type; ``None`` reads it from *views*.
     """
-    token = next((found for view in views if (found := _lattice_type(view)) is not None), None)
+    if token is None:
+        token = next((found for view in views if (found := _lattice_type(view)) is not None), None)
     engine = ENGINE_BY_TYPE.get(token, {}) if token is not None else {}
     if "axis" in engine:
         return f"position_{engine['axis']}_readback" if name == MONITOR_FIELD else None
@@ -2509,15 +2624,9 @@ def _draft(
                 "provenance": DERIVED,
                 "override": False,
             }
-        current_writes = frozenset(
-            name
-            for name in entry["fields"]
-            if directions[f"{raw}.{name}"]["direction"] == "write"
-            and _current_field(views[raw], name)
-        )
         for name in entry["fields"]:
-            entry["fields"][name]["signal"] = _draft_signal(
-                views[raw], name, directions[f"{raw}.{name}"]["direction"], current_writes
+            entry["fields"][name].update(
+                _draft_field_signal(views[raw], name, directions, raw, entry["fields"])
             )
 
     document: dict[str, Any] = {}

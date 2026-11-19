@@ -236,6 +236,30 @@ same quantity, so a field without a signal stays unpaired. A family whose
 devices hold one coil per plane maps its current fields to the plane-qualified
 signals (``current_x_setpoint``, ``current_x_readback``, ``current_y_setpoint``,
 ``current_y_readback``), so the build pairs each coil with its own readback.
+
+One family entry serves every model that carries the family, but a field can
+carry a current in one model and another quantity in the next. A field's
+``by_model`` answers its signal for those models, keyed by the model's system
+token as under ``models``; ``null`` gives that model's channels no signal:
+
+.. code-block:: yaml
+
+   families:
+     QF:
+       fields:
+         Setpoint:
+           description: Power-supply current setpoint per magnet.
+           provenance: stated
+           signal: current_setpoint
+           by_model:
+             TL: null      # this model states the field as a gradient
+
+The draft reads each model's units on its own: the ``signal`` is the one most
+models give, and ``by_model`` lists only the models that differ. The mapping
+check, and with it the import, stops when a field gives a current signal to a
+model whose units for the field are not a current, and names the ``by_model``
+answer to add. Any answer for the model settles it, even one that keeps the
+current where the export's units are out of date.
 Each device carries the export's ``Position`` as ``s`` with its ``model``, and
 the build stops (``place-conflict``) when a wired device's deck disagrees.
 

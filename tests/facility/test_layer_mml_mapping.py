@@ -1283,3 +1283,89 @@ def test_an_engine_block_states_its_words_as_a_wiring_records_engine(
     block: EngineBlock, words: dict[str, Any]
 ) -> None:
     assert block.words() == words
+
+
+def _two_models() -> dict[str, Any]:
+    """Two systems carrying one quadrupole family: the first states its fields in
+    amperes, the second its setpoint in a gradient and its monitor in nothing."""
+    ao = _typed_export()
+    ao["SR"]["QF"]["Setpoint"]["HWUnits"] = "A"
+    ao["SR"]["QF"]["Monitor"]["HWUnits"] = "A"
+    ao["TL"] = {"QF": copy.deepcopy(ao["SR"]["QF"])}
+    for field_ in ("Setpoint", "Monitor"):
+        names = ao["TL"]["QF"][field_]["ChannelNames"]
+        ao["TL"]["QF"][field_]["ChannelNames"] = [f"TL-{name}" for name in names]
+    ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "T/m"
+    del ao["TL"]["QF"]["Monitor"]["HWUnits"]
+    ao["_import_order"] = ["SR", "TL"]
+    return ao
+
+
+class TestSignalPerModel:
+    def test_each_model_is_drafted_from_its_own_units(self) -> None:
+        ao = _two_models()
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert fields["Setpoint"]["by_model"] == {"TL": None}
+        assert fields["Monitor"]["signal"] == "current_readback"
+        assert fields["Monitor"]["by_model"] == {"TL": None}
+        mapping = parse_mapping(draft_mapping(ao))
+        assert mapping.families["QF"].fields["Setpoint"].signal_of("SR") == "current_setpoint"
+        assert mapping.families["QF"].fields["Setpoint"].signal_of("TL") is None
+        assert check_mapping(mapping, ao) == []
+
+    def test_the_family_s_lattice_type_holds_in_a_model_whose_export_omits_it(self) -> None:
+        ao = _two_models()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "A"
+        ao["TL"]["QF"]["Monitor"]["HWUnits"] = "A"
+        del ao["TL"]["QF"]["AT"]  # only the first model states the type
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert "by_model" not in fields["Setpoint"]
+
+    def test_models_that_agree_draft_one_signal_and_no_by_model(self) -> None:
+        ao = _two_models()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "Ampere"
+        ao["TL"]["QF"]["Monitor"]["HWUnits"] = "A"
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert "by_model" not in fields["Setpoint"]
+        assert "by_model" not in fields["Monitor"]
+
+    def test_a_current_given_to_a_model_whose_units_are_no_current_stops_the_import(
+        self,
+    ) -> None:
+        ao = _two_models()
+        document = draft_mapping(ao)
+        del document["families"]["QF"]["fields"]["Setpoint"]["by_model"]
+        assert _problems(document, ao) == [
+            "families.QF.fields.Setpoint: 'current_setpoint' is a current, and TL states "
+            "Setpoint in 'T/m'; answer by_model: {TL: <its signal role, or null>}"
+        ]
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = {"TL": "field_setpoint"}
+        assert _problems(document, ao) == []
+        mapping = parse_mapping(document)
+        assert mapping.families["QF"].fields["Setpoint"].signal_of("TL") == "field_setpoint"
+
+    def test_a_by_model_answer_settles_a_model_even_where_it_keeps_the_current(self) -> None:
+        ao = _two_models()
+        document = draft_mapping(ao)
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = {"TL": "current_setpoint"}
+        assert _problems(document, ao) == []  # the reviewer knows the units are stale
+
+    def test_a_by_model_answer_names_a_model_and_a_signal_role(self) -> None:
+        document = draft_mapping(_two_models())
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = {
+            "XX": None,
+            "TL": "gradient",
+        }
+        assert _problems(document) == [
+            "families.QF.fields.Setpoint.by_model.XX: XX is no model",
+            "families.QF.fields.Setpoint.by_model.TL: 'gradient' is no vocabulary signal role",
+        ]
+
+    def test_a_by_model_answer_that_is_no_mapping_is_refused(self) -> None:
+        document = draft_mapping(_two_models())
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = ["TL"]
+        with pytest.raises(MappingError, match=r"by_model: must be a mapping, got"):
+            parse_mapping(document)
