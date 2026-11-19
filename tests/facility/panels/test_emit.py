@@ -855,3 +855,31 @@ def test_a_scope_cuts_a_group_to_its_kept_members_and_writes_a_duplicate_once(tm
     view = set_overview(scoped(graph_with_part(tmp_path / "c"), only), "XR-QUAD")
     (grid,) = [i for s in view.sections if s.title == "members" for i in s.items]
     assert {c.member.label for row in grid.rows for c in row.cells} == {"XR01:QF1", "XR01:QD1"}
+
+
+def test_no_written_screen_links_to_a_duplicate_the_scope_writes_once(tmp_path):
+    """The dropped duplicate is no set under the scope: every screen that named it
+    names the kept one, so no link leaves the write for it."""
+    import posixpath
+
+    from osprey.facility.panels.emit import Draw, _links
+
+    def per_sector(document) -> None:  # the facility's own set of XR01's quadrupoles
+        document["groups"].append({"id": "XR01-QUAD", "members": ["XR01:QF1", "XR01:QD1"]})
+
+    graph = graph_with_part(tmp_path, per_sector)
+    out = tmp_path / "out"
+    draw = Draw(write_under=("XR/XR01",))
+    write(graph, out, draw=draw)
+    index = json.loads((out / "index.json").read_text())
+    files = {e["file"] for e in index["screens"]}
+    dropped = {e["file"] for e in index.get("outside", ()) if e["thing"] == "XR-QUAD"}
+    linked = set()
+    for name in files:
+        if not name.endswith(".json"):
+            continue
+        here = posixpath.dirname(name)
+        for ref in _links(json.loads((out / name).read_text())):
+            linked.add(posixpath.normpath(posixpath.join(here, ref)))
+    assert not linked & dropped
+    assert any("xr01-quad" in name for name in linked)  # the kept one is reached

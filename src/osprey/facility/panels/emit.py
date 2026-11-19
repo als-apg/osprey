@@ -431,6 +431,8 @@ class Scope:
     under: tuple[str, ...] = ()
     #: Each kept group's members cut to the kept devices, in the group's order.
     members: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: The groups cut to the same members as a kept one: written once, as that one.
+    dropped: frozenset[str] = frozenset()
 
     def __call__(self, target: Target) -> bool:
         if target.view == "home":
@@ -503,15 +505,22 @@ def write_scope(graph: PanelGraph, places: Iterable[str]) -> Scope:
         frozenset(classes),
         tuple(places),
         MappingProxyType({group: cut[group] for group in sorted(groups)}),
+        frozenset(cut) - frozenset(groups),
     )
 
 
 def scoped(graph: PanelGraph, scope: Scope) -> PanelGraph:
     """*graph* as a write kept to *scope* describes it: each kept group holds only its
-    kept members (:attr:`Scope.members`), and the home and the not-placed indexes
-    list only what the scope keeps (the graph carries it as ``write_scope``)."""
+    kept members (:attr:`Scope.members`), a dropped duplicate (:attr:`Scope.dropped`)
+    none, so no screen of the write links to it rather than to the kept one, and the
+    home and the not-placed indexes list only what the scope keeps (the graph carries
+    it as ``write_scope``)."""
     out = copy.copy(graph)
-    out._members = {**graph._members, **scope.members}
+    out._members = {
+        **graph._members,
+        **scope.members,
+        **dict.fromkeys(scope.dropped, ()),
+    }
     out.write_scope = scope
     return out
 
