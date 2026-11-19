@@ -61,7 +61,10 @@ that revision once per process lifetime (concurrent duplicates 409); the
 validation gate (`validation._validate_launchable_request` — session plans
 need a current passing record) runs before anything reaches the manager; any
 failure releases the reservation so the revision stays enqueueable; success
-consumes it via `draft.record_and_broadcast_launch`. The OSPREY run id is
+consumes it via `draft.record_and_broadcast_launch`. An add the manager does
+not answer is not yet a failure: the queue is read for the item's run id, and
+the add counts when the item is there. When the queue cannot be read either,
+the reservation is kept, because the item may be queued. The OSPREY run id is
 threaded through the item's metadata (`queue_backend.RUN_ID_META_KEY`) so
 start documents, live rows, and Tiled results all key back to it. One check is
 new rather than inherited: a plan whose role-typed channel parameters name
@@ -116,6 +119,7 @@ from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
 from .plan_types import PlanSpec
 from .queue_backend import (
     PLAN_META_KEY,
+    REASON_ENQUEUE_OUTCOME_UNKNOWN,
     REASON_INTERRUPTED_ITEM_IN_QUEUE,
     REASON_MANAGER_NOT_IDLE,
     REASON_QUEUE_CHANGED_SINCE_APPROVAL,
@@ -125,6 +129,7 @@ from .queue_backend import (
     QueueBackend,
     QueueBackendError,
     QueueRequestRejectedError,
+    QueueUnavailableError,
     is_queue_active,
     run_id_of,
     split_owner,
@@ -1099,7 +1104,9 @@ async def add_queue_item(
     2. `draft.check_launchable` reserves the pinned revision (409 on a stale
        or already-consumed revision — same dict-detail shape as the draft
        routes). Every later failure releases the reservation, so a refused
-       enqueue never burns the revision.
+       enqueue never burns the revision. An add the manager does not answer
+       is not a failure until the queue shows the item is absent: see
+       `_find_unanswered_add`.
     3. The validation gate runs unchanged (session plans need a current
        passing record; sync file I/O, so it runs in a thread) before anything
        reaches the manager.
@@ -1177,6 +1184,7 @@ async def add_queue_item(
     }
 
     enqueued = False
+    keep_reservation = False
     arming_add = False
     result: dict[str, Any] = {}
     try:
@@ -1210,13 +1218,20 @@ async def add_queue_item(
                 except SessionPlanNotReadyError as exc:
                     raise _session_refusal(exc) from exc
 
-                result = await backend.add_item(
-                    item,
-                    run_id=run_id,
-                    owner=owner,
-                    session_id=session_id,
-                    tool_use_id=tool_use_id,
-                )
+                try:
+                    result = await backend.add_item(
+                        item,
+                        run_id=run_id,
+                        owner=owner,
+                        session_id=session_id,
+                        tool_use_id=tool_use_id,
+                    )
+                except QueueUnavailableError as exc:
+                    try:
+                        result = await _find_unanswered_add(backend, run_id, exc)
+                    except HTTPException:
+                        keep_reservation = True
+                        raise
 
                 if not armed:
                     added_uid = _added_item_uid(result)
@@ -1244,7 +1259,7 @@ async def add_queue_item(
             raise _http_error(exc) from exc
         enqueued = True
     finally:
-        if not enqueued:
+        if not enqueued and not keep_reservation:
             await draft.release_launch(checked.revision)
 
     # Post-enqueue bookkeeping. The item is already in the queue here, so a
@@ -1272,6 +1287,43 @@ def _added_item_uid(add_result: dict[str, Any]) -> str | None:
     item = add_result.get("item")
     uid = item.get("item_uid") if isinstance(item, dict) else None
     return uid if isinstance(uid, str) and uid else None
+
+
+async def _find_unanswered_add(
+    backend: QueueBackend, run_id: str, unanswered: QueueUnavailableError
+) -> dict[str, Any]:
+    """Settle an add the manager did not answer by looking for its item.
+
+    No answer does not mean no item: the manager can apply the add and answer
+    after the client has stopped waiting. The item carries the run id this
+    request minted, so the queue says which of the two happened.
+
+    Returns:
+        An add result whose ``item`` is the queued item: the add happened.
+
+    Raises:
+        QueueUnavailableError: *unanswered* itself, when the manager was read
+            and holds no item with this run id. Nothing was added, so the
+            caller releases the revision and may retry.
+        HTTPException: ``enqueue_outcome_unknown`` when the manager could not
+            be read either. The item may be queued, so the caller keeps the
+            revision reserved, and a retry of it is refused.
+    """
+    try:
+        landed = await backend.find_run_item(run_id)
+    except QueueBackendError as exc:
+        raise refusal(
+            REASON_ENQUEUE_OUTCOME_UNKNOWN,
+            f"The queue server did not answer the add of run {run_id}, and the queue "
+            "could not be read to see whether the item arrived. Check the queue before "
+            "adding this plan again: this draft revision stays reserved, so edit the "
+            "draft to add it again if the item is not there.",
+            run_id=run_id,
+        ) from exc
+    if landed is None:
+        raise unanswered
+    logger.warning("item_add for run %s got no answer, but the manager holds the item", run_id)
+    return {"item": landed}
 
 
 async def _remove_item_best_effort(backend: QueueBackend, uid: str | None) -> bool:

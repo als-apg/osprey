@@ -290,6 +290,12 @@ quirks worth knowing:
       The queue server is not answering — often it is simply still starting.
       Wait a moment and retry.
 
+   ``enqueue_outcome_unknown``
+      The queue server did not answer an add, and the queue could not be read
+      after it, so the plan may already be queued. Do not retry. Look in the
+      queue and the history for the plan; if it is in neither, edit the draft
+      and add the new revision.
+
 .. dropdown:: After an emergency stop
    :color: info
    :icon: stop

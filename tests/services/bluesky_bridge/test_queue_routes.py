@@ -470,6 +470,155 @@ def test_recheck_failure_reports_a_stranded_item_when_withdrawal_also_fails(
     assert draft._launching == set()
 
 
+class _LateAnswerManager(FakeManager):
+    """A manager whose answer to the first add arrives too late.
+
+    The client stops waiting and raises `RequestTimeoutError`. A manager that
+    *applied_late_add* keeps the item queued anyway; `queue_get` reports every
+    item the manager holds.
+    """
+
+    def __init__(self, *, applied_late_add: bool = True) -> None:
+        super().__init__(status=status_doc())
+        self.queue: list[dict[str, Any]] = []
+        self.applied_late_add = applied_late_add
+
+    async def item_add(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("item_add", kwargs))
+        first = len(self.kwargs_for("item_add")) == 1
+        stored = {**kwargs["item"], "item_uid": f"u{len(self.queue) + 1}"}
+        if not first or self.applied_late_add:
+            self.queue.append(stored)
+        if first:
+            raise RequestTimeoutError("no answer within timeout_recv", {})
+        return {"success": True, "item": dict(stored)}
+
+    async def queue_get(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("queue_get", kwargs))
+        return {"success": True, "items": [dict(item) for item in self.queue], "running_item": {}}
+
+
+def test_an_unanswered_add_whose_item_is_queued_counts_as_the_launch(
+    client: TestClient, connector
+) -> None:
+    """No answer to `item_add` is not proof of no item: the queue is read for
+    the run id, the add counts, and the revision cannot queue a second item."""
+    connector("virtual_accelerator")
+    manager = _LateAnswerManager()
+    install_backend(manager)
+    revision = _make_draft(client)
+
+    first = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["revision"] == revision
+    assert body["item"]["item_uid"] == "u1"
+    (queued,) = manager.queue
+    assert queued["meta"][qb.RUN_ID_META_KEY] == body["run_id"]
+    # The look-up bypasses the client's caches.
+    assert manager.kwargs_for("queue_get") == [{"reload": True}]
+    assert manager.kwargs_for("history_get") == [{"reload": True}]
+    assert draft._launching == set()
+    assert draft._last_launched_revision == revision
+
+    second = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert second.status_code == 409
+    assert second.json()["detail"]["code"] == qb.REASON_DRAFT_REVISION_ALREADY_LAUNCHED
+    assert len(manager.kwargs_for("item_add")) == 1
+    assert len(manager.queue) == 1
+
+
+def test_an_unanswered_add_whose_item_already_ran_counts_as_the_launch(
+    client: TestClient, connector
+) -> None:
+    """An item can leave the queue before it is looked for; history holds it."""
+    connector("virtual_accelerator")
+    run_id_seen: list[str] = []
+
+    class _RanAlready(FakeManager):
+        async def item_add(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("item_add", kwargs))
+            run_id_seen.append(kwargs["item"]["meta"][qb.RUN_ID_META_KEY])
+            raise RequestTimeoutError("no answer within timeout_recv", {})
+
+        async def history_get(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("history_get", kwargs))
+            return {
+                "success": True,
+                "items": [{"item_uid": "u1", "meta": {qb.RUN_ID_META_KEY: run_id_seen[0]}}],
+            }
+
+    manager = _RanAlready(
+        status=status_doc(), queue_get={"success": True, "items": [], "running_item": {}}
+    )
+    install_backend(manager)
+    revision = _make_draft(client)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["run_id"] == run_id_seen[0]
+    assert draft._last_launched_revision == revision
+
+
+def test_an_unanswered_add_on_an_unreadable_queue_keeps_the_revision_reserved(
+    client: TestClient, connector
+) -> None:
+    """With neither the add nor the queue answering, the item may be queued:
+    the refusal says the outcome is unknown, is not retryable, and a second
+    add of the same revision is refused without reaching the manager."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        item_add=RequestTimeoutError("no answer within timeout_recv", {}),
+        queue_get=RequestTimeoutError("no answer either", {}),
+    )
+    install_backend(manager)
+    revision = _make_draft(client)
+
+    first = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert first.status_code == 504
+    detail = first.json()["detail"]
+    assert detail["code"] == qb.REASON_ENQUEUE_OUTCOME_UNKNOWN
+    assert detail["retryable"] is False
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    assert detail["run_id"] == add_kwargs["item"]["meta"][qb.RUN_ID_META_KEY]
+    assert "check the queue" in detail["detail"].lower()
+    assert draft._launching == {revision}
+
+    second = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert second.status_code == 409
+    assert second.json()["detail"]["code"] == qb.REASON_DRAFT_REVISION_ALREADY_LAUNCHED
+    assert len(manager.kwargs_for("item_add")) == 1
+
+
+def test_an_unanswered_add_absent_from_a_readable_queue_releases_the_revision(
+    client: TestClient, connector
+) -> None:
+    """The queue was read and holds no item with the run id: nothing was
+    added, so the refusal stays retryable and the revision stays usable."""
+    connector("virtual_accelerator")
+    manager = _LateAnswerManager(applied_late_add=False)
+    install_backend(manager)
+    revision = _make_draft(client)
+
+    first = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert first.status_code == 503
+    assert first.json()["detail"]["code"] == qb.REASON_MANAGER_UNREACHABLE
+    assert first.json()["detail"]["retryable"] is True
+    assert draft._launching == set()
+
+    second = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert second.status_code == 200, second.text
+    assert len(manager.queue) == 1
+
+
 def test_enqueue_is_refused_on_a_browse_only_deployment(client: TestClient, connector) -> None:
     connector(IN_PROCESS)
     manager = FakeManager(status=status_doc())
