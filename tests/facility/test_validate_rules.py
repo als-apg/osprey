@@ -1291,20 +1291,84 @@ class TestFollowsSeed:
             "follows it from none of them"
         )
 
-    def test_follows_a_setpoint_of_another_type(self, tmp_path: Path) -> None:
-        setpoint = {**SP, "value_type": "enum", "options": ["Idle", "On"]}
-        readback = {**RB, "value_type": "bool"}
-        files = _tree(
+    def _typed(
+        self, setpoint: dict[str, Any], readback: dict[str, Any], **seeds: Any
+    ) -> dict[str, Any]:
+        return _tree(
             **{
-                "records/channels.yaml": [setpoint, readback, X],
-                "seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}},
+                "records/channels.yaml": [{**SP, **setpoint}, {**RB, **readback}, X],
+                "seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}, **seeds},
             }
         )
-        error = _rule(tmp_path, files, "seed-invalid")
-        assert error.detail == (
-            "`follows` names Q1:SP, which holds values of another type; the simulation "
-            "copies the setpoint's value"
-        )
+
+    @pytest.mark.parametrize(
+        "setpoint",
+        [
+            {"value_type": "enum", "options": ["Idle", "On"]},
+            {"value_type": "float"},
+            {"value_type": "int"},
+        ],
+        ids=["labels", "float", "int"],
+    )
+    def test_follows_into_a_labelled_readback_by_index(
+        self, tmp_path: Path, setpoint: dict[str, Any]
+    ) -> None:
+        files = self._typed(setpoint, {"value_type": "bool", "options": ["Off", "On"]})
+        assert _run(tmp_path, files).ok, _lines(_run(tmp_path, files))
+
+    @pytest.mark.parametrize(
+        ("setpoint", "readback", "detail"),
+        [
+            (
+                {"value_type": "enum", "options": ["A", "B", "C"]},
+                {"value_type": "bool"},
+                "`follows` names Q1:SP, which holds 3 labels to Q1:RB's 2; the state is "
+                "copied by index",
+            ),
+            (
+                {"value_type": "string"},
+                {"value_type": "bool"},
+                "`follows` names Q1:SP, which holds neither labels nor a number; the state "
+                "is copied by index",
+            ),
+            (
+                {"value_type": "enum", "options": ["Idle", "On"]},
+                {"value_type": "float"},
+                "`follows` names Q1:SP, which holds values of another type; the simulation "
+                "copies the setpoint's value",
+            ),
+        ],
+        ids=["label-count", "no-state", "unlabelled-readback"],
+    )
+    def test_follows_a_setpoint_it_cannot_copy(
+        self, tmp_path: Path, setpoint: dict[str, Any], readback: dict[str, Any], detail: str
+    ) -> None:
+        error = _rule(tmp_path, self._typed(setpoint, readback), "seed-invalid")
+        assert error.detail == detail
+
+    def test_a_number_setpoint_starts_at_an_index_of_the_readback(self, tmp_path: Path) -> None:
+        readback = {"value_type": "enum", "options": ["Off", "On", "Fault"]}
+        ok = self._typed({"value_type": "float"}, readback, **{"Q1:SP": {"nominal": 2.0}})
+        assert _run(tmp_path / "ok", ok).ok, _lines(_run(tmp_path / "ok", ok))
+        for name, nominal in (("fraction", 0.5), ("past", 3.0)):
+            files = self._typed(
+                {"value_type": "float"}, readback, **{"Q1:SP": {"nominal": nominal}}
+            )
+            error = _rule(tmp_path / name, files, "seed-invalid")
+            assert error.record_id == "Q1:RB"
+            assert error.detail == (
+                f"the start value {nominal} of Q1:SP is no index of Q1:RB's 3 labels"
+            )
+
+    def test_a_readback_nominal_agrees_with_its_setpoint_by_index(self, tmp_path: Path) -> None:
+        setpoint = {"value_type": "enum", "options": ["Clear", "Set"]}
+        readback = {"value_type": "bool", "options": ["Off", "On"]}
+        agree = self._typed(setpoint, readback, **{"Q1:SP": {"nominal": "Set"}})
+        agree["seeds.yaml"]["Q1:RB"]["nominal"] = "On"
+        assert _run(tmp_path / "agree", agree).ok, _lines(_run(tmp_path / "agree", agree))
+        differ = self._typed(setpoint, readback, **{"Q1:SP": {"nominal": "Set"}})
+        differ["seeds.yaml"]["Q1:RB"]["nominal"] = "Off"
+        assert _rule(tmp_path / "differ", differ, "seed-invalid").record_id == "Q1:RB"
 
     def test_two_layers_that_state_follows_differently_conflict(self, tmp_path: Path) -> None:
         files = _tree(

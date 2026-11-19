@@ -43,9 +43,11 @@ is not writable.
 a seed of ``follows`` alone is not listed.
 ``follows.json`` says for each pair, a setpoint whose ``pair`` names another
 channel, whether the simulation follows it: ``pairs`` lists ``{setpoint,
-readback, follow, why}`` sorted by readback, then setpoint, where ``follow`` is
-``default``, ``seed`` (the readback's seed ``follows`` names the setpoint) or
-``not followed``; ``totals`` counts each word. The runtime does not read it; a
+readback, follow, why, copy?, labels?}`` sorted by readback, then setpoint,
+where ``follow`` is ``default``, ``seed`` (the readback's seed ``follows`` names
+the setpoint) or ``not followed``; a followed pair states ``copy``, ``value`` or
+``index``, and one copied by index lists ``labels``, ``[setpoint state, readback
+label]`` per index; ``totals`` counts each word. The runtime does not read it; a
 setpoint's ``pair`` in ``variables.json`` is the readback it follows, so the two
 agree.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
@@ -384,7 +386,10 @@ def _follows_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "schema": FOLLOWS_SCHEMA,
         "totals": follow_totals(follows),
-        "pairs": [follow._asdict() for follow in follows],
+        "pairs": [
+            {key: value for key, value in follow._asdict().items() if value is not None}
+            for follow in follows
+        ],
     }
 
 
