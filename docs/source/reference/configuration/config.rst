@@ -1199,7 +1199,7 @@ IOC at an EPICS facility (:ref:`channel-directory-words`).
    * - ``channel_directory.type``
      - The directory service of the facility. ``channelfinder`` is the
        built-in type, and a dotted path names a backend of your own. Absent,
-       the section is simulator-only (below).
+       the section has the simulator-only form.
    * - ``channel_directory.settings.url``
      - The service URL. The build refuses a ``type`` without it.
    * - ``channel_directory.settings.timeout_s``
@@ -1274,7 +1274,8 @@ IOC at an EPICS facility (:ref:`channel-directory-words`).
    * - ``channel_directory.fleet.group_by``
      - ``host``, ``class_name`` or ``group``. Default ``host``.
    * - ``channel_directory.fleet.classes``
-     - Named server classes, applied on ``live`` only (below). Default none.
+     - Named server classes (see *Server classes*), applied on ``live`` only.
+       Default none.
    * - ``channel_directory.fleet.roster_sources``
      - ``module:attribute`` references to roster sources, read on ``live``
        only. Default none.
