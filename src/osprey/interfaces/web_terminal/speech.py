@@ -166,8 +166,9 @@ class Transcriber:
 
     def _load(self) -> Any:
         if self._model is None:
-            import whisper  # optional dependency; checked by status()
-
+            # Optional, so loaded by name: checked by status(), and installed
+            # or not, it gives the type checker nothing to report.
+            whisper = importlib.import_module("whisper")
             logger.info("Loading Whisper model %s", self._name)
             self._model = whisper.load_model(self._name)
         return self._model

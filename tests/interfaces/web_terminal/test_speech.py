@@ -108,7 +108,8 @@ def test_spoken_text_of_silence_is_empty():
 # ---- transcription ---------------------------------------------------------
 
 
-def test_transcribe_uses_the_conservative_settings(available):
+@pytest.mark.usefixtures("available")
+def test_transcribe_uses_the_conservative_settings():
     model = FakeModel()
     text = asyncio.run(transcriber_with(model).transcribe(b"audio", ".webm"))
     assert text == "read the beam current"
@@ -120,7 +121,8 @@ def test_transcribe_uses_the_conservative_settings(available):
     }
 
 
-def test_the_clip_exists_only_during_transcription(available):
+@pytest.mark.usefixtures("available")
+def test_the_clip_exists_only_during_transcription():
     model = FakeModel()
     asyncio.run(transcriber_with(model).transcribe(b"audio", ".webm"))
     assert model.existed == [True]
@@ -128,7 +130,8 @@ def test_the_clip_exists_only_during_transcription(available):
     assert not Path(model.paths[0]).exists()
 
 
-def test_the_clip_is_deleted_even_when_transcription_fails(available):
+@pytest.mark.usefixtures("available")
+def test_the_clip_is_deleted_even_when_transcription_fails():
     model = FakeModel(error=RuntimeError("ffmpeg failed"))
     with pytest.raises(RuntimeError):
         asyncio.run(transcriber_with(model).transcribe(b"audio", ".webm"))
@@ -235,7 +238,8 @@ def test_status_route(client, monkeypatch):
     }
 
 
-def test_transcribe_route_returns_the_text(client, available, monkeypatch):
+@pytest.mark.usefixtures("available")
+def test_transcribe_route_returns_the_text(client, monkeypatch):
     model = FakeModel()
     monkeypatch.setattr(speech, "get_transcriber", lambda: transcriber_with(model))
     res = client.post(
@@ -248,12 +252,14 @@ def test_transcribe_route_returns_the_text(client, available, monkeypatch):
     assert model.paths[0].endswith(".ogg")
 
 
-def test_transcribe_route_rejects_an_empty_clip(client, available):
+@pytest.mark.usefixtures("available")
+def test_transcribe_route_rejects_an_empty_clip(client):
     res = client.post("/api/speech/transcribe", content=b"", headers={"Content-Type": "audio/webm"})
     assert res.status_code == 400
 
 
-def test_transcribe_route_rejects_an_oversized_clip(client, available):
+@pytest.mark.usefixtures("available")
+def test_transcribe_route_rejects_an_oversized_clip(client):
     too_big = b"x" * (speech.MAX_CLIP_BYTES + 1)
     res = client.post(
         "/api/speech/transcribe", content=too_big, headers={"Content-Type": "audio/webm"}
@@ -272,7 +278,8 @@ def test_transcribe_route_says_when_unavailable(client, monkeypatch):
     assert res.json() == {"error": "Whisper is not installed."}
 
 
-def test_transcribe_route_hides_internal_errors(client, available, monkeypatch):
+@pytest.mark.usefixtures("available")
+def test_transcribe_route_hides_internal_errors(client, monkeypatch):
     model = FakeModel(error=RuntimeError("secret internal detail"))
     monkeypatch.setattr(speech, "get_transcriber", lambda: transcriber_with(model))
     res = client.post(
