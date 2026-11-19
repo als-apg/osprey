@@ -134,7 +134,7 @@ def shared_root(tmp_path, monkeypatch):
             "osprey.utils.config_paths.process_agent_data_root",
             return_value=root,
         ),
-        patch.object(_control_state, "resolve_shared_data_root", return_value=root),
+        patch.object(_control_state, "_config_agent_data_root", return_value=root),
     ):
         testing.invalidate_cache()
         yield root

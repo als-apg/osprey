@@ -302,7 +302,7 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
     """Build an app + TestClient over the stamped root.
 
     The record is written **before** the app starts, so the lifespan claim
-    merges into it rather than minting a fresh one from ``load_osprey_config``,
+    merges into it rather than minting a fresh one from ``loaded_or_empty``,
     which this process has no workspace for. The owner task's loop is stubbed
     out: every tick these tests need has happened by the time the client is
     handed over, and a loop ticking underneath the assertions would be a race

@@ -11,6 +11,12 @@ that every ``osprey build`` re-creates. These tests pin that from both sides —
 a config in ``build/`` resolves data one level up, while a config sitting at a
 directory's root (the shape a container sees) still resolves data beside it.
 
+A loaded config answers the repo root and the paths under it for itself
+(``LoadedConfig.repo_root``, ``repo_path``, ``agent_data_root``,
+``session_data_root``); ``locate_repo_root`` answers for a process with no
+config, and the framework's ``config_paths`` helpers put the two together for
+readers that degrade rather than fail.
+
 The autouse ``reset_state_between_tests`` fixture clears ``OSPREY_CONFIG`` /
 ``CONFIG_FILE`` and the config-cache singleton around every test.
 """
@@ -21,17 +27,21 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.config_paths import loaded_or_empty, session_agent_data_root
+from osprey.utils.config_paths import (
+    loaded_or_empty,
+    process_agent_data_root,
+    process_repo_root,
+    repo_root_of,
+    session_agent_data_root,
+)
 from osprey.utils.workspace import repo_root_for_agent_data
-from osprey_connectors.config import locate_config
-from osprey_connectors.testing import clear_config_state
+from osprey_connectors.config import load_config, locate_config
+from osprey_connectors.testing import clear_config_state, config_of
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
+    locate_repo_root,
     rendered_config_path,
-    resolve_path,
-    resolve_project_root,
-    resolve_shared_data_root,
 )
 
 
@@ -85,16 +95,16 @@ class TestRenderedConfigPath:
         assert rendered_config_path(str(tmp_path)) == tmp_path / "build" / "config.yml"
 
 
-class TestResolveProjectRoot:
-    def test_configured_key_wins(self, tmp_path, monkeypatch):
+class TestRepoRoot:
+    def test_a_configured_root_that_exists_wins(self, tmp_path):
         """The container case: built at one path, running at another."""
         deployed = tmp_path / "app" / "demo"
         deployed.mkdir(parents=True)
         cfg = _write_repo(tmp_path / "elsewhere", f"project_root: {deployed}\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_project_root({"project_root": str(deployed)}) == deployed
+        assert load_config(cfg).repo_root == deployed
+        assert repo_root_of({"project_root": str(deployed)}) == deployed
 
-    def test_ignores_a_configured_root_this_machine_lacks(self, tmp_path, monkeypatch):
+    def test_ignores_a_configured_root_this_machine_lacks(self, tmp_path):
         """The deployed overlay: a config staged on the host, read in a container.
 
         The compose generator flattens the host render into
@@ -103,38 +113,42 @@ class TestResolveProjectRoot:
         does not have. Anchoring on it would put the agent-data root outside the
         mounted volume; the mount target is filesystem truth.
         """
-        cfg = _write_repo(tmp_path, "{}\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_project_root({"project_root": "/build/host/only/proj"}) == tmp_path
-
-    def test_keeps_the_configured_key_without_a_config_file(self, tmp_path, monkeypatch):
-        """A ``--runtime-root`` render names the path it will run at, elsewhere."""
-        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "absent" / "config.yml"))
-        monkeypatch.chdir(tmp_path)
-        assert resolve_project_root({"project_root": "/app/demo"}) == Path("/app/demo")
+        cfg = _write_repo(tmp_path, "project_root: /build/host/only/proj\n")
+        assert load_config(cfg).repo_root == tmp_path
 
     def test_expands_home_in_the_configured_key(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
         (tmp_path / "deployments" / "demo").mkdir(parents=True)
-        assert resolve_project_root({"project_root": "~/deployments/demo"}) == (
+        assert repo_root_of({"project_root": "~/deployments/demo"}) == (
             tmp_path / "deployments" / "demo"
         )
 
-    def test_unwraps_the_build_zone_when_the_key_is_absent(self, tmp_path, monkeypatch):
+    def test_unwraps_the_build_zone_when_the_key_is_absent(self, tmp_path):
+        assert load_config(_write_repo(tmp_path, "{}\n")).repo_root == tmp_path
+
+    def test_config_at_a_directory_root_anchors_there(self, tmp_path):
+        """The container layout, whose project directory *is* the render."""
+        assert load_config(_write_config(tmp_path, "{}\n")).repo_root == tmp_path
+
+    def test_the_process_config_answers_for_the_process(self, tmp_path, monkeypatch):
         cfg = _write_repo(tmp_path, "{}\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_project_root({}) == tmp_path
+        assert process_repo_root() == tmp_path
 
-    def test_config_at_a_directory_root_anchors_there(self, tmp_path, monkeypatch):
-        """The container layout, whose project directory *is* the render."""
-        cfg = _write_config(tmp_path, "{}\n")
+
+class TestLocateRepoRoot:
+    """The repo a process with no loaded config stands in."""
+
+    def test_a_config_file_that_does_not_load_still_names_its_repo(self, tmp_path, monkeypatch):
+        cfg = _write_repo(tmp_path, ": not yaml [\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_project_root({}) == tmp_path
+        assert locate_repo_root() == tmp_path
+        assert process_repo_root() == tmp_path
 
     def test_falls_back_to_cwd_without_a_config(self, tmp_path, monkeypatch):
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.chdir(tmp_path)
-        assert resolve_project_root({}) == Path.cwd()
+        assert locate_repo_root() == Path.cwd()
 
     def test_walks_up_to_the_repo_from_an_unbuilt_render(self, tmp_path, monkeypatch):
         """With no config yet, ``build/`` is the render zone and never the anchor."""
@@ -142,14 +156,13 @@ class TestResolveProjectRoot:
         (tmp_path / "profile.yml").write_text("{}\n")
         (tmp_path / "build").mkdir()
         monkeypatch.chdir(tmp_path / "build")
-        assert resolve_project_root({}) == tmp_path
+        assert locate_repo_root() == tmp_path
 
     def test_walks_up_from_a_nested_subdirectory(self, tmp_path, monkeypatch):
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         (tmp_path / "profile.yml").write_text("{}\n")
         (tmp_path / "a" / "b").mkdir(parents=True)
-        monkeypatch.chdir(tmp_path / "a" / "b")
-        assert resolve_project_root({}) == tmp_path
+        assert locate_repo_root(tmp_path / "a" / "b") == tmp_path
 
     def test_the_innermost_marker_wins(self, tmp_path, monkeypatch):
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
@@ -157,14 +170,22 @@ class TestResolveProjectRoot:
         (tmp_path / "inner" / "build").mkdir(parents=True)
         (tmp_path / "inner" / "profile.yml").write_text("{}\n")
         monkeypatch.chdir(tmp_path / "inner" / "build")
-        assert resolve_project_root({}) == tmp_path / "inner"
+        assert locate_repo_root() == tmp_path / "inner"
 
-    def test_a_marker_outranks_a_root_recorded_for_another_machine(self, tmp_path, monkeypatch):
-        """The walk sits before the recorded root, as it does in the hook."""
+    def test_a_root_recorded_for_another_machine_names_nothing_here(self, tmp_path, monkeypatch):
+        """A ``project_root`` this machine lacks gives way to the marker, then the cwd.
+
+        A config mapping held without a config file (a ``--runtime-root``
+        render read elsewhere) no longer answers its recorded root: it is not
+        a directory here, so the repo the process stands in answers.
+        """
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "absent" / "config.yml"))
-        (tmp_path / "profile.yml").write_text("{}\n")
         monkeypatch.chdir(tmp_path)
-        assert resolve_project_root({"project_root": "/app/demo"}) == tmp_path
+        assert repo_root_of({"project_root": "/app/demo"}) == tmp_path
+        (tmp_path / "profile.yml").write_text("{}\n")
+        (tmp_path / "sub").mkdir()
+        monkeypatch.chdir(tmp_path / "sub")
+        assert repo_root_of({"project_root": "/app/demo"}) == tmp_path
 
     def test_the_harness_project_dir_is_not_an_input(self, tmp_path, monkeypatch):
         """``CLAUDE_PROJECT_DIR`` is a hook input; the framework anchors on its own cwd."""
@@ -173,10 +194,10 @@ class TestResolveProjectRoot:
         (tmp_path / "process").mkdir()
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "harness"))
         monkeypatch.chdir(tmp_path / "process")
-        assert resolve_project_root({}) == tmp_path / "process"
+        assert locate_repo_root() == tmp_path / "process"
 
 
-class TestLoadOspreyConfig:
+class TestLoadedOrEmpty:
     def test_loads_parsed_config(self, tmp_path, monkeypatch):
         _write_config(tmp_path, "project_root: /somewhere\nfoo:\n  bar: 7\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
@@ -196,15 +217,17 @@ class TestLoadOspreyConfig:
         assert config["system"]["timezone"] == "America/Los_Angeles"
 
 
-class TestResetConfigCache:
-    def test_clears_singleton_and_cache(self, tmp_path, monkeypatch):
+class TestClearConfigState:
+    def test_clears_the_default_and_every_cached_load(self, tmp_path, monkeypatch):
         _write_config(tmp_path, "project_root: /x\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-        loaded_or_empty()  # populates default singleton
+        loaded_or_empty()  # the lazy default loads and caches the located file
 
         from osprey_connectors import config as config_module
 
-        assert config_module._installed is not None
+        # Read, not installed: a degrading reader makes nothing the process default.
+        assert config_module._installed is None
+        assert config_module._last_lazy is not None
         assert config_module._loads
         clear_config_state()
         assert config_module._installed is None
@@ -212,7 +235,7 @@ class TestResetConfigCache:
         assert config_module._loads == {}
 
 
-class TestResolveAgentDataRoot:
+class TestSessionAgentDataRoot:
     def test_anchors_on_the_repo_root_not_the_render(self, tmp_path, monkeypatch):
         """The property the split turns on: data lands beside ``build/``, not in it."""
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
@@ -257,6 +280,14 @@ class TestResolveAgentDataRoot:
         expected = (tmp_path / "var" / "agent_data").resolve() / "sessions" / "sess-123"
         assert session_agent_data_root() == expected
 
+    def test_the_loaded_config_names_a_session_explicitly(self, tmp_path, monkeypatch):
+        """``LoadedConfig.session_data_root`` reads no environment; the session is an argument."""
+        cfg = load_config(_write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n"))
+        monkeypatch.setenv("OSPREY_SESSION_ID", "ignored")
+        assert cfg.session_data_root("sess-9") == cfg.agent_data_root / "sessions" / "sess-9"
+        with pytest.raises(ValueError, match="session id"):
+            cfg.session_data_root(" ")
+
     def test_no_session_id_has_no_sessions_segment(self, tmp_path, monkeypatch):
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
@@ -264,34 +295,27 @@ class TestResolveAgentDataRoot:
         assert "sessions" not in session_agent_data_root().parts
 
 
-class TestResolveSharedDataRoot:
+class TestSharedAgentDataRoot:
     def test_ignores_session_isolation(self, tmp_path, monkeypatch):
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         monkeypatch.setenv("OSPREY_SESSION_ID", "sess-123")
         # Shared root must NOT include the per-session segment.
-        assert resolve_shared_data_root() == (tmp_path / "var" / "agent_data").resolve()
-        assert "sessions" not in resolve_shared_data_root().parts
+        assert process_agent_data_root() == (tmp_path / "var" / "agent_data").resolve()
+        assert "sessions" not in process_agent_data_root().parts
 
-    def test_anchors_on_the_repo_root_not_the_render(self, tmp_path, monkeypatch):
+    def test_anchors_on_the_repo_root_not_the_render(self, tmp_path):
         cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert "build" not in resolve_shared_data_root().parts
+        assert "build" not in load_config(cfg).agent_data_root.parts
 
     def test_defaults_when_no_config(self, tmp_path, monkeypatch):
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.chdir(tmp_path)
-        assert resolve_shared_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
+        assert process_agent_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
 
-    def test_a_given_config_is_used_without_loading_one(self, tmp_path, monkeypatch):
-
-        def _no_load():
-            raise AssertionError("a caller holding a config must not trigger a load")
-
-        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", _no_load)
+    def test_a_config_written_in_code_answers_its_own_root(self, tmp_path):
         config = {"project_root": str(tmp_path), "agent_data": {"base_dir": "var/data"}}
-
-        assert resolve_shared_data_root(config) == (tmp_path / "var" / "data").resolve()
+        assert config_of(config).agent_data_root == (tmp_path / "var" / "data").resolve()
 
 
 class TestRepoRootForAgentData:
@@ -332,17 +356,20 @@ class TestRepoRootForAgentData:
         assert repo_root_for_agent_data(root, base_dir) == root.parent
 
 
-class TestResolvePath:
-    def test_absolute_path_returned_unchanged(self, tmp_path, monkeypatch):
-        _write_config(tmp_path, f"project_root: {tmp_path}\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+class TestRepoPath:
+    def test_absolute_path_returned_unchanged(self, tmp_path):
         abs_path = tmp_path / "already" / "absolute"
-        assert resolve_path(str(abs_path)) == abs_path
+        cfg = load_config(_write_config(tmp_path, f"project_root: {tmp_path}\n"))
+        assert cfg.repo_path(str(abs_path)) == abs_path
 
-    def test_relative_path_resolved_against_project_root(self, tmp_path, monkeypatch):
-        _write_config(tmp_path, f"project_root: {tmp_path}\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-        assert resolve_path("data/limits.json") == tmp_path / "data" / "limits.json"
+    def test_relative_path_resolved_against_the_repo_root(self, tmp_path):
+        cfg = load_config(_write_repo(tmp_path, "{}\n"))
+        assert cfg.repo_path("data/limits.json") == tmp_path / "data" / "limits.json"
+
+    def test_home_is_expanded(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        cfg = load_config(_write_repo(tmp_path / "repo", "{}\n"))
+        assert cfg.repo_path("~/x.json") == tmp_path / "x.json"
 
 
 class TestFrameworkCopiesOfConnectorPrivates:

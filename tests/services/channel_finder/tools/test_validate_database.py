@@ -401,12 +401,10 @@ class TestRunValidationPipelineOverride:
 
     def _config(self, monkeypatch, tmp_path: Path, cf_config: dict) -> None:
         import osprey_connectors.config as config_mod
-        import osprey_connectors.workspace as workspace_mod
 
-        monkeypatch.setattr(
-            config_mod, "current_config", lambda *a, **k: config_of({"channel_finder": cf_config})
-        )
-        monkeypatch.setattr(workspace_mod, "resolve_path", lambda s: tmp_path / s)
+        # A relative database path anchors on the config's repo root: tmp_path.
+        loaded = config_of({"channel_finder": cf_config}, path=tmp_path / "config.yml")
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: loaded)
 
     def test_override_validates_the_named_pipelines_database(self, tmp_path, monkeypatch):
         _write(tmp_path / "ctx.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": []})

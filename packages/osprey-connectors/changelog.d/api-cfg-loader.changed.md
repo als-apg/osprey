@@ -17,10 +17,10 @@ and so is the derived view with its `model_configs`, `provider_configs`,
 The process default is `current_config()`: the config of the innermost
 `using_config(...)` block, else the one `install_config` installed, else the file
 `locate_config()` finds (`OSPREY_CONFIG`, then `build/config.yml`, then
-`config.yml`), reloaded when it changes. `get_config_value` reads it.
+`config.yml`), reloaded when it changes. `current_config().get(key, default)` reads one value.
 **`CONFIG_FILE` is no longer read by the package**: a process steered by
 `CONFIG_FILE` alone now finds the working directory's config; set
-`OSPREY_CONFIG`. `reset_config_cache()` clears every cache and warn-once latch.
+`OSPREY_CONFIG`. `testing.clear_config_state()` clears every cache and warn-once latch.
 
 A load that fails raises `ConfigLoadError` (`path`): `ConfigNotFoundError`
 (`searched`, still a `FileNotFoundError`), `ConfigParseError` (`line`, `key`;

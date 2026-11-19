@@ -150,13 +150,14 @@ def session_agent_data_root() -> Path:
     (:meth:`osprey_connectors.config.LoadedConfig.session_data_root`); a
     process outside any session gets :func:`process_agent_data_root`.
     """
+    from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, locate_repo_root
+
     session_id = os.environ.get("OSPREY_SESSION_ID")
-    if not session_id:
-        return process_agent_data_root()
     config = _process_config()
     if config is not None:
-        return config.session_data_root(session_id)
-    return process_agent_data_root() / "sessions" / session_id
+        return config.session_data_root(session_id) if session_id else config.agent_data_root
+    shared = (locate_repo_root() / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
+    return shared / "sessions" / session_id if session_id else shared
 
 
 def resolve_config_dir() -> Path | None:

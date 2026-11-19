@@ -213,7 +213,7 @@ def _isolate_web_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fresh_config_cache():
-    """``load_osprey_config`` memoizes a builder; each test renders its own."""
+    """``loaded_or_empty`` memoizes a builder; each test renders its own."""
     from osprey_connectors.testing import clear_config_state
 
     clear_config_state()

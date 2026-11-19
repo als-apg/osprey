@@ -3,7 +3,7 @@
 Projects rendered against an earlier template carry configuration keys that
 have no reader.  Deleting a key from the templates and from the
 code that consumed it must never break those projects: their on-disk
-``config.yml`` still declares the key, and ``load_osprey_config`` has to keep
+``config.yml`` still declares the key, and ``loaded_or_empty`` has to keep
 accepting it silently — no exception, no ``WARNING``, no deprecation chatter.
 
 ``fixtures/legacy_config_all_deleted_keys.yml`` is the shared asset every
@@ -118,7 +118,7 @@ def test_load_zero_errors_zero_warnings(caplog):
         warnings.simplefilter("always")
         config = loaded_or_empty()
 
-    # ``load_osprey_config`` swallows every exception and returns ``{}``, so
+    # ``loaded_or_empty`` swallows every exception and returns ``{}``, so
     # "no errors" has to be asserted as "the config actually arrived".
     assert config, "loader returned an empty config — the legacy file failed to parse"
     assert config["project_name"] == "legacy-tolerance-project"

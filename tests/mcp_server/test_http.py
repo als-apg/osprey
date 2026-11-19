@@ -32,7 +32,7 @@ pytestmark = pytest.mark.real_http_posters
 
 @pytest.fixture
 def patch_config():
-    """Patch load_osprey_config as referenced inside osprey.mcp_server.http."""
+    """Patch loaded_or_empty as osprey.mcp_server.http reads it."""
 
     def _apply(config: dict):
         return patch(

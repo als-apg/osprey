@@ -96,7 +96,7 @@ stamped root, owned by this process, before ``create_app`` runs.** Without a
 record the roster is read-only (``store_available: false``) and every toggle is
 locked; without ownership this terminal follows another and the write routes
 answer ``409``. Writing it before startup is also what keeps the lifespan's
-claim a merge rather than a mint from ``load_osprey_config``.
+claim a merge rather than a mint from ``loaded_or_empty``.
 ``data-enforceable="true"`` on the chip is the observable proof the arrangement
 landed — the attribute is fed by ``contextWritable(state)``, which is exactly
 "this terminal's changes would be recorded".

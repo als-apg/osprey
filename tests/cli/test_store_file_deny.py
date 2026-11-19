@@ -178,12 +178,13 @@ def test_a_single_user_host_render_denies_the_store_last(tmp_path):
 
 def test_a_profile_remove_deny_does_not_lift_the_rendered_store_deny(tmp_path):
     """The lift attempt end to end: remove_deny naming both rules leaves both rendered."""
-    from osprey_connectors.workspace import resolve_shared_data_root
+    from osprey_connectors.config import load_config
 
     probe = _project(tmp_path / "probe", "store-deny-probe")
     config = yaml.safe_load((probe / "config.yml").read_text())
     rules = store_deny(config, probe)
-    assert rules[0] == f"Edit(/{resolve_shared_data_root(config) / CONTROL_STATE_DIR_NAME}/**)"
+    root = load_config(probe / "config.yml").agent_data_root
+    assert rules[0] == f"Edit(/{root / CONTROL_STATE_DIR_NAME}/**)"
 
     project = _project(
         tmp_path / "lift",

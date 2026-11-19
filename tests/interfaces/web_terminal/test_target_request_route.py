@@ -132,7 +132,7 @@ def client(agent_data_root, workspace_dir, config_path):
     """A terminal that owns the control context, with the owner task quiesced.
 
     The record is written **before** the app starts, so the lifespan claim
-    merges into it rather than minting a fresh one from ``load_osprey_config``,
+    merges into it rather than minting a fresh one from ``loaded_or_empty``,
     which this process has no workspace for. ``start`` is stubbed out for the
     same reason a test never wants a second writer: every tick this suite needs
     has already happened by the time the client is handed over, and a loop

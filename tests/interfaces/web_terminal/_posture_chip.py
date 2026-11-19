@@ -288,7 +288,7 @@ def chip_hub(
 
     The **record is written before ``create_app``**, at :data:`ACTIVE_TARGET`
     and owned by this process. That is what makes the lifespan's claim a merge
-    instead of a mint from ``load_osprey_config``, and what makes this terminal
+    instead of a mint from ``loaded_or_empty``, and what makes this terminal
     the owner — the two conditions behind ``data-enforceable="true"``.
 
     The keyword arguments are the states the chip criteria are about, all of

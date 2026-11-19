@@ -69,7 +69,7 @@ def _tour_payload(workspace_dir, web: dict) -> dict:
 
 @contextmanager
 def _started_over(workspace_dir, config: dict):
-    """Start the app with ``load_osprey_config`` answering *config* whole.
+    """Start the app with ``loaded_or_empty`` answering *config* whole.
 
     :func:`started_client` answers the ``web`` section only; the capability
     check below needs a top-level section beside it.

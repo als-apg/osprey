@@ -27,10 +27,9 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.config_paths import loaded_or_empty
-from osprey_connectors import workspace
+from osprey.utils.config_paths import process_repo_root
 from osprey_connectors.testing import clear_config_state
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, resolve_project_root
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOKS_DIR = (
     Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
@@ -284,9 +283,10 @@ class TestProjectRootFromConfig:
 class TestConfigDirectoryOutranksTheWalk:
     """Rule 2: an existing config file settles it, exactly as the framework does.
 
-    ``workspace.resolve_project_root`` consults ``repo_root_for_config`` the
-    moment the config path exists and never looks at the filesystem around the
-    cwd. A hook that walked for ``profile.yml`` first would disagree with it
+    The framework's repo root (``config_paths.process_repo_root``: the loaded
+    config's, else ``workspace.locate_repo_root``) consults
+    ``repo_root_for_config`` the moment the config path exists and never looks
+    at the filesystem around the cwd. A hook that walked for ``profile.yml`` first would disagree with it
     whenever the two point at different repos — and the hook and the app read
     and write the *same* stores, so a disagreement is a split-brain, not a
     preference. These cases are asserted against the framework's own answer
@@ -303,7 +303,7 @@ class TestConfigDirectoryOutranksTheWalk:
         (elsewhere / "config.yml").write_text("hooks:\n  debug: false\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(elsewhere / "config.yml"))
 
-        expected = str(resolve_project_root(None))
+        expected = str(process_repo_root())
         assert expected == str(tmp_path / "elsewhere"), "framework moved; re-derive the rule"
         assert _repo_root(hook_module, {"cwd": str(build)}) == expected
 
@@ -317,7 +317,7 @@ class TestConfigDirectoryOutranksTheWalk:
         (elsewhere / "config.yml").write_text("hooks:\n  debug: false\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(elsewhere / "config.yml"))
 
-        expected = str(resolve_project_root(None))
+        expected = str(process_repo_root())
         assert expected == str(elsewhere), "framework moved; re-derive the rule"
         assert _repo_root(hook_module, {"cwd": str(build)}) == expected
 
@@ -553,7 +553,7 @@ class TestTheFrameworkTakesTheSameLadder:
 
         hook = _repo_root(hook_module, {"cwd": str(cwd)})
         clear_config_state()
-        framework = workspace.resolve_project_root(loaded_or_empty())
+        framework = process_repo_root()
 
         assert hook == str(framework)
         assert framework == (repo if expected == "repo" else cwd)
@@ -569,7 +569,7 @@ class TestTheFrameworkTakesTheSameLadder:
 
         hook = _repo_root(hook_module, {"cwd": str(cwd)})
         clear_config_state()
-        framework = workspace.resolve_project_root(loaded_or_empty())
+        framework = process_repo_root()
 
         assert hook == str(framework)
         assert framework == inner

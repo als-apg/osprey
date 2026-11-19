@@ -124,7 +124,7 @@ def _patch_config_path(project_dir: Path):
 
 
 def _patch_load_config(config: dict):
-    """Return a context manager that patches load_osprey_config."""
+    """Return a context manager that patches loaded_or_empty."""
     return patch(
         "osprey.mcp_server.workspace.tools.setup.loaded_or_empty",
         return_value=config,
@@ -492,7 +492,7 @@ async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
     )
     monkeypatch.setenv("ARIEL_DB_PASSWORD", "hunter2-from-the-env")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-the-env")
-    # What ``load_osprey_config`` hands back, and what used to be reported
+    # What ``loaded_or_empty`` hands back, and what used to be reported
     # verbatim: every placeholder already replaced by its environment value.
     expanded = {
         "control_system": {

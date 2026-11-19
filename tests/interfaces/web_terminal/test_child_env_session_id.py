@@ -44,6 +44,8 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.utils.config_paths import session_agent_data_root
 from osprey_connectors import _control_state, testing
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
@@ -71,7 +73,7 @@ def shared_root(tmp_path, monkeypatch):
             "osprey.utils.config_paths.process_agent_data_root",
             return_value=root,
         ),
-        patch.object(_control_state, "resolve_shared_data_root", return_value=root),
+        patch.object(_control_state, "_config_agent_data_root", return_value=root),
     ):
         testing.invalidate_cache()
         yield root
@@ -188,8 +190,8 @@ class TestBothSurfacesResolveOneRoot:
     def _resolve_under(env: dict[str, str], project_root: Path) -> Path:
         """Resolve the execution root a child holding *env* would see."""
         with (
-            patch("osprey.utils.config_paths.loaded_or_empty", return_value={}),
-            patch("osprey.utils.config_paths.process_repo_root", return_value=project_root),
+            # A config with no agent_data block, rendered in this repo.
+            installed(config_of({}, path=project_root / "build" / "config.yml")),
             patch.dict(
                 os.environ,
                 {SESSION_ID_ENV: env[SESSION_ID_ENV]} if SESSION_ID_ENV in env else {},
