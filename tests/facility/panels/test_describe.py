@@ -418,7 +418,8 @@ def test_targets_name_each_screen_with_view_kind_thing_kind_and_id(panel_graph):
     found = set(targets(panel_graph))
     assert card("XR01:QF1") in found
     assert card("XR01:CH1") in found  # a channel and the located_in to its own place
-    assert card("XR02:SHIELD1") in found  # a pose and no channel: reachable
+    assert card("XR02:SHIELD1") not in found  # a pose and no channel: no card by default
+    assert card("XR01:CH2") in found  # no channel, kept by the fixture's cards.csv
     assert card("XR02:BLOCK1") not in found  # a citation alone is no screen
     for place in ("XR", "XR/XR01", "XR/XR02", "XR/XR01/RK1"):
         assert Target("card", "place", place) in found
@@ -1113,7 +1114,10 @@ def test_a_device_claimed_into_a_rack_with_no_unit_is_unpositioned_there(tmp_pat
 
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json", claimed), PANELS_DIR)
     (elevation,) = _section(rack_elevation(graph, "XR/XR01/RK1"), "units").items
-    assert "XR02:BLOCK1" in [u.link.label for u in elevation.unpositioned]
+    # no card: named as a fact, its id the text
+    assert "XR02:BLOCK1" in [
+        u.link.text for u in elevation.unpositioned if isinstance(u.link, Fact)
+    ]
 
 
 def test_every_roll_up_counts_a_channel_once_at_every_level(tmp_path) -> None:
@@ -1400,9 +1404,12 @@ def test_a_rack_row_with_no_unit_takes_the_unit_another_row_of_the_device_states
 
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json", rows), PANELS_DIR)
     (elevation,) = _section(rack_elevation(graph, "XR/XR01/RK1"), "units").items
-    placed = [(u.position, u.conflicting) for u in elevation.units if u.link.label == "XR02:BLOCK1"]
+    named = {id(u): u.link.text if isinstance(u.link, Fact) else u.link.label for u in [
+        *elevation.units, *elevation.unpositioned
+    ]}  # fmt: skip
+    placed = [(u.position, u.conflicting) for u in elevation.units if named[id(u)] == "XR02:BLOCK1"]
     assert placed == [(7, False)]
-    assert "XR02:BLOCK1" not in [u.link.label for u in elevation.unpositioned]
+    assert "XR02:BLOCK1" not in [named[id(u)] for u in elevation.unpositioned]
 
 
 def test_a_stretch_across_a_rings_start_is_read_on_in_one_piece():
@@ -1420,7 +1427,7 @@ def test_a_line_model_is_drawn_from_its_devices_s(tmp_path):
         document["places"].append({"id": "XL"})
         document["models"] = [
             *document.get("models", []),
-            {"name": "XL", "engine": "none", "settings": {"any": {"solve": "single_pass"}}},
+            {"name": "XL", "engine": "none", "length": 8.0, "periodic": False},
         ]
         for n, (cls, s) in enumerate((("Quadrupole", 2.0), ("Pump", 0.5), ("Quadrupole", 7.5))):
             document["devices"].append(
@@ -1430,7 +1437,7 @@ def test_a_line_model_is_drawn_from_its_devices_s(tmp_path):
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", line), PANELS_DIR)
     assert graph.beam_position(graph.thing("XL:D0", "device")) == ("model XL", 2.0)
     assert graph.frame_length("model XL") is None  # one pass: never wrapped
-    assert graph.frame_length(graph.ring_frame) == 12.5  # the furthest ring position
+    assert graph.frame_length(graph.ring_frame) is None  # no model states the ring's length
     view = place_view(graph, "XL", symbols={"Quadrupole": "quad", "Pump": "pump"})
     (strip,) = [i for s in view.sections for i in s.items if isinstance(i, Strip)]
     assert [(e.thing, e.s_m) for e in strip.elements] == [
@@ -1439,3 +1446,24 @@ def test_a_line_model_is_drawn_from_its_devices_s(tmp_path):
         ("XL:D2", 7.5),
     ]
     assert strip.extent_m == (0.5, 7.5) and not strip.tray
+
+
+def ring_model(length: float):
+    """A change giving every device with a ring position the periodic model ``XRM``."""
+
+    def change(document: dict[str, Any]) -> None:
+        document["models"] = [
+            *document.get("models", []),
+            {"name": "XRM", "engine": "none", "length": length, "periodic": True},
+        ]
+        for device in document["devices"]:
+            if device["id"].startswith(("XR01:", "XR02:")):
+                device["model"] = "XRM"
+
+    return change
+
+
+def test_the_ring_frame_takes_the_length_of_the_periodic_model_of_its_devices(tmp_path):
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", ring_model(12.0)), PANELS_DIR)
+    assert graph.frame_length(graph.ring_frame) == 12.0
+    assert graph.frame_length("model XRM") == 12.0

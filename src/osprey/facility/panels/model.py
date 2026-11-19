@@ -66,6 +66,7 @@ from osprey.facility.panels.tables import (
     Calibration,
     CalibrationKind,
     CardRecipe,
+    CardRule,
     CardSection,
     ChainStep,
     ChannelRole,
@@ -75,7 +76,6 @@ from osprey.facility.panels.tables import (
     FrontRow,
     HealthRule,
     Metric,
-    NoCard,
     Pair,
     PanelTableError,
     PanelTables,
@@ -439,7 +439,7 @@ def _value_key(value: object) -> str:
     return str(int(number)) if number.is_integer() else text
 
 
-#: The ``class`` of a ``no_cards.csv`` row that matches a device of any class.
+#: The ``class`` of a ``cards.csv`` row that matches a device of any class.
 ANY_CLASS = "*"
 
 
@@ -452,19 +452,6 @@ def _number_or_none(value: Any) -> float | None:
 
 #: The frame name of a model's beam path: positions in it are its devices' ``s``.
 MODEL_FRAME = "model {}"
-#: A model's settings ``solve`` word for a path the beam passes once (a line).
-LINE_SOLVE = "single_pass"
-
-
-def _single_pass(model: Mapping[str, Any]) -> bool:
-    """Whether a model's settings (any engine's block) state ``solve: single_pass``."""
-    settings = model.get("settings")
-    if not isinstance(settings, Mapping):
-        return False
-    return any(
-        isinstance(block, Mapping) and block.get("solve") == LINE_SOLVE
-        for block in settings.values()
-    )
 
 
 def _attribute_pairs(record: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
@@ -1061,21 +1048,31 @@ class PanelGraph:
         return None
 
     def frame_length(self, frame: str) -> float | None:
-        """The length a closed beam path (a ring) wraps at, for positions in *frame*;
-        ``None`` for a path the beam passes once (a model whose settings state
-        ``solve: single_pass``). The facility file states no ring length, so the
-        furthest position stated in the frame stands for it."""
+        """The length a closed beam path (a ring) wraps at, for positions in *frame*:
+        the ``length`` of a model the facility file marks ``periodic``; ``None`` for a
+        path the beam passes once, or one whose length is not stated. The ring frame
+        of the poses takes the model most of its posed devices belong to."""
         if self._lengths is None:
-            lengths: dict[str, float] = {}
-            for thing in self._things.values():
-                if thing.kind == "device":
-                    found = self.beam_position(thing)
-                    if found is not None:
-                        lengths[found[0]] = max(lengths.get(found[0], 0.0), found[1])
+            rings: dict[str, float] = {}
             for model in self._records.document.get("models") or ():
-                if isinstance(model, Mapping) and _single_pass(model):
-                    lengths.pop(MODEL_FRAME.format(model.get("name")), None)
-            self._lengths = lengths
+                if not isinstance(model, Mapping) or model.get("periodic") is not True:
+                    continue
+                length = _number_or_none(model.get("length"))
+                if length:
+                    rings[MODEL_FRAME.format(model.get("name"))] = length
+            if self.ring_frame is not None:
+                posed = Counter(
+                    thing.model
+                    for thing in self._things.values()
+                    if thing.kind == "device" and thing.model is not None
+                    for pose in [self.pose(thing.id)]
+                    if pose is not None and pose.is_ring_position
+                )
+                if posed:
+                    found = rings.get(MODEL_FRAME.format(posed.most_common(1)[0][0]))
+                    if found is not None:
+                        rings[self.ring_frame] = found
+            self._lengths = rings
         return self._lengths.get(frame)
 
     def pose(self, thing_id: str) -> Pose | None:
@@ -1423,35 +1420,57 @@ class PanelGraph:
         """The ``fronts.csv`` rows of *recipe*, by ``order``."""
         return list(self._fronts.get(recipe, ()))
 
-    def no_card_rows(self) -> tuple[NoCard, ...]:
-        """The ``no_cards.csv`` rows, in file order."""
-        return self._tables.no_cards
+    def card_rules(self) -> tuple[CardRule, ...]:
+        """The ``cards.csv`` rows, in file order."""
+        return self._tables.cards
 
-    def no_card(self, thing_id: str) -> NoCard | None:
-        """The ``no_cards.csv`` row that takes a device: the first whose class (``*``
-        matches any), place (the device's place is it or within it), id pattern,
-        attribute and conditions (``when``) all hold."""
+    def card_channels(self, device_id: str) -> bool:
+        """Whether a device has a channel its card shows: one on it or that it is an
+        endpoint of (:meth:`channels`), or one a ``channel_roles.csv`` row walks to
+        from it (:meth:`roles`: its parts, what reads it out or controls it)."""
+        return bool(self.channels(device_id, "device")) or bool(self.roles(device_id))
+
+    def card_drawing(self, device_id: str) -> bool:
+        """Whether a device has a drawing: a ``card_recipes.csv`` row, or a
+        ``pictures.csv`` row that applies to it."""
+        thing = self.thing(device_id, "device")
+        if self.recipe(device_id) is not None:
+            return True
+        return thing.cls is not None and bool(self.pictures(thing.cls, device_id))
+
+    def card_rule(self, device_id: str) -> CardRule | None:
+        """The ``cards.csv`` row that decides a device's card: the first whose class
+        (``*`` matches any), place (the device's place, or its whole's, is it or
+        within it), id pattern, attribute and conditions (``when``) all hold."""
         try:
-            thing = self.thing(thing_id, "device")
+            thing = self.thing(device_id, "device")
         except KeyError:
             return None
-        for row in self._tables.no_cards:
+        for row in self._tables.cards:
             if row.cls not in (ANY_CLASS, thing.cls):
                 continue
-            if row.under and not (
-                thing.place == row.under or (thing.place or "").startswith(row.under + "/")
-            ):
-                continue
+            if row.under:
+                place = self.place_of(thing.id, "device") or ""
+                if place != row.under and not place.startswith(row.under + "/"):
+                    continue
             if row.devices and not fnmatch.fnmatchcase(thing.id, row.devices):
                 continue
             if row.attribute is not None and row.attribute not in thing.attributes:
                 continue
-            if "no-channel" in (row.when or ()) and self.channels(thing.id, "device"):
+            if "no-channel" in (row.when or ()) and self.card_channels(thing.id):
                 continue
-            if "no-recipe" in (row.when or ()) and self.recipe(thing.id) is not None:
+            if "no-drawing" in (row.when or ()) and self.card_drawing(thing.id):
                 continue
             return row
         return None
+
+    def has_card(self, device_id: str) -> bool:
+        """Whether a device gets a card: as its :meth:`card_rule` says, else by the
+        default, a card when it has a channel its card shows or a drawing."""
+        row = self.card_rule(device_id)
+        if row is not None:
+            return row.action == "keep"
+        return self.card_channels(device_id) or self.card_drawing(device_id)
 
     def named_under(self, owner: str) -> list[Thing]:
         """The devices whose id is *owner* and one more ``:`` or ``.`` segment (the

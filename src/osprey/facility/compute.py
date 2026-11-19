@@ -223,6 +223,7 @@ def _compute(run: _Run, validated: Validated) -> list[FacilityBuildError]:
     twice = _addresses_wired_twice(run)
     run.errors.extend(check_model_inputs(run.document))
     decks = _prepare_decks(run)
+    _deck_slots_stated(run, decks)
     computed = _positions(run, decks, twice)
     positions = {**_stated_positions(run, decks, computed), **computed}
     spans = _spans(run, decks)
@@ -238,6 +239,7 @@ def _compute(run: _Run, validated: Validated) -> list[FacilityBuildError]:
     if run.errors:
         return run.errors
     _write_positions(document, computed)
+    _write_model_paths(document, decks)
     _write_ordinals(document, {d.name: d.length_m for d in decks.values() if d.periodic})
     _write_groups(document)
     _list_texture(document)
@@ -528,6 +530,36 @@ def _prepare_decks(run: _Run) -> dict[str, _Deck]:
             model["name"], path, engine, prepared.solve == _PERIODIC, float(prepared.length_m)
         )
     return decks
+
+
+#: The model slots the build computes from a deck.
+_DECK_SLOTS = ("length", "periodic")
+
+
+def _deck_slots_stated(run: _Run, decks: Mapping[str, _Deck]) -> None:
+    """Stop on a deck-bearing model that states a slot its deck gives."""
+    for model in run.document.get("models", []):
+        stated = [slot for slot in _DECK_SLOTS if slot in model]
+        if model["name"] in decks and stated:
+            run.stop(
+                "model-conflict",
+                "model",
+                model["name"],
+                stating_files(model, None, _MODELS_FILE),
+                f"model {model['name']} states {', '.join(f'`{s}`' for s in stated)}, "
+                "which the build computes from its deck",
+                f"drop {', '.join(f'`{s}`' for s in stated)} from model {model['name']}",
+            )
+
+
+def _write_model_paths(document: dict[str, Any], decks: Mapping[str, _Deck]) -> None:
+    """Write each deck-bearing model's path length and whether the path closes."""
+    for model in document.get("models", []):
+        deck = decks.get(model["name"])
+        if deck is not None:
+            model["length"] = deck.length_m
+            model["periodic"] = deck.periodic
+            model["provenance"] = add_defaults(model.get("provenance", {}), _DECK_SLOTS)
 
 
 # --- positions -----------------------------------------------------------------------

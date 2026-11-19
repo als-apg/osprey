@@ -657,6 +657,35 @@ class TestModelConflicts:
         assert document["models"][-1] == {"name": "texture", "engine": "texture"}
 
 
+class TestModelPaths:
+    def test_each_deck_gives_its_model_length_and_whether_it_closes(self, tmp_path):
+        models = {m["name"]: m for m in _ok(tmp_path, _tree())["models"]}
+        assert (models["SR"]["length"], models["SR"]["periodic"]) == (
+            pytest.approx(SR_LENGTH),
+            True,
+        )
+        assert (models["LINE"]["length"], models["LINE"]["periodic"]) == (
+            pytest.approx(2.2),
+            False,
+        )
+        assert {"length", "periodic"} <= set(models["SR"]["provenance"]["defaults"])
+        assert not {"length", "periodic"} & set(models["texture"])
+
+    @pytest.mark.parametrize("slot, value", [("length", 9.0), ("periodic", False)])
+    def test_a_deck_model_stating_a_path_slot_stops(self, tmp_path, slot, value):
+        files = _tree()
+        _model(files, "SR")[slot] = value
+        assert _stops(tmp_path, files) == [("model-conflict", "model", "SR")]
+
+    def test_a_model_without_a_deck_may_state_its_path(self, tmp_path):
+        files = _tree()
+        files["models.yaml"].append(
+            {"name": "LIST", "engine": "pyat", "length": 12.5, "periodic": False, "wiring": []}
+        )
+        listed = next(m for m in _ok(tmp_path, files)["models"] if m["name"] == "LIST")
+        assert (listed["length"], listed["periodic"]) == (12.5, False)
+
+
 class TestNominalBand:
     def test_a_default_outside_its_band_stops(self, tmp_path):
         files = _tree()

@@ -57,10 +57,10 @@ from osprey.facility.panels.tables import (
     DRAWN_AS,
     Calibration,
     CalibrationKind,
+    CardRule,
     CardSection,
     ChainStep,
     FrontRow,
-    NoCard,
     Pose,
 )
 from osprey.facility.panels.view import (
@@ -238,7 +238,7 @@ class _Index:
     set_class: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     # device -> its sets
     sets_of: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
-    # a device no_cards.csv takes -> the thing whose card draws it, or None (not stated)
+    # a device with no card -> the thing whose card draws it, or None (not stated)
     owners: Mapping[str, tuple[str, ThingKind] | None] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -260,27 +260,6 @@ def _index(graph: PanelGraph) -> _Index:
     if found is None:
         found = _INDEXES[graph] = _build_index(graph)
     return found
-
-
-def _is_place_edge(graph: PanelGraph, thing: Thing, edge: Edge) -> bool:
-    """Whether the edge is the thing's own place relation, seen from either end."""
-    if edge.kind != PLACE_RELATION:
-        return False
-    if edge.outgoing:
-        return edge.other_kind == "place" and edge.other == thing.place
-    if thing.kind != "place" or edge.other_kind != "device":
-        return False
-    return graph.thing(edge.other, "device").place == thing.id
-
-
-def _neighbour_edges(graph: PanelGraph, thing: Thing) -> dict[str, list[Edge]]:
-    """The thing's edges by kind, without its place relation."""
-    kept: dict[str, list[Edge]] = {}
-    for kind, edges in graph.neighbours(thing.id, thing.kind).items():
-        others = [edge for edge in edges if not _is_place_edge(graph, thing, edge)]
-        if others:
-            kept[kind] = others
-    return kept
 
 
 def _build_index(graph: PanelGraph) -> _Index:
@@ -322,14 +301,14 @@ def _build_index(graph: PanelGraph) -> _Index:
             if edge.outgoing and edge.other_kind == "place" and edge.unit is not None:
                 racked.add(edge.other)
         if thing.kind == "device":
-            taken = graph.no_card(thing.id)
-            if taken is not None:
-                owners[thing.id] = _owner(graph, thing.id, taken)
-            elif channels or graph.pose(thing.id) is not None or _neighbour_edges(graph, thing):
+            has_card = graph.has_card(thing.id)
+            if has_card:
                 carded.add(thing.id)
+            else:
+                owners[thing.id] = _owner(graph, thing.id, graph.card_rule(thing.id))
             shown = _listed(graph, thing.id, channels)
             # over the cap, or with driver-internal records: those are read only there
-            if taken is None and (len(shown) > GRID_CAP or len(shown) < len(channels)):
+            if has_card and (len(shown) > GRID_CAP or len(shown) < len(channels)):
                 listed.add(thing.id)
                 ruled_here = len(rule_channels(graph, thing.id, "device"))
                 if ruled_here:  # no card reads them all: a roll-up of its own does
@@ -408,11 +387,11 @@ def _unplaced_carded(graph: PanelGraph, carded: frozenset[str]) -> dict[str, lis
     return found
 
 
-def _owner(graph: PanelGraph, device: str, row: NoCard) -> tuple[str, ThingKind] | None:
-    """The thing a ``no_cards.csv`` row's relation names at *device* (its ``owner_to``
-    taking it, as a chain hop's ``to``): one thing, else ``None`` (none, or several:
-    no owner is stated, as when the row names no owner relation)."""
-    if row.owner_relation is None or row.owner_direction is None:
+def _owner(graph: PanelGraph, device: str, row: CardRule | None) -> tuple[str, ThingKind] | None:
+    """The thing a ``cards.csv`` drop row's relation names at *device* (its
+    ``owner_to`` taking it, as a chain hop's ``to``): one thing, else ``None`` (none,
+    or several: no owner is stated, as for a device the default leaves cardless)."""
+    if row is None or row.owner_relation is None or row.owner_direction is None:
         return None
     to = row.owner_to or None
     step = ChainStep(
@@ -441,7 +420,7 @@ def _drawn_owners(
 
 
 def owner_link(index: _Index, thing_id: str) -> Link | None:
-    """For a device no_cards.csv takes, a link named by it to its owner's card."""
+    """For a device with no card and an owner, a link named by it to its owner's card."""
     owner = index.owners.get(thing_id)
     if owner is None:
         return None
@@ -449,7 +428,7 @@ def owner_link(index: _Index, thing_id: str) -> Link | None:
 
 
 def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
-    """Each device no_cards.csv takes and has an owner for, with its owner's card, in
+    """Each device with no card and an owner, with its owner's card, in
     id order; one with no owner stated gets no entry."""
     index = _index(graph)
     return [
@@ -459,17 +438,22 @@ def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
     ]
 
 
-def no_card_takes(graph: PanelGraph) -> list[tuple[NoCard, int]]:
-    """Each ``no_cards.csv`` row, in file order, with how many devices it takes (a
-    device is taken by the first row that matches it)."""
-    taken = Counter(graph.no_card(device) for device in _index(graph).owners)
-    return [(row, taken[row]) for row in graph.no_card_rows()]
+def card_rule_counts(graph: PanelGraph) -> list[tuple[CardRule, int]]:
+    """Each ``cards.csv`` row, in file order, with how many devices it decides (a
+    device is decided by the first row that selects it)."""
+    decided = Counter(
+        graph.card_rule(thing.id) for thing in graph.things() if thing.kind == "device"
+    )
+    return [(row, decided[row]) for row in graph.card_rules()]
 
 
-def no_card_counts(graph: PanelGraph) -> tuple[int, int]:
-    """How many devices get no card, and of them how many have no owner stated."""
+def card_counts(graph: PanelGraph) -> tuple[int, int, int]:
+    """How many devices get no card, how many of them have no owner stated, and how
+    many get none by the default alone (no ``cards.csv`` row selects them)."""
     index = _index(graph)
-    return len(index.owners), sum(owner is None for owner in index.owners.values())
+    by_default = sum(graph.card_rule(device) is None for device in index.owners)
+    ownerless = sum(owner is None for owner in index.owners.values())
+    return len(index.owners), ownerless, by_default
 
 
 def _existing(graph: PanelGraph, index: _Index, target: Target) -> Target | None:
@@ -1946,9 +1930,11 @@ def card_strip(
     role = next((r for r in (section.roles or "").split(";") if r), None)
     members: list[StripMember] = []
     seen: set[str] = set()
-    # the window stays within the stated positions of its own beam path; across a
-    # ring's start it would need the ring's length, which the facility does not state
-    for s_m, other in _beam_order(graph, frame):
+    ring = graph.frame_length(frame)
+    for stated, other in _beam_order(graph, frame):
+        # on a ring the window reads on across its start: a device just before it
+        # is drawn just below the window's centre, not a ring's length away
+        s_m = centre + _ring_offset(stated - centre, ring) if ring else stated
         if s_m < lo or s_m > hi or (other.cls not in classes and other.id != thing.id):
             continue
         symbol = graph.strip_symbol(other)
@@ -1964,6 +1950,11 @@ def card_strip(
             members.append(_strip_member(graph, index, thing, centre, symbol, role, thing.id))
     members.sort(key=lambda m: (m.s_m, m.thing))
     return CardStrip((lo, hi), tuple(members), bracket, section.caption)
+
+
+def _ring_offset(delta: float, length: float) -> float:
+    """*delta* along a ring of *length*, taken the short way: in [-length/2, length/2)."""
+    return (delta + length / 2) % length - length / 2
 
 
 def _strip_member(graph, index, other: Thing, s_m: float, symbol, role, focus: str) -> StripMember:

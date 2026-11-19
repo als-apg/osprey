@@ -222,8 +222,9 @@ def test_wiring_rules_do_not_load_the_lattice_engine(
 
 #: sha256 of the lattice-only tree's facility file, compact sorted-key JSON,
 #: frozen from the build before deckless start values existed (that build's
-#: file plus the empty ``signals`` list every facility file now carries).
-LATTICE_ONLY_DIGEST = "8ff8047ac41363377d26495a922297cd0aeab130ab556ce1f479a7b48c2d375e"
+#: file plus the empty ``signals`` list every facility file now carries, and the
+#: ``length`` and ``periodic`` each deck model now carries).
+LATTICE_ONLY_DIGEST = "40c3413e3da9236bfd5ddfb6dd97cc226db4c75a428739f93f40fd76fe2dbf37"
 
 
 def _lattice_tree() -> dict[str, Any]:
