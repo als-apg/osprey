@@ -554,10 +554,12 @@ declared trees. CI and both tiers of <code class="docutils literal notranslate">
 <code class="docutils literal notranslate"><span class="pre">scripts/mypy_gate.py</span></code>, which fails on any error and refuses a run made without the stub
 packages the <code class="docutils literal notranslate"><span class="pre">dev</span></code> extra declares (fix: <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span> <span class="pre">--extra</span> <span class="pre">dev</span></code>). There is no list of
 tolerated errors: an error is fixed where it is reported.</p>
-<p>The check’s targets are declared in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>: it covers the framework source
-and the connectors package together, and the gate reads that same list, so CI and a local
-run check the same trees. A run that names a single file is for a quick look only — it
-resolves less than the full run and reports errors the full run does not.</p>
+<p>The check’s targets are declared in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>: the framework source, the packages
+under <code class="docutils literal notranslate"><span class="pre">packages/</span></code>, and <code class="docutils literal notranslate"><span class="pre">tests/type_contracts/</span></code>, whose files prove a typing property only
+the type check can see, such as a field that must refuse a mis-typed callback. The gate
+reads that same list, so CI and a local run check the same trees. A run that names a single
+file is for a quick look only — it resolves less than the full run and reports errors the
+full run does not.</p>
 </section>
 <section id="testing">
 <h3>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h3>

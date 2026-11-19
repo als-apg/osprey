@@ -61,9 +61,13 @@ sweep leaves to two lanes. The ``static-checks`` lane runs
 registry and every skill's tool references to the MCP tools that exist, and
 ``test_preset_build.py``, which initialises and builds each preset without
 installing it. The ``build-boot-smoke`` lane runs ``test_build_boot.py``, one
-job per preset: a real ``osprey build``, then every server in the rendered
-``.mcp.json`` must answer ``initialize`` and ``tools/list`` with the documented
-tools. Both lanes run on every push and every pull request.
+case per preset and one for the demo with an application turned on: a real
+``osprey build`` that installs offline, then every server in the rendered
+``.mcp.json``, the application's own included, must answer ``initialize`` and
+``tools/list`` with the documented tools. Each case is a job on Python 3.11;
+the application case, the only install of an application's wheel beside
+osprey, is also a job on 3.12, the unit suite's Python on pull requests. Both
+lanes run on every push and every pull request.
 
 **The machine** is the simulator and its contracts. ``tests/simulation/`` and
 ``tests/facility/`` hold the scenario machinery: how scenarios build into the

@@ -612,9 +612,13 @@ sweep leaves to two lanes. The <code class="docutils literal notranslate"><span 
 registry and every skill’s tool references to the MCP tools that exist, and
 <code class="docutils literal notranslate"><span class="pre">test_preset_build.py</span></code>, which initialises and builds each preset without
 installing it. The <code class="docutils literal notranslate"><span class="pre">build-boot-smoke</span></code> lane runs <code class="docutils literal notranslate"><span class="pre">test_build_boot.py</span></code>, one
-job per preset: a real <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, then every server in the rendered
-<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> must answer <code class="docutils literal notranslate"><span class="pre">initialize</span></code> and <code class="docutils literal notranslate"><span class="pre">tools/list</span></code> with the documented
-tools. Both lanes run on every push and every pull request.</p>
+case per preset and one for the demo with an application turned on: a real
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> that installs offline, then every server in the rendered
+<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, the application’s own included, must answer <code class="docutils literal notranslate"><span class="pre">initialize</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tools/list</span></code> with the documented tools. Each case is a job on Python 3.11;
+the application case, the only install of an application’s wheel beside
+osprey, is also a job on 3.12, the unit suite’s Python on pull requests. Both
+lanes run on every push and every pull request.</p>
 <p><strong>The machine</strong> is the simulator and its contracts. <code class="docutils literal notranslate"><span class="pre">tests/simulation/</span></code> and
 <code class="docutils literal notranslate"><span class="pre">tests/facility/</span></code> hold the scenario machinery: how scenarios build into the
 simulator view, compose and apply. <code class="docutils literal notranslate"><span class="pre">tests/connectors/</span></code> reads the shipped
