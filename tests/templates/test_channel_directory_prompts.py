@@ -256,7 +256,7 @@ def test_with_the_fleet_the_arm_names_server_fleet_and_the_record_state(
         ctx = _without_controls(ctx)
     arm = _arm(template, _render(template, ctx))
     assert "`server_fleet`" in arm
-    assert "which iocs are down" in arm.lower()
+    assert "which servers are down" in arm.lower()
     assert "`server_record` carries its state" in arm
     # Quoted, not backticked: a backticked word in a render is a tool name
     # (tests/templates/test_shipped_prompt_registry.py).
