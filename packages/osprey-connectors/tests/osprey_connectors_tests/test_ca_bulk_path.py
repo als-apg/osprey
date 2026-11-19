@@ -1315,6 +1315,14 @@ async def _scenario_restart(args):
 
     before = await _on_ca_loop(connector, monitors)
     await _ask("restart")
+    # The reconnect takes about 10 s: libca puts a disconnected channel on its
+    # disconnect governor, a free-running 10 s timer started when the client
+    # context creates its first channel (epics-base
+    # modules/ca/src/client/disconnectGovernorTimer.cpp,
+    # disconnectGovernorPeriod), and searches for it again only at the next
+    # tick, 0-10 s later; the restart here comes soon after the first channel
+    # is created, so the tick is about 10 s away. Beacons and search settings
+    # cannot bring it forward (measured: 10.54 s with beacons, 10.47 s without).
     await _until(lambda: len(events) >= 5, timeout=45.0)
     await asyncio.sleep(1.5)  # a duplicated value would land here
     after = await _on_ca_loop(connector, monitors)

@@ -435,7 +435,9 @@ if config_file:
     else:
         print(f"⚠️ Application src directory not found at: {app_src_dir}")
 
-# Initialize registry for context loading
+# Initialize the registry: it registers the deployment's connectors with
+# ConnectorFactory, which the osprey.runtime calls in user code resolve their
+# control system and archiver through.
 # Uses CONFIG_FILE environment variable for proper path resolution in subprocesses
 try:
     from osprey.registry import initialize_registry
@@ -443,7 +445,7 @@ try:
     print("✅ Registry initialized successfully")
 except Exception as e:
     print(f"Registry initialization failed: {e}", file=sys.stderr)
-    print("Context loading may not work properly", file=sys.stderr)
+    print("Connector lookups in user code may fail", file=sys.stderr)
 """
 
         # Set execution directory variable (but do NOT chdir — user code

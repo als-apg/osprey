@@ -443,6 +443,7 @@ def _create_lifespan(config_path: str | Path | None = None):
         # framework registry, which is what a panel outside a deployment gets.
         # A failure here is not fatal: the panel starts whatever its
         # configuration turns out to be.
+        registry_ready = False
         if state.path is None:
             logger.info("Skipping registry initialization: no usable configuration")
         else:
@@ -451,6 +452,7 @@ def _create_lifespan(config_path: str | Path | None = None):
 
                 registry = get_registry(config_path=str(state.path))
                 registry.initialize(silent=True)
+                registry_ready = True
                 logger.info("Registry initialized for ARIEL")
             except Exception as e:
                 logger.warning(f"Registry initialization failed (non-fatal): {e}")
@@ -509,6 +511,22 @@ def _create_lifespan(config_path: str | Path | None = None):
                     f"\n  Error: {e}\n"
                     "============================================================"
                 )
+
+        # The providers this panel's searches and its entry inspector will ask
+        # for are imported now, before the first request and after the store
+        # deadline above has closed. A first lookup imports the provider's
+        # adapter (seconds of CPU) on this event loop, where it would hold up
+        # the timers of the requests running beside it. Without a service the
+        # panel searches nothing, so nothing is resolved. Both read the
+        # registry initialized above; when its initialization failed nothing
+        # is resolved, since each lookup would initialize it again and log the
+        # same failure, and the first request reports it as before. Nothing
+        # here raises.
+        if service is not None and registry_ready:
+            from osprey.interfaces.ariel.api.routes import resolve_inspector_providers
+
+            service.resolve_search_providers()
+            resolve_inspector_providers(ariel_config)
 
         app.state.ariel_service = service
         app.state.config_errors = config_errors
