@@ -280,7 +280,7 @@ def test_a_text_health_address_is_a_ca_string_and_the_rest_keep_their_spec(
         made.supports_pva = False
         made._pv_meta = {}
         made.pv_handlers = {}
-        made._ioc_health = frozenset({ENGINEER, HEARTBEAT})
+        made._server_health = frozenset({ENGINEER, HEARTBEAT})
         return made
 
     served, plain = runner(ModelRunner), runner(Runner)
