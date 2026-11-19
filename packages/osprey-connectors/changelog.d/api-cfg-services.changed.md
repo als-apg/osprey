@@ -30,8 +30,3 @@ not a number are refused (both failed every read before); a numeric-string Mongo
 `port` is read as its number. A Kafka alarm feed whose `bootstrap_servers` or
 `topic` is written as something else answers `misconfigured` rather than
 `unreachable`.
-`logging.*` switches are read by the `config_flag` rule: a quoted `'false'` is off,
-a null is the default (a null `rich_tracebacks` used to turn Rich tracebacks off),
-and a value that spells neither is reported and renders by the default.
-`derive_endpoints` refuses only the selected role's gateway row, naming that role;
-a malformed row of the other role derives no endpoint.

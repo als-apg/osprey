@@ -27,7 +27,8 @@ at all: a bad `timeout_s`, a `fresh_reads` that spells neither true nor false,
 `pva_channels` that is not a glob or a list of them, and a gateway whose
 `address` is not a non-blank string, whose `port` is not an integer (a numeric
 string is read as its number) or whose `use_name_server` spells neither true nor
-false. `derive_endpoints` refuses the selected role's gateway the same way, and
+false. `derive_endpoints` refuses the selected role's gateway the same way (a malformed
+row of the other role derives no endpoint), and
 `Endpoint.host` is a `str` and `Endpoint.port` an `int | None`.
 `write_authorization.Login` is now `osprey_connectors.model.Login`, and a
 connection block's `auth.username` with space around it is refused rather than
@@ -36,7 +37,6 @@ The loaded config carries the section, read once when it is loaded:
 `current_config().control_system`. The write-path readers (the reference
 monitor, the EPICS read-only refusal, `LimitsValidator.from_config` and
 `from_config_most_restrictive`, the connector host's write report, and the
-factory with no section given) read it there rather than through
-`get_config_value("control_system")`, so a test that faked the section by
-patching `get_config_value` now installs a config instead
-(`install_config(testing.config_of({...}))` or `using_config(...)`).
+factory with no section given) read it there, so a test that fakes the section
+installs a config (`install_config(testing.config_of({...}))` or
+`using_config(...)`).

@@ -7,3 +7,6 @@ where you called `success`, `timing`, `approval`, `status` or `resume`.
 `ComponentLogger(base_logger, component_name)` no longer takes `color` or
 `state`, and the retired event keywords (`error_type`, `recoverable`,
 `stack_trace`, …) raise `TypeError` instead of being dropped.
+`logging.*` switches are read by the `config_flag` rule: a quoted `'false'` is off,
+a null is the default (a null `rich_tracebacks` used to turn Rich tracebacks off),
+and a value that spells neither is reported and renders by the default.
