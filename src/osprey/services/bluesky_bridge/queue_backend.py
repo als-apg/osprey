@@ -365,12 +365,13 @@ def _resolve_control_system_type() -> str:
     serves in process (:func:`_resolve_lane_transport`), so it never touches
     Channel Access and can never silently be reported as able to move hardware.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import resolve_control_system_type
 
-    fallback = resolve_control_system_type(None)
+    fallback = resolve_control_system_type(ControlSystemSection.read(None))
     try:
-        control_system_type = get_config_value("control_system.type", None)
+        control_system_type = current_config().get("control_system.type", None)
     except _CONFIG_READ_ERRORS:
         return fallback
 
@@ -386,10 +387,13 @@ def _resolve_lane_transport(connector_type: str) -> str | None:
     holds a value no reader accepts: the fail-safe side, which never claims a
     lane can move hardware.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import TRANSPORT_IN_PROCESS, connector_transport
 
     try:
-        return connector_transport(_control_system_section(), connector_type)
+        return connector_transport(
+            ControlSystemSection.read(_control_system_section()), connector_type
+        )
     except ValueError:
         return TRANSPORT_IN_PROCESS
 
@@ -409,8 +413,9 @@ def _baseline_lane_target() -> str:
     respelling it; a test still pins the two answers equal.
     """
     from osprey_connectors import targets
+    from osprey_connectors.config_sections import ControlSystemSection
 
-    return targets.baseline_target(_control_system_section())
+    return targets.baseline_target(ControlSystemSection.read(_control_system_section()))
 
 
 def _control_system_section() -> dict[str, Any]:
@@ -421,10 +426,10 @@ def _control_system_section() -> dict[str, Any]:
     resolver that takes this section already reads "nothing declared" as the
     fail-closed side.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except _CONFIG_READ_ERRORS:
         return {}
     return section if isinstance(section, dict) else {}
@@ -437,10 +442,10 @@ def _declared_lane_target(lane: str) -> str | None:
     every project has rendered so far, whose block has never carried the key —
     the two want the same answer, which is "this lane declares no target".
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        declared = get_config_value(f"services.{lane}.target", None)
+        declared = current_config().get(f"services.{lane}.target", None)
     except _CONFIG_READ_ERRORS:
         return None
     return declared if isinstance(declared, str) and declared else None
@@ -480,6 +485,7 @@ def resolve_lane_connector_type() -> tuple[str, str | None]:
         except on rung 3, where it is the operator-facing sentence naming the
         target the lane declared against the type it actually built.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import EPICS
     from osprey_connectors.targets import resolve_target
 
@@ -491,7 +497,7 @@ def resolve_lane_connector_type() -> tuple[str, str | None]:
         return baseline_type, None
 
     try:
-        return resolve_target(_control_system_section(), declared), None
+        return resolve_target(ControlSystemSection.read(_control_system_section()), declared), None
     except ValueError:
         return baseline_type, (
             f"Lane {lane!r} declares the {declared!r} target, which this deployment "
@@ -522,9 +528,13 @@ def lane_tier_allows(section: Any) -> bool:
     Each write is still decided on its own, by the connector's verdict for the
     owner the plan wrapper bound. This never reads a record. Never raises.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import backstop_verdict
 
-    return backstop_verdict(section).allowed and resolve_lane_connector_type()[1] is None
+    return (
+        backstop_verdict(ControlSystemSection.read(section)).allowed
+        and resolve_lane_connector_type()[1] is None
+    )
 
 
 def resolve_lane_identity() -> tuple[str, str]:
@@ -744,10 +754,10 @@ def _resolve_connector_type() -> str | None:
     once to learn whether it is readable at all, then let the shared helper
     produce the value.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        get_config_value("control_system.type", None)
+        current_config().get("control_system.type", None)
     except _CONFIG_READ_ERRORS:
         return None
     return _resolve_control_system_type()

@@ -269,13 +269,13 @@ simulation:
 system:
   timezone: UTC
 va_archiver:
-  hot_cadence_sec: 10
-  hot_span_hours: 48
-  recorder_cadence_sec: 10
-  recorder_poll_sec: 30
-  recorder_tail_cadence_sec: 60
+  hot_cadence_s: 10
+  hot_span_h: 48
+  recorder_cadence_s: 10
+  recorder_poll_s: 30
+  recorder_tail_cadence_s: 60
   retention_days: 30
-  tail_cadence_sec: 60
+  tail_cadence_s: 60
 web:
   channel_suggestions:
     enabled: true

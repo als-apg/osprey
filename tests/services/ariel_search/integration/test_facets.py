@@ -85,7 +85,7 @@ def _environment() -> Iterator[None]:
     """The fake registry, and the facility zone both the histogram and the time filter use."""
     with (
         patch("osprey.registry.get_registry", return_value=_registry()),
-        patch("osprey_connectors.config.get_facility_timezone", return_value=ZONE),
+        patch("osprey_connectors.config.facility_timezone", return_value=ZONE),
     ):
         yield
 

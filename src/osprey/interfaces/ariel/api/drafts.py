@@ -29,8 +29,8 @@ from pydantic import BaseModel, ValidationError
 
 from osprey.interfaces.ariel.api.attachment_response import attachment_response
 from osprey.services.ariel_search.atomic_json import atomic_write_json
+from osprey.utils.config_paths import process_agent_data_root
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = get_logger("ariel.drafts")
 
@@ -42,7 +42,7 @@ logger = get_logger("ariel.drafts")
 # references inside this module would NameError. The matching `entry.py`
 # pattern uses `_get_drafts_dir`; tests monkeypatch `_drafts_dir` to redirect.
 def _drafts_dir() -> Path:
-    return resolve_shared_data_root() / "drafts"
+    return process_agent_data_root() / "drafts"
 
 
 draft_router = APIRouter(prefix="/api")

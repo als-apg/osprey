@@ -343,7 +343,8 @@ def _seed_world(repo: Path) -> str:
     seed. The Mongo password is read from the repo's ``.env`` by the rewrite
     itself.
     """
-    from osprey_connectors.config import config_anchored_at, load_config
+    from osprey.utils.config_paths import deployment_config
+    from osprey_connectors.config import load_config
     from osprey_connectors.dotenv import parse_dotenv_file
 
     env = parse_dotenv_file(repo / ".env")
@@ -351,7 +352,7 @@ def _seed_world(repo: Path) -> str:
     patch.setenv("ARIEL_DB_PASSWORD", env["ARIEL_DB_PASSWORD"])
     try:
         config_path = render_dir(repo) / "config.yml"
-        with config_anchored_at(config_path):
+        with deployment_config(config_path):
             applied = activate_scenarios(repo, fixture.RECENT_SCENARIO, fixture.LOGBOOK_SCENARIO)
             assert applied.logbook_seeded >= 3, (
                 f"logbook seeding wrote {applied.logbook_seeded} entries"
@@ -362,7 +363,7 @@ def _seed_world(repo: Path) -> str:
                 f"the archive rewrite did not touch {fixture.DCCT_CHANNEL}: {archive}"
             )
             conceal_scenario_ground_truth(repo, fixture.LOGBOOK_SCENARIO)
-            config = load_config(str(config_path))
+            config = load_config(config_path).raw_tree()
             return asyncio.run(_seeded_attachment_id(config))
     finally:
         patch.undo()

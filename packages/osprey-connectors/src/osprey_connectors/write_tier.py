@@ -7,36 +7,32 @@ the write all have to agree about the answer. Two readings of one posture is
 one of them being wrong about a machine somebody can move.
 """
 
-from typing import Literal, get_args
+from typing import get_args
+
+from osprey_connectors.config_sections import ControlSystemSection, TierWord
 
 __all__ = [
     "TIER_WORDS",
-    "TierWord",
     "WRITES_KEY",
     "tier_allows",
     "tier_writes",
 ]
 
 #: The login tier's write ceiling, dotted as a caller spells it for
-#: ``get_config_value``: ``"never"``, ``"asked"`` or ``"allowed"``, the furthest
+#: ``LoadedConfig.get``: ``"never"``, ``"asked"`` or ``"allowed"``, the furthest
 #: position a login may pick. Target-blind — a tier that allows writes allows
 #: them for every machine, and which machine is actually written is the
 #: session's switch to decide, not the tier's. Read by :func:`tier_writes`; when
 #: the key is absent the tier is ``never``.
 WRITES_KEY = "control_system.writes"
 
-#: :data:`WRITES_KEY`'s leaf inside the ``control_system:`` section.
-_WRITES_LEAF = "writes"
-
-#: One tier word, as a type: the three values of :data:`WRITES_KEY`, narrowest
-#: first — every answer :func:`tier_writes` gives.
-TierWord = Literal["never", "asked", "allowed"]
-
-#: The three tier words, narrowest first: a rank, read by ``.index``.
+#: The three tier words
+#: (:data:`~osprey_connectors.config_sections.TierWord`), narrowest first: a
+#: rank, read by ``.index``.
 TIER_WORDS: tuple[TierWord, ...] = get_args(TierWord)
 
 
-def tier_writes(section: object) -> TierWord:
+def tier_writes(section: ControlSystemSection) -> TierWord:
     """The write ceiling this deployment's login tier sets: ``never``, ``asked`` or ``allowed``.
 
     :data:`WRITES_KEY` decides when the section carries it, and then only the
@@ -51,17 +47,13 @@ def tier_writes(section: object) -> TierWord:
     machine. The tier is a ceiling, not a selection — the session's switch picks
     the machine.
 
-    Never raises. A section that is not a mapping answers ``never``.
+    Never raises: :attr:`~osprey_connectors.config_sections.ControlSystemSection.writes`
+    is that reading, made once when the section is read.
     """
-    value = section.get(_WRITES_LEAF) if isinstance(section, dict) else None
-    if value == "asked":
-        return "asked"
-    if value == "allowed":
-        return "allowed"
-    return "never"
+    return section.writes
 
 
-def tier_allows(section: object) -> bool:
+def tier_allows(section: ControlSystemSection) -> bool:
     """Whether the tier arms anything: :func:`tier_writes` is not ``never``. Never raises.
 
     This reads the ceiling only: ``asked`` and ``allowed`` both answer true, so

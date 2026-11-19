@@ -20,9 +20,9 @@ def load_facility_records() -> FacilityRecords | None:
         Its records, or ``None`` when it is absent or cannot be read.
     """
     from osprey.channel_roster.sources import facility_file_path
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    path = facility_file_path(load_osprey_config())
+    path = facility_file_path(loaded_or_empty())
     try:
         records = FacilityRecords.from_file(path)
     except FacilityFileError as exc:

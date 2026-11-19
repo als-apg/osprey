@@ -1,4 +1,4 @@
-"""Where ``get_agent_dir`` anchors when the configured project root is not here.
+"""Where the agent-data root anchors when the configured project root is not here.
 
 A container runs with a ``project_root`` written on the host, so the configured
 path frequently does not exist inside the image. What to do then used to be a
@@ -8,66 +8,43 @@ execution method that no longer ships, and the one that remains never fires in
 the shipped layout — the image puts the project at ``/app/<project>/``, not at
 ``/app``.
 
-``CONFIG_FILE`` already names the config this process actually loaded, and its
-directory IS the project root by construction. These tests hold the fallback to
-that, and to the cwd-with-a-warning it always had when even that is unset.
+The loaded config's own repo root names the project root by construction: the
+file this process read, not an environment variable that may name another.
+:attr:`~osprey_connectors.config.LoadedConfig.agent_data_root` derives from it.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from osprey_connectors import config as connectors_config
 
 
-@pytest.fixture
-def agent_dir(monkeypatch):
-    """Call ``get_agent_dir`` against a config whose project root is elsewhere."""
-
-    def _call(project_root: str, raw: dict | None = None):
-        class _Config:
-            raw_config = raw or {}
-
-            def get(self, key, default=None):
-                return {"project_root": project_root, "file_paths": {}}.get(key, default)
-
-        monkeypatch.setattr(connectors_config, "_get_config", lambda: _Config())
-        return Path(connectors_config.get_agent_dir("api_calls_dir"))
-
-    return _call
+def _config(directory: Path, project_root: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "config.yml"
+    path.write_text(f"project_root: {project_root}\n", encoding="utf-8")
+    return path
 
 
-def test_config_file_names_the_project_root(agent_dir, monkeypatch, tmp_path):
+def test_the_loaded_configs_repo_names_the_project_root(monkeypatch, tmp_path):
     project = tmp_path / "facility"
-    project.mkdir()
-    (project / "config.yml").write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(_config(project, tmp_path / "does-not-exist")))
 
-    resolved = agent_dir(str(tmp_path / "does-not-exist"))
+    resolved = connectors_config.current_config().agent_data_root
 
     assert resolved.is_relative_to(project)
-    assert resolved.name == "api_calls_dir"
-
-
-def test_without_config_file_it_falls_back_to_the_cwd_with_a_warning(
-    agent_dir, monkeypatch, tmp_path, caplog
-):
-    """With nothing to anchor on, the path resolves under the cwd, and says so.
-
-    No container root is guessed: ``/app`` is not a project root in the shipped
-    layout, and never was one this could prove. Resolving under the cwd pins
-    that as well as any list of forbidden prefixes would.
-    """
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    with caplog.at_level("WARNING"):
-        resolved = agent_dir(str(tmp_path / "does-not-exist"))
-
-    # resolve(): on macOS tmp_path lives under /var, a symlink to /private/var.
-    assert resolved.is_relative_to(tmp_path.resolve())
     assert not resolved.is_relative_to(tmp_path / "does-not-exist")
-    assert resolved.name == "api_calls_dir"
-    assert "Falling back to relative path resolution" in caplog.text
+
+
+def test_a_config_file_export_naming_another_project_is_not_the_anchor(monkeypatch, tmp_path):
+    """No container root is guessed, and no stray ``CONFIG_FILE`` is believed either."""
+    project = tmp_path / "facility"
+    other = tmp_path / "other"
+    monkeypatch.setenv("OSPREY_CONFIG", str(_config(project, tmp_path / "does-not-exist")))
+    monkeypatch.setenv("CONFIG_FILE", str(_config(other, tmp_path / "does-not-exist")))
+
+    resolved = connectors_config.current_config().agent_data_root
+
+    assert resolved.is_relative_to(project)
+    assert not resolved.is_relative_to(other)

@@ -126,6 +126,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import write_switch
 from osprey_connectors.config import connector_block
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     SIMULATED_TYPES,
     TARGET_LIVE,
@@ -420,7 +421,7 @@ def baseline_target(config: Any) -> ControlTarget:
     for callers holding a rendered config rather than a ``control_system:``
     section.
     """
-    return types_baseline_target(_control_system_section(config))
+    return types_baseline_target(ControlSystemSection.read(_control_system_section(config)))
 
 
 def switch_capable(config: Any) -> bool:
@@ -434,7 +435,7 @@ def switch_capable(config: Any) -> bool:
     section; it is what decides where the controls server's tools get their
     connector from.
     """
-    return types_switch_capable(_control_system_section(config))
+    return types_switch_capable(ControlSystemSection.read(_control_system_section(config)))
 
 
 def _connector_block(config: Any, connector_type: str) -> dict[str, Any]:
@@ -469,7 +470,7 @@ def _writes_allowed(section: Any, target: str) -> bool:
     the same agent-data root — and therefore the posture it selects its
     gateway on.
     """
-    return write_switch.write_verdict(section, target).allowed
+    return write_switch.write_verdict(ControlSystemSection.read(section), target).allowed
 
 
 def _display_writes(config: Any, target: str, write_allowed: Mapping[str, bool] | None) -> bool:

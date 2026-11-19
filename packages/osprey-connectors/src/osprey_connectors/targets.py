@@ -24,6 +24,7 @@ in it.
 
 import logging
 
+from osprey_connectors.config_sections import ConnectorBlock, ControlSystemSection, Unreadable
 from osprey_connectors.connector_types import (
     BUILTIN_CONNECTORS,
     CONTROL_TARGETS,
@@ -87,7 +88,7 @@ _BASELINE_TARGETS: dict[str, ControlTarget] = {
 }
 
 
-def resolve_target(section: object, target: object) -> str:
+def resolve_target(section: ControlSystemSection, target: object) -> str:
     """The connector type a session *target* selects, in a given deployment.
 
     The returned type is also the key of the block the factory reads its
@@ -126,9 +127,8 @@ def resolve_target(section: object, target: object) -> str:
     tool call arriving at a real machine on the strength of a guess.
 
     Args:
-        section: The ``control_system:`` config section, in the same shape
-            :func:`~osprey_connectors.connector_types.resolve_control_system_type`
-            takes.
+        section: The ``control_system:`` config section, read
+            (:class:`~osprey_connectors.config_sections.ControlSystemSection`).
         target: The control target, one of
             :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`. An
             argument, never read from the environment, and never defaulted.
@@ -157,7 +157,7 @@ def resolve_target(section: object, target: object) -> str:
     )
 
 
-def baseline_target(section: object) -> ControlTarget:
+def baseline_target(section: ControlSystemSection) -> ControlTarget:
     """The target a deployment's own ``control_system:`` section selects.
 
     ``va`` for the simulator, in whichever venue its leaf names (a section
@@ -174,7 +174,7 @@ def baseline_target(section: object) -> ControlTarget:
     return _BASELINE_TARGETS.get(resolve_control_system_type(section), TARGET_LIVE)
 
 
-def switch_capable(section: object) -> bool:
+def switch_capable(section: ControlSystemSection) -> bool:
     """Whether a deployment gives a session more than one target to be pointed at.
 
     The predicate itself, in the module that already owns "which connector type
@@ -202,25 +202,21 @@ def switch_capable(section: object) -> bool:
     the coarser question of whether the deployment is in the multi-target world.
 
     Args:
-        section: The ``control_system:`` config section, in the same shape
-            :func:`~osprey_connectors.connector_types.resolve_control_system_type`
-            takes. Callers holding a whole rendered config pass
+        section: The ``control_system:`` config section, read
+            (:class:`~osprey_connectors.config_sections.ControlSystemSection`). Callers holding a whole rendered config pass
             ``config.get("control_system")``.
 
     Returns:
         ``True`` when the section resolves and configures at least two
-        targets. Never raises: a section that is not a mapping or does not
-        resolve is not capable.
+        targets. Never raises: a section that does not resolve is not capable.
     """
-    if not isinstance(section, dict):
-        return False
     try:
         return len(configured_targets(section)) >= 2
     except ValueError:
         return False
 
 
-def target_configured(section: object, target: object) -> bool:
+def target_configured(section: ControlSystemSection, target: object) -> bool:
     """Whether *section* carries the connector block *target* is served by.
 
     Both halves of "does this deployment have that machine", asked the way the
@@ -239,9 +235,8 @@ def target_configured(section: object, target: object) -> bool:
     about which machines a deployment has.
 
     Args:
-        section: The ``control_system:`` config section, in the same shape
-            :func:`~osprey_connectors.connector_types.resolve_control_system_type`
-            takes.
+        section: The ``control_system:`` config section, read
+            (:class:`~osprey_connectors.config_sections.ControlSystemSection`).
         target: The control target being asked about.
 
     Returns:
@@ -252,12 +247,11 @@ def target_configured(section: object, target: object) -> bool:
         connector_type = resolve_target(section, target)
     except ValueError:
         return False
-    connector = section.get("connector") if isinstance(section, dict) else None
-    block = connector.get(connector_type) if isinstance(connector, dict) else None
-    return isinstance(block, dict) and bool(block)
+    block = section.block(connector_type)
+    return isinstance(block, ConnectorBlock) and block.written
 
 
-def configured_targets(section: object) -> list[ControlTarget]:
+def configured_targets(section: ControlSystemSection) -> list[ControlTarget]:
     """The targets a session on this deployment can actually be pointed at.
 
     In :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` order, which
@@ -286,9 +280,8 @@ def configured_targets(section: object) -> list[ControlTarget]:
     read from the config.
 
     Args:
-        section: The ``control_system:`` config section, in the same shape
-            :func:`~osprey_connectors.connector_types.resolve_control_system_type`
-            takes.
+        section: The ``control_system:`` config section, read
+            (:class:`~osprey_connectors.config_sections.ControlSystemSection`).
 
     Returns:
         The configured targets in
@@ -318,7 +311,7 @@ _MACHINE_KINDS: dict[ControlTarget, MachineKind] = {
 }
 
 
-def machine_kind(section: object, target: object) -> MachineKind | None:
+def machine_kind(section: ControlSystemSection, target: object) -> MachineKind | None:
     """The kind of machine *target* names by its name: ``real`` or ``simulator``.
 
     ``live`` and ``standin`` are the real machine, ``va`` the simulator. The
@@ -337,15 +330,16 @@ def machine_kind(section: object, target: object) -> MachineKind | None:
     return _MACHINE_KINDS.get(target) if is_control_target(target) else None
 
 
-def _real_blocks(section: object, never_live: tuple[str, ...]) -> list[str]:
+def _real_blocks(section: ControlSystemSection, never_live: tuple[str, ...]) -> list[str]:
     """The connector blocks that could describe a real machine, sorted."""
-    connector = section.get("connector") if isinstance(section, dict) else None
-    if not isinstance(connector, dict):
+    if isinstance(section.connectors, Unreadable):
         return []
-    return sorted(key for key in connector if isinstance(key, str) and key not in never_live)
+    return sorted(key for key in section.connectors if key not in never_live)
 
 
-def _report_second_real_block(section: object, baseline: str, never_live: tuple[str, ...]) -> None:
+def _report_second_real_block(
+    section: ControlSystemSection, baseline: str, never_live: tuple[str, ...]
+) -> None:
     """Say so when a config describes a real machine no target can reach.
 
     A deployment whose own type is its real machine never consults the connector
@@ -375,7 +369,7 @@ def _report_second_real_block(section: object, baseline: str, never_live: tuple[
     )
 
 
-def _live_type(section: object) -> str:
+def _live_type(section: ControlSystemSection) -> str:
     """The control system type that reaches this deployment's real machine.
 
     Neither a simulated type nor a stand-in one can be that machine, and the

@@ -61,7 +61,7 @@ def shared_root(tmp_path, monkeypatch):
 
     Stamped, not patched. The posture store's root resolution reads
     ``OSPREY_AGENT_DATA_ROOT`` FIRST and only falls back to
-    ``resolve_shared_data_root``, so patching the resolver is inert for any
+    ``process_agent_data_root``, so patching the resolver is inert for any
     developer whose shell carries the stamp — which is exactly the environment
     this feature creates — and the store these tests write would land in the
     repository's own ``var/agent_data``. The stamp is also the one anchor

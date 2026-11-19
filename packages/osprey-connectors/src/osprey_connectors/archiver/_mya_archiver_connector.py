@@ -58,13 +58,13 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Protocol
+from typing import ClassVar, Protocol
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from pydantic import model_validator
 from typing_extensions import override
 
-from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiveCoverage, ChannelArchive
 from osprey_connectors.archiver._timerange import (
     Processing,
@@ -76,8 +76,9 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.connection import read_connection_settings
+from osprey_connectors.config import facility_timezone
+from osprey_connectors.config_sections import ConnectorSettings
+from osprey_connectors.connection import ConnectionSettings, read_connection_settings
 from osprey_connectors.errors import ArchiveQueryError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.service_answers import BackendSpec, Unavailable
@@ -102,6 +103,9 @@ _MYSTATS_STAT: dict[ProcessingMode, str] = {
 _DEFAULT_DEPLOYMENT = "ops"
 
 _DEFAULT_TIMEOUT_S = 60
+
+#: The block every archive reads its settings from, named in a refusal.
+_WHERE = "archiver.settings"
 
 #: The client release that honours ``unix_timestamps_ms``. Earlier ones accept
 #: the flag, ask myquery for epoch milliseconds, and then parse the integers
@@ -239,6 +243,55 @@ def _like_literal(address: str) -> str:
     return address
 
 
+def _written_text(value: object) -> str | None:
+    """A text setting as the connector uses it: its text, or ``None`` when unset or empty."""
+    return str(value) if value else None
+
+
+class MyaArchiverSettings(ConnectorSettings):
+    """MYA's block, ``archiver.settings``, read; every key optional.
+
+    Attributes:
+        connection: ``timeout_s``; ``auth`` and ``tls`` are refused, because
+            the client library sends every request itself.
+        myquery_server: The myquery host; ``None`` for the library's own.
+        protocol: ``http`` or ``https``; ``None`` for the library's.
+        deployment: The MYA deployment to query; ``ops`` when unset.
+        timezone: The IANA zone the server reads query bounds in; ``None`` for
+            the facility's.
+    """
+
+    connection: ConnectionSettings
+    myquery_server: str | None = None
+    protocol: str | None = None
+    deployment: str = _DEFAULT_DEPLOYMENT
+    timezone: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        connection = read_connection_settings(
+            data,
+            where=_WHERE,
+            logins=frozenset(),
+            tls=False,
+            unsupported_because=(
+                "the MYA client (jlab-archiver-client) sends every request itself, "
+                "with no login and no per-connection CA"
+            ),
+        )
+        return {
+            **data,
+            "connection": connection,
+            "myquery_server": _written_text(data.get("myquery_server")),
+            "protocol": _written_text(data.get("protocol")),
+            "deployment": _written_text(data.get("deployment")) or _DEFAULT_DEPLOYMENT,
+            "timezone": _written_text(data.get("timezone")),
+        }
+
+
 class MYAArchiverConnector(ChannelArchive):
     """Archiver connector for Jefferson Lab's MYA, via the myquery service.
 
@@ -264,22 +317,14 @@ class MYAArchiverConnector(ChannelArchive):
         ConnectorUnavailableError: If the client cannot be initialized.
     """
 
+    settings_model: ClassVar[type[ConnectorSettings]] = MyaArchiverSettings
+    SETTINGS_KEY: ClassVar[str] = _WHERE
+
     def __init__(
         self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
-        # The settings block is the archive's extension contract; this backend reads its keys unchecked.
-        config: Mapping[str, ContractAny] = spec.settings
-        connection = read_connection_settings(
-            config,
-            where="archiver.settings",
-            logins=frozenset(),
-            tls=False,
-            unsupported_because=(
-                "the MYA client (jlab-archiver-client) sends every request itself, "
-                "with no login and no per-connection CA"
-            ),
-        )
+        config = self._settings(MyaArchiverSettings)
         try:
             import jlab_archiver_client
         except ImportError:
@@ -298,8 +343,8 @@ class MYAArchiverConnector(ChannelArchive):
             # connected instances would clobber each other. Every endpoint URL
             # is built here and handed to the query object per call instead.
             settings = jac.config.config
-            server = config.get("myquery_server") or settings.myquery_server
-            protocol = config.get("protocol") or settings.protocol
+            server = config.myquery_server or settings.myquery_server
+            protocol = config.protocol or settings.protocol
             if not server:
                 raise ValueError("myquery_server is required for the MYA archiver")
             base = f"{protocol}://{server}"
@@ -317,10 +362,10 @@ class MYAArchiverConnector(ChannelArchive):
                 f"MYA archiver client initialization failed: {e}"
             ) from e
 
-        self._deployment: str = config.get("deployment") or _DEFAULT_DEPLOYMENT
-        self._timeout: float = connection.timeout_or(_DEFAULT_TIMEOUT_S)
-        zone = config.get("timezone")
-        self._timezone: ZoneInfo = ZoneInfo(zone) if zone else get_facility_timezone()
+        self._deployment: str = config.deployment
+        self._timeout: float = config.connection.timeout_or(_DEFAULT_TIMEOUT_S)
+        zone = config.timezone
+        self._timezone: ZoneInfo = ZoneInfo(zone) if zone else facility_timezone()
 
         logger.debug(
             "MYA archiver connected: %s (deployment=%s)",

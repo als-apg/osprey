@@ -121,7 +121,7 @@ class Deployment:
         app_mod = "osprey.interfaces.web_terminal.app"
         patches = (
             patch(
-                "osprey_connectors.workspace.resolve_shared_data_root",
+                "osprey.utils.config_paths.process_agent_data_root",
                 return_value=self.agent_data,
             ),
             patch(f"{app_mod}._load_panel_config", return_value=(set(), [], None)),
@@ -162,7 +162,7 @@ def deployment(built_view, tmp_path, monkeypatch) -> Iterator[Deployment]:  # no
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(project / "var" / "agent_data"))
     monkeypatch.setenv("OSPREY_TERMINAL_USER", OPERATOR)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
-    monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(project / "config.yml"))
     testing.invalidate_cache()
 
     assert activate_default_scenarios(config, project) == ("nominal", *DEFAULTS)

@@ -23,6 +23,7 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_tier import WRITES_KEY
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     FakeChannel,
     InlineCaLoop,
@@ -34,7 +35,6 @@ from osprey_connectors_tests._write_fakes import (
     ARMED_TARGET,
     arm_switch,
     armed_context,
-    config_reader,
 )
 
 READ = {"address": "ro.example.com", "port": 5064}
@@ -57,8 +57,8 @@ ALLOWED = _normalized(
 NEVER = _normalized("never", type=EPICS, connector={EPICS: {}})
 
 
-def _serve(monkeypatch, section: dict) -> None:
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(section))
+def _serve(section: dict) -> None:
+    serve_control_system(section)
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def aioca(monkeypatch):
 def test_an_allowed_render_lets_the_monitor_pass_the_tier(monkeypatch, record_root):
     # Arrange
     arm_switch(monkeypatch, record_root, ARMED_TARGET)
-    _serve(monkeypatch, ALLOWED)
+    _serve(ALLOWED)
 
     # Act
     verdict = connector_base._monitor_verdict(ARMED_TARGET)
@@ -90,7 +90,7 @@ def test_an_allowed_render_lets_the_monitor_pass_the_tier(monkeypatch, record_ro
 def test_a_never_render_refuses_on_the_tier(monkeypatch, record_root, target):
     # Arrange
     arm_switch(monkeypatch, record_root, ARMED_TARGET)
-    _serve(monkeypatch, NEVER)
+    _serve(NEVER)
 
     # Act
     verdict = connector_base._monitor_verdict(target)
@@ -103,7 +103,7 @@ def test_a_never_render_refusal_speaks_the_tier_phrase(monkeypatch, record_root)
     """The refusal is the contract's tier phrase and names no retired leaf."""
     # Arrange
     arm_switch(monkeypatch, record_root, ARMED_TARGET)
-    _serve(monkeypatch, NEVER)
+    _serve(NEVER)
     verdict = connector_base._monitor_verdict(ARMED_TARGET)
 
     # Act
@@ -121,7 +121,7 @@ def test_an_allowed_render_names_no_tier_reason(monkeypatch, record_root):
     # Arrange
     arm_switch(monkeypatch, record_root, None)
     write_control_context(record_root, target=ARMED_TARGET, owned_by=None)
-    _serve(monkeypatch, ALLOWED)
+    _serve(ALLOWED)
     verdict = connector_base._monitor_verdict(ARMED_TARGET)
 
     # Act
@@ -168,7 +168,7 @@ def test_a_readonly_run_on_an_allowed_render_derives_the_read_gateway():
 
 def _armed(monkeypatch, root, *, on: bool) -> None:
     """Serve a normalized allowed section and stamp the simulator target."""
-    _serve(monkeypatch, _normalized("allowed"))
+    _serve(_normalized("allowed"))
     arm_switch(monkeypatch, root, ARMED_TARGET if on else None)
     monkeypatch.setattr(
         ControlSystemConnector, "_context", ConnectorContext(control_target=ARMED_TARGET)

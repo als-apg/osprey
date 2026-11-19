@@ -14,19 +14,23 @@ from osprey_connectors.logger import ComponentLogger, get_logger
 class TestComponentLoggerBasic:
     """Test basic ComponentLogger functionality without streaming."""
 
-    def test_logger_creation_without_state(self):
-        """Test that logger can be created without state (module-level usage)."""
+    def test_logger_creation(self):
+        """A logger is looked up by its name alone (module-level usage)."""
         logger = get_logger("test_component")
         assert isinstance(logger, ComponentLogger)
         assert logger.component_name == "test_component"
-        assert logger._state is None
 
-    def test_logger_creation_with_custom_params(self):
-        """Test custom logger creation with explicit parameters."""
-        logger = get_logger(name="custom_logger", color="blue")
-        assert isinstance(logger, ComponentLogger)
-        assert logger.component_name == "custom_logger"
-        assert logger.color == "blue"
+    def test_name_is_positional_only(self):
+        """``get_logger`` takes the name positionally and nothing else."""
+        with pytest.raises(TypeError):
+            get_logger(name="custom_logger")  # type: ignore[call-arg]
+        with pytest.raises(TypeError):
+            get_logger("custom_logger", color="blue")  # type: ignore[call-arg]
+
+    @pytest.mark.parametrize("retired", ["status", "success", "timing", "approval", "resume"])
+    def test_retired_intent_methods_are_gone(self, retired):
+        """The retired intents log through ``info`` now."""
+        assert not hasattr(get_logger("test_component"), retired)
 
     def test_basic_logging_methods(self):
         """Test that basic logging methods work without crashing."""
@@ -37,18 +41,7 @@ class TestComponentLoggerBasic:
         logger.debug("Debug message")
         logger.warning("Warning message")
         logger.error("Error message")
-        logger.success("Success message")
         logger.key_info("Key info message")
-        logger.timing("Timing message")
-        logger.approval("Approval message")
-        logger.resume("Resume message")
-
-    def test_status_without_streaming_context(self):
-        """Test that status() works gracefully without streaming context."""
-        logger = get_logger("test_component")
-
-        # Should not raise even though no stream writer available
-        logger.status("Test status message")
 
 
 class TestBackwardCompatibility:

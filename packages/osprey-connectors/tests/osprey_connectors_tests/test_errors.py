@@ -11,6 +11,7 @@ import pytest
 
 import osprey_connectors
 from osprey_connectors import archiver_selection, call_timeout, connection, connector_types, factory
+from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.errors import (
     AlreadyApprovedError,
     ConfigurationError,
@@ -148,19 +149,23 @@ def test_the_write_path_errors_carry_their_context(tmp_path):
         ),
         (
             lambda: connector_types.resolve_serving(
-                {
-                    "type": connector_types.VIRTUAL_ACCELERATOR,
-                    "connector": {
-                        connector_types.VIRTUAL_ACCELERATOR: {
-                            connector_types.SERVING_LEAF: "nowhere"
-                        }
-                    },
-                }
+                ControlSystemSection.read(
+                    {
+                        "type": connector_types.VIRTUAL_ACCELERATOR,
+                        "connector": {
+                            connector_types.VIRTUAL_ACCELERATOR: {
+                                connector_types.SERVING_LEAF: "nowhere"
+                            }
+                        },
+                    }
+                )
             ),
             connector_types.SERVING_KEY,
         ),
         (
-            lambda: archiver_selection.resolve_archiver_settings({"settings": 3}),
+            lambda: archiver_selection.resolve_archiver_settings(
+                ArchiverSection.read({"settings": 3})
+            ),
             "archiver.settings",
         ),
         (
@@ -177,7 +182,7 @@ def test_the_write_path_errors_carry_their_context(tmp_path):
         ),
         (
             lambda: factory.ConnectorFactory.build_control_system_connector(
-                {"type": "no_such_type"}
+                ControlSystemSection.read({"type": "no_such_type"})
             ),
             "control_system.type",
         ),

@@ -15,9 +15,9 @@ the connector contract — the same reason the EPICS connector refuses PVA RPC.
 
 import asyncio
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 from typing_extensions import override
 
@@ -29,7 +29,9 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
+    _settings_as,
 )
 from osprey_connectors.control_system._limits_validator import (
     CurrentValueReader,
@@ -175,6 +177,14 @@ def _enum_label_for(labels: tuple[str, ...] | None, index: object) -> str | None
     return None
 
 
+class TangoSettings(ControlSystemSettings):
+    """The ``tango`` block."""
+
+    #: Overrides the ``TANGO_HOST`` environment for this connector's proxies,
+    #: spelled ``host:port``; empty or absent keeps the environment's.
+    tango_host: str | None = None
+
+
 class TangoConnector(ControlSystemConnector):
     """
     TANGO Controls control system connector using PyTango.
@@ -184,6 +194,8 @@ class TangoConnector(ControlSystemConnector):
     trip, so each one runs in a thread; a read is therefore always fresh —
     there is no client-side monitor cache for a confirming read to bypass.
     """
+
+    settings_model: ClassVar[type[ControlSystemSettings]] = TangoSettings
 
     def __init__(self) -> None:
         self._connected: bool = False
@@ -196,7 +208,7 @@ class TangoConnector(ControlSystemConnector):
         self._tango_host: str | None = None
 
     @override
-    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Import PyTango and verify the TANGO database is reachable.
 
@@ -224,7 +236,7 @@ class TangoConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("PyTango (the 'pytango' package) is required.") from None
 
-        tango_host: str | None = settings.get("tango_host") or None
+        tango_host = _settings_as(settings, TangoSettings).tango_host or None
         self._tango_host = tango_host
         self._timeout_s = self._call_timeout_s
 

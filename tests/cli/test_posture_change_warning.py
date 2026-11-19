@@ -30,6 +30,7 @@ from osprey.cli.build_profile_merge import (
 )
 from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.errors import BuildProfileError
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_writes
 
 _LOGGER_NAME = merge.__name__
@@ -90,7 +91,7 @@ def _posture_warnings(caplog) -> list[str]:
 
 def _tier(document) -> str:
     section = merge._rendered_control_system(document.raw["config"])
-    return tier_writes(section)
+    return tier_writes(ControlSystemSection.read(section))
 
 
 # ── the posture-change warning ───────────────────────────────────────────────

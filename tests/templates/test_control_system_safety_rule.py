@@ -27,6 +27,7 @@ from tests._preset_data import create_project_as_built
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import SET_CONTROL_SYSTEM_TYPES, connector_transport
 
 #: Lines the p4p block must contain, verbatim.
@@ -73,7 +74,9 @@ def _render_template_directly(control_system_type: str, enabled_servers: set[str
         "claude_code/claude/rules/control-system-safety.md.j2"
     )
     return template.render(
-        control_system_transport=connector_transport(section_for(control_system_type)),
+        control_system_transport=connector_transport(
+            ControlSystemSection.read(section_for(control_system_type))
+        ),
         enabled_servers=enabled_servers,
     )
 
@@ -232,7 +235,7 @@ def test_raw_put_lines_say_refused_and_name_write_channel(cs_type):
     still let through -- and names the calls that do write. A notebook kernel
     refuses the client library itself, which the rule says beside it."""
     content = _render_template_directly(cs_type, set())
-    branch = connector_transport(section_for(cs_type))
+    branch = connector_transport(ControlSystemSection.read(section_for(cs_type)))
 
     annotated = {
         line.split("#", 1)[0].strip(): "#" + line.split("#", 1)[1]
@@ -487,7 +490,7 @@ def test_each_transport_renders_exactly_its_block(cs_type):
     """The prohibited block is the one for the wire the connector speaks, and a
     connector with no known wire gets the generic line and no library."""
     content = _render_template_directly(cs_type, set())
-    wire = connector_transport(section_for(cs_type))
+    wire = connector_transport(ControlSystemSection.read(section_for(cs_type)))
 
     for transport, line in LIBRARY_LINES.items():
         if transport == wire:

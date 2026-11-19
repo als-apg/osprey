@@ -7,7 +7,7 @@ One producer for both egress surfaces (the MCP tools and the web API):
 - :func:`build_entry_url` — the config-driven ``ariel.entry_url_template``
   rendered with the entry id, or ``None``.
 
-``get_config_value`` resolves the default config, which the MCP server and the
+``current_config()`` answers with the process config, which the MCP server and the
 web lifespan (through ``get_registry(config_path=...)``) both set to the
 deployment's ``config.yml``, so the two processes read the same template.
 """
@@ -90,7 +90,7 @@ def build_entry_url(
     from urllib.parse import quote
 
     # Imported here, not at module level: tests patch the source module.
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     if is_ariel_only(metadata):
         return None
@@ -98,7 +98,7 @@ def build_entry_url(
         return None
 
     try:
-        template = get_config_value("ariel.entry_url_template", None)
+        template = current_config().get("ariel.entry_url_template", None)
     except Exception:
         # Config not loaded/resolvable (e.g. no config.yml): treat as an
         # unconfigured deployment — emit no URL rather than crash the read.

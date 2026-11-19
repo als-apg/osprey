@@ -104,7 +104,7 @@ from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.seconds import positive_seconds
 from osprey.utils.workspace import session_hold_dir
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
 from osprey_connectors.workspace import repo_root_for_config
 from osprey_connectors.write_tier import WRITES_KEY
@@ -296,8 +296,8 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     sidecar = None
     try:
         from osprey.interfaces.web_terminal.operator_session import (
-            resolve_agent_data_root,
             session_hold_root_of,
+            shared_data_root,
         )
         from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys
 
@@ -314,7 +314,7 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
             else {}
         )
         sidecar = factory(
-            Path(resolve_agent_data_root(app)),
+            Path(shared_data_root(app)),
             compute_url_prefix(),
             getattr(app.state, "web_theme_mode", None),
             **session_context,
@@ -650,9 +650,9 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             block that spells the retired ``arm_writes``, naming the tier key.
     """
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        config = load_osprey_config()
+        config = loaded_or_empty()
     except Exception:
         return set(UNIVERSAL_PANELS), [], None
 
@@ -966,9 +966,9 @@ def _load_panel_runtime_config(
     allow_runtime_panels = False
     runtime_panel_allowlist: list[str] | None = None
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        web_cfg = load_osprey_config().get("web", {})
+        web_cfg = loaded_or_empty().get("web", {})
         allow_runtime_panels = bool(web_cfg.get("allow_runtime_panels", False))
         allowlist_raw = web_cfg.get("runtime_panel_allowlist")
         if isinstance(allowlist_raw, list):
@@ -1029,9 +1029,9 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
     presets: list[dict] = []
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        raw_presets = load_osprey_config().get("web", {}).get("presets", {})
+        raw_presets = loaded_or_empty().get("web", {}).get("presets", {})
     except Exception:
         return []
 
@@ -1397,21 +1397,21 @@ def _create_lifespan(
         # The route handlers re-read the two timeouts off app.state via getattr
         # with these same defaults, so the attribute names are load-bearing.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
             chat_turn_timeout_s = float(
                 _chat_pool_number(
-                    get_config_value("web.chat_turn_timeout_s", 600), "web.chat_turn_timeout_s"
+                    current_config().get("web.chat_turn_timeout_s", 600), "web.chat_turn_timeout_s"
                 )
             )
             chat_idle_timeout_s = float(
                 _chat_pool_number(
-                    get_config_value("web.chat_idle_timeout_s", 1800), "web.chat_idle_timeout_s"
+                    current_config().get("web.chat_idle_timeout_s", 1800), "web.chat_idle_timeout_s"
                 )
             )
             chat_max_sessions = int(
                 _chat_pool_number(
-                    get_config_value("web.chat_max_sessions", 5), "web.chat_max_sessions"
+                    current_config().get("web.chat_max_sessions", 5), "web.chat_max_sessions"
                 )
             )
         except Exception:  # never let config load block startup
@@ -1487,17 +1487,18 @@ def _create_lifespan(
         render_zone_readonly = is_container_render()
         app.state.render_zone_readonly = render_zone_readonly
 
-        # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
+        # Ensure OSPREY_CONFIG is set before any loaded_or_empty() call
         if "OSPREY_CONFIG" not in os.environ:
             candidate = Path(app.state.project_cwd) / "config.yml"
             if candidate.exists():
                 os.environ["OSPREY_CONFIG"] = str(candidate)
                 logger.debug("Auto-set OSPREY_CONFIG=%s", candidate)
 
-        # Clear any stale config cache (e.g. from web_cmd.py pre-lifespan call)
-        from osprey_connectors.workspace import reset_config_cache
+        # Forget a stale process default (e.g. from web_cmd.py pre-lifespan
+        # call), so the next lookup locates the file OSPREY_CONFIG names.
+        from osprey_connectors.config import install_config
 
-        reset_config_cache()
+        install_config(None)
 
         # Put volume-owned artifact bodies back into the project tree before
         # anything reads it. In a deployed container the tree comes back
@@ -1555,7 +1556,7 @@ def _create_lifespan(
         # The one reader of this render (config_view). The env chain is loaded
         # first, once, so a ``${VAR}`` reference expands the way the deploy
         # expands it; the view's re-parses never reload it.
-        from osprey_connectors.config import load_project_dotenv
+        from osprey_connectors.dotenv import load_project_dotenv
 
         load_project_dotenv()
         app.state.terminal_config = TerminalConfigView(resolved_config_path)
@@ -1614,11 +1615,11 @@ def _create_lifespan(
         # at startup; GET /api/panels echoes it to the browser. Fails open to
         # the default policy on any config-read error.
         try:
-            from osprey_connectors.workspace import load_osprey_config
+            from osprey.utils.config_paths import loaded_or_empty
 
             configured_tour = os.environ.get(
                 "OSPREY_WEB_TOUR", ""
-            ).strip() or load_osprey_config().get("web", {}).get("tour", DEFAULT_TOUR_POLICY)
+            ).strip() or loaded_or_empty().get("web", {}).get("tour", DEFAULT_TOUR_POLICY)
             app.state.web_tour_policy = resolve_tour_policy(configured_tour)
         except Exception:  # never let config load block startup
             logger.warning(
@@ -1812,23 +1813,15 @@ def _create_lifespan(
         # terminal started from anywhere but the repo root watches a directory
         # that does not exist and reports no sessions at all.
         #
-        # Deliberately NOT resolve_agent_data_root(): that applies
+        # Deliberately NOT session_agent_data_root(): that applies
         # OSPREY_SESSION_ID isolation, and this watcher's whole job is to see
         # EVERY session's directory rather than one.
         if config.get("watch_dir"):
             workspace_dir = Path(config["watch_dir"]).resolve()
         else:
-            from osprey_connectors.workspace import (
-                agent_data_base_dir,
-                anchored_path,
-                load_osprey_config,
-                resolve_project_root,
-            )
+            from osprey.utils.config_paths import process_agent_data_root
 
-            _osprey_config = load_osprey_config()
-            workspace_dir = anchored_path(
-                agent_data_base_dir(_osprey_config), resolve_project_root(_osprey_config)
-            ).resolve()
+            workspace_dir = process_agent_data_root()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
         app.state.workspace_base = workspace_dir  # alias for clarity
 
@@ -1852,13 +1845,13 @@ def _create_lifespan(
         # whether the leaf outranks the owner block. Every other key reads with
         # its default, as before.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            raw_docs_url = get_config_value("web.docs_url", DEFAULT_DOCS_URL)
-            raw_github_repo = get_config_value("web.feedback.github_repo", None)
-            raw_email = get_config_value("web.feedback.email", None)
-            raw_trackers = get_config_value("web.feedback.trackers", None)
-            raw_owner = get_config_value("web.feedback.owner", None)
+            raw_docs_url = current_config().get("web.docs_url", DEFAULT_DOCS_URL)
+            raw_github_repo = current_config().get("web.feedback.github_repo", None)
+            raw_email = current_config().get("web.feedback.email", None)
+            raw_trackers = current_config().get("web.feedback.trackers", None)
+            raw_owner = current_config().get("web.feedback.owner", None)
         except Exception:  # never let config load block startup
             logger.warning(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
@@ -1893,11 +1886,11 @@ def _create_lifespan(
         # Nothing here varies per report, so it is resolved once at startup:
         # no per-submission composition, and no fitting to a URL length cap.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            raw_preset = get_config_value("provenance.preset", None)
-            raw_preset_hash = get_config_value("provenance.preset_hash", None)
-            raw_finder_mode = get_config_value("channel_finder.pipeline_mode", None)
+            raw_preset = current_config().get("provenance.preset", None)
+            raw_preset_hash = current_config().get("provenance.preset_hash", None)
+            raw_finder_mode = current_config().get("channel_finder.pipeline_mode", None)
         except Exception:  # an unreadable identity is not fatal
             logger.warning("Could not read the deployment identity keys", exc_info=True)
             raw_preset = raw_preset_hash = raw_finder_mode = None
@@ -1917,14 +1910,14 @@ def _create_lifespan(
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir
         # set, the watched tree is somewhere else entirely and anything written
         # there would land outside the {user}-agent-data volume, where
-        # the host cannot reach it. Never resolve_agent_data_root() either — that
+        # the host cannot reach it. Never session_agent_data_root() either — that
         # appends sessions/<id>, and the store spans sessions: the sidecars'
         # start records. Feedback is not a store here: a submission is an entry
         # in the agent record.
         try:
-            from osprey_connectors.workspace import resolve_shared_data_root
+            from osprey.utils.config_paths import process_agent_data_root
 
-            shared_data_root = resolve_shared_data_root()
+            shared_data_root = process_agent_data_root()
         except Exception:  # never let config load block startup
             shared_data_root = workspace_dir
             logger.warning(
@@ -2061,10 +2054,10 @@ def _create_lifespan(
         # The sidecar startup wait, resolved once here after the config cache
         # reset; every sidecar launch, startup or retry, reads it from app.state.
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
             app.state.sidecar_ready_timeout_s = resolve_sidecar_ready_timeout(
-                get_config_value(SIDECAR_READY_TIMEOUT_KEY, DEFAULT_SIDECAR_READY_TIMEOUT_S)
+                current_config().get(SIDECAR_READY_TIMEOUT_KEY, DEFAULT_SIDECAR_READY_TIMEOUT_S)
             )
         except Exception:  # never let config load block startup
             logger.warning(
@@ -2323,7 +2316,7 @@ def create_app(
                 "storage_scope": resolve_storage_scope(terminal_user),
                 # The zone system.timezone names, resolved by the call the
                 # operator chat's system prompt uses, so page and agent read one clock.
-                "facility_timezone": get_facility_timezone().key,
+                "facility_timezone": facility_timezone().key,
                 "landing_url": landing_url,
                 "auth_role": auth_role or "",
                 "auth_role_source_label": auth_role_source_label,
@@ -2381,7 +2374,7 @@ def create_app(
                 "storage_scope": resolve_storage_scope(
                     getattr(request.app.state, "terminal_user", "")
                 ),
-                "facility_timezone": get_facility_timezone().key,
+                "facility_timezone": facility_timezone().key,
                 "web_theme_id": getattr(request.app.state, "web_theme_id", "dark"),
                 "web_theme_mode": getattr(request.app.state, "web_theme_mode", None) or "",
                 # activity-strip.js reaches panel-manager.js for the labels it

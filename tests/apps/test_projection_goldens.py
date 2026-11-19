@@ -160,7 +160,7 @@ def _routes(config: dict[str, Any]) -> list[list[str]]:
     from osprey.interfaces.web_terminal.routes.proxy import application_panels
     from osprey.profiles.sidecar_panels import SIDECAR_PANELS, PanelRegistry
 
-    with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
+    with patch("osprey.utils.config_paths.loaded_or_empty", return_value=config):
         _enabled, custom, _default = _load_panel_config()
     registry = PanelRegistry(SIDECAR_PANELS, application_panels(custom))
     prefix = f"/panel/{APP}/"

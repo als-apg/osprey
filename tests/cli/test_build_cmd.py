@@ -3210,16 +3210,16 @@ class TestVAArchiverConfigDerivation:
         """FR7: retention and cadence are profile edits, not code changes, so
         they must be in the config the seeder and recorder read."""
         project = self._build(
-            tmp_path, "archived", va_archiver={"retention_days": 2, "hot_span_hours": 2}
+            tmp_path, "archived", va_archiver={"retention_days": 2, "hot_span_h": 2}
         )
 
         knobs = self._config(project)["va_archiver"]
         assert knobs["retention_days"] == 2
-        assert knobs["hot_span_hours"] == 2
-        assert knobs["hot_cadence_sec"] == 10
-        assert knobs["tail_cadence_sec"] == 60
-        assert knobs["recorder_cadence_sec"] == 10
-        assert knobs["recorder_poll_sec"] == 30
+        assert knobs["hot_span_h"] == 2
+        assert knobs["hot_cadence_s"] == 10
+        assert knobs["tail_cadence_s"] == 60
+        assert knobs["recorder_cadence_s"] == 10
+        assert knobs["recorder_poll_s"] == 30
 
     def test_the_services_are_injected_by_the_build(self, tmp_path: Path) -> None:
         project = self._build(tmp_path, "archived", va_archiver={})

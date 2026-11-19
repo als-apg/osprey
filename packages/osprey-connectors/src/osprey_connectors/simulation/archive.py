@@ -66,7 +66,7 @@ import numpy.typing as npt
 from pydantic import AwareDatetime, ValidationError, model_validator
 
 from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD, field_name
-from osprey_connectors.errors import ChannelNotFoundError, require_aware
+from osprey_connectors.errors import ChannelNotFoundError, ConfigurationError, require_aware
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, FrozenTuple, evolve
 from osprey_connectors.simulation import pulse, topoff
@@ -125,6 +125,15 @@ MANIFEST_ID = "osprey:seed_manifest"
 #: the fingerprint, so a bump reseeds every deployment on upgrade.
 _SEED_SCHEMA_VERSION = 2
 
+#: The seed knobs as ``va_archiver`` spelled them before each carried its unit as
+#: ``_h`` or ``_s``. A config still writing one is refused, naming the new key,
+#: rather than read as absent and seeded with the default.
+_RENAMED_KNOBS: dict[str, str] = {
+    "hot_span_hours": "hot_span_h",
+    "hot_cadence_sec": "hot_cadence_s",
+    "tail_cadence_sec": "tail_cadence_s",
+}
+
 #: Timestamps synthesized in one pass. Sized so the value matrix of a full
 #: channel set stays in the tens of megabytes: the whole point of chunking is
 #: that a month of history for three thousand channels does not fit in memory
@@ -161,9 +170,9 @@ class SeedFingerprint(FrozenModel):
         schema_version: The meaning of a stored document, bumped when an
             existing store becomes wrong.
         retention_days: The coarse tier's span.
-        hot_span_hours: The dense tier's span.
-        hot_cadence_sec: The dense tier's cadence.
-        tail_cadence_sec: The coarse tier's cadence.
+        hot_span_h: The dense tier's span.
+        hot_cadence_s: The dense tier's cadence.
+        tail_cadence_s: The coarse tier's cadence.
         compression: The collection's block compressor.
         shape_version: The pulse shape every stored trace is drawn from.
         topoff_shape_version: The top-off sawtooth every stored decaying
@@ -174,9 +183,9 @@ class SeedFingerprint(FrozenModel):
 
     schema_version: int
     retention_days: int
-    hot_span_hours: int
-    hot_cadence_sec: int
-    tail_cadence_sec: int
+    hot_span_h: int
+    hot_cadence_s: int
+    tail_cadence_s: int
     compression: str
     shape_version: str
     topoff_shape_version: str
@@ -239,9 +248,9 @@ class SeedKnobs(FrozenModel):
     """
 
     retention_days: int = 30
-    hot_span_hours: int = 48
-    hot_cadence_sec: int = 10
-    tail_cadence_sec: int = 60
+    hot_span_h: int = 48
+    hot_cadence_s: int = 10
+    tail_cadence_s: int = 60
 
     @classmethod
     def from_config(cls, config: Mapping[str, object]) -> SeedKnobs:
@@ -258,10 +267,20 @@ class SeedKnobs(FrozenModel):
         Raises:
             ValueError: If a knob is present but not a positive integer, or the
                 set is internally inconsistent (see the class).
+            ConfigurationError: A knob is written under its retired spelling
+                (``hot_span_hours``, ``hot_cadence_sec`` or ``tail_cadence_sec``);
+                ``key`` is the key written, and the message names the new one.
         """
         block = config.get("va_archiver") or {}
         if not isinstance(block, Mapping):
             raise ValueError(f"config 'va_archiver' must be a mapping (got {type(block).__name__})")
+        for old, new in _RENAMED_KNOBS.items():
+            if old in block:
+                raise ConfigurationError(
+                    f"va_archiver.{old} was renamed to va_archiver.{new} (same value, same "
+                    f"unit); rebuild the project so its config.yml spells the new key",
+                    key=f"va_archiver.{old}",
+                )
         stated = {name: block[name] for name in cls.model_fields if name in block}
         try:
             return cls.model_validate(stated)
@@ -279,21 +298,21 @@ class SeedKnobs(FrozenModel):
         """Refuse knobs this module's grid arithmetic cannot honor."""
         for name, value in (
             ("retention_days", self.retention_days),
-            ("hot_span_hours", self.hot_span_hours),
-            ("hot_cadence_sec", self.hot_cadence_sec),
-            ("tail_cadence_sec", self.tail_cadence_sec),
+            ("hot_span_h", self.hot_span_h),
+            ("hot_cadence_s", self.hot_cadence_s),
+            ("tail_cadence_s", self.tail_cadence_s),
         ):
             if value < 1:
                 raise ValueError(f"va_archiver.{name} must be >= 1 (got {value})")
-        if self.hot_span_hours > self.retention_days * 24:
+        if self.hot_span_h > self.retention_days * 24:
             raise ValueError(
-                f"va_archiver.hot_span_hours ({self.hot_span_hours}) exceeds "
+                f"va_archiver.hot_span_h ({self.hot_span_h}) exceeds "
                 f"retention_days ({self.retention_days} days)"
             )
-        if self.tail_cadence_sec % self.hot_cadence_sec:
+        if self.tail_cadence_s % self.hot_cadence_s:
             raise ValueError(
-                f"va_archiver.tail_cadence_sec ({self.tail_cadence_sec}) must be a whole "
-                f"multiple of hot_cadence_sec ({self.hot_cadence_sec})"
+                f"va_archiver.tail_cadence_s ({self.tail_cadence_s}) must be a whole "
+                f"multiple of hot_cadence_s ({self.hot_cadence_s})"
             )
         return self
 
@@ -305,7 +324,7 @@ class SeedKnobs(FrozenModel):
     @property
     def hot_span_s(self) -> int:
         """Dense-tier span in seconds."""
-        return self.hot_span_hours * 3600
+        return self.hot_span_h * 3600
 
 
 class SeedReport(FrozenModel):
@@ -724,13 +743,13 @@ def _seed_grid(
     tail_start = end - knobs.retention_s
     hot_start = end - knobs.hot_span_s
 
-    tail = _aligned_range(tail_start, end, knobs.tail_cadence_sec)
-    hot = _aligned_range(hot_start, end, knobs.hot_cadence_sec)
+    tail = _aligned_range(tail_start, end, knobs.tail_cadence_s)
+    hot = _aligned_range(hot_start, end, knobs.hot_cadence_s)
     # The coarse cadence is a whole multiple of the dense one, so a dense point
     # belongs to the coarse tier exactly when it is a multiple of the coarse
     # cadence. Testing that is cheaper and exact, where a set difference over
     # floats would be a float-equality comparison.
-    hot_only = hot[np.mod(hot, knobs.tail_cadence_sec) != 0]
+    hot_only = hot[np.mod(hot, knobs.tail_cadence_s) != 0]
 
     times = np.concatenate([tail, hot_only])
     order = np.argsort(times, kind="stable")
@@ -748,7 +767,7 @@ def tier_expiry(knobs: SeedKnobs, times_s: npt.NDArray[np.float64]) -> npt.NDArr
     rewrite restoring a window it once protected — re-stamp a document correctly
     without knowing how it was originally produced.
     """
-    dense = np.mod(times_s, knobs.tail_cadence_sec) != 0
+    dense = np.mod(times_s, knobs.tail_cadence_s) != 0
     lifetime = np.where(dense, float(knobs.hot_span_s), float(knobs.retention_s))
     return np.asarray(times_s + lifetime)
 
@@ -855,9 +874,9 @@ def seed_fingerprint(
     return SeedFingerprint(
         schema_version=_SEED_SCHEMA_VERSION,
         retention_days=knobs.retention_days,
-        hot_span_hours=knobs.hot_span_hours,
-        hot_cadence_sec=knobs.hot_cadence_sec,
-        tail_cadence_sec=knobs.tail_cadence_sec,
+        hot_span_h=knobs.hot_span_h,
+        hot_cadence_s=knobs.hot_cadence_s,
+        tail_cadence_s=knobs.tail_cadence_s,
         compression=compression,
         shape_version=pulse.SHAPE_VERSION,
         topoff_shape_version=topoff.SHAPE_VERSION,
@@ -1110,7 +1129,7 @@ def seed_base(
 
             pending = _submit_bounded(pool, pending, collection, documents, workers)
             if traced and waveforms is not None:
-                coarse = np.mod(chunk_times, knobs.tail_cadence_sec) == 0
+                coarse = np.mod(chunk_times, knobs.tail_cadence_s) == 0
                 traces = _waveform_documents(archive, chunk_times[coarse], chunk_expiry[coarse])
                 pending = _submit_bounded(pool, pending, waveforms, traces, workers)
 

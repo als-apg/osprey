@@ -38,6 +38,7 @@ from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.model import evolve
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._fake_connector import FakeConnector, FakeSubscription
 from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -211,10 +212,7 @@ def state_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
     monkeypatch.chdir(tmp_path)
 
-    def get_config_value(path, default=None, _config_path=None):
-        return VA_SECTION if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+    serve_control_system(VA_SECTION)
 
     def no_exit(status):
         raise AssertionError(f"the backend tried to end the test process with status {status}")

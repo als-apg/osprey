@@ -710,9 +710,9 @@ def facility_timezone():
 
     Reached through the module, so a test replaces it like :func:`record_client`.
     """
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors import config
 
-    return get_facility_timezone()
+    return config.facility_timezone()
 
 
 #: The line a transcript export carries when the record answered only part of it.
@@ -833,9 +833,9 @@ def _retention_days() -> int | None:
     """How many days the record keeps an entry, or ``None`` when no config says."""
     try:
         from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        days = get_config_value("agent_record.retention_days", DEFAULT_RETENTION_DAYS)
+        days = current_config().get("agent_record.retention_days", DEFAULT_RETENTION_DAYS)
     except Exception:
         logger.debug("session-activity: no retention configured", exc_info=True)
         return None

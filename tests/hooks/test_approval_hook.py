@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_context import _record_path_under
 from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import (
@@ -86,7 +87,9 @@ def make_config(make_config, tmp_path):
         root = Path(stamped) if stamped else tmp_path / "var" / "agent_data"
         if not _record_path_under(root).exists():
             section = config_dict.get("control_system") if isinstance(config_dict, dict) else None
-            write_control_context(root, target=baseline_target(section), switch=SWITCHED_ON)
+            write_control_context(
+                root, target=baseline_target(ControlSystemSection.read(section)), switch=SWITCHED_ON
+            )
         return path
 
     return _make
@@ -1396,7 +1399,8 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     """
     import osprey.infrastructure.server_launcher as launcher
     from osprey.stores.artifact_store import ArtifactStore
-    from osprey_connectors.workspace import reset_config_cache, resolve_shared_data_root
+    from osprey.utils.config_paths import process_agent_data_root
+    from osprey_connectors.testing import clear_config_state
 
     config_path = tmp_path / "config.yml"
     config_path.write_text(
@@ -1404,7 +1408,7 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    reset_config_cache()
+    clear_config_state()
 
     launches: list[str] = []
     monkeypatch.setattr(launcher, "ensure_web_server", lambda key: launches.append(key))
@@ -1414,7 +1418,7 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
 
     saved = [
         entry
-        for entry in ArtifactStore(workspace_root=resolve_shared_data_root()).list_entries()
+        for entry in ArtifactStore(workspace_root=process_agent_data_root()).list_entries()
         if entry.tool_source == "osprey_approval"
     ]
     assert len(saved) == 1, "the review notebook was not saved"
@@ -3024,7 +3028,7 @@ def test_approval_focus_swallows_a_failing_gallery(approval, monkeypatch):
 def test_review_notebook_focus_carries_the_session(tmp_path, approval, focus_posts, monkeypatch):
     """The notebook the prompt saves is focused in the session that asked."""
     import osprey.infrastructure.server_launcher as launcher
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     config_path = tmp_path / "config.yml"
     config_path.write_text(
@@ -3032,7 +3036,7 @@ def test_review_notebook_focus_carries_the_session(tmp_path, approval, focus_pos
     )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    reset_config_cache()
+    clear_config_state()
     monkeypatch.setattr(launcher, "ensure_web_server", lambda key: None)
     monkeypatch.setattr(approval, "_gallery_base_url", lambda config: "http://127.0.0.1:1")
 

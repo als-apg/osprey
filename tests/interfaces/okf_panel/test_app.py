@@ -354,11 +354,9 @@ async def test_slow_search_does_not_block_the_rest_of_the_panel():
 
 def test_factory_wires_a_qmd_client_from_the_project_config(monkeypatch):
     """``services.qmd`` in config.yml reaches the bundle the panel serves."""
-    import osprey_connectors.workspace as workspace
 
     monkeypatch.setattr(
-        workspace,
-        "load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         lambda: {"services": {"qmd": {"port": 8180}}},
     )
     app = create_app(str(BUNDLE))
@@ -367,20 +365,17 @@ def test_factory_wires_a_qmd_client_from_the_project_config(monkeypatch):
 
 def test_factory_without_services_qmd_opens_no_socket(monkeypatch):
     """No sidecar is a supported configuration: the client stays unconfigured."""
-    import osprey_connectors.workspace as workspace
 
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
     app = create_app(str(BUNDLE))
     assert app.state.bundle.qmd_client.is_configured is False
 
 
 def test_malformed_search_settings_degrade_to_substring_not_to_a_dead_panel(monkeypatch, caplog):
     """A bad search knob must not cost the operator the whole reading pane."""
-    import osprey_connectors.workspace as workspace
 
     monkeypatch.setattr(
-        workspace,
-        "load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         lambda: {"facility_knowledge": {"search": {"rerank": "yes"}}},
     )
     with caplog.at_level(logging.WARNING):
@@ -401,12 +396,11 @@ def test_unreadable_config_degrades_to_substring_not_to_a_dead_panel(monkeypatch
     reading pane included. This pins that nothing gets that far, whatever the
     config layer raises.
     """
-    import osprey_connectors.workspace as workspace
 
     def boom():
         raise TypeError("config layer changed shape")
 
-    monkeypatch.setattr(workspace, "load_osprey_config", boom)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", boom)
     with caplog.at_level(logging.WARNING):
         app = create_app(str(BUNDLE))
     c = TestClient(app)
@@ -440,8 +434,6 @@ def _linked_bundle(root: Path) -> Path:
 def test_concept_carries_its_facility_references_resolved(monkeypatch, tmp_path):
     import json
 
-    import osprey_connectors.workspace as workspace
-
     render = tmp_path / "render"
     render.mkdir()
     (render / "facility.json").write_text(
@@ -456,7 +448,9 @@ def test_concept_carries_its_facility_references_resolved(monkeypatch, tmp_path)
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(render)})
+    monkeypatch.setattr(
+        "osprey.utils.config_paths.loaded_or_empty", lambda: {"config_dir": str(render)}
+    )
     c = TestClient(create_app(str(_linked_bundle(tmp_path))))
 
     body = c.get("/api/concept", params={"id": "devices/bpm"}).json()
@@ -502,8 +496,6 @@ def test_concept_carries_its_facility_references_resolved(monkeypatch, tmp_path)
 def test_concept_carries_a_place_link_with_its_place_record(monkeypatch, tmp_path):
     import json
 
-    import osprey_connectors.workspace as workspace
-
     render = tmp_path / "render"
     render.mkdir()
     (render / "facility.json").write_text(
@@ -518,7 +510,9 @@ def test_concept_carries_a_place_link_with_its_place_record(monkeypatch, tmp_pat
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(render)})
+    monkeypatch.setattr(
+        "osprey.utils.config_paths.loaded_or_empty", lambda: {"config_dir": str(render)}
+    )
     bundle = tmp_path / "bundle"
     (bundle / "places").mkdir(parents=True)
     (bundle / "places" / "rack.md").write_text(
@@ -546,9 +540,10 @@ def test_concept_carries_a_place_link_with_its_place_record(monkeypatch, tmp_pat
 
 
 def test_concept_without_a_facility_file_marks_links_unresolved(monkeypatch, tmp_path):
-    import osprey_connectors.workspace as workspace
 
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(tmp_path)})
+    monkeypatch.setattr(
+        "osprey.utils.config_paths.loaded_or_empty", lambda: {"config_dir": str(tmp_path)}
+    )
     c = TestClient(create_app(str(_linked_bundle(tmp_path))))
 
     r = c.get("/api/concept", params={"id": "devices/bpm"})
@@ -566,10 +561,11 @@ def test_concept_without_a_facility_file_marks_links_unresolved(monkeypatch, tmp
 
 
 def test_an_unreadable_facility_file_marks_links_unresolved(monkeypatch, tmp_path):
-    import osprey_connectors.workspace as workspace
 
     (tmp_path / "facility.json").write_text("{not json", encoding="utf-8")
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(tmp_path)})
+    monkeypatch.setattr(
+        "osprey.utils.config_paths.loaded_or_empty", lambda: {"config_dir": str(tmp_path)}
+    )
     c = TestClient(create_app(str(_linked_bundle(tmp_path))))
 
     r = c.get("/api/concept", params={"id": "devices/bpm"})
@@ -632,7 +628,7 @@ def test_launchable_via_registry_factory(monkeypatch):
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
     fake_config = {"facility_knowledge": {"bundle_path": str(BUNDLE)}}
-    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: fake_config)
+    monkeypatch.setattr(server_launcher, "loaded_or_empty", lambda: fake_config)
 
     factory = server_launcher._make_app_factory(FRAMEWORK_WEB_SERVERS["okf"])
     app = factory()  # resolves bundle_path from config and imports the real factory
@@ -648,7 +644,7 @@ def test_launch_factory_with_unconfigured_bundle_is_guarded(monkeypatch):
     from osprey.infrastructure import server_launcher
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
-    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: {"facility_knowledge": {}})
+    monkeypatch.setattr(server_launcher, "loaded_or_empty", lambda: {"facility_knowledge": {}})
     factory = server_launcher._make_app_factory(FRAMEWORK_WEB_SERVERS["okf"])
     app = factory()
     c = TestClient(app)
@@ -673,13 +669,12 @@ def test_relative_bundle_path_resolves_against_config_dir(monkeypatch, tmp_path)
     (Regression for the review finding: MCP/CLI resolve it this way; the panel
     must agree or a valid relative bundle_path silently yields an empty tab.)
     """
-    import osprey_connectors.workspace as workspace
 
     config_yml = tmp_path / "config.yml"
     config_yml.write_text("", encoding="utf-8")
     _write_min_concept(tmp_path / "kb", "devices/bpm")
-    # app.py imports resolve_config_path lazily from this module → patch here.
-    monkeypatch.setattr(workspace, "resolve_config_path", lambda: config_yml)
+    # app.py imports locate_config lazily from this module → patch here.
+    monkeypatch.setattr("osprey_connectors.config.locate_config", lambda: config_yml)
 
     c = TestClient(create_app("kb"))  # relative
     assert c.get("/health").json()["configured"] is True

@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from osprey_connectors_tests._config_trees import installed, with_values
 from tests.mcp_server._channel_read import make_channel_value
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
@@ -45,20 +46,10 @@ class _FakeConnector:
 
 
 def _threshold_patch(inline_max: int | None):
-    """Patch only the inline-threshold config key, delegating everything else."""
+    """Serve the current config with only the inline threshold set over it."""
     if inline_max is None:
         return nullcontext()
-
-    from osprey_connectors import config as config_module
-
-    real = config_module.get_config_value
-
-    def fake(path, default=None, *args, **kwargs):
-        if path == "control_system.read_inline_max_elements":
-            return inline_max
-        return real(path, default, *args, **kwargs)
-
-    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
+    return installed(with_values({"control_system.read_inline_max_elements": inline_max}))
 
 
 async def _read(tmp_path, monkeypatch, values, channels=None, inline_max=None, **kwargs):

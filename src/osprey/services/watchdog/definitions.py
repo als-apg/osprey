@@ -43,10 +43,11 @@ def load_rendered_config(root: Path) -> tuple[dict[str, Any], Path] | None:
         config_path = (root / candidate).resolve()
         if config_path.is_file():
             os.environ["OSPREY_CONFIG"] = str(config_path)
-            from osprey_connectors.config import get_config_builder
+            from osprey_connectors.config import install_config, load_config
 
-            builder = get_config_builder(config_path=str(config_path), set_as_default=True)
-            return builder.raw_config, config_path.parent
+            loaded = load_config(config_path)
+            install_config(loaded)
+            return loaded.raw_tree(), config_path.parent
     return None
 
 

@@ -96,7 +96,7 @@ def test_the_host_report_rule_selects_nothing_for_no_gateways():
 @pytest.mark.parametrize(("shape", "writes", "readonly"), CASES)
 def test_the_pool_derivation_is_the_selected_role(monkeypatch, tmp_path, shape, writes, readonly):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.setattr(ConnectorHostPool, "_writes_allowed", staticmethod(lambda *_: writes))
     section = {

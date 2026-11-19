@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     EPICS,
@@ -217,7 +218,7 @@ class TestTypeLimitsPosture:
         fleet.
         """
         section = _section(deployment_wide, connector={EPICS: {"timeout_s": 5.0}})
-        posture = type_limits_posture(section, EPICS)
+        posture = type_limits_posture(ControlSystemSection.read(section), EPICS)
         assert (posture.enabled, posture.mode) == expected
         assert posture.connector_type is None
         assert posture.incomplete == ()
@@ -230,9 +231,9 @@ class TestTypeLimitsPosture:
             _block(True, "exclusive"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: _block(True, "optional")}},
         )
-        assert type_limits_posture(section, VIRTUAL_ACCELERATOR) == LimitsPosture(
-            enabled=True, mode="exclusive", connector_type=None
-        )
+        assert type_limits_posture(
+            ControlSystemSection.read(section), VIRTUAL_ACCELERATOR
+        ) == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
 
     # ------------------------------------------------------------------
     # Garbage counts as absent, and nothing raises
@@ -262,7 +263,7 @@ class TestTypeLimitsPosture:
         leaves the deployment the posture it actually wrote down.
         """
         section = _section(_block(True, "exclusive"), connector=connector)
-        assert type_limits_posture(section, EPICS) == LimitsPosture(
+        assert type_limits_posture(ControlSystemSection.read(section), EPICS) == LimitsPosture(
             enabled=True, mode="exclusive", connector_type=None
         )
 
@@ -281,7 +282,7 @@ class TestTypeLimitsPosture:
             _block(True, "optional"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: limits_checking}},
         )
-        assert type_limits_posture(section, EPICS) == LimitsPosture(
+        assert type_limits_posture(ControlSystemSection.read(section), EPICS) == LimitsPosture(
             enabled=None, mode=None, connector_type=EPICS, incomplete=LIMITS_LEAVES
         )
 
@@ -296,7 +297,7 @@ class TestTypeLimitsPosture:
         The empty section is silence one level up, which is what a fresh
         deployment has.
         """
-        assert type_limits_posture(section, EPICS) == LimitsPosture(
+        assert type_limits_posture(ControlSystemSection.read(section), EPICS) == LimitsPosture(
             enabled=None, mode=None, connector_type=None
         )
 
@@ -311,7 +312,7 @@ class TestTypeLimitsPosture:
         leave checking off on a config whose author believed it was on. Both
         leaves incomplete, so a reader that must act blocks.
         """
-        posture = type_limits_posture(_section(limits_checking), EPICS)
+        posture = type_limits_posture(ControlSystemSection.read(_section(limits_checking)), EPICS)
         assert posture == LimitsPosture(
             enabled=None, mode=None, connector_type=None, incomplete=LIMITS_LEAVES
         )
@@ -336,7 +337,7 @@ class TestTypeLimitsPosture:
             _block(not enabled, "exclusive" if mode == "optional" else "optional"),
             connector={connector_type: {LIMITS_CHECKING_LEAF: _block(enabled, mode)}},
         )
-        posture = type_limits_posture(section, connector_type)
+        posture = type_limits_posture(ControlSystemSection.read(section), connector_type)
         assert posture == LimitsPosture(enabled=enabled, mode=mode, connector_type=connector_type)
         assert posture.key(ENABLED_LEAF) == (
             f"control_system.connector.{connector_type}.limits_checking.enabled"
@@ -345,7 +346,7 @@ class TestTypeLimitsPosture:
     def test_a_complete_block_answers_where_no_deployment_wide_block_exists(self) -> None:
         """A per-type block is a posture on its own, not a modifier of one."""
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: _block(True, "exclusive")}})
-        assert type_limits_posture(section, EPICS) == LimitsPosture(
+        assert type_limits_posture(ControlSystemSection.read(section), EPICS) == LimitsPosture(
             enabled=True, mode="exclusive", connector_type=EPICS
         )
 
@@ -355,8 +356,11 @@ class TestTypeLimitsPosture:
             _block(True, "optional"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: _block(True, "exclusive")}},
         )
-        assert type_limits_posture(section, EPICS).strict is True
-        assert type_limits_posture(section, VIRTUAL_ACCELERATOR).strict is False
+        assert type_limits_posture(ControlSystemSection.read(section), EPICS).strict is True
+        assert (
+            type_limits_posture(ControlSystemSection.read(section), VIRTUAL_ACCELERATOR).strict
+            is False
+        )
 
     def test_a_dotted_custom_type_is_one_key_and_not_a_path(self) -> None:
         """``mypackage.SiteConnector`` names one block, never two nested ones.
@@ -371,9 +375,9 @@ class TestTypeLimitsPosture:
                 "mypackage": {"SiteConnector": {LIMITS_CHECKING_LEAF: _block(False, "optional")}}
             },
         )
-        assert type_limits_posture(section, CUSTOM_TYPE) == LimitsPosture(
-            enabled=True, mode="exclusive", connector_type=None
-        )
+        assert type_limits_posture(
+            ControlSystemSection.read(section), CUSTOM_TYPE
+        ) == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
 
     # ------------------------------------------------------------------
     # Leaf values: only the literal booleans state a posture
@@ -393,7 +397,7 @@ class TestTypeLimitsPosture:
             _block(True, "optional"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: _block(value, value)}},
         )
-        posture = type_limits_posture(section, EPICS)
+        posture = type_limits_posture(ControlSystemSection.read(section), EPICS)
         assert posture == LimitsPosture(
             enabled=None, mode=None, connector_type=EPICS, incomplete=LIMITS_LEAVES
         )
@@ -409,9 +413,9 @@ class TestTypeLimitsPosture:
         deployment-wide block inherits nothing, but a line it did write and
         nobody can read is the same hazard in either scope.
         """
-        assert type_limits_posture(_section(_block(value, value)), EPICS) == LimitsPosture(
-            enabled=None, mode=None, connector_type=None, incomplete=LIMITS_LEAVES
-        )
+        assert type_limits_posture(
+            ControlSystemSection.read(_section(_block(value, value))), EPICS
+        ) == LimitsPosture(enabled=None, mode=None, connector_type=None, incomplete=LIMITS_LEAVES)
 
     @pytest.mark.parametrize("value", UNREADABLE_LEAVES)
     @pytest.mark.parametrize("leaf", LIMITS_LEAVES)
@@ -426,12 +430,14 @@ class TestTypeLimitsPosture:
         cannot have meant.
         """
         block = {**_block(True, "exclusive"), leaf: value}
-        deployment_wide = type_limits_posture(_section(block), EPICS)
+        deployment_wide = type_limits_posture(ControlSystemSection.read(_section(block)), EPICS)
         assert deployment_wide == LimitsPosture(
             enabled=None, mode=None, connector_type=None, incomplete=(leaf,)
         )
         per_type = type_limits_posture(
-            _section(_block(True, "optional"), connector={EPICS: {LIMITS_CHECKING_LEAF: block}}),
+            ControlSystemSection.read(
+                _section(_block(True, "optional"), connector={EPICS: {LIMITS_CHECKING_LEAF: block}})
+            ),
             EPICS,
         )
         assert per_type == LimitsPosture(
@@ -468,7 +474,7 @@ class TestTypeLimitsPosture:
             _block(True, "optional"),
             connector={connector_type: {LIMITS_CHECKING_LEAF: block}},
         )
-        posture = type_limits_posture(section, connector_type)
+        posture = type_limits_posture(ControlSystemSection.read(section), connector_type)
         assert posture == LimitsPosture(
             enabled=None, mode=None, connector_type=connector_type, incomplete=missing
         )
@@ -480,14 +486,14 @@ class TestTypeLimitsPosture:
             _block(True, "exclusive"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: _block(enabled=True)}},
         )
-        posture = type_limits_posture(section, EPICS)
+        posture = type_limits_posture(ControlSystemSection.read(section), EPICS)
         assert posture.key(MODE_LEAF) == ("control_system.connector.epics.limits_checking.mode")
 
     def test_database_path_alongside_both_leaves_is_a_complete_block(self) -> None:
         """The path is deployment-wide, so carrying one per type breaks nothing."""
         block = {**_block(True, "exclusive"), "database_path": "/limits.db"}
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: block}})
-        assert type_limits_posture(section, EPICS) == LimitsPosture(
+        assert type_limits_posture(ControlSystemSection.read(section), EPICS) == LimitsPosture(
             enabled=True, mode="exclusive", connector_type=EPICS
         )
 
@@ -510,7 +516,7 @@ class TestTypeLimitsPosture:
             _block(True, "exclusive"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: _block(False, "optional")}},
         )
-        posture = type_limits_posture(section, connector_type)
+        posture = type_limits_posture(ControlSystemSection.read(section), connector_type)
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
 
@@ -584,7 +590,9 @@ class TestTargetLimitsPosture:
 
     def test_va_reads_the_virtual_accelerator_block(self) -> None:
         """The relaxation is written under the simulator, so the simulator has it."""
-        posture = target_limits_posture(_va_baseline_deployment(), TARGET_VA)
+        posture = target_limits_posture(
+            ControlSystemSection.read(_va_baseline_deployment()), TARGET_VA
+        )
         assert posture == LimitsPosture(
             enabled=True, mode="optional", connector_type=VIRTUAL_ACCELERATOR
         )
@@ -600,14 +608,18 @@ class TestTargetLimitsPosture:
         the refusal an operator sees on ``live`` has to name the deployment-wide
         line, because that is the line that answered.
         """
-        posture = target_limits_posture(_va_baseline_deployment(), TARGET_LIVE)
+        posture = target_limits_posture(
+            ControlSystemSection.read(_va_baseline_deployment()), TARGET_LIVE
+        )
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key(MODE_LEAF) == ("control_system.limits_checking.mode")
         assert posture.strict is True
 
     def test_standin_with_no_block_of_its_own_keeps_the_deployment_wide_posture(self) -> None:
         """A stand-in nobody wrote a block for is not relaxed by the simulator's."""
-        posture = target_limits_posture(_va_baseline_deployment(), TARGET_STANDIN)
+        posture = target_limits_posture(
+            ControlSystemSection.read(_va_baseline_deployment()), TARGET_STANDIN
+        )
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
 
@@ -617,7 +629,9 @@ class TestTargetLimitsPosture:
 
     def test_standin_reads_its_own_connector_block(self) -> None:
         """``live_standin`` is a type of its own, so it has a posture of its own."""
-        posture = target_limits_posture(_standin_deployment(), TARGET_STANDIN)
+        posture = target_limits_posture(
+            ControlSystemSection.read(_standin_deployment()), TARGET_STANDIN
+        )
         assert posture == LimitsPosture(enabled=True, mode="optional", connector_type=LIVE_STANDIN)
         assert posture.key(ENABLED_LEAF) == (
             "control_system.connector.live_standin.limits_checking.enabled"
@@ -626,22 +640,24 @@ class TestTargetLimitsPosture:
     @pytest.mark.parametrize("target", [TARGET_LIVE, TARGET_VA])
     def test_the_standin_block_answers_for_no_other_target(self, target: str) -> None:
         """Standing up the stand-in relaxes the stand-in and nothing else."""
-        posture = target_limits_posture(_standin_deployment(), target)
+        posture = target_limits_posture(ControlSystemSection.read(_standin_deployment()), target)
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.strict is True
 
     def test_an_unknown_target_answers_the_deployment_wide_block(self) -> None:
         """No type means no per-type block, so the deployment-wide one answers."""
-        posture = target_limits_posture(_standin_deployment(), "labatory")
+        posture = target_limits_posture(
+            ControlSystemSection.read(_standin_deployment()), "labatory"
+        )
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
 
     @pytest.mark.parametrize("target", [None, "", "LIVE", 5, ["live"]])
     def test_a_target_that_is_not_a_target_never_raises(self, target: Any) -> None:
         """A holder reading a posture must not be the thing that crashes on a typo."""
-        assert target_limits_posture(_standin_deployment(), target) == LimitsPosture(
-            enabled=True, mode="exclusive", connector_type=None
-        )
+        assert target_limits_posture(
+            ControlSystemSection.read(_standin_deployment()), target
+        ) == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
 
     # ------------------------------------------------------------------
     # The simulator in process, where ``live`` names no machine at all
@@ -656,7 +672,7 @@ class TestTargetLimitsPosture:
         Refusing here would take the posture away from every deployment that
         never had a second target, rather than protecting anything.
         """
-        posture = target_limits_posture(_in_process_deployment(), target)
+        posture = target_limits_posture(ControlSystemSection.read(_in_process_deployment()), target)
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
 
@@ -665,12 +681,12 @@ class TestTargetLimitsPosture:
         section = _section(
             connector={VIRTUAL_ACCELERATOR: {"serving": "in_process", "channel_count": 12}}
         )
-        assert target_limits_posture(section, TARGET_LIVE) == LimitsPosture(
-            enabled=None, mode=None, connector_type=None
-        )
-        assert target_limits_posture(section, TARGET_VA) == LimitsPosture(
-            enabled=None, mode=None, connector_type=None
-        )
+        assert target_limits_posture(
+            ControlSystemSection.read(section), TARGET_LIVE
+        ) == LimitsPosture(enabled=None, mode=None, connector_type=None)
+        assert target_limits_posture(
+            ControlSystemSection.read(section), TARGET_VA
+        ) == LimitsPosture(enabled=None, mode=None, connector_type=None)
 
     def test_an_in_process_deployment_reads_a_stray_block_only_where_the_target_resolves(
         self,
@@ -691,12 +707,12 @@ class TestTargetLimitsPosture:
                 EPICS: {LIMITS_CHECKING_LEAF: _block(True, "optional")},
             },
         }
-        assert target_limits_posture(section, TARGET_LIVE) == LimitsPosture(
-            enabled=True, mode="optional", connector_type=EPICS
-        )
-        assert target_limits_posture(section, TARGET_VA) == LimitsPosture(
-            enabled=True, mode="exclusive", connector_type=None
-        )
+        assert target_limits_posture(
+            ControlSystemSection.read(section), TARGET_LIVE
+        ) == LimitsPosture(enabled=True, mode="optional", connector_type=EPICS)
+        assert target_limits_posture(
+            ControlSystemSection.read(section), TARGET_VA
+        ) == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
 
     # ------------------------------------------------------------------
     # Incomplete blocks and malformed sections
@@ -706,7 +722,7 @@ class TestTargetLimitsPosture:
         """The whole-block rule reaches the target half unchanged."""
         section = _va_baseline_deployment()
         section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(enabled=True)
-        posture = target_limits_posture(section, TARGET_VA)
+        posture = target_limits_posture(ControlSystemSection.read(section), TARGET_VA)
         assert posture == LimitsPosture(
             enabled=None, mode=None, connector_type=VIRTUAL_ACCELERATOR, incomplete=(MODE_LEAF,)
         )
@@ -716,9 +732,9 @@ class TestTargetLimitsPosture:
     def test_a_section_that_states_nothing_answers_nothing(self, section: Any) -> None:
         """Never raises, whichever target is asked about."""
         for target in CONTROL_TARGETS:
-            assert target_limits_posture(section, target) == LimitsPosture(
-                enabled=None, mode=None, connector_type=None
-            )
+            assert target_limits_posture(
+                ControlSystemSection.read(section), target
+            ) == LimitsPosture(enabled=None, mode=None, connector_type=None)
 
 
 class TestMostRestrictive:
@@ -748,7 +764,9 @@ class TestMostRestrictive:
         channels: the caller that does not know which machine it is about to
         touch must not be handed the permissive half.
         """
-        posture = most_restrictive_limits_posture(_va_baseline_deployment())
+        posture = most_restrictive_limits_posture(
+            ControlSystemSection.read(_va_baseline_deployment())
+        )
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.strict is True
 
@@ -756,7 +774,7 @@ class TestMostRestrictive:
         """The union is not a fail-closed constant: it reports what was written."""
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = _block(True, "optional")
-        posture = most_restrictive_limits_posture(section)
+        posture = most_restrictive_limits_posture(ControlSystemSection.read(section))
         assert posture == LimitsPosture(enabled=True, mode="optional", connector_type=None)
         assert posture.strict is False
 
@@ -767,7 +785,9 @@ class TestMostRestrictive:
         every target would have them edit a line that changes one machine and
         not the answer.
         """
-        posture = most_restrictive_limits_posture(_va_baseline_deployment())
+        posture = most_restrictive_limits_posture(
+            ControlSystemSection.read(_va_baseline_deployment())
+        )
         assert posture.connector_type is None
         assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
         assert posture.key(MODE_LEAF) == ("control_system.limits_checking.mode")
@@ -776,11 +796,11 @@ class TestMostRestrictive:
         """Every configured target counts, not just the two the switch is named for."""
         section = _standin_deployment()
         section[LIMITS_CHECKING_LEAF] = _block(True, "optional")
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=True, mode="optional", connector_type=None
         )
         section["connector"][LIVE_STANDIN][LIMITS_CHECKING_LEAF] = _block(True, "exclusive")
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=True, mode="exclusive", connector_type=None
         )
 
@@ -809,7 +829,7 @@ class TestMostRestrictive:
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = deployment_wide
         del section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF]
-        assert most_restrictive_limits_posture(section) == expected
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == expected
 
     # ------------------------------------------------------------------
     # ``enabled`` is a union, ``optional`` an intersection
@@ -825,7 +845,7 @@ class TestMostRestrictive:
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = _block(False, "optional")
         section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(True, "optional")
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=True, mode="optional", connector_type=None
         )
 
@@ -834,7 +854,7 @@ class TestMostRestrictive:
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = _block(False, "optional")
         section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, "optional")
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=False, mode="optional", connector_type=None
         )
 
@@ -856,7 +876,7 @@ class TestMostRestrictive:
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = _block(True, "optional")
         section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = va_block
-        posture = most_restrictive_limits_posture(section)
+        posture = most_restrictive_limits_posture(ControlSystemSection.read(section))
         assert posture == LimitsPosture(
             enabled=True, mode="exclusive", connector_type=None, incomplete=(MODE_LEAF,)
         )
@@ -877,7 +897,7 @@ class TestMostRestrictive:
             LIMITS_CHECKING_LEAF: _block(value, value),
             "connector": {VIRTUAL_ACCELERATOR: {"gateway_address": "va.example"}},
         }
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=False, mode="exclusive", connector_type=None, incomplete=LIMITS_LEAVES
         )
 
@@ -902,7 +922,7 @@ class TestMostRestrictive:
                 EPICS: {LIMITS_CHECKING_LEAF: _block(True, "optional")},
             },
         }
-        posture = most_restrictive_limits_posture(section)
+        posture = most_restrictive_limits_posture(ControlSystemSection.read(section))
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.strict is True
 
@@ -918,7 +938,7 @@ class TestMostRestrictive:
                 }
             },
         }
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=True, mode="optional", connector_type=None
         )
 
@@ -929,7 +949,7 @@ class TestMostRestrictive:
             LIMITS_CHECKING_LEAF: _block(True, "exclusive"),
             "connector": {VIRTUAL_ACCELERATOR: {LIMITS_CHECKING_LEAF: _block(True, "optional")}},
         }
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=True, mode="optional", connector_type=None
         )
 
@@ -944,7 +964,7 @@ class TestMostRestrictive:
         Both leaves fold to a definite answer: limits off, and ``exclusive`` —
         silence grants no permission.
         """
-        assert most_restrictive_limits_posture(section) == LimitsPosture(
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)) == LimitsPosture(
             enabled=False, mode="exclusive", connector_type=None
         )
 
@@ -963,19 +983,31 @@ class TestMostRestrictive:
         about to touch, on a deployment whose only limits line cannot be read.
         """
         section = {"type": EPICS, LIMITS_CHECKING_LEAF: _block("true", "exclusive")}
-        assert type_limits_posture(section, EPICS).incomplete == (ENABLED_LEAF,)
-        assert most_restrictive_limits_posture(section).incomplete == (ENABLED_LEAF,)
+        assert type_limits_posture(ControlSystemSection.read(section), EPICS).incomplete == (
+            ENABLED_LEAF,
+        )
+        assert most_restrictive_limits_posture(ControlSystemSection.read(section)).incomplete == (
+            ENABLED_LEAF,
+        )
 
     def test_the_fold_unions_incomplete_leaves_in_leaf_order(self) -> None:
         """Different reachable machines may fail to state different leaves."""
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = _block("true", "optional")
         section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(enabled=True)
-        assert most_restrictive_limits_posture(section).incomplete == LIMITS_LEAVES
+        assert (
+            most_restrictive_limits_posture(ControlSystemSection.read(section)).incomplete
+            == LIMITS_LEAVES
+        )
 
     def test_a_deployment_whose_blocks_are_all_well_formed_folds_complete(self) -> None:
         """The fold does not invent incompleteness either."""
-        assert most_restrictive_limits_posture(_va_baseline_deployment()).incomplete == ()
+        assert (
+            most_restrictive_limits_posture(
+                ControlSystemSection.read(_va_baseline_deployment())
+            ).incomplete
+            == ()
+        )
 
 
 # The old armed-target limits fold is gone, and its cases with it: they armed
@@ -1018,11 +1050,22 @@ class TestTierLimitsDatabaseTargets:
 
     def test_a_never_render_arms_no_target(self) -> None:
         section = {**_va_baseline_deployment(), "writes": "never"}
-        assert tier_limits_database_targets(section, path_configured=True) == []
-        assert tier_limits_database_targets(section, path_configured=False) == []
+        assert (
+            tier_limits_database_targets(ControlSystemSection.read(section), path_configured=True)
+            == []
+        )
+        assert (
+            tier_limits_database_targets(ControlSystemSection.read(section), path_configured=False)
+            == []
+        )
 
     def test_an_unstated_tier_arms_no_target(self) -> None:
-        assert tier_limits_database_targets(_va_baseline_deployment(), path_configured=True) == []
+        assert (
+            tier_limits_database_targets(
+                ControlSystemSection.read(_va_baseline_deployment()), path_configured=True
+            )
+            == []
+        )
 
     def test_an_allowed_optional_target_with_no_path_needs_no_database(self) -> None:
         """Optional mode with no path checks every channel as unlisted."""
@@ -1032,8 +1075,13 @@ class TestTierLimitsDatabaseTargets:
             LIMITS_CHECKING_LEAF: _block(True, "optional"),
             "connector": {VIRTUAL_ACCELERATOR: {"gateway_address": "va.example"}},
         }
-        assert tier_limits_database_targets(section, path_configured=False) == []
-        assert tier_limits_database_targets(section, path_configured=True) == [TARGET_VA]
+        assert (
+            tier_limits_database_targets(ControlSystemSection.read(section), path_configured=False)
+            == []
+        )
+        assert tier_limits_database_targets(
+            ControlSystemSection.read(section), path_configured=True
+        ) == [TARGET_VA]
 
     def test_an_allowed_exclusive_target_with_no_path_still_needs_one(self) -> None:
         """Exclusive mode refuses every unlisted channel, so it needs the file.
@@ -1042,24 +1090,31 @@ class TestTierLimitsDatabaseTargets:
         strict machine alike, and only the machine's posture asks for the file.
         """
         section = {**_va_baseline_deployment(), "writes": "allowed"}
-        without_path = tier_limits_database_targets(section, path_configured=False)
+        without_path = tier_limits_database_targets(
+            ControlSystemSection.read(section), path_configured=False
+        )
         assert TARGET_LIVE in without_path
         assert TARGET_VA not in without_path
-        with_path = tier_limits_database_targets(section, path_configured=True)
+        with_path = tier_limits_database_targets(
+            ControlSystemSection.read(section), path_configured=True
+        )
         assert TARGET_VA in with_path and TARGET_LIVE in with_path
 
     def test_the_list_follows_the_configured_target_order(self) -> None:
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import configured_targets
 
         section = {**_va_baseline_deployment(), "writes": "allowed"}
-        assert tier_limits_database_targets(section, path_configured=True) == configured_targets(
-            section
-        )
+        assert tier_limits_database_targets(
+            ControlSystemSection.read(section), path_configured=True
+        ) == configured_targets(ControlSystemSection.read(section))
 
     def test_a_target_that_checks_no_limits_is_not_listed(self) -> None:
         section = {**_va_baseline_deployment(), "writes": "allowed"}
         section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, "optional")
-        assert TARGET_VA not in tier_limits_database_targets(section, path_configured=True)
+        assert TARGET_VA not in tier_limits_database_targets(
+            ControlSystemSection.read(section), path_configured=True
+        )
 
 
 def _missing(connector_type: str, leaf: str) -> str:
@@ -1134,13 +1189,15 @@ class TestIncompleteBlocks:
     )
     def test_well_formed_and_absent_blocks_report_nothing(self, section: Any) -> None:
         """A complete block and no block at all are both legal configs."""
-        assert incomplete_limits_blocks(section) == []
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == []
 
     def test_a_per_type_block_carrying_a_path_is_refused(self) -> None:
         """``database_path`` is deployment-wide only, so a per-type one is no leaf."""
         block = {**_block(True, "exclusive"), "database_path": "/limits.db"}
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: block}})
-        assert incomplete_limits_blocks(section) == [_not_a_leaf(EPICS, "database_path")]
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
+            _not_a_leaf(EPICS, "database_path")
+        ]
 
     @pytest.mark.parametrize("value", UNREADABLE_LEAVES)
     def test_an_unreadable_per_type_leaf_is_reported(self, value: Any) -> None:
@@ -1151,7 +1208,7 @@ class TestIncompleteBlocks:
         still cheap to fix.
         """
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: _block(value, value)}})
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             _unreadable(EPICS, ENABLED_LEAF, value),
             _unreadable(EPICS, MODE_LEAF, value),
         ]
@@ -1164,14 +1221,14 @@ class TestIncompleteBlocks:
         unexpanded ``${VAR}`` arrives in, and the deployment-wide block is where
         most deployments write their only limits posture.
         """
-        assert incomplete_limits_blocks(_section(_block(enabled=value))) == [
-            _unreadable(None, ENABLED_LEAF, value)
-        ]
+        assert incomplete_limits_blocks(
+            ControlSystemSection.read(_section(_block(enabled=value)))
+        ) == [_unreadable(None, ENABLED_LEAF, value)]
 
     def test_an_unreadable_leaf_line_says_what_it_found_and_what_it_costs(self) -> None:
         """The refusal quotes the value, so an operator sees why it did not read."""
         section = _section(_block(enabled="${OSPREY_LIMITS_ENABLED}"))
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             "control_system.limits_checking.enabled is '${OSPREY_LIMITS_ENABLED}', "
             "not a literal true or false; a limits leaf that cannot be read states "
             "no posture and blocks every write as a failsafe"
@@ -1181,18 +1238,22 @@ class TestIncompleteBlocks:
     def test_a_per_type_block_that_is_not_a_mapping_is_reported_once(self, value: Any) -> None:
         """One line naming the block, because there are no leaves to name."""
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: value}})
-        assert incomplete_limits_blocks(section) == [_not_a_block(EPICS, value)]
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
+            _not_a_block(EPICS, value)
+        ]
 
     @pytest.mark.parametrize("value", [None, "true", ["enabled"], 5])
     def test_a_deployment_wide_block_that_is_not_a_mapping_is_reported_once(
         self, value: Any
     ) -> None:
         """The block is written and unreadable in either scope alike."""
-        assert incomplete_limits_blocks(_section(value)) == [_not_a_block(None, value)]
+        assert incomplete_limits_blocks(ControlSystemSection.read(_section(value))) == [
+            _not_a_block(None, value)
+        ]
 
     def test_a_bare_limits_checking_line_is_reported_rather_than_ignored(self) -> None:
         """The shape a half-typed block actually has in YAML."""
-        assert incomplete_limits_blocks(_section(None)) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(_section(None))) == [
             "control_system.limits_checking is None, not a block; a limits block "
             "is a mapping stating enabled and mode"
         ]
@@ -1203,8 +1264,11 @@ class TestIncompleteBlocks:
         Deployment-wide silence on a leaf is the shape every deployment
         predating per-type blocks has; refusing it would refuse the fleet.
         """
-        assert incomplete_limits_blocks(_section(_block(enabled=True))) == []
-        assert incomplete_limits_blocks(_section(_block())) == []
+        assert (
+            incomplete_limits_blocks(ControlSystemSection.read(_section(_block(enabled=True))))
+            == []
+        )
+        assert incomplete_limits_blocks(ControlSystemSection.read(_section(_block()))) == []
 
     def test_the_deployment_wide_block_is_reported_before_the_connector_blocks(self) -> None:
         """One refusal, read top-down the way the config is written."""
@@ -1212,7 +1276,7 @@ class TestIncompleteBlocks:
             _block(enabled="true"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: _block(enabled=True)}},
         )
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             _unreadable(None, ENABLED_LEAF, "true"),
             _missing(EPICS, MODE_LEAF),
         ]
@@ -1226,7 +1290,7 @@ class TestIncompleteBlocks:
         section = _section(
             connector={VIRTUAL_ACCELERATOR: {LIMITS_CHECKING_LEAF: _block(enabled=True)}}
         )
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             "control_system.connector.virtual_accelerator.limits_checking."
             "mode is missing; a per-type limits block must state "
             "both enabled and mode"
@@ -1235,12 +1299,14 @@ class TestIncompleteBlocks:
     def test_a_block_missing_enabled_names_that_key(self) -> None:
         """Either leaf alone is half a block, so either one is refused."""
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: _block(mode="exclusive")}})
-        assert incomplete_limits_blocks(section) == [_missing(EPICS, ENABLED_LEAF)]
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
+            _missing(EPICS, ENABLED_LEAF)
+        ]
 
     def test_a_block_missing_both_leaves_names_both_in_leaf_order(self) -> None:
         """One line per leaf, so an operator can add them without re-running the build."""
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: {"retired": True}}})
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             _missing(EPICS, ENABLED_LEAF),
             _missing(EPICS, MODE_LEAF),
             _not_a_leaf(EPICS, "retired"),
@@ -1251,7 +1317,7 @@ class TestIncompleteBlocks:
         section = _section(
             _block(True, "exclusive"), connector={EPICS: {LIMITS_CHECKING_LEAF: _block()}}
         )
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             _missing(EPICS, ENABLED_LEAF),
             _missing(EPICS, MODE_LEAF),
         ]
@@ -1265,7 +1331,7 @@ class TestIncompleteBlocks:
                 LIVE_STANDIN: {LIMITS_CHECKING_LEAF: _block(mode="optional")},
             }
         )
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             _missing(VIRTUAL_ACCELERATOR, MODE_LEAF),
             _missing(LIVE_STANDIN, ENABLED_LEAF),
         ]
@@ -1273,7 +1339,7 @@ class TestIncompleteBlocks:
     def test_a_dotted_custom_type_is_named_whole(self) -> None:
         """The connector table's key is the type, dots and all, never a path."""
         section = _section(connector={CUSTOM_TYPE: {LIMITS_CHECKING_LEAF: _block(enabled=True)}})
-        assert incomplete_limits_blocks(section) == [
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == [
             "control_system.connector.mypackage.SiteConnector.limits_checking."
             "mode is missing; a per-type limits block must state "
             "both enabled and mode"
@@ -1282,9 +1348,9 @@ class TestIncompleteBlocks:
     def test_the_reported_key_is_the_one_the_resolver_reads(self) -> None:
         """Refusal and runtime name one line, because both spell it from the posture."""
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: _block(enabled=True)}})
-        posture = type_limits_posture(section, EPICS)
+        posture = type_limits_posture(ControlSystemSection.read(section), EPICS)
         assert posture.incomplete == (MODE_LEAF,)
-        assert incomplete_limits_blocks(section)[0].startswith(
+        assert incomplete_limits_blocks(ControlSystemSection.read(section))[0].startswith(
             posture.key(MODE_LEAF) + " is missing;"
         )
 
@@ -1312,13 +1378,16 @@ class TestIncompleteBlocks:
         no per-type posture there, which the resolver already reads as absent.
         """
         assert (
-            incomplete_limits_blocks(_section(_block(True, "exclusive"), connector=connector)) == []
+            incomplete_limits_blocks(
+                ControlSystemSection.read(_section(_block(True, "exclusive"), connector=connector))
+            )
+            == []
         )
 
     @pytest.mark.parametrize("section", [None, "control_system", ["control_system"], 5, {}])
     def test_a_section_that_is_not_a_section_reports_nothing(self, section: Any) -> None:
         """Pure over the rendered section, and never the thing that fails a build."""
-        assert incomplete_limits_blocks(section) == []
+        assert incomplete_limits_blocks(ControlSystemSection.read(section)) == []
 
 
 # ----------------------------------------------------------------------
@@ -1340,12 +1409,12 @@ def _every_resolver_reads_this() -> dict[str, Any]:
 
 def _resolve_every_type(section: dict[str, Any]) -> None:
     for connector_type in (EPICS, VIRTUAL_ACCELERATOR, CUSTOM_TYPE, None):
-        type_limits_posture(section, connector_type)
+        type_limits_posture(ControlSystemSection.read(section), connector_type)
 
 
 def _resolve_every_target(section: dict[str, Any]) -> None:
     for target in [*CONTROL_TARGETS, "labatory", None]:
-        target_limits_posture(section, target)
+        target_limits_posture(ControlSystemSection.read(section), target)
 
 
 @pytest.mark.parametrize(
@@ -1353,9 +1422,11 @@ def _resolve_every_target(section: dict[str, Any]) -> None:
     [
         _resolve_every_type,
         _resolve_every_target,
-        most_restrictive_limits_posture,
-        lambda section: tier_limits_database_targets(section, path_configured=False),
-        incomplete_limits_blocks,
+        lambda section: most_restrictive_limits_posture(ControlSystemSection.read(section)),
+        lambda section: tier_limits_database_targets(
+            ControlSystemSection.read(section), path_configured=False
+        ),
+        lambda section: incomplete_limits_blocks(ControlSystemSection.read(section)),
     ],
     ids=["type", "target", "most-restrictive", "tier-limits-database-targets", "incomplete-blocks"],
 )

@@ -363,9 +363,9 @@ class DeployedArchiverWorld:
 
 def _load_config(repo: Path) -> dict[str, Any]:
     """The as-built config the deploy runs on — the render, never the source."""
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
-    return load_project_config(str(repo / "build" / "config.yml"), wrap_errors=True)
+    return load_config(str(repo / "build" / "config.yml")).raw_tree()
 
 
 @pytest.fixture(scope="module")
@@ -704,6 +704,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     through the connector the agent reads with.
     """
     from osprey_connectors import config as config_module
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import TARGET_VA
     from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors_tests._write_fakes import arm_switch
@@ -723,9 +724,9 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     # recorder for a value that was never written. `monkeypatch` restores all of
     # it, and the autouse fixture in conftest clears the singletons again after.
     arm_switch(monkeypatch, tmp_path / "armed-data", TARGET_VA, stamp=False)
-    monkeypatch.setenv("CONFIG_FILE", str(archiver_world.repo / "build" / "config.yml"))
-    monkeypatch.setattr(config_module, "_default_config", None)
-    monkeypatch.setattr(config_module, "_default_configurable", None)
+    monkeypatch.setenv("OSPREY_CONFIG", str(archiver_world.repo / "build" / "config.yml"))
+    monkeypatch.setattr(config_module, "_installed", None)
+    monkeypatch.setattr(config_module, "_last_lazy", None)
 
     limits = json.loads(
         (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
@@ -737,7 +738,8 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
 
     async def _write_a_new_setpoint() -> tuple[float, datetime, Any]:
         control_system = await ConnectorFactory.create_control_system_connector(
-            archiver_world.config["control_system"], control_target=TARGET_VA
+            ControlSystemSection.read(archiver_world.config["control_system"]),
+            control_target=TARGET_VA,
         )
         current = await control_system.read_channel(setpoint)
         target = float(current.value) + 0.05
@@ -1053,7 +1055,7 @@ def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(a
         config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
         yaml.dump(config, config_path)
 
-    poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_sec", 30))
+    poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_s", 30))
     # The window each claim is measured over, once the recorder has SAID which
     # state it is in. Several sample cadences wide, so a single write the
     # recorder should not have made still shows up.

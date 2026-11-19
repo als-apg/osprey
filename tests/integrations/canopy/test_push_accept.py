@@ -41,7 +41,7 @@ from osprey.integrations.canopy.library import (
 )
 from osprey.integrations.canopy.push import container, refusals, verbs
 from osprey.integrations.canopy.push import deployment as deployment_module
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 
 KNOB, OTHER_RID, PNG, RID, USERS = (
     harness.KNOB,
@@ -286,7 +286,7 @@ def test_the_epilogue_golden_per_image_source(tmp_path: Path, capsys, branch: st
     (root / "build" / "config.yml").write_text(
         yaml.safe_dump(_config_document(branch)), encoding="utf-8"
     )
-    config = load_project_config(root / "build" / "config.yml")
+    config = load_config(root / "build" / "config.yml").raw_tree()
     dep = deployment_module.Deployment(
         Path("/srv/mca"), config, Path("/srv/mca") / LIBRARY, "docker"
     )
@@ -399,7 +399,7 @@ def _retier(deployment: Path, tiers: dict[str, bool], users: dict[str, str]) -> 
 
 
 def _reviewer_check(deployment: Path, reviewer: str) -> None:
-    config = load_project_config(deployment / "build" / "config.yml")
+    config = load_config(deployment / "build" / "config.yml").raw_tree()
     dep = deployment_module.Deployment(deployment, config, library_of(deployment), "docker")
     verbs._check_reviewer(dep, reviewer)
 

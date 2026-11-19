@@ -201,10 +201,10 @@ async def partial_repository(repository, seed_entry_factory, seeded_prefixes):
     Returns:
         The repository, with the seven entries upserted.
     """
-    from osprey_connectors.config import localize_facility
+    from osprey_connectors.config import facility_timezone, localize_facility
 
-    day = localize_facility(datetime(2025, 10, 6, 15, 30))
-    other_day = localize_facility(datetime(2025, 11, 3, 10, 0))
+    day = localize_facility(datetime(2025, 10, 6, 15, 30), facility_timezone())
+    other_day = localize_facility(datetime(2025, 11, 3, 10, 0), facility_timezone())
     rows = [
         (f"{PARTIAL_PREFIX}001", day, "#HP Prep", FIELD_CAPTION),
         (f"{PARTIAL_PREFIX}002", day + timedelta(days=1), "#HP Prep", FIELD_CAPTION),

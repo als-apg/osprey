@@ -53,6 +53,8 @@ from osprey.services.channel_finder.graph_queries import (
     GRAPH_CHANNEL_COUNT_CYPHER,
     GRAPH_DEVICE_CYPHER,
 )
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
@@ -242,10 +244,10 @@ _INTEGRATION_QUERY_TIMEOUT_S = 0
 def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     """Install a GraphContext singleton pointed at *uri*.
 
-    The two config seams ``initialize()`` reads through are replaced rather
-    than a config file written: the point of this module is the store, and a
-    fabricated ``config.yml`` would only be re-testing
-    ``resolve_graphdb_connection``.  The password travels the way a deployment
+    The config ``initialize()`` reads is served as the process config, built
+    in code with only the store's URI, rather than a config file written: the
+    point of this module is the store, and a fabricated ``config.yml`` would
+    only be re-testing ``resolve_graphdb_connection``.  The password travels the way a deployment
     delivers it — through ``GRAPHDB_PASSWORD`` in the environment — and is
     never logged or interpolated into the URI.
 
@@ -257,10 +259,7 @@ def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[An
     from osprey.mcp_server.graph import server_context as graph_ctx
 
     monkeypatch.setenv(GRAPHDB_PASSWORD_ENV, GRAPHDB_TEST_PASSWORD)
-    monkeypatch.setattr(
-        graph_ctx, "load_osprey_config", lambda: {"services": {"graphdb": {"uri": uri}}}
-    )
-    monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
+    serve_config(config_of({"services": {"graphdb": {"uri": uri}}}))
 
     context = graph_ctx.initialize_server_context()
     context.query_timeout_s = _INTEGRATION_QUERY_TIMEOUT_S

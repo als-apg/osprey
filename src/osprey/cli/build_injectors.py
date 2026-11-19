@@ -60,6 +60,7 @@ from osprey.utils.config_writer import (
 )
 from osprey.utils.facility import facility_name as identity_name
 from osprey_connectors import connector_types, limits_posture, targets
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.deployment.standin import LIVE_STANDIN_PORT_KEY
 from osprey_connectors.logger import get_logger
 
@@ -1020,9 +1021,9 @@ def _inject_dispatch(
 #: gets a lane that says ``standin``, which is what keeps ``live`` meaning the
 #: facility's own machine on the very deployments that run both.
 _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
-    cs_type: targets.baseline_target({"type": cs_type})
+    cs_type: targets.baseline_target(ControlSystemSection.read({"type": cs_type}))
     for cs_type in connector_types.SET_CONTROL_SYSTEM_TYPES
-    if connector_types.speaks_channel_access({"type": cs_type})
+    if connector_types.speaks_channel_access(ControlSystemSection.read({"type": cs_type}))
 }
 
 #: Lane 1 always keeps the historical service key. Lane 2 is named for the
@@ -1134,13 +1135,17 @@ def _rendered_control_system_type(config: Any) -> str:
     final by the time this is called. Resolved by the factory's own resolver, so
     a section that states no type names the simulator it falls back to.
     """
-    return connector_types.resolve_control_system_type(config.get("control_system"))
+    return connector_types.resolve_control_system_type(
+        ControlSystemSection.read(config.get("control_system"))
+    )
 
 
 def _speaks_channel_access(config: Any) -> bool:
     """Whether the rendered deployment's own connector speaks Channel Access."""
     try:
-        return connector_types.speaks_channel_access(config.get("control_system"))
+        return connector_types.speaks_channel_access(
+            ControlSystemSection.read(config.get("control_system"))
+        )
     except ValueError:
         return False
 
@@ -1253,7 +1258,7 @@ def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str,
         if target is None:
             continue
         try:
-            targets.resolve_target(control_system, target)
+            targets.resolve_target(ControlSystemSection.read(control_system), target)
         except ValueError:
             logger.warning(
                 "    Lane %s declares the %r target, which this config cannot resolve "
@@ -1263,7 +1268,9 @@ def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str,
                 "to make the lane concrete.",
                 lane_key,
                 target,
-                connector_types.resolve_control_system_type(control_system),
+                connector_types.resolve_control_system_type(
+                    ControlSystemSection.read(control_system)
+                ),
                 connector_types.EPICS,
             )
 

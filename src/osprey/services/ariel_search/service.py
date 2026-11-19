@@ -550,7 +550,7 @@ class ARIELSearchService:
 
         counts = await self.repository.facet_counts(flt, dims, id_scope=id_scope, ctx=ctx)
         histogram = await self.repository.day_histogram(
-            flt, connectors_config.get_facility_timezone(), id_scope=id_scope, ctx=ctx
+            flt, connectors_config.facility_timezone(), id_scope=id_scope, ctx=ctx
         )
         return {
             "dimensions": [

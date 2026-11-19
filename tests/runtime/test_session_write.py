@@ -40,6 +40,7 @@ from osprey_connectors.errors import (
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._harness._control_context_fixtures import _set_switch_to
@@ -87,13 +88,6 @@ class _Connector(FakeConnector):
     async def disconnect(self):
         type(self).disconnects += 1
         await super().disconnect()
-
-
-def _serve(monkeypatch, section):
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
 
 
 def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> None:
@@ -147,8 +141,8 @@ def state_dir(tmp_path, monkeypatch, audit_dir):  # noqa: ARG001 - captures the 
 
 
 @pytest.fixture
-def va(monkeypatch, state_dir):
-    _serve(monkeypatch, VA_SECTION)
+def va(state_dir):
+    serve_control_system(VA_SECTION)
     _Connector.disconnects = 0
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Connector)
@@ -392,7 +386,7 @@ class TestConnectorRows:
         self, va, audit_dir, monkeypatch
     ):
         calls = connector_answers(monkeypatch, returns(WriteOutcome.CONFIRMED))
-        _serve(monkeypatch, NEVER_SECTION)
+        serve_control_system(NEVER_SECTION)
         write_record(va)
         session = await opened()
 
@@ -454,7 +448,7 @@ class TestConnectorRows:
         await session.close()
 
     async def test_a_narrowed_target_sends_the_operator_to_the_chip(self, va, monkeypatch):
-        _serve(monkeypatch, ARMED_SECTION)
+        serve_control_system(ARMED_SECTION)
         calls = connector_answers(monkeypatch, returns(WriteOutcome.CONFIRMED))
         write_record(va, switch=())
         session = await opened()
@@ -467,7 +461,7 @@ class TestConnectorRows:
         await session.close()
 
     async def test_an_unreadable_record_is_said_to_be_unreadable(self, va, monkeypatch):
-        _serve(monkeypatch, ARMED_SECTION)
+        serve_control_system(ARMED_SECTION)
         connector_answers(
             monkeypatch, raises(ChannelWriteBlockedError(CHANNEL, "WRITES_DISABLED", message="no"))
         )
@@ -489,7 +483,7 @@ class TestConnectorRows:
         await session.close()
 
     async def test_a_read_only_run_says_the_whole_deployment_is_read_only(self, va, monkeypatch):
-        _serve(monkeypatch, ARMED_SECTION)
+        serve_control_system(ARMED_SECTION)
         connector_answers(
             monkeypatch, raises(ChannelWriteBlockedError(CHANNEL, "WRITES_DISABLED", message="no"))
         )
@@ -508,7 +502,7 @@ class TestConnectorRows:
     async def test_a_refusal_the_session_cannot_account_for_carries_the_monitors_words(
         self, va, monkeypatch
     ):
-        _serve(monkeypatch, ARMED_SECTION)
+        serve_control_system(ARMED_SECTION)
         connector_answers(
             monkeypatch, raises(ChannelWriteBlockedError(CHANNEL, "WRITES_DISABLED", message="no"))
         )
@@ -692,8 +686,8 @@ class TestSessionRows:
         )
         await session.close()
 
-    async def test_row_4b_unservable(self, state_dir, audit_dir, monkeypatch):
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+    async def test_row_4b_unservable(self, state_dir, audit_dir):
+        serve_control_system(STANDIN_ONLY_SECTION)
         write_record(state_dir, target="live")
         session = await opened()
         assert session.binding.state == "unservable"

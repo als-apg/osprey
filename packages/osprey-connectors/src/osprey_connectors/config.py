@@ -1,16 +1,27 @@
-"""Configuration system.
+"""Configuration: one loader, the config it loads, and the process default.
 
-Loads a single YAML config file, resolves environment variables,
-and provides dot-path access to values.
+:func:`load_config` reads one rendered ``config.yml`` into a
+:class:`LoadedConfig`: the file's tree with ``${VAR}`` placeholders resolved,
+the tree as written, the repo root it belongs to, the placeholders no variable
+resolved, and the facility zone. It reads the file and nothing else: it neither
+reads ``.env`` nor writes ``os.environ``, and a failure is a
+:class:`~osprey_connectors.errors.ConfigLoadError` naming the path.
+
+The process default is one explicit object. :func:`current_config` answers
+every unqualified lookup: the config a :func:`using_config` block names, else
+the one an entry point installed with :func:`install_config`, else the file
+:func:`locate_config` finds, loaded and kept until the file changes.
+:func:`active_config` asks the same question without loading anything.
 
 **Importing this module does not read ``.env`` and does not touch
-``os.environ``.** Building a :class:`ConfigBuilder` does (see its ``load_env``
-argument), and that is deliberate — but it must be an *application* that asks
-for a config, never the mere act of importing an ``osprey`` module. Loading
-``.env`` at import time made a library consumer's environment depend on which
-directory the process happened to start in, gave non-credential keys
-``override=True`` semantics they were never scoped for, and silently undid
-callers' own ``os.environ`` writes depending on import order.
+``os.environ``.** The one lookup that does is the lazy default, which applies
+the working directory's env chain once before it loads, as every config load
+did before there was an explicit one: an application asks for a config, never
+the mere act of importing an ``osprey`` module. Loading ``.env`` at import
+time made a library consumer's environment depend on which directory the
+process happened to start in, gave non-credential keys ``override=True``
+semantics they were never scoped for, and silently undid callers' own
+``os.environ`` writes depending on import order.
 
 Applications load ``.env`` explicitly at startup: the CLI in
 ``osprey.cli.main``, MCP servers via :func:`osprey.mcp_env.load_dotenv_from_project`,
@@ -22,57 +33,69 @@ import copy
 import logging
 import os
 import re
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, overload
+from typing import NoReturn, overload
+from zoneinfo import ZoneInfo
 
 import yaml
+from pydantic import PrivateAttr
+from typing_extensions import override
 
 # Safe at module level despite this module's no-osprey-imports rule below:
 # ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so
 # there is no cycle.
 from osprey_connectors import yaml_loader
+from osprey_connectors._config_read import config_flag, is_unresolved_placeholder
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.config_sections import (
+    AgentDataSection,
+    ArchiverSection,
+    ControlSystemSection,
+    LoggingSection,
+    PvDirectorySection,
+    SimulationSection,
+    SystemSection,
+)
+from osprey_connectors.errors import (
+    ConfigLoadError,
+    ConfigNotFoundError,
+    ConfigParseError,
+    ConfigurationError,
+)
+from osprey_connectors.model import FrozenModel, FrozenTuple
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
+    agent_data_base_dir,
     anchored_path,
-    dotted_config_str,
     rendered_config_path,
     repo_root_for_config,
-    resolve_config_path,
+    resolve_simulation_state_dir,
 )
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
 __all__ = [
-    "ConfigBuilder",
-    "apply_env_chain",
-    "config_anchored_at",
+    "LoadedConfig",
+    "UnresolvedRef",
+    "active_config",
     "config_flag",
     "config_section",
     "connector_block",
-    "default_config_path",
-    "dotenv_shell_overrides",
-    "get_agent_dir",
-    "get_config_builder",
-    "get_config_value",
-    "get_configurable",
-    "get_facility_timezone",
-    "get_full_configuration",
+    "current_config",
+    "facility_timezone",
+    "install_config",
     "is_unresolved_placeholder",
     "load_config",
-    "load_project_config",
-    "load_project_dotenv",
     "localize_facility",
+    "locate_config",
     "mapping_or_empty",
     "resolve_env_vars",
     "subsection",
     "unresolved_placeholders",
+    "using_config",
 ]
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
@@ -96,9 +119,9 @@ def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None
     empty strings (when vars are unset, e.g. in CI image builds) into build
     artifacts.
 
-    This is the public, standalone version of ConfigBuilder._resolve_env_vars.
-    Use it when you need env-var resolution without a full ConfigBuilder
-    instance (e.g., after a raw ``yaml.safe_load``).
+    :func:`load_config` resolves a config file's tree with it; use it directly
+    only for values that do not come from a config file (a provider spec, an
+    overlay of ``os.environ`` and ``.env``).
 
     Args:
         data: The config data (dict/list/str/scalar) to resolve.
@@ -182,38 +205,6 @@ def _resolved_dict(data: dict[str, object], lookup: "Mapping[str, str]") -> dict
     return resolved
 
 
-#: A string that is nothing but a single unresolved env-var placeholder, e.g.
-#: ``"${MISSING}"`` or ``"$MISSING"``. :func:`resolve_env_vars` leaves such a
-#: value verbatim when the variable is unset (there is nothing to substitute and
-#: no declared default), so every consumer that reads a config value has to know
-#: this shape to tell "not configured" from a value.
-#:
-#: The two branches are the two branches of the resolver's own pattern above,
-#: character class included: the braced form takes any name without ``}`` or
-#: ``:`` (a ``:-`` default always substitutes, so it never survives), the bare
-#: form the shell-style identifier. Narrowing either half here would fail to
-#: recognise a reference the resolver did leave verbatim.
-_LONE_PLACEHOLDER = re.compile(r"^\$\{[^}:]+\}$|^\$[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def is_unresolved_placeholder(value: object) -> bool:
-    """Whether *value* is an env-var reference :func:`resolve_env_vars` left alone.
-
-    The counterpart to :func:`resolve_env_vars`: it keeps ``${VAR}`` verbatim
-    when ``VAR`` is unset, so a consumer that treats what it reads as data sees
-    the literal string ``"${VAR}"`` where a URL or a key belongs. This is the
-    one producer of that test, so a caller never has to re-state the syntax the
-    resolver accepts.
-
-    Args:
-        value: A config value, of any type. Only a ``str`` can be a placeholder.
-
-    Returns:
-        True when the value is exactly one unsubstituted reference.
-    """
-    return isinstance(value, str) and bool(_LONE_PLACEHOLDER.match(value))
-
-
 #: The placeholder shapes :func:`resolve_env_vars` substitutes; one still
 #: present after resolution named a variable the environment does not have.
 _PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
@@ -243,58 +234,6 @@ def unresolved_placeholders(value: object) -> list[str]:
     return []
 
 
-_FLAG_ON = frozenset({"true", "yes", "on", "1"})
-_FLAG_OFF = frozenset({"false", "no", "off", "0", ""})
-
-
-def config_flag(value: object, *, key: str) -> bool:
-    """Read an on/off config value for what it spells.
-
-    :func:`resolve_env_vars` substitutes text, so ``${USE_NS:-false}`` reaches a
-    consumer as the *string* ``"false"`` — and ``bool("false")`` is True. Every
-    consumer of such a switch reads it through here, so they all agree on one
-    rule: a bool is itself, ``None`` is off, ``0``/``1`` are off/on, and a string
-    is matched case-insensitively against ``true/yes/on/1`` and
-    ``false/no/off/0`` (blank is off). Anything else — an unresolved
-    ``${VAR}``, a typo, another number — is refused rather than guessed, since
-    either guess would silently pick a behaviour nobody configured.
-
-    Args:
-        value: The raw config value.
-        key: The dotted config key, named in the refusal.
-
-    Returns:
-        The switch's state.
-
-    Raises:
-        ValueError: When the value spells neither on nor off.
-    """
-    if value is None:
-        return False
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int) and value in (0, 1):
-        return bool(value)
-    if isinstance(value, str):
-        word = value.strip().lower()
-        if word in _FLAG_ON:
-            return True
-        if word in _FLAG_OFF:
-            return False
-    raise ValueError(
-        f"{key} must be true or false, got {value!r}"
-        + (" (an unset environment variable)" if is_unresolved_placeholder(value) else "")
-    )
-
-
-#: The defaults :class:`ConfigBuilder` fills in for a config with no
-#: ``execution`` or ``python_executor`` section. Private: the executor's
-#: vocabulary is the framework's (``osprey.utils.execution_method``, whose
-#: public names a test holds equal to these).
-_EXECUTION_METHOD_SUBPROCESS = "subprocess"
-_DEFAULT_EXECUTION_TIMEOUT_SECONDS = 600
-
-
 #: Directory the build owns end to end: every file under it is rendered from the
 #: profile/preset and checksummed into the manifest.
 _BUILD_OWNED_DATA_DIR = "data"
@@ -312,6 +251,11 @@ _RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 #: write landing there reads as project drift and is erased by the next
 #: ``osprey build``.
 _RUNTIME_WRITE_PATH_KEYS = (SIMULATION_STATE_DIR_CONFIG_KEY,)
+
+#: The sections the load reads whole, each of which has to be a mapping (or
+#: absent, or empty): a scalar or a list there is refused when the file is read,
+#: by key, rather than by every reader that walks into it later.
+_MAPPING_SECTIONS = ("models", "api.providers", "services", "execution", "python_executor")
 
 
 def _runtime_write_paths_under_data(
@@ -331,8 +275,8 @@ def _runtime_write_paths_under_data(
     offenders: list[tuple[str, str]] = []
 
     for key in _RUNTIME_WRITE_PATH_KEYS:
-        value = dotted_config_str(config, key)
-        if value is None:
+        found, value = _walk(config, key)
+        if not found or not isinstance(value, str) or not value:
             continue
 
         resolved = anchored_path(value, project_root).resolve()
@@ -342,585 +286,631 @@ def _runtime_write_paths_under_data(
     return offenders
 
 
-#: Shell values :func:`load_project_dotenv`'s ``override=True`` replaced, keyed
-#: by variable name. The entry-time passthrough makes ``.env`` win inside the
-#: osprey *process*; compose's own precedence is the opposite (a shell export
-#: beats ``--env-file``), so the deploy path needs the shell as it really was —
-#: both to warn about a divergent export and to hand compose an environment
-#: that honors it. Empty when nothing differing was overridden.
-_dotenv_shell_overrides: dict[str, str] = {}
+def _warn_on_runtime_write_paths_under_data(tree: "Mapping[str, object]", path: Path) -> None:
+    """Warn when a runtime writer is pointed at the build-owned ``data/`` tree.
 
-
-def dotenv_shell_overrides() -> dict[str, str]:
-    """The shell's own values for variables the ``.env`` entry-load overrode.
-
-    Only variables whose exported value *differed* from the file's are
-    recorded: a key the shell never set, or set to the same value, was not
-    shadowed. Overlaying this onto ``os.environ`` reconstructs the environment
-    the operator's shell actually provided, which is what compose interpolation
-    is documented against.
+    Advisory only: the misconfiguration still works until the next
+    ``osprey build`` wipes ``data/`` and takes the runtime state
+    with it, so this warns rather than raising.
     """
-    return dict(_dotenv_shell_overrides)
+    configured_root = _configured_root(tree)
+    project_root = (
+        Path(configured_root) if configured_root else repo_root_for_config(path)
+    ).expanduser()
+
+    for key, value in _runtime_write_paths_under_data(tree, project_root):
+        logger.warning(
+            "Runtime-write path '%s' = %r resolves inside the build-owned "
+            "'%s/' tree (%s). That directory is re-rendered and checksummed on "
+            "every build, so runtime writes there show up as project drift and "
+            "are erased by the next 'osprey build'. Point it at '%s/' instead.",
+            key,
+            value,
+            _BUILD_OWNED_DATA_DIR,
+            path,
+            _RUNTIME_STATE_DIR,
+        )
 
 
-#: Variables the env chain never sets in a process environment. Each one is a
-#: name that chooses which program runs, what code a runtime loads at start, or
-#: what code an installer fetches, so it comes from the operator's shell, never
-#: from a repo file. Names compare case-insensitively; the entries here and in
-#: :data:`_SHELL_ONLY_ENV_PREFIXES` are upper-case.
-_SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
-    {
-        "PATH",
-        "HOME",
-        "SHELL",
-        "ENV",
-        "BASH_ENV",
-        "ZDOTDIR",
-        "NODE_OPTIONS",
-        "NODE_PATH",
-        "PYTHONPATH",
-        "PYTHONHOME",
-        "PYTHONSTARTUP",
-        "PYTHONUSERBASE",
-        "PYTHONWARNINGS",
-        "PYTHONINSPECT",
-        "PYTHONBREAKPOINT",
-        "PYTHONEXECUTABLE",
-        "PYTHONPLATLIBDIR",
-        "PYTHONPYCACHEPREFIX",
-        "NODE_REPL_EXTERNAL_MODULE",
-        "PERL5LIB",
-        "PERLLIB",
-        "PERL5OPT",
-        "PERL5DB",
-        "RUBYOPT",
-        "RUBYLIB",
-        "JAVA_TOOL_OPTIONS",
-        "_JAVA_OPTIONS",
-        "JDK_JAVA_OPTIONS",
-        "CLASSPATH",
-        "GCONV_PATH",
-        "GLIBC_TUNABLES",
-        "LOCPATH",
-        "NLSPATH",
-        "HOSTALIASES",
-        "OPENSSL_CONF",
-        "OPENSSL_MODULES",
-        "OPENSSL_ENGINES",
-        "XDG_CONFIG_HOME",
-        "XDG_CONFIG_DIRS",
-        "XDG_CACHE_HOME",
-        "XDG_DATA_HOME",
-        "PROMPT_COMMAND",
-        "PS4",
-        "IFS",
-        "SHELLOPTS",
-        "BASHOPTS",
-        "CC",
-        "CXX",
-        "LDSHARED",
-        "CFLAGS",
-        "CPPFLAGS",
-        "CXXFLAGS",
-        "LDFLAGS",
-        "ARCHFLAGS",
-        "CPATH",
-        "C_INCLUDE_PATH",
-        "CPLUS_INCLUDE_PATH",
-        "LIBRARY_PATH",
-        "COMPILER_PATH",
-        "GCC_EXEC_PREFIX",
-        "DOCKER_HOST",
-        "DOCKER_CONFIG",
-        "DOCKER_CONTEXT",
-        "CLAUDE_CONFIG_DIR",
-        "CLAUDE_CODE_SHELL",
-        "CLAUDE_CODE_SHELL_PREFIX",
-        "CLAUDE_CODE_GIT_BASH_PATH",
-        "CLAUDE_ENV_FILE",
-        "SSH_ASKPASS",
-        "SUDO_ASKPASS",
-        "LESSOPEN",
-        "LESSCLOSE",
-        "PAGER",
-        "MANPAGER",
-        "EDITOR",
-        "VISUAL",
-        "BROWSER",
-    }
-)
+def _walk(tree: object, key: str) -> tuple[bool, object]:
+    """``(found, value)`` for the dotted *key* in *tree*, walked as nested mappings.
 
-#: Name prefixes of the dynamic loader's variables, bash's exported functions
-#: and the variables git, npm, uv, pip and compose read, shell-only for the same reason
-#: as :data:`_SHELL_ONLY_ENV_VARS`.
-_SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = (
-    "LD_",
-    "DYLD_",
-    "BASH_FUNC_",
-    "GIT_",
-    "NPM_CONFIG_",
-    "UV_",
-    "PIP_",
-    "COMPOSE_",
-)
-
-#: ``(resolved file, name)`` pairs whose ignored shell-only name was already
-#: reported, so a chain applied many times in one process warns once.
-_shell_only_reported: set[tuple[str, str]] = set()
-
-
-def _is_shell_only_env_var(name: str) -> bool:
-    """Whether ``name`` is a launch variable the env chain never applies, in any case."""
-    upper = name.upper()
-    return upper in _SHELL_ONLY_ENV_VARS or upper.startswith(_SHELL_ONLY_ENV_PREFIXES)
-
-
-def apply_env_chain(
-    environ: MutableMapping[str, str],
-    paths: Sequence[Path],
-    *,
-    override: bool = True,
-) -> list[str]:
-    """Apply env-chain files to ``environ``, except the shell-only launch variables.
-
-    ``paths`` is in ascending precedence (``.env.shared`` before ``.env``); a
-    path that is not a file is skipped. Each file is read with python-dotenv's
-    ``dotenv_values`` and written into ``environ`` in turn, so a later file
-    wins on a key both set. Every key is applied except those
-    :func:`_is_shell_only_env_var` names: for those ``environ`` keeps exactly
-    what it held (set, or absent), and one warning per file names the ignored
-    keys — never their values.
-
-    With ``override=False`` a name ``environ`` held when the call began is
-    never written, while a later file may still replace a value this call
-    wrote, so the local file outranks the shared one and the shell outranks
-    both.
-
-    :return: The sorted names written into ``environ``.
+    A missing key, or a segment that is not a mapping (a list, a scalar,
+    ``None``), is not found. The value is the tree's own object, not a copy.
     """
-    from dotenv import dotenv_values
-
-    preset = set() if override else set(environ)
-    written: set[str] = set()
-    for path in paths:
-        path = Path(path)
-        if not path.is_file():
-            continue
-        ignored: list[str] = []
-        for name, value in dotenv_values(path).items():
-            if value is None:
-                continue
-            if _is_shell_only_env_var(name):
-                ignored.append(name)
-                continue
-            if name in preset:
-                continue
-            environ[name] = value
-            written.add(name)
-        _report_shell_only(path, ignored)
-    return sorted(written)
+    value: object = tree
+    for part in key.split("."):
+        if not isinstance(value, Mapping) or part not in value:
+            return False, None
+        value = value[part]
+    return True, value
 
 
-def _report_shell_only(path: Path, names: list[str]) -> None:
-    """Warn once per process about the shell-only names ``path`` sets."""
-    resolved = str(path.resolve())
-    fresh = sorted({name for name in names if (resolved, name) not in _shell_only_reported})
-    if not fresh:
+def _configured_root(tree: "Mapping[str, object]") -> str | None:
+    """The ``project_root`` *tree* names, when it is a non-empty string."""
+    value = tree.get("project_root")
+    return value if isinstance(value, str) and value else None
+
+
+class UnresolvedRef(FrozenModel):
+    """One ``${VAR}`` reference the load left in the config, because ``VAR`` is unset.
+
+    The value stays as written (a lone ``${VAR}`` is data, never read as
+    absent); this is the diagnostic a refusal or a report names.
+
+    Attributes:
+        key: The dotted key of the value that holds it (a list item's index is a
+            segment, as in ``a.b.0``).
+        var: The variable it names.
+    """
+
+    key: str
+    var: str
+
+
+def _unresolved_refs(node: object, prefix: str = "") -> Iterator[UnresolvedRef]:
+    """Every reference :func:`resolve_env_vars` left in *node*, depth-first, keyed by path.
+
+    The ``claude_code.servers.*.env`` blocks are skipped: their placeholders are
+    kept on purpose, for Claude Code to expand when it launches the server.
+    """
+    if isinstance(node, str):
+        for found in _PLACEHOLDER.findall(node):
+            yield UnresolvedRef(key=prefix, var=found.strip("${}"))
         return
-    _shell_only_reported.update((resolved, name) for name in fresh)
-    logger.warning(
-        "Ignored %s in %s: launch variables come from the shell only. "
-        "Export them in your shell instead.",
-        ", ".join(fresh),
-        path,
+    if isinstance(node, Mapping):
+        items: list[tuple[object, object]] = list(node.items())
+        for name, value in items:
+            path = f"{prefix}.{name}" if prefix else str(name)
+            if prefix.startswith("claude_code.servers.") and name == "env":
+                continue
+            yield from _unresolved_refs(value, path)
+        return
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from _unresolved_refs(item, f"{prefix}.{index}" if prefix else str(index))
+
+
+class LoadedConfig(FrozenModel):
+    """One rendered ``config.yml``, loaded.
+
+    Built by :func:`load_config` (and, for a test, by
+    :func:`osprey_connectors.testing.config_of`); nothing else makes one. The
+    tree itself is held privately as the plain ``dict`` the YAML parse made and
+    is handed out only as copies (:meth:`get`, :meth:`section`,
+    :meth:`raw_tree`), so no caller can change the config another reads.
+
+    Attributes:
+        path: The file it was loaded from, as it was named.
+        repo_root: The deployment repo the config belongs to: its
+            ``project_root`` when that names a directory here, else the repo
+            the file sits in (``<repo>/build/config.yml``, or a container's
+            project directory, which is its own render).
+        unresolved: Every ``${VAR}`` reference left verbatim because ``VAR`` is
+            unset, for diagnostics; the values themselves stay as written.
+        control_system: The ``control_system`` section, read once at load
+            (never refused there: what a reader refuses, it refuses where it
+            reads). The reference monitor and the write-path readers judge by it.
+        archiver: The ``archiver`` section, read once at load: the selected
+            archiver and its settings block (a block the archive cannot be
+            built from is refused where it is resolved, never here).
+        pv_directory: The ``pv_directory`` section, read once at load: one
+            block per service kind.
+        system: The ``system`` section the package reads: the facility clock
+            ``system.timezone`` names.
+        logging: The ``logging`` section's three switches, read once at load.
+        simulation: The ``simulation`` section's periods and state directory,
+            read once at load.
+        agent_data: The ``agent_data`` section's ``base_dir``, read once at load.
+    """
+
+    path: Path
+    repo_root: Path
+    unresolved: FrozenTuple[UnresolvedRef] = ()
+    control_system: ControlSystemSection
+    archiver: ArchiverSection
+    pv_directory: PvDirectorySection
+    system: SystemSection
+    logging: LoggingSection
+    simulation: SimulationSection
+    agent_data: AgentDataSection
+
+    _tree: dict[str, object] = PrivateAttr()
+    _unexpanded: dict[str, object] = PrivateAttr()
+    # Whether facility_timezone has reported this load's zone problem already.
+    _zone_reported: bool = PrivateAttr(default=False)
+
+    def get(self, key: str, default: object = None) -> object:
+        """The value at the dotted *key*, as a copy; *default* when it is not there.
+
+        A segment that is missing, or that is not a mapping, is not there. A
+        key written with a YAML null is there, and answers ``None``.
+
+        Raises:
+            ConfigurationError: *key* is empty.
+        """
+        if not key:
+            raise ConfigurationError("Configuration path cannot be empty or None")
+        found, value = _walk(self._tree, key)
+        return copy.deepcopy(value) if found else default
+
+    def section(self, key: str) -> dict[str, object]:
+        """The mapping at the dotted *key*, as a copy; ``{}`` when absent or null.
+
+        Raises:
+            ConfigurationError: The value there is not a mapping, naming *key*.
+        """
+        value = self.get(key)
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        raise ConfigurationError(
+            f"'{key}' in {self.path} must be a mapping, got {type(value).__name__}", key=key
+        )
+
+    def flag(self, key: str, *, default: bool) -> bool:
+        """The on/off switch at the dotted *key*, read by :func:`config_flag`'s rule.
+
+        An absent key, or one written as null, is *default*.
+
+        Raises:
+            ConfigurationError: The value spells neither on nor off, naming *key*.
+        """
+        value = self.get(key)
+        return default if value is None else config_flag(value, key=key)
+
+    def repo_path(self, value: "str | os.PathLike[str]") -> Path:
+        """A path the config names, as a path here.
+
+        ``~`` is expanded; an absolute path is returned as written, and a
+        relative one is anchored at :attr:`repo_root`, as every relative path
+        a deployment configures is.
+        """
+        return anchored_path(os.fspath(value), self.repo_root)
+
+    @property
+    def agent_data_root(self) -> Path:
+        """The shared agent-data root: ``agent_data.base_dir`` (else ``var/agent_data``), resolved.
+
+        Shared by every session: the stores long-lived daemons read (the
+        gallery, ARIEL, the control-context record) live here.
+        """
+        return self.repo_path(agent_data_base_dir(self._tree)).resolve()
+
+    def session_data_root(self, session_id: str) -> Path:
+        """One session's own agent-data directory, under :attr:`agent_data_root`.
+
+        Raises:
+            ValueError: *session_id* is blank.
+        """
+        if not session_id.strip():
+            raise ValueError("a session's data root needs a non-blank session id")
+        return self.agent_data_root / "sessions" / session_id
+
+    @property
+    def simulation_state_dir(self) -> Path:
+        """The directory holding the simulation's ``active_scenarios`` state file.
+
+        ``simulation.state_dir`` when it names one (relative to
+        :attr:`repo_root`), else ``simulation`` under the agent-data base
+        directory; not created here.
+        """
+        return resolve_simulation_state_dir(self._tree, self.repo_root)
+
+    # The trees are the YAML parse's, handed out as such: every framework reader
+    # reads the shape its own keys have.
+    def raw_tree(self) -> dict[str, ContractAny]:
+        """The whole resolved tree, as a copy: for framework code that reads its own keys."""
+        return copy.deepcopy(self._tree)
+
+    def unexpanded_tree(self) -> dict[str, ContractAny]:
+        """The whole tree as written, ``${VAR}`` placeholders kept, as a copy.
+
+        For deployment code that writes the config out again and must not bake
+        a secret, or an empty string for an unset variable, into the file.
+        """
+        return copy.deepcopy(self._unexpanded)
+
+    @override
+    @classmethod
+    def model_validate(cls, *args: object, **kwargs: object) -> NoReturn:
+        """Refused: a loaded config is built from its file, never from its fields.
+
+        Its tree is held privately, so a copy validated from the fields alone
+        (``model_validate``, and :func:`~osprey_connectors.model.evolve`, which
+        goes through it) would have none, and its sections would no longer be
+        the tree's. Load the changed file again, or build the changed tree with
+        :func:`osprey_connectors.testing.config_of`.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise TypeError(
+            "a LoadedConfig is built by load_config (or testing.config_of), not from its "
+            "fields: evolve and model_validate would drop the tree it was loaded from"
+        )
+
+
+def _loaded(
+    tree: dict[str, object],
+    path: Path,
+    *,
+    environ: "Mapping[str, str]",
+) -> LoadedConfig:
+    """A YAML document's tree as a :class:`LoadedConfig`: resolved, checked, and read.
+
+    The part of a load after the file is parsed, shared by :func:`load_config`
+    and :func:`osprey_connectors.testing.config_of`.
+
+    Raises:
+        ConfigurationError: A connector block still spells its call bound
+            ``timeout`` (see
+            :func:`osprey_connectors.call_timeout.refuse_renamed_timeout_keys`).
+        ConfigParseError: One of the sections the load reads whole is not a
+            mapping, naming its key.
+    """
+    from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
+
+    unexpanded = copy.deepcopy(tree)
+    resolved = _resolved_dict(tree, environ)
+
+    refuse_renamed_timeout_keys(resolved)
+    for key in _MAPPING_SECTIONS:
+        _, value = _walk(resolved, key)
+        if value is not None and not isinstance(value, dict):
+            raise ConfigParseError(
+                f"'{key}' in {path} must be a mapping, got {type(value).__name__}",
+                path=path,
+                key=key,
+            )
+
+    _warn_on_runtime_write_paths_under_data(resolved, path)
+
+    configured_root = _configured_root(resolved)
+    candidate = Path(configured_root).expanduser() if configured_root else None
+    repo_root = (
+        candidate if candidate is not None and candidate.is_dir() else repo_root_for_config(path)
+    )
+
+    loaded = LoadedConfig(
+        path=path,
+        repo_root=repo_root,
+        unresolved=tuple(_unresolved_refs(resolved)),
+        control_system=ControlSystemSection.read(resolved.get("control_system")),
+        archiver=ArchiverSection.read(resolved.get("archiver")),
+        pv_directory=PvDirectorySection.read(resolved.get("pv_directory")),
+        system=SystemSection.read(resolved.get("system")),
+        logging=LoggingSection.read(resolved.get("logging")),
+        simulation=SimulationSection.read(resolved.get("simulation")),
+        agent_data=AgentDataSection.read(resolved.get("agent_data")),
+    )
+    loaded._tree = resolved
+    loaded._unexpanded = unexpanded
+    return loaded
+
+
+def _candidates(environ: "Mapping[str, str]", cwd: Path) -> tuple[Path, ...]:
+    """The paths :func:`locate_config` looks at, in order."""
+    configured = environ.get("OSPREY_CONFIG")
+    if configured:
+        return (Path(str(_resolved(configured, environ))),)
+    return (rendered_config_path(cwd), cwd / "config.yml")
+
+
+def locate_config(*, environ: "Mapping[str, str] | None" = None, cwd: Path | None = None) -> Path:
+    """The ``config.yml`` a lookup that names no file reads.
+
+    Resolution order:
+      1. ``OSPREY_CONFIG``, with ``$VAR`` references in it expanded. The CLI
+         sets it on the host, every framework MCP server definition sets it,
+         and so does the compose service of every container whose working
+         directory does not hold the render.
+      2. ``build/config.yml`` under *cwd*: standing in a repo root with a
+         render in it.
+      3. ``config.yml`` under *cwd*: a container project directory, whose root
+         *is* the render, and the path reported when nothing exists at all.
+
+    ``CONFIG_FILE`` is not read: it is a name generic enough that honoring it
+    would let an unrelated export redirect every OSPREY process on the host.
+    Every compose service that sets it sets ``OSPREY_CONFIG`` to the same path.
+
+    Args:
+        environ: The environment to read ``OSPREY_CONFIG`` from; the process's
+            own by default.
+        cwd: The directory steps 2 and 3 look in; the working directory by
+            default.
+
+    Returns:
+        The path, which exists unless nothing at all was found.
+    """
+    env = os.environ if environ is None else environ
+    candidates = _candidates(env, Path.cwd() if cwd is None else cwd)
+    return next((path for path in candidates[:-1] if path.is_file()), candidates[-1])
+
+
+def _not_found_message(path: Path, *, named: bool, environ: "Mapping[str, str]") -> str:
+    """Why a load found no config at *path*, naming where it looked."""
+    if named:
+        return (
+            f"Config file not found: {path}\n\n"
+            f"Set the OSPREY_CONFIG environment variable to a valid config.yml, "
+            f"or run from a project directory that contains one."
+        )
+    if environ.get("OSPREY_CONFIG"):
+        return (
+            f"No config.yml found: OSPREY_CONFIG names {path}, which does not exist.\n\n"
+            f"Point OSPREY_CONFIG at a rendered config.yml, or unset it to read the one "
+            f"under the current directory."
+        )
+    cwd = path.parent
+    return (
+        f"No config.yml found in current directory: {cwd}\n\n"
+        f"Looked for {rendered_config_path(cwd)} and {cwd / 'config.yml'}.\n\n"
+        f"Run from a project directory (`osprey build` renders its config to "
+        f"build/config.yml),\n"
+        f"or set the OSPREY_CONFIG environment variable to point to your config file.\n\n"
+        f"Example: export OSPREY_CONFIG=/path/to/your/config.yml"
     )
 
 
-def load_project_dotenv() -> None:
-    """Load the cwd's env chain into ``os.environ``, overriding existing values.
-
-    This is the env → environ passthrough the framework depends on: it
-    feeds the ``${VAR}`` references Claude Code expands in ``.mcp.json`` at MCP
-    server launch time (``EPICS_CA_ADDR_LIST``, ``PHOEBUS_BRIDGE_URL``,
-    ``BLUESKY_*``), and it makes the chain the source of truth for API keys over
-    a stale shell export. Every key in the files is passed through, not a
-    declared subset — narrowing it would drop Channel Access addressing with no
-    error. The one exception is the shell-only launch variables
-    (:func:`_is_shell_only_env_var`): :func:`apply_env_chain` leaves them as the
-    shell set them and warns.
-
-    The chain is ``.env.shared`` then ``.env``
-    (:data:`osprey_connectors.dotenv.ENV_CHAIN_FILENAMES`), each applied with
-    override, so the host-local ``.env`` wins over the committed
-    defaults on a key both set — the same local-wins precedence every other
-    delivery path applies. A project with no ``.env.shared`` behaves exactly as
-    it did when ``.env`` was the whole chain.
-
-    What the override replaces is not discarded: the shell's own differing
-    values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
-    still see — and warn about — an export that disagrees with the store, and
-    hand compose an environment with the shell's precedence intact. The record
-    is taken once per key against the *merged* chain, before any file is
-    loaded: the value a key ends up with is the local file's, so that is the
-    value the shell's export is judged against, and a key both files set is
-    recorded once rather than twice.
-
-    ``override=True`` and the breadth of the copy are exactly why this must be
-    called deliberately. Call it from process entry points only; never at
-    import time, and never from library code that a host application merely
-    imports. Missing files and an unreadable file are non-fatal.
-
-    A process stamped with
-    :data:`~osprey_connectors.dotenv.ENV_CHAIN_APPLIED_ENV` was handed its
-    environment by a parent that chose it, and this returns without loading
-    anything: reloading the chain would put back what the parent withheld.
-    """
-    from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
-
-    if os.environ.get(ENV_CHAIN_APPLIED_ENV):
-        return
-
-    repo_root = Path.cwd()
-    try:
-        from osprey_connectors.dotenv import chain_files, merge_chain
-
-        paths = chain_files(repo_root)
-        if not paths:
-            logger.debug(f"No .env file found at {repo_root}")
-            return
-
-        # Accumulate, never clear: this runs more than once per process, and
-        # after the first load os.environ already matches the chain — a later
-        # call sees no difference and must not erase the genuine shell values
-        # the first one recorded. First-seen wins; only the pre-load value is
-        # the shell's own. A shell-only name is never replaced, so it is never
-        # recorded.
-        pinned = merge_chain(repo_root)
-        for name, value in pinned.items():
-            if (
-                not _is_shell_only_env_var(name)
-                and name in os.environ
-                and os.environ[name] != value
-                and name not in _dotenv_shell_overrides
-            ):
-                _dotenv_shell_overrides[name] = os.environ[name]
-        apply_env_chain(os.environ, paths)
-        logger.debug("Loaded the env chain from %s", ", ".join(str(path) for path in paths))
-    except OSError as e:
-        # e.g. a 0600 .env owned by another uid mounted into a non-root
-        # container (dispatch worker on a uid-mismatched host). Provider
-        # env should already be in os.environ by the time config is built,
-        # so degrade gracefully instead of crash-looping the process.
-        logger.warning(f"Could not read the .env chain at {repo_root}: {e}")
-
-
-class ConfigBuilder:
-    """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
-    pre-computes a ``configurable`` dict for framework and standalone use.
-
-    Singleton access: use :func:`get_config_builder` or :func:`_get_config`.
-    """
-
-    # Sentinel to distinguish "no default given" from "default is None".
-    _REQUIRED = object()
-
-    def _require_config(self, path: str, default: object = _REQUIRED) -> object:
-        """Get config value, raising ValueError if required (no default) and missing.
-
-        When *default* is provided, uses it with a warning. When *default* is
-        omitted (_REQUIRED sentinel), raises on missing/None values.
-        """
-        value = self.get(path)
-
-        if value is None:
-            if default is self._REQUIRED:
-                # No default provided - this is a required configuration
-                raise ValueError(
-                    f"Missing required configuration: '{path}'. For profile-built "
-                    f"projects, set it under `config:` in profile.yml and run "
-                    f"`osprey build`; otherwise add it to your config file."
-                )
-            # Default provided - use it but warn for visibility
-            logger.warning(f"Using default value for '{path}' = {default}. ")
-            return default
-        return value
-
-    def __init__(self, config_path: str | Path | None = None, *, load_env: bool = True):
-        """
-        Initialize configuration builder.
-
-        Args:
-            config_path: Path to the config.yml file. If None, the file
-                :func:`osprey_connectors.workspace.resolve_config_path` names:
-                ``OSPREY_CONFIG``, else ``build/config.yml`` under the current
-                directory, else ``config.yml`` in it.
-            load_env: When True (the default), load the env chain from the
-                current working directory into ``os.environ``. This env →
-                environ passthrough is load-bearing: it feeds the ``${VAR}``
-                references Claude Code expands in ``.mcp.json`` at MCP server
-                launch time.
-                Pass False only when the caller has already populated the
-                environment (or must not mutate it) and wants a config load with
-                no side effects on ``os.environ``.
-
-        Raises:
-            FileNotFoundError: If config.yml is not found and no path is provided.
-            ValueError: If a connector block still spells its call bound
-                ``timeout`` instead of ``timeout_s``.
-        """
-        if load_env:
-            load_project_dotenv()
-
-        if config_path is None:
-            # The same answer every other layer gets to "where is my config":
-            # a second rule here would let one process load the render through
-            # one door and nothing through the other.
-            resolved = resolve_config_path()
-            if not resolved.exists():
-                raise FileNotFoundError(_no_default_config_message(resolved))
-            config_path = resolved
-
-        self.config_path = Path(config_path)
-
-        # Fail fast with an actionable message when the config path is not a
-        # regular file. A common cause: a container bind-mount whose host source
-        # did not exist at container-create time, which the runtime silently
-        # materializes as an empty directory on both ends — so config_path
-        # resolves to a directory and the YAML loader would otherwise surface a
-        # bare "[Errno 21] Is a directory". Treat a missing explicit path the
-        # same way rather than failing later in open().
-        if self.config_path.is_dir():
-            raise IsADirectoryError(
-                f"Config path is a directory, not a file: {self.config_path}\n\n"
-                f"config.yml is expected to be a file here. This usually means it "
-                f"was meant to be provided at runtime (e.g. a bind-mount whose "
-                f"source was missing, so the container runtime created an empty "
-                f"directory) or was not baked into the image. Ensure config.yml "
-                f"exists as a file at this path."
-            )
-        if not self.config_path.exists():
-            raise FileNotFoundError(
-                f"Config file not found: {self.config_path}\n\n"
-                f"Set the CONFIG_FILE environment variable to a valid config.yml, "
-                f"or run from a project directory that contains one."
-            )
-
-        self.raw_config, self._unexpanded_config = self._load_config()
-
-        from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
-
-        refuse_renamed_timeout_keys(self.raw_config)
-
-        self._warn_on_runtime_write_paths_under_data()
-
-        # Pre-compute nested structures for efficient runtime access
-        self.configurable = self._build_configurable()
-
-    def _warn_on_runtime_write_paths_under_data(self) -> None:
-        """Warn when a runtime writer is pointed at the build-owned ``data/`` tree.
-
-        Advisory only: the misconfiguration still works until the next
-        ``osprey build`` wipes ``data/`` and takes the runtime state
-        with it, so this warns rather than raising.
-        """
-        configured_root = self.raw_config.get("project_root")
-        project_root = (
-            _as_path(configured_root, "project_root")
-            if configured_root
-            else repo_root_for_config(self.config_path)
-        ).expanduser()
-
-        for key, value in _runtime_write_paths_under_data(self.raw_config, project_root):
-            logger.warning(
-                "Runtime-write path '%s' = %r resolves inside the build-owned "
-                "'%s/' tree (%s). That directory is re-rendered and checksummed on "
-                "every build, so runtime writes there show up as project drift and "
-                "are erased by the next 'osprey build'. Point it at '%s/' instead.",
-                key,
-                value,
-                _BUILD_OWNED_DATA_DIR,
-                self.config_path,
-                _RUNTIME_STATE_DIR,
-            )
-
-    def _load_yaml_file(self, file_path: Path) -> dict[str, object]:
-        """Load and validate a YAML configuration file."""
-        try:
-            with open(file_path) as f:
-                config: object = yaml_loader.safe_load(f)
-
-            if config is None:
-                logger.warning(f"Configuration file is empty: {file_path}")
-                return {}
-
-            if not isinstance(config, dict):
-                error_msg = f"Configuration file must contain a dictionary/mapping: {file_path}"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-
-            logger.debug(f"Loaded configuration from {file_path}")
-            return config
-        except yaml.YAMLError as e:
-            error_msg = f"Error parsing YAML configuration: {e}"
-            logger.error(error_msg)
-            raise yaml.YAMLError(error_msg) from e
-
-    def _resolve_env_vars(self, data: dict[str, object]) -> dict[str, object]:
-        """Recursively resolve environment variables in configuration data.
-
-        Resolves as the module-level :func:`resolve_env_vars` function does.
-        """
-        return _resolved_dict(data, os.environ)
-
-    def _load_config(self) -> tuple[dict[str, object], dict[str, object]]:
-        """Load configuration from single file.
-
-        Returns:
-            Tuple of (expanded_config, unexpanded_config) where:
-            - expanded_config: Config with ${VAR} placeholders resolved to actual values
-            - unexpanded_config: Config with ${VAR} placeholders preserved (for deployment)
-        """
-        import copy
-
-        config = self._load_yaml_file(self.config_path)
-
-        unexpanded_config = copy.deepcopy(config)
-
-        expanded_config = self._resolve_env_vars(config)
-
-        logger.info(f"Loaded configuration from {self.config_path}")
-        return expanded_config, unexpanded_config
-
-    def get_unexpanded_config(self) -> dict[str, object]:
-        """Get configuration with environment variable placeholders preserved.
-
-        Returns the configuration as loaded from YAML, without expanding
-        ${VAR_NAME} placeholders. This is useful for deployment scenarios
-        where secrets should NOT be written to disk - instead, the placeholders
-        are preserved and resolved at container runtime.
-
-        Returns:
-            dict: Configuration with ${VAR} placeholders intact
-        """
-        import copy
-
-        return copy.deepcopy(self._unexpanded_config)
-
-    #: Keys older deployed configs may still carry but nothing honours any more:
-    #: ``python_env_path`` (the agent interpreter is resolved at run time) and
-    #: ``modes`` (Jupyter-era kernel/gateway descriptions with no reader).
-    _RETIRED_EXECUTION_KEYS = ("python_env_path", "modes")
-
-    def _get_execution_config(self) -> dict[str, object]:
-        """Get execution configuration with sensible defaults.
-
-        Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an
-        older config still carries them, so already-deployed projects keep
-        loading unchanged instead of failing on keys nothing honours any more.
-        An empty section reads as no settings, and a non-mapping is refused by name.
-
-        Returns:
-            dict: Execution configuration including the execution method.
-        """
-        # Try to get execution config from file
-        execution_config = self._section("execution")
-
-        # If execution section exists and has content, use it
-        if execution_config:
-            for key in self._RETIRED_EXECUTION_KEYS:
-                if key in execution_config:
-                    logger.debug(
-                        "Ignoring retired 'execution.%s' (%s) in %s; the key has "
-                        "no effect on the subprocess execution backend.",
-                        key,
-                        execution_config[key],
-                        self.config_path,
-                    )
-            return {
-                key: value
-                for key, value in execution_config.items()
-                if key not in self._RETIRED_EXECUTION_KEYS
-            }
-
-        logger.debug(
-            "'execution' section missing from config.yml; defaulting to subprocess Python execution"
-        )
-
-        return {"execution_method": _EXECUTION_METHOD_SUBPROCESS}
-
-    def _get_python_executor_config(self) -> dict[str, object]:
-        """Get python executor configuration with sensible defaults.
-
-        Returns python_executor configuration from config.yml if present, otherwise
-        provides a reasonable default for the execution timeout.
-
-        Returns:
-            dict: Python executor configuration with timeout settings
-        """
-        # Try to get python_executor config from file
-        python_executor_config = self._section("python_executor")
-
-        # If python_executor section exists and has content, use it
-        if python_executor_config:
-            return python_executor_config
-
-        # Otherwise, provide sensible defaults
-        return {
-            "execution_timeout_seconds": _DEFAULT_EXECUTION_TIMEOUT_SECONDS,
-        }
-
-    def _build_configurable(self) -> dict[str, object]:
-        """Build the configurable dictionary with pre-computed nested structures."""
-        return {
-            "model_configs": self._build_model_configs(),
-            "provider_configs": self._build_provider_configs(),
-            "service_configs": self._build_service_configs(),
-            "execution": self._get_execution_config(),
-            "python_executor": self._get_python_executor_config(),
-            "logging": self.get("logging", {}),
-            "development": self.get("development", {}),
-            "project_root": self.get("project_root"),
-            "registry_path": self.get("registry_path"),
-            "facility_timezone": self.get("system.timezone", "UTC"),
-        }
-
-    def _build_model_configs(self) -> dict[str, object]:
-        """Get model configs from flat structure."""
-        return self._section("models")
-
-    def _build_provider_configs(self) -> dict[str, object]:
-        """Build provider configs."""
-        return self._section("api.providers")
-
-    def _build_service_configs(self) -> dict[str, object]:
-        """Get service configs from flat structure."""
-        return self._section("services")
-
-    def _section(self, path: str) -> dict[str, object]:
-        """Read the section at ``path`` as a mapping; empty reads as ``{}``."""
-        return mapping_or_empty(self.get(path), path, self.config_path)
-
-    def get(self, path: str, default: object = None) -> object:
-        """Get configuration value using dot notation path."""
-        value: object = self.raw_config
-        for key in path.split("."):
-            # A missing key, or a segment that is not a mapping (a list, a
-            # scalar, ``None``), reads as absent.
-            if not isinstance(value, Mapping) or key not in value:
-                return default
-            value = value[key]
-        return value
-
-
-def _as_path(value: object, key: str) -> Path:
-    """*value*, a configured path, as a :class:`~pathlib.Path`.
+def load_config(
+    path: Path | str | None = None, *, environ: "Mapping[str, str] | None" = None
+) -> LoadedConfig:
+    """Load one ``config.yml``: read it, resolve its ``${VAR}`` placeholders, and check it.
+
+    Reads the file and nothing else: no ``.env`` is applied and ``os.environ``
+    is never written, so the caller decides what environment the placeholders
+    resolve against. Nothing is cached and no process default is installed
+    (see :func:`install_config`).
+
+    The load refuses only what no reader could use: a file that is not YAML or
+    whose document is not a mapping, a connector block that still spells its
+    call bound ``timeout``, and a ``models``, ``api.providers``, ``services``,
+    ``execution`` or ``python_executor`` section that is not a mapping. Every
+    other value is read where it is used, so a typo in one section does not
+    stop a process that never reads it.
+
+    Args:
+        path: The file to load; ``None`` loads the one :func:`locate_config`
+            finds in *environ*.
+        environ: What ``${VAR}`` placeholders (and, with no *path*,
+            ``OSPREY_CONFIG``) resolve against; the process environment by
+            default.
+
+    Returns:
+        The loaded config.
 
     Raises:
-        TypeError: *value* is not a string or path-like, as ``Path(value)`` raises.
+        ConfigNotFoundError: No file is there.
+        ConfigLoadError: The path is a directory, or the file cannot be read.
+        ConfigParseError: The file is not YAML, its document is not a mapping,
+            or a section read whole is not one.
+        ConfigurationError: A connector block spells ``timeout`` for
+            ``timeout_s``.
     """
-    if isinstance(value, str | os.PathLike):
-        return Path(value)
-    raise TypeError(f"'{key}' must be a path, got {type(value).__name__}")
+    env = os.environ if environ is None else environ
+    if path is None:
+        searched = _candidates(env, Path.cwd())
+        config_path = next((p for p in searched[:-1] if p.is_file()), searched[-1])
+    else:
+        config_path = Path(path)
+        searched = (config_path,)
+
+    # A container bind-mount whose host source did not exist at create time is
+    # materialized as an empty directory on both ends, so the path names one;
+    # the YAML loader would otherwise surface a bare "[Errno 21] Is a directory".
+    if config_path.is_dir():
+        raise ConfigLoadError(
+            f"Config path is a directory, not a file: {config_path}\n\n"
+            f"config.yml is expected to be a file here. This usually means it "
+            f"was meant to be provided at runtime (e.g. a bind-mount whose "
+            f"source was missing, so the container runtime created an empty "
+            f"directory) or was not baked into the image. Ensure config.yml "
+            f"exists as a file at this path.",
+            path=config_path,
+        )
+    if not config_path.exists():
+        raise ConfigNotFoundError(
+            _not_found_message(config_path, named=path is not None, environ=env),
+            path=config_path,
+            searched=searched,
+        )
+
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            document: object = yaml_loader.safe_load(f)
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        line = mark.line + 1 if mark is not None else None
+        raise ConfigParseError(
+            f"Error parsing YAML configuration {config_path}: {e}", path=config_path, line=line
+        ) from e
+    except UnicodeDecodeError as e:
+        raise ConfigParseError(
+            f"Configuration file {config_path} is not UTF-8 text: {e}", path=config_path
+        ) from e
+    except OSError as e:
+        raise ConfigLoadError(
+            f"Could not read configuration file {config_path}: {e}", path=config_path
+        ) from e
+
+    if document is None:
+        logger.warning(f"Configuration file is empty: {config_path}")
+        document = {}
+    if not isinstance(document, dict):
+        raise ConfigParseError(
+            f"Configuration file must contain a dictionary/mapping: {config_path}",
+            path=config_path,
+        )
+
+    loaded = _loaded(document, config_path, environ=env)
+    logger.debug(f"Loaded configuration from {config_path}")
+    return loaded
+
+
+# --- the process default ------------------------------------------------------
+
+#: The config :func:`install_config` made this process's default, or ``None``.
+_installed: LoadedConfig | None = None
+
+#: The config the innermost :func:`using_config` block of this context names.
+#: Layered over :data:`_installed` rather than replacing it: a context variable
+#: is invisible to a thread started outside ``copy_context`` (an executor, a
+#: server's worker threads), so the process-wide default has to stay a global.
+_scoped: ContextVar[LoadedConfig | None] = ContextVar("osprey_connectors_config", default=None)
+
+#: The lazy default's loads, by resolved path, with the file's ``st_mtime_ns``
+#: when it was read: a re-rendered file is loaded again without a reset.
+_loads: dict[Path, tuple[int, LoadedConfig]] = {}
+
+#: The config the lazy default answered with last, for :func:`active_config`.
+_last_lazy: LoadedConfig | None = None
+
+#: Whether :func:`facility_timezone` has reported that no config could be loaded.
+_no_zone_reported = False
+
+
+def _mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def _cache_hit(path: Path) -> LoadedConfig | None:
+    """The lazy rule's load of *path*, if the file has not changed since it was read."""
+    key = path.resolve()
+    cached = _loads.get(key)
+    return cached[1] if cached is not None and cached[0] == _mtime_ns(key) else None
+
+
+def _load_and_cache(path: Path | None) -> LoadedConfig:
+    """*path* loaded, or the located file when ``None``, and kept with its ``st_mtime_ns``.
+
+    The stamp is taken before the read, so a rewrite between the two shows as
+    a change on the next lookup.
+    """
+    located = locate_config() if path is None else path
+    key = located.resolve()
+    mtime = _mtime_ns(key)
+    loaded = load_config(path)
+    if mtime is not None:
+        _loads[key] = (mtime, loaded)
+    return loaded
+
+
+def _lazy_default() -> LoadedConfig:
+    """The file :func:`locate_config` finds, cached until it changes, the env chain applied first.
+
+    The working directory's env chain is applied before each load this makes,
+    as every config load applied it before loads were explicit, so the
+    ``${VAR}`` placeholders resolve against the deployment's ``.env``.
+    """
+    global _last_lazy
+
+    from osprey_connectors.dotenv import load_project_dotenv
+
+    loaded = _cache_hit(locate_config())
+    if loaded is None:
+        # The env chain may itself set OSPREY_CONFIG, so look again once it is
+        # applied, as a load always did: the chain first, then the file.
+        load_project_dotenv()
+        loaded = _load_and_cache(None)
+    _last_lazy = loaded
+    return loaded
+
+
+def current_config() -> LoadedConfig:
+    """The config this process's unqualified lookups read.
+
+    The config of the innermost :func:`using_config` block, else the one
+    :func:`install_config` installed, else the file :func:`locate_config`
+    finds, loaded and kept until it changes (the working directory's env chain
+    applied before each such load).
+
+    Raises:
+        ConfigLoadError: No config is installed and the located file does not
+            load (:class:`~osprey_connectors.errors.ConfigNotFoundError` when
+            there is none); the refusals of :func:`load_config` as well.
+    """
+    scoped = _scoped.get()
+    if scoped is not None:
+        return scoped
+    if _installed is not None:
+        return _installed
+    return _lazy_default()
+
+
+def active_config() -> LoadedConfig | None:
+    """The config :func:`current_config` would answer with, if it has one already.
+
+    Side-effect free: nothing is located or loaded, and no ``.env`` is read.
+    ``None`` until something has installed, scoped or lazily loaded a config.
+    """
+    scoped = _scoped.get()
+    if scoped is not None:
+        return scoped
+    return _installed if _installed is not None else _last_lazy
+
+
+def install_config(config: LoadedConfig | None) -> LoadedConfig | None:
+    """Make *config* the process default every unqualified lookup reads; ``None`` removes it.
+
+    Process-wide, so every thread sees it: what an entry point that knows its
+    deployment calls once it has loaded that deployment's config. A verb that
+    acts on one deployment for a while puts the previous default back with the
+    value this returns.
+
+    Returns:
+        The default installed before, or ``None``.
+    """
+    global _installed
+
+    previous, _installed = _installed, config
+    return previous
+
+
+@contextmanager
+def using_config(config: "LoadedConfig | Path | str") -> Iterator[LoadedConfig]:
+    """Answer this context's unqualified lookups from *config* for the block.
+
+    Scoped to the current context (a task, a thread, a ``copy_context`` run):
+    blocks nest, concurrent tasks each see their own, and the previous answer
+    is back on exit. A thread started without the context does not see it;
+    :func:`install_config` is the process-wide default.
+
+    Args:
+        config: The config, or the path of one to load with :func:`load_config`.
+
+    Yields:
+        The config in force.
+
+    Raises:
+        ConfigLoadError: *config* is a path that does not load (see
+            :func:`load_config`).
+    """
+    loaded = config if isinstance(config, LoadedConfig) else load_config(config)
+    token = _scoped.set(loaded)
+    try:
+        yield loaded
+    finally:
+        _scoped.reset(token)
+
+
+def _clear_process_state() -> None:
+    """Forget the process default, every lazy load and every warn-once latch.
+
+    For :func:`osprey_connectors.testing.clear_config_state`, between tests; the current
+    context's :func:`using_config` scope is cleared with them.
+    """
+    global _installed, _last_lazy, _no_zone_reported
+
+    _installed = None
+    _last_lazy = None
+    _loads.clear()
+    _no_zone_reported = False
+    _scoped.set(None)
 
 
 def mapping_or_empty(value: object, path: str, source: object) -> dict[str, object]:
@@ -929,14 +919,16 @@ def mapping_or_empty(value: object, path: str, source: object) -> dict[str, obje
         return {}
     if isinstance(value, dict):
         return value
-    raise ValueError(f"'{path}' in {source} must be a mapping, got {type(value).__name__}")
+    raise ConfigurationError(
+        f"'{path}' in {source} must be a mapping, got {type(value).__name__}", key=path
+    )
 
 
 def config_section(config: object, name: str) -> dict[str, object]:
     """One top-level section of a rendered config, or an empty mapping.
 
-    Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read
-    this file: a top-level dotted line in ``config.yml`` configures nothing.
+    Nested sections only, the way ``MCPServerConfig`` and :class:`LoadedConfig`
+    read this file: a top-level dotted line in ``config.yml`` configures nothing.
     """
     if not isinstance(config, dict):
         return {}
@@ -955,509 +947,61 @@ def connector_block(config: object, connector_type: str) -> object:
     return subsection(config_section(config, "control_system"), "connector").get(connector_type)
 
 
-# The values are the YAML parse's, which every consumer reads by the shape its
-# own config has.
-def load_project_config(
-    config_path: str | Path, *, wrap_errors: bool = False
-) -> dict[str, ContractAny]:
-    """Load a built project's ``config.yml`` the way the deploy path loads it.
+def facility_timezone(config: LoadedConfig | None = None) -> ZoneInfo:
+    """The facility clock: the zone *config* names, else the process config's.
 
-    The single entry point every project-facing command and deployment step
-    uses to read a project's effective config: :class:`ConfigBuilder`, with the
-    loader's own INFO chatter quieted. Going through one function is what keeps
-    those consumers agreeing on what the config *says* — a caller that
-    hand-rolled ``yaml.safe_load`` would resolve ``${VAR}`` without the ``.env``
-    passthrough ConfigBuilder performs (see :func:`load_project_dotenv`), and
-    would miss the module flags and derived fields ConfigBuilder computes. It
-    could then report on — or render from — a config the deploy would never
-    have produced.
+    The one lenient reader of the facility zone, so it never raises: every
+    simulation synthesis primitive and timestamp render site calls it. A zone
+    that is not one (see :class:`~osprey_connectors.config_sections.FacilityZone`) is UTC, reported once per load;
+    no config at all (none installed and none to find) is UTC too, reported
+    once per process. Once rather than per call, because synthesis calls this
+    per channel per chunk, and once rather than never, because a process
+    reading the wrong clock still has to be diagnosable from its own log.
 
-    This lives here, next to ``ConfigBuilder``, rather than in a CLI helper
-    module: the deployment layer is one of its consumers and imports nothing
-    from :mod:`osprey.cli` at module scope, so a CLI home would have made this
-    the first such edge.
-
-    Existence checks stay at the call site. ``ConfigBuilder``'s own
-    ``FileNotFoundError`` advises setting ``CONFIG_FILE``, which is the wrong
-    instruction for a ``--project`` verb, so a caller that needs its own
-    "no project here" message must check before calling (see
-    :func:`osprey.cli.scaffold_cmd._load_config`).
+    When the zone is configured and the container's ``$TZ`` disagrees, that
+    is reported once per load as well: agent-facing timestamps key off
+    ``system.timezone``, so a divergence only mis-stamps OS-level logs, but it
+    signals a misconfigured deploy.
 
     Args:
-        config_path: Path to the project's ``config.yml``.
-        wrap_errors: When True, re-raise any load failure as ``RuntimeError``
-            naming the config path. Deployment entry points use this so an
-            operator sees which file failed rather than a bare YAML error.
+        config: The config whose zone to read; :func:`current_config`'s by
+            default.
 
     Returns:
-        The env-var-expanded config mapping (``ConfigBuilder.raw_config``).
-
-    Raises:
-        RuntimeError: If the load fails and *wrap_errors* is True.
+        The facility zone.
     """
-    from osprey_connectors.log_filter import quiet_logger
+    global _no_zone_reported
 
-    try:
-        with quiet_logger(["registry", "CONFIG"]):
-            config: dict[str, ContractAny] = ConfigBuilder(str(config_path)).raw_config
-    except Exception as e:
-        if not wrap_errors:
-            raise
-        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
-    return config
-
-
-def _no_default_config_message(resolved: Path) -> str:
-    """Why a lookup that names no config found none, naming where it looked."""
-    if os.environ.get("OSPREY_CONFIG"):
-        return (
-            f"No config.yml found: OSPREY_CONFIG names {resolved}, which does not exist.\n\n"
-            f"Point OSPREY_CONFIG at a rendered config.yml, or unset it to read the one "
-            f"under the current directory."
-        )
-    cwd = Path.cwd()
-    return (
-        f"No config.yml found in current directory: {cwd}\n\n"
-        f"Looked for {rendered_config_path(cwd)} and {cwd / 'config.yml'}.\n\n"
-        f"Run from a project directory (`osprey build` renders its config to "
-        f"build/config.yml),\n"
-        f"or set the CONFIG_FILE environment variable to point to your config file.\n\n"
-        f"Example: export CONFIG_FILE=/path/to/your/config.yml"
-    )
-
-
-_default_config: ConfigBuilder | None = None
-_default_configurable: dict[str, object] | None = None
-_config_cache: dict[str, ConfigBuilder] = {}
-
-
-def _get_config(config_path: str | None = None, set_as_default: bool = False) -> ConfigBuilder:
-    """Get configuration instance (singleton pattern with optional explicit path).
-
-    This function supports two modes:
-    1. Default singleton: When no config_path provided, uses the CONFIG_FILE env var, else
-       the file :func:`osprey_connectors.workspace.resolve_config_path` names
-    2. Explicit path: When config_path provided, caches and returns config for that specific path
-
-    Args:
-        config_path: Optional explicit path to configuration file. If provided,
-                    this path is used instead of the default singleton behavior.
-        set_as_default: If True and config_path is provided, also set this config as the
-                       default singleton so future calls without config_path use it.
-
-    Returns:
-        ConfigBuilder instance for the specified or default configuration
-
-    Examples:
-        >>> # Default singleton behavior (backward compatible)
-        >>> config = _get_config()
-
-        >>> # Explicit config path
-        >>> config = _get_config("/path/to/config.yml")
-
-        >>> # Explicit path that becomes the default
-        >>> config = _get_config("/path/to/config.yml", set_as_default=True)
-    """
-    global _default_config, _default_configurable
-
-    if config_path is None:
-        if _default_config is None:
-            config_file = os.environ.get("CONFIG_FILE")
-            _default_config = ConfigBuilder(config_file) if config_file else ConfigBuilder()
-
-            _default_configurable = _default_config.configurable.copy()
-
-            logger.info("Initialized default configuration system")
-
-        return _default_config
-
-    resolved_path = str(Path(config_path).resolve())
-
-    if resolved_path not in _config_cache:
-        # Log honestly: a missing file is about to raise in ConfigBuilder, and
-        # many callers swallow that — a cheerful "Loading configuration from
-        # explicit path" would then be the only (misleading) trace in the log.
-        if Path(resolved_path).is_file():
-            logger.info(f"Loading configuration from explicit path: {resolved_path}")
-        else:
-            logger.warning(f"Config file not found: {resolved_path} — load will fail")
-        _config_cache[resolved_path] = ConfigBuilder(resolved_path)
-
-    if set_as_default:
-        _default_config = _config_cache[resolved_path]
-        _default_configurable = _default_config.configurable.copy()
-        logger.debug(f"Set explicit config as default: {resolved_path}")
-
-    return _config_cache[resolved_path]
-
-
-def get_configurable(
-    config_path: str | None = None, set_as_default: bool = False
-) -> dict[str, object]:
-    """Get configurable dict with automatic context detection.
-
-    This function supports both framework execution contexts and standalone execution,
-    with optional explicit configuration path support.
-
-    Args:
-        config_path: Optional explicit path to configuration file
-        set_as_default: If True and config_path is provided, set as default config
-
-    Returns:
-        Complete configuration dictionary with all configurable values
-    """
-    config = _get_config(config_path, set_as_default=set_as_default)
-
-    if config_path is None:
-        global _default_configurable
-        if _default_configurable is None:
-            _default_configurable = config.configurable.copy()
-        return _default_configurable
-
-    return config.configurable
-
-
-def get_config_builder(
-    config_path: str | None = None, set_as_default: bool = False
-) -> ConfigBuilder:
-    """Get configuration builder instance for full config access.
-
-    This is the primary public API for accessing the configuration system.
-    Returns a ConfigBuilder instance that provides access to both raw configuration
-    data and pre-computed configurable structures.
-
-    Args:
-        config_path: Optional explicit path to configuration file. If provided,
-                    loads configuration from this path. If None, uses the default
-                    singleton (CONFIG_FILE env var, else the resolved rendered config).
-        set_as_default: If True and config_path is provided, also set this config
-                       as the default singleton for future calls without config_path.
-
-    Returns:
-        ConfigBuilder instance with access to:
-        - .raw_config: The raw YAML configuration dictionary
-        - .configurable: Pre-computed configuration for framework
-        - .get(path, default): Dot-notation access to config values
-
-    Examples:
-        >>> # Default configuration
-        >>> config = get_config_builder()
-        >>> timeout = config.get("execution.timeout", 30)
-
-        >>> # Load from specific path
-        >>> config = get_config_builder("/path/to/config.yml")
-        >>> raw = config.raw_config
-
-        >>> # Load and set as default for subsequent calls
-        >>> config = get_config_builder("/path/to/config.yml", set_as_default=True)
-    """
-    return _get_config(config_path, set_as_default)
-
-
-def default_config_path() -> str | None:
-    """Path of the config file the default singleton actually loaded, if any.
-
-    This answers "which config is this process's unqualified lookups reading
-    from" — the CONFIG_FILE target, the resolved rendered config, or a
-    :func:`config_anchored_at` anchor, whichever produced the singleton.
-    Callers that resolve paths *relative to the config in use* (e.g.
-    ``LimitsValidator.resolve_database_path``) anchor on this rather than
-    re-deriving the location from the environment, which can disagree with
-    what was actually loaded.
-
-    Side-effect free: no singleton is created and no ``.env`` chain is loaded.
-    Returns ``None`` until something initializes the default configuration.
-    """
-    return str(_default_config.config_path) if _default_config is not None else None
-
-
-@contextmanager
-def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
-    """Answer this process's unqualified config lookups from *config_path*.
-
-    Every :func:`get_config_value` and :func:`get_facility_timezone` call that
-    names no config resolves the default singleton, which looks at
-    ``CONFIG_FILE`` and then where
-    :func:`osprey_connectors.workspace.resolve_config_path` does: ``OSPREY_CONFIG``,
-    and the render under the working directory. A container is handed the
-    variables or starts in its project directory, and a host verb standing at
-    the repo root finds ``build/config.yml`` there. A verb pointed at another
-    deployment with ``--repo`` stands in neither, and every lookup it makes
-    would degrade to a default. Silently: a degraded answer (UTC, an empty
-    dict) is indistinguishable from a configured one at the call site, which is
-    how a whole archive can be synthesized against the wrong clock without
-    anything failing.
-
-    This is the host's half of that contract, and it is deliberately in-process
-    rather than an exported ``CONFIG_FILE``. The attached start path
-    ``os.execvpe``-replaces itself with the container runtime, and an exported
-    variable would ride into that process's interpolation environment; the
-    anchor has no business outliving the verb that set it.
-
-    Scoped for the same reason — the previous default is restored on exit, so a
-    verb pointed at one deployment with ``--repo`` cannot leave the next lookup
-    in this process answering for it.
-
-    Never raises. A config that will not load leaves the previous default in
-    place and warns: this makes lookups honest, and an anchor that aborted its
-    caller would turn a degraded lookup into a failed deploy.
-
-    Args:
-        config_path: The rendered config this process is acting on — normally
-            ``<repo>/build/config.yml`` (see
-            :func:`osprey_connectors.workspace.rendered_config_path`).
-    """
-    global _default_config, _default_configurable
-
-    previous = (_default_config, _default_configurable)
-    try:
+    if config is None:
         try:
-            _get_config(str(config_path), set_as_default=True)
-        except Exception as exc:  # an unusable anchor must not fail the caller
-            logger.warning(
-                f"Could not anchor configuration at {config_path} "
-                f"({type(exc).__name__}: {exc}). Values this process reads without an "
-                "explicit path will fall back to their defaults."
-            )
-        yield
-    finally:
-        _default_config, _default_configurable = previous
+            config = current_config()
+        except (ConfigLoadError, ConfigurationError) as exc:
+            if not _no_zone_reported:
+                _no_zone_reported = True
+                logger.warning(
+                    f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})"
+                )
+            return ZoneInfo("UTC")
 
-
-def load_config(config_path: str | None = None) -> dict[str, object]:
-    """Load raw configuration dictionary from YAML file.
-
-    Convenience function that returns the raw configuration dictionary
-    as loaded from the YAML file, with environment variables resolved.
-
-    Args:
-        config_path: Optional path to configuration file. If None, uses the
-                    default configuration (CONFIG_FILE env var, else the resolved
-                    rendered config).
-
-    Returns:
-        Raw configuration dictionary with all values from the YAML file.
-
-    Examples:
-        >>> # Load default configuration
-        >>> config = load_config()
-        >>> api_key = config.get("api", {}).get("key")
-
-        >>> # Load from specific path
-        >>> config = load_config("/path/to/config.yml")
-        >>> channels = config.get("channel_finder", {})
-    """
-    return _get_config(config_path).raw_config
-
-
-def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
-    """
-    Get the target directory path within the agent data directory using absolute paths.
-
-    The root comes from ``agent_data.base_dir`` — the single key naming this
-    directory — while ``file_paths`` supplies the subdirectory names. A
-    subdirectory key absent from ``file_paths`` falls back to its own name.
-
-    Args:
-        sub_dir: Subdirectory name (e.g., 'registry_exports_dir')
-        host_path: If True, force return of host filesystem path even when running in container
-
-    Returns:
-        Absolute path to the target directory
-    """
-    from osprey_connectors.workspace import agent_data_base_dir
-
-    config = _get_config()
-
-    project_root = config.get("project_root")
-    main_file_paths = config.get("file_paths", {})
-    agent_data_root = agent_data_base_dir(config.raw_config)
-
-    if not isinstance(main_file_paths, Mapping):
-        # Refused rather than probed: on a list or a str, ``in`` and indexing
-        # either raised TypeError or matched by accident.
-        raise TypeError(f"'file_paths' must be a mapping, got {type(main_file_paths).__name__}")
-    if sub_dir in main_file_paths:
-        sub_dir_path = _as_path(main_file_paths[sub_dir], f"file_paths.{sub_dir}")
-        logger.debug(f"Found {sub_dir} in file_paths: {sub_dir_path}")
-    else:
-        sub_dir_path = Path(sub_dir)
-        logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
-
-    if project_root:
-        project_root_path = _as_path(project_root, "project_root")
-
-        if host_path:
-            logger.debug(f"Forcing host path resolution for: {sub_dir}")
-            path = project_root_path / agent_data_root / sub_dir_path
-        else:
-            if not project_root_path.exists():
-                # A configured root written on the host does not exist inside a
-                # container. ``CONFIG_FILE`` names the config this process
-                # actually loaded, so its directory IS the project root here —
-                # a fact rather than the guess at a container layout this used
-                # to make.
-                config_file = os.environ.get("CONFIG_FILE")
-                anchor = Path(config_file).parent if config_file else None
-                if anchor is not None and anchor.exists():
-                    logger.debug(
-                        f"Configured project root {project_root} is absent; anchoring on "
-                        f"CONFIG_FILE's directory {anchor}"
-                    )
-                    path = anchor / agent_data_root / sub_dir_path
-                else:
-                    logger.warning(f"Configured project root does not exist: {project_root}")
-                    logger.warning("Falling back to relative path resolution")
-                    path = Path(agent_data_root) / sub_dir_path
-                    path = path.resolve()
-            else:
-                path = project_root_path / agent_data_root / sub_dir_path
-    else:
-        logger.warning("No project root configured, using relative path for agent data directory")
-        path = Path(agent_data_root) / sub_dir_path
-        path = path.resolve()
-
-    return str(path)
-
-
-def get_config_value(path: str, default: object = None, config_path: str | None = None) -> object:
-    """
-    Get a specific configuration value by dot-separated path.
-
-    This function provides context-aware access to configuration values,
-    working both inside and outside framework execution contexts. Optionally,
-    an explicit configuration file path can be provided.
-
-    Args:
-        path: Dot-separated configuration path (e.g., "execution.timeout")
-        default: Default value to return if path is not found
-        config_path: Optional explicit path to configuration file
-
-    Returns:
-        The configuration value at the specified path, or default if not found.
-        It is typed ``object`` because the YAML decides its shape: a caller
-        checks for the shape it needs before using it.
-
-    Raises:
-        ValueError: If path is empty or None
-
-    Examples:
-        >>> timeout = get_config_value("execution.timeout", 30)
-        >>> debug_mode = get_config_value("development.debug", False)
-
-        >>> # With explicit config path
-        >>> timeout = get_config_value("execution.timeout", 30, "/path/to/config.yml")
-    """
-    if not path:
-        raise ValueError("Configuration path cannot be empty or None")
-
-    configurable = get_configurable(config_path)
-
-    keys = path.split(".")
-    value: object = configurable
-
-    for key in keys:
-        if isinstance(value, dict) and key in value:
-            value = value[key]
-        else:
-            config = _get_config(config_path)
-            return config.get(path, default)
-
-    return value
-
-
-_tz_drift_warned = False
-_tz_fallback_warned = False
-
-
-def get_facility_timezone() -> "ZoneInfo":
-    """Get the facility timezone from config as a ZoneInfo object.
-
-    This is the safe default resolver for every simulation synthesis primitive
-    and timestamp render site, so it must never raise: an unloaded config (no
-    ``config.yml`` and no ``CONFIG_FILE``) or a misconfigured/typo'd zone name
-    degrades to UTC with a logged warning rather than propagating to callers.
-
-    The fallback warns **once per process**, not once per call. Synthesis calls
-    this per channel per chunk — thousands of times to seed one archive — and a
-    failed load is never cached (only a successful one is), so the fallback is
-    re-taken on every one of them. Repeating the multi-line "no config.yml
-    found" remedy that often buries every other line of the deploy and makes a
-    seed that is working normally read as a hung terminal. Once is deliberate
-    rather than none: a process resolving the wrong config still has to be
-    diagnosable from its own log.
-
-    Returns:
-        ZoneInfo for the configured facility timezone, defaulting to UTC.
-    """
-    global _tz_fallback_warned
-    from zoneinfo import ZoneInfo
-
-    try:
-        tz_name: object = get_config_value("facility_timezone", "UTC")
-        if not isinstance(tz_name, str):
-            # The TypeError ZoneInfo raises for a key that is not a string, named;
-            # it degrades to UTC below like every other failure.
-            raise TypeError(f"facility_timezone must be a string, got {type(tz_name).__name__}")
-        zone = ZoneInfo(tz_name)
-    except Exception as exc:  # any failure must degrade to UTC, not raise
-        if not _tz_fallback_warned:
-            _tz_fallback_warned = True
-            logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
-        return ZoneInfo("UTC")
-
-    _warn_on_tz_drift(tz_name)
-    return zone
-
-
-@overload
-def localize_facility(dt: "datetime") -> "datetime": ...
-
-
-@overload
-def localize_facility(dt: None) -> None: ...
-
-
-def localize_facility(dt: "datetime | None") -> "datetime | None":
-    """Read a naive datetime as facility-local wall-clock; pass an aware one through.
-
-    A naive datetime is stamped with the facility zone -- never the box ``$TZ``,
-    which ``astimezone`` would silently impose. :func:`get_facility_timezone`
-    degrades to UTC when the zone is unset or unreadable.
-
-    Args:
-        dt: A datetime in either state, or ``None``.
-
-    Returns:
-        The same instant, timezone-aware, or ``None`` for ``None`` input.
-    """
-    if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=get_facility_timezone())
-    return dt
+    zone = config.system.timezone
+    if not config._zone_reported:
+        config._zone_reported = True
+        if zone.source == "fallback":
+            logger.warning(f"Falling back to UTC facility timezone ({zone.problem})")
+        elif zone.source == "configured":
+            _warn_on_tz_drift(zone.name)
+    return zone.zone
 
 
 def _warn_on_tz_drift(tz_name: str) -> None:
-    """Warn once if the container ``$TZ`` disagrees with an explicit system.timezone.
+    """Warn if the container ``$TZ`` disagrees with an explicit ``system.timezone``.
 
-    Agent-facing timestamps key off ``system.timezone``, not ``$TZ``, so a
-    divergence only mis-stamps OS-level container logs — but it signals a
-    misconfigured deploy (container clock != agent zone). We surface it as a
-    one-time warning rather than enforcing equality: ``system.timezone`` stays the
-    single source of truth, and this check never changes the returned value or
-    raises. Skips the implicit-UTC default (config absent) so CI/tests with
-    ``$TZ`` set but no configured ``system.timezone`` stay quiet.
+    ``system.timezone`` stays the single source of truth: this never changes
+    the zone read and never raises.
     """
-    global _tz_drift_warned
-    if _tz_drift_warned:
-        return
     host_tz = os.environ.get("TZ")
     if not host_tz or host_tz == tz_name:
         return
-    # Only meaningful when system.timezone was explicitly configured (the alias
-    # default would otherwise make every $TZ-set environment look divergent).
-    if get_config_value("system.timezone", None) is None:
-        return
-    _tz_drift_warned = True
     logger.warning(
         f"Container $TZ={host_tz!r} differs from the facility system.timezone={tz_name!r}; "
         f"OS-level log timestamps will differ from agent-reported times. Set both to "
@@ -1465,44 +1009,35 @@ def _warn_on_tz_drift(tz_name: str) -> None:
     )
 
 
-def get_full_configuration(config_path: str | None = None) -> dict[str, object]:
-    """
-    Get the complete configuration dictionary.
+@overload
+def localize_facility(dt: datetime, tz: ZoneInfo) -> datetime: ...
 
-    This function provides access to the entire configurable dictionary,
-    working both inside and outside framework execution contexts. Optionally,
-    an explicit configuration file path can be provided.
 
-    When an explicit config_path is provided, it is also set as the default
-    configuration so that subsequent config access without explicit path will
-    use this configuration.
+@overload
+def localize_facility(dt: None, tz: ZoneInfo) -> None: ...
+
+
+def localize_facility(dt: datetime | None, tz: ZoneInfo) -> datetime | None:
+    """Read a naive datetime as wall-clock in *tz*; pass an aware one through.
+
+    A naive datetime is stamped with the facility zone the caller names
+    (normally :func:`facility_timezone`'s) -- never the box ``$TZ``, which
+    ``astimezone`` would silently impose.
 
     Args:
-        config_path: Optional explicit path to configuration file. If provided,
-                    loads configuration from this path and sets it as the default.
+        dt: A datetime in either state, or ``None``.
+        tz: The facility zone.
 
     Returns:
-        Complete configuration dictionary with all configurable values
-
-    Examples:
-        >>> # Default configuration (backward compatible)
-        >>> config = get_full_configuration()
-        >>> project_root = config.get("project_root")
-        >>> models = config.get("model_configs", {})
-
-        >>> # Explicit configuration path (also becomes default)
-        >>> config = get_full_configuration("/path/to/my-config.yml")
-        >>> models = config.get("model_configs", {})
-        >>> # Subsequent calls without path use this config
-        >>> other_value = get_config_value("some.setting")
+        The same instant, timezone-aware, or ``None`` for ``None`` input.
     """
-    set_as_default = config_path is not None
-    return get_configurable(config_path, set_as_default=set_as_default)
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=tz)
+    return dt
 
 
-# No eager _get_config() here, deliberately. Building the default config at
-# import time loaded `.env` into os.environ as a side effect of importing any
-# osprey module (osprey/utils/__init__.py imports this one), which is the
-# behaviour the module docstring rules out. The first real get_config_value()
-# call builds it instead; entry points that need `.env` in the environment
-# load it themselves.
+# No eager load here, deliberately. Building the default config at import time
+# loaded `.env` into os.environ as a side effect of importing any osprey module
+# (osprey/utils/__init__.py imports this one), which is the behaviour the
+# module docstring rules out. The first current_config() call builds it
+# instead; entry points that need `.env` in the environment load it themselves.

@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import connector_types
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     DOOCS,
     EPICS,
@@ -71,34 +72,36 @@ ROWS = [
 
 @pytest.mark.parametrize(("section", "serving", "transport", "ca", "network"), ROWS)
 def test_the_venue_decides_the_wire(section, serving, transport, ca, network):
-    assert resolve_serving(section) == serving
-    assert connector_transport(section) == transport
-    assert speaks_channel_access(section) is ca
-    assert talks_to_network(section) is network
+    assert resolve_serving(ControlSystemSection.read(section)) == serving
+    assert connector_transport(ControlSystemSection.read(section)) == transport
+    assert speaks_channel_access(ControlSystemSection.read(section)) is ca
+    assert talks_to_network(ControlSystemSection.read(section)) is network
 
 
 def test_an_unknown_serving_value_is_refused():
     with pytest.raises(ValueError, match=r"serving.*'served'.*'in_process'"):
-        resolve_serving(_va("container"))
+        resolve_serving(ControlSystemSection.read(_va("container")))
 
 
 def test_the_type_argument_overrides_the_section_type():
     """A target's type, not the section's own, picks the row."""
     section = {"type": EPICS, "connector": {VIRTUAL_ACCELERATOR: {}}}
-    assert connector_transport(section, VIRTUAL_ACCELERATOR) == TRANSPORT_CA
+    assert (
+        connector_transport(ControlSystemSection.read(section), VIRTUAL_ACCELERATOR) == TRANSPORT_CA
+    )
 
 
 @pytest.mark.parametrize(
     "section", [None, {}, _va(IN_PROCESS)], ids=["no-type", "empty", "va-in-process"]
 )
 def test_the_in_process_simulator_baselines_on_va(section):
-    assert baseline_target(section) == TARGET_VA
+    assert baseline_target(ControlSystemSection.read(section)) == TARGET_VA
 
 
 def test_in_process_simulator_beside_a_live_block_is_switchable():
     section = _va(IN_PROCESS, epics={"gateways": {"read_only": {"address": "gw", "port": 5064}}})
-    assert switch_capable(section) is True
-    assert resolve_target(section, TARGET_LIVE) == EPICS
+    assert switch_capable(ControlSystemSection.read(section)) is True
+    assert resolve_target(ControlSystemSection.read(section), TARGET_LIVE) == EPICS
 
 
 def test_retired_message_names_the_new_spelling():
@@ -148,7 +151,9 @@ def builtin_connectors():
 def test_factory_builds_the_venue_the_leaf_names(config, class_name, transport):
     from osprey_connectors.factory import ConnectorFactory
 
-    connector, context = ConnectorFactory.build_control_system_connector(config)
+    connector, context = ConnectorFactory.build_control_system_connector(
+        ControlSystemSection.read(config)
+    )
 
     assert type(connector).__name__ == class_name
     assert context.transport == transport
@@ -160,7 +165,7 @@ def test_factory_refuses_mock_with_the_new_spelling():
     from osprey_connectors.factory import ConnectorFactory
 
     with pytest.raises(ValueError) as caught:
-        ConnectorFactory.build_control_system_connector({"type": "mock"})
+        ConnectorFactory.build_control_system_connector(ControlSystemSection.read({"type": "mock"}))
 
     assert str(caught.value) == connector_types.retired_type_message("mock")
 

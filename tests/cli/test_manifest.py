@@ -25,7 +25,7 @@ from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey_connectors.config import (
     _RUNTIME_STATE_DIR,
     _RUNTIME_WRITE_PATH_KEYS,
-    ConfigBuilder,
+    load_config,
 )
 from osprey_connectors.config import (
     _runtime_write_paths_under_data as find_runtime_write_paths_under_data,
@@ -142,7 +142,7 @@ class TestRuntimeWritePathValidation:
         )
 
         with caplog.at_level("WARNING", logger="CONFIG"):
-            ConfigBuilder(str(project / "config.yml"), load_env=False)
+            load_config(project / "config.yml")
 
         assert "simulation.state_dir" in caplog.text
         # The advisory names the durable state zone to point at — pinned through
@@ -162,7 +162,7 @@ class TestRuntimeWritePathValidation:
         )
 
         with caplog.at_level("WARNING", logger="CONFIG"):
-            ConfigBuilder(str(project / "config.yml"), load_env=False)
+            load_config(project / "config.yml")
 
         assert "state_dir" not in caplog.text
 

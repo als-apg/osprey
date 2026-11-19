@@ -28,11 +28,11 @@ OWN_STORE = {
     },
     "va_archiver": {
         "retention_days": 30,
-        "hot_span_hours": 48,
-        "hot_cadence_sec": 10,
-        "tail_cadence_sec": 60,
-        "recorder_cadence_sec": 10,
-        "recorder_tail_cadence_sec": 60,
+        "hot_span_h": 48,
+        "hot_cadence_s": 10,
+        "tail_cadence_s": 60,
+        "recorder_cadence_s": 10,
+        "recorder_tail_cadence_s": 60,
     },
 }
 
@@ -43,6 +43,7 @@ APPLIANCE = {
 
 
 def test_the_own_stores_configuration_is_its_type_and_shape_never_a_login() -> None:
+    """The served knob names are the directory API's own, kept as served."""
     shown = archive.deployed_configuration(OWN_STORE, "va")
 
     assert shown == {
@@ -76,7 +77,7 @@ def test_the_own_store_on_another_target_shows_no_knobs() -> None:
 
 
 def test_the_newest_sample_bound_follows_the_recorders_cadence() -> None:
-    slow = {**OWN_STORE, "va_archiver": {**OWN_STORE["va_archiver"], "recorder_cadence_sec": 30}}
+    slow = {**OWN_STORE, "va_archiver": {**OWN_STORE["va_archiver"], "recorder_cadence_s": 30}}
 
     assert archive.freshness_bound_s(OWN_STORE) == 60
     assert archive.freshness_bound_s(slow) == 90

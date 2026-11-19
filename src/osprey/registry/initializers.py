@@ -18,12 +18,12 @@ import importlib
 from typing import Any
 
 from osprey.errors import RegistryError
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig
 
-logger = get_logger(name="registry.init", color="sky_blue2")
+logger = get_logger("registry.init")
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,7 @@ def _get_configured_provider_names() -> set[str] | None:
     Returns ``None`` if config is unavailable (load all as fallback).
     """
     try:
-        model_configs = get_config_value("models", None)
+        model_configs = current_config().get("models", None)
         if not model_configs or not isinstance(model_configs, dict):
             return None
         providers = set()

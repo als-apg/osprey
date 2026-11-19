@@ -704,8 +704,13 @@ built like the others from a ``BackendSpec`` by ``create_service``.
    must be updated.
 
 Subclass :class:`~osprey_connectors.archiver.ChannelArchive` and implement
-``history`` and ``coverage``. Read your settings in ``__init__`` and raise there
-for a block you refuse; open whatever client you need on the first call. Every
+``history`` and ``coverage``. Declare the keys your archive reads as a subclass
+of :class:`~osprey_connectors.config_sections.ConnectorSettings` and name it in
+the class's ``settings_model``: the constructor reads ``spec.settings`` into it
+as ``self.settings``, and a validator that raises a
+:class:`~osprey_connectors.errors.ConfigurationError` refuses the block there,
+in its own words. An archive that declares none reads its keys from
+``self.settings.model_extra``. Open whatever client you need on the first call. Every
 method answers its value or ``Unavailable`` (its ``cause`` says why: unreachable,
 timeout, a bad reply, refused, misconfigured) and raises only for the caller's
 own arguments: :class:`~osprey_connectors.errors.ArchiveQueryError` (a

@@ -29,7 +29,7 @@ from osprey.interfaces.channel_finder.directory_values_ipc import (
 from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE
 from osprey_connectors import control_context
 
-_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey.utils.config_paths.loaded_or_empty"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
 _ROUTE = "/api/directory/values"
 

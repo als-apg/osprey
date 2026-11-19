@@ -13,8 +13,9 @@ means letters, digits, ``_`` and ``-``: no dot segment, no percent escape and no
 query can walk a prefix somewhere else.
 
 Every failure is a value, because backends never raise. That covers a connection
-block that cannot be used: ``read_connection_settings`` and ``urllib_opener`` raise
-for it, and the reason they give names the key to fix. A malformed block is
+block that cannot be used: :class:`HttpServiceSettings` keeps the reason
+``read_connection_settings`` gives for it, ``urllib_opener`` raises for it, and
+the reason names the key to fix. A malformed block is
 refused earlier, by the build's validation, for the author; this is what a
 deployment reads if one reaches a running process anyway.
 
@@ -47,6 +48,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from email.message import Message
 from typing import IO, NoReturn, Protocol
 
+from pydantic import ValidationInfo, model_validator
+
+from osprey_connectors.config_sections import ConnectorSettings, Unreadable, settings_key
 from osprey_connectors.connection import (
     ConnectionSettings,
     read_connection_settings,
@@ -126,6 +130,33 @@ class _RefuseRedirects(urllib.request.BaseHandler):
     http_error_307 = http_error_308 = _refuse
 
 
+class HttpServiceSettings(ConnectorSettings):
+    """A read-only HTTP service's block, read: its connection, or why it cannot be used.
+
+    Reading it never refuses the connection block: a block that breaks the
+    shape is kept as :class:`~osprey_connectors.config_sections.Unreadable`,
+    whose ``problem`` is the reason
+    :func:`~osprey_connectors.connection.read_connection_settings` gives, and
+    every request through it answers ``misconfigured`` with that reason. The
+    block's key is the one it is read under.
+    """
+
+    connection: ConnectionSettings | Unreadable
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read(cls, data: object, info: ValidationInfo[object]) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        where = settings_key(info) or "settings"
+        connection: ConnectionSettings | Unreadable
+        try:
+            connection = read_connection_settings(data, where=where)
+        except ValueError as e:
+            connection = Unreadable(key=where, raw=None, problem=str(e))
+        return {**data, "connection": connection}
+
+
 class ReadOnlyTransport:
     """Send a backend's allowed requests; answer parsed JSON or :class:`Unavailable`.
 
@@ -134,14 +165,14 @@ class ReadOnlyTransport:
     the CA file and the login's variable are read on the first request.
 
     Args:
-        settings: The connection block; only ``url``, ``timeout_s``, ``auth`` and
-            ``tls`` are read, so a backend passes ``spec.settings`` whole.
+        connection: The block's connection
+            (:attr:`HttpServiceSettings.connection`): read, or why it cannot be
+            used. Its key is named in every reason about the block.
         allowed: The backend's ``ALLOWED_REQUESTS``, as (method, path) pairs.
-        where: The block's dotted key, named in every reason about the block.
     """
 
     def __init__(
-        self, settings: Mapping[str, object], allowed: Iterable[tuple[str, str]], *, where: str
+        self, connection: ConnectionSettings | Unreadable, allowed: Iterable[tuple[str, str]]
     ) -> None:
         self._exact: set[tuple[str, str]] = set()
         self._prefixes: list[tuple[str, str]] = []
@@ -150,14 +181,15 @@ class ReadOnlyTransport:
                 self._prefixes.append((method, path[: -len(_PREFIX_MARK)] + "/"))
             else:
                 self._exact.add((method, path))
-        self._where = where
         self._opener: urllib.request.OpenerDirector | None = None
         self._connection: ConnectionSettings | None = None
         self._block_reason = ""
-        try:
-            self._connection = read_connection_settings(settings, where=where)
-        except ValueError as e:
-            self._block_reason = str(e)
+        if isinstance(connection, Unreadable):
+            self._where = connection.key
+            self._block_reason = connection.problem or connection.key
+        else:
+            self._where = connection.where
+            self._connection = connection
 
     async def request(
         self,

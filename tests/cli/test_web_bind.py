@@ -32,6 +32,7 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import DEFAULT_PORT_BASE
+from osprey_connectors_tests._config_trees import serve_config, with_values
 from osprey_connectors_tests._harness._ports import bound_socket
 from tests.cli._lifecycle_build import stub_build
 
@@ -405,21 +406,16 @@ class TestBusyPortFallback:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
         return captured
 
-    def _fake_config(self, monkeypatch, **wt) -> None:
-        """Pin config `web_terminal.{host,port}` so the bound host is
-        deterministic (127.0.0.1) and matches ``_occupied_port``."""
+    def _fake_config(self, **wt) -> None:
+        """Serve the render's config with `web_terminal.{host,port}` set, so the
+        bound host is deterministic (127.0.0.1) and matches ``_occupied_port``."""
         wt.setdefault("host", "127.0.0.1")
-        monkeypatch.setattr(
-            "osprey.cli.web_cmd.get_config_value",
-            lambda key, default=None: (
-                wt if key == "web_terminal" else ({} if default is None else default)
-            ),
-        )
+        serve_config(with_values({"web_terminal": wt}))
 
     def test_unspecified_port_auto_moves_off_busy_default(self, runner, monkeypatch):
         captured = self._capture_run_web(monkeypatch)
         with _occupied_port() as busy:
-            self._fake_config(monkeypatch, port=busy)
+            self._fake_config(port=busy)
             result = runner.invoke(
                 web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False
             )
@@ -432,7 +428,7 @@ class TestBusyPortFallback:
     def test_explicit_port_flag_still_hard_fails(self, runner, monkeypatch):
         self._capture_run_web(monkeypatch)
         with _occupied_port() as busy:
-            self._fake_config(monkeypatch)
+            self._fake_config()
             result = runner.invoke(
                 web,
                 ["--port", str(busy), "--shell", "true", "--skip-preflight"],
@@ -447,7 +443,7 @@ class TestBusyPortFallback:
         move — a moved listener would desync nginx's per-user upstream."""
         self._capture_run_web(monkeypatch)
         with _occupied_port() as busy:
-            self._fake_config(monkeypatch)
+            self._fake_config()
             monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(busy))
             result = runner.invoke(
                 web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False
@@ -523,7 +519,7 @@ class TestCompanionProbeAttribution:
 
     def _render(self, lifecycle_repo, monkeypatch, artifact_port: int, *, roster: bool) -> int:
         """Stand this repo's render on the base under *artifact_port*; return the base."""
-        from osprey_connectors.workspace import reset_config_cache
+        from osprey_connectors.testing import clear_config_state
 
         base = artifact_port - self.ARTIFACT_OFFSET
         build = stub_build(
@@ -535,7 +531,7 @@ class TestCompanionProbeAttribution:
             ),
         )
         monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
-        reset_config_cache()
+        clear_config_state()
         return base
 
     @contextlib.contextmanager

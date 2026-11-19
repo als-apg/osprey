@@ -34,6 +34,8 @@ from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.enhancement.image_caption.module import caption_prompt_sha256
 from osprey.services.ariel_search.exceptions import DatabaseQueryError
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 # A minimal config dict accepted by ARIELConfig.from_dict.
 _DB = {"database": {"uri": "postgresql://localhost/test"}}
@@ -610,7 +612,7 @@ class TestStatusTextAttachments:
         from osprey.cli.ariel import ariel_group
 
         _patch_service(monkeypatch, _StubService(repository=repo))
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_DB))
+        serve_config(config_of({"ariel": _DB}))
         result = CliRunner().invoke(ariel_group, ["status"])
         assert result.exit_code == 0, result.output
         return result.output
@@ -1767,13 +1769,20 @@ class TestStatusTextModuleHealth:
 
         _patch_service(monkeypatch, _StubService(repository=_status_repo()))
         _patch_modules(monkeypatch, {n: _HealthModule(n, v) for n, v in verdicts.items()})
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: (
-                config
-                if key == "ariel"
-                else ("http://user:secret@gpu:8080/x?k=1" if key.endswith("base_url") else default)
-            ),
+        # Every provider these cases name serves at a URL carrying credentials,
+        # so a line that prints it shows whether it was redacted.
+        url = "http://user:secret@gpu:8080/x?k=1"
+        serve_config(
+            config_of(
+                {
+                    "ariel": config,
+                    "api": {
+                        "providers": {
+                            name: {"base_url": url} for name in ("ollama", "llama-cpp", "cborg")
+                        }
+                    },
+                }
+            )
         )
         result = CliRunner().invoke(ariel_group, ["status"])
         assert result.exit_code == 0, result.output
@@ -2328,9 +2337,7 @@ class TestStatusTextCoverage:
 
         _patch_service(monkeypatch, _StubService(repository=_legacy_status_repo()))
         _patch_legacy_health(monkeypatch)
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_LEGACY_CONFIG)
-        )
+        serve_config(config_of({"ariel": _LEGACY_CONFIG}))
 
         result = CliRunner().invoke(ariel_group, ["status"])
 

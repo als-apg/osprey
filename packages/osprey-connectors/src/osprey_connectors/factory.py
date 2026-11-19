@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, TypeGuard, TypeVar, get_args
 
 from osprey_connectors import connector_types
+from osprey_connectors.config_sections import ControlSystemSection, Unreadable
 from osprey_connectors.connector_types import BUILTIN_CONNECTORS
 from osprey_connectors.control_system._base import (
     ConnectorContext,
@@ -295,7 +296,7 @@ class ConnectorFactory:
     @classmethod
     def build_control_system_connector(
         cls,
-        config: Mapping[str, object] | None = None,
+        config: ControlSystemSection | None = None,
         *,
         control_target: str | None = None,
         readonly_wording: ReadonlyWording = "script",
@@ -304,9 +305,10 @@ class ConnectorFactory:
         Build a control system connector and the context it connects with, without connecting.
 
         Args:
-            config: Control system configuration dict, or None to read the
-                ``control_system`` section of the config this process loads
-                (see :func:`osprey_connectors.config.get_config_value`). Its
+            config: The ``control_system`` section, read
+                (:meth:`~osprey_connectors.config_sections.ControlSystemSection.read`),
+                or None to read the section of the config this process loads
+                (see :func:`osprey_connectors.config.current_config`). Its
                 keys:
 
                 - type: Connector type (e.g., 'epics', 'virtual_accelerator').
@@ -329,7 +331,8 @@ class ConnectorFactory:
             ``(connector, context)`` — the *unconnected* connector, and the
             :class:`~osprey_connectors.control_system.ConnectorContext` its
             ``connect()`` takes: the type it was built as, the target, the wire
-            and the type's own block. A caller may connect with a context
+            and the type's own block, read into the connector class's
+            ``settings_model``. A caller may connect with a context
             changed by :func:`~osprey_connectors.model.evolve`; the limits
             validator and the write verdict are still read from the loaded
             config, never from the context.
@@ -337,8 +340,10 @@ class ConnectorFactory:
         Raises:
             ConfigurationError: If connector type is unknown or config is invalid: a
                 dotted type that names no ``ControlSystemConnector`` subclass,
-                or a section, ``connector`` block or type block that is not a
-                mapping.
+                a section, ``connector`` block or type block that is not a
+                mapping (or a type block with a key that is not a string), or
+                a type block its ``settings_model`` refuses; ``key`` names the
+                key at fault.
             FileNotFoundError: If ``config`` is None and no config is found.
                 The error names where it looked; nothing is built in its place.
 
@@ -350,9 +355,13 @@ class ConnectorFactory:
         # caller's answer, not an empty section: the unset-type fallback below is
         # for a config that was read and names no type.
         if config is None:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            config = _mapping_section(get_config_value("control_system", {}), "control_system")
+            loaded = current_config()
+            # The section was read at load, which refuses nothing; a section that
+            # is not a mapping is refused here, where it always was.
+            _mapping_section(loaded.get("control_system", {}), "control_system")
+            config = loaded.control_system
 
         # Fail closed: an under-specified config must never bring up a live
         # control system. A blank value is treated as absent for the same
@@ -360,7 +369,7 @@ class ConnectorFactory:
         # that anything deciding what this call WILL build — the honesty rule's
         # three refusals above all — resolves it identically.
         connector_type = connector_types.resolve_control_system_type(config)
-        if not config.get("type"):
+        if config.type is None:
             logger.warning(connector_types.UNSET_TYPE_WARNING)
 
         cls._ensure_builtins()
@@ -399,16 +408,26 @@ class ConnectorFactory:
                 )
 
         # Get type-specific configuration
-        connector_configs = _mapping_section(
-            config.get("connector", {}), "control_system.connector"
-        )
-        type_config = connector_configs.get(connector_type, {})
-        if not isinstance(type_config, dict):
+        if isinstance(config.connectors, Unreadable):
             raise ConfigurationError(
-                f"'control_system.connector.{connector_type}' must be a mapping, "
-                f"got {type(type_config).__name__}",
-                key=f"control_system.connector.{connector_type}",
+                "'control_system.connector' must be a mapping, got "
+                f"{type(config.connectors.raw).__name__}",
+                key="control_system.connector",
             )
+        block = config.block(connector_type)
+        block_key = f"control_system.connector.{connector_type}"
+        if isinstance(block, Unreadable):
+            raise ConfigurationError(
+                f"'{block_key}' must be a mapping, got {type(block.raw).__name__}", key=block_key
+            )
+        if block is not None and block.unreadable_keys:
+            raise ConfigurationError(
+                f"'{block_key}' has keys that are not strings: {', '.join(block.unreadable_keys)}",
+                key=block_key,
+            )
+        settings = connector_class.settings_model.from_block(
+            {} if block is None else block.settings, key=block_key
+        )
 
         # The write posture and the limits posture are both per connector type,
         # and the session half of the posture per target: the type selects the
@@ -420,7 +439,7 @@ class ConnectorFactory:
             connector_type=connector_type,
             control_target=control_target,
             transport=connector_types.connector_transport(config, connector_type),
-            settings=type_config,
+            settings=settings,
             readonly_wording=readonly_wording,
         )
         logger.debug(f"Built control system connector: {connector_type}")
@@ -429,7 +448,7 @@ class ConnectorFactory:
     @classmethod
     async def create_control_system_connector(
         cls,
-        config: Mapping[str, object] | None = None,
+        config: ControlSystemSection | None = None,
         *,
         control_target: str | None = None,
         readonly_wording: ReadonlyWording = "script",
@@ -442,7 +461,7 @@ class ConnectorFactory:
         step short, for a caller that changes the context before ``connect()``.
 
         Args:
-            config: Control system configuration dict, as
+            config: The ``control_system`` section, read, as
                 :meth:`build_control_system_connector` documents it.
             control_target: The control target this connector is being built
                 for, as :meth:`build_control_system_connector` documents it.
@@ -457,7 +476,7 @@ class ConnectorFactory:
             ConnectionError: If connection fails
 
         Example:
-            >>> config = {
+            >>> config = ControlSystemSection.read({
             >>>     'type': 'epics',
             >>>     'connector': {
             >>>         'epics': {
@@ -465,7 +484,7 @@ class ConnectorFactory:
             >>>             'gateways': {'read_only': {...}}
             >>>         }
             >>>     }
-            >>> }
+            >>> })
             >>> connector = await ConnectorFactory.create_control_system_connector(config)
         """
         connector, context = cls.build_control_system_connector(

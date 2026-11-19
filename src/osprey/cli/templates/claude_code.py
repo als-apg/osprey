@@ -76,7 +76,7 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     The web terminal stores a file the operator attaches under
     ``<agent-data root>/uploads`` and hands the agent its absolute path, with the
     root anchored on the repo root the config's ``project_root`` names
-    (:func:`osprey_connectors.workspace.resolve_shared_data_root`). settings.json
+    (:func:`osprey.utils.config_paths.process_agent_data_root`). settings.json
     allows the agent to read exactly that directory, so the rule has to name the
     directory the stored paths are under, and a rule relative to the render would
     not: the agent runs in ``build/``, the uploads sit beside it.
@@ -127,20 +127,24 @@ def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
     config naming no root anchors on the repo this render sits in, so a render in
     ``build/`` still names the root beside it.
     """
-    from osprey_connectors.workspace import (
-        agent_data_base_dir,
-        anchored_path,
-        dotted_config_str,
-        repo_root_for_config,
-    )
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
-    configured = dotted_config_str(config, "project_root")
-    anchor = (
-        Path(configured).expanduser()
-        if configured
-        else repo_root_for_config(project_dir.absolute() / "config.yml")
-    )
-    return anchored_path(agent_data_base_dir(config), anchor).resolve()
+    return anchored_path(
+        agent_data_base_dir(config), _render_repo_root(config, project_dir)
+    ).resolve()
+
+
+def _render_repo_root(config: Mapping[str, Any], project_dir: Path) -> Path:
+    """The repo root the render at *project_dir* names: its ``project_root``, else its repo.
+
+    A ``project_root`` that is not a non-empty string names no root.
+    """
+    from osprey_connectors.workspace import repo_root_for_config
+
+    configured = config.get("project_root")
+    if isinstance(configured, str) and configured:
+        return Path(configured).expanduser()
+    return repo_root_for_config(project_dir.absolute() / "config.yml")
 
 
 def _spellable(path: str) -> str:
@@ -203,15 +207,7 @@ def watchdog_deny(config: dict, project_dir: Path) -> list[str]:
     """
     if not watchdogs_enabled(config):
         return []
-    from osprey_connectors.workspace import dotted_config_str, repo_root_for_config
-
-    configured = dotted_config_str(config, "project_root")
-    repo_root = (
-        Path(configured).expanduser()
-        if configured
-        else repo_root_for_config(project_dir.absolute() / "config.yml")
-    )
-    holds = _spellable(str(session_hold_dir(repo_root).resolve()))
+    holds = _spellable(str(session_hold_dir(_render_repo_root(config, project_dir)).resolve()))
     return ["Edit(/watchdogs/**)", "Edit(watchdogs/**)", f"Edit(/{holds}/**)"]
 
 
@@ -449,6 +445,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     )
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import connector_transport
     from osprey_connectors.workspace import agent_data_base_dir
 
@@ -503,7 +500,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
         # The wire it speaks, so a rule about a protocol library is rendered
         # only where that protocol is spoken.
-        "control_system_transport": connector_transport(control_system),
+        "control_system_transport": connector_transport(ControlSystemSection.read(control_system)),
         # Whether this deployment renders the target switch, for the
         # switch-aware half of the control-system safety rule.
         "target_switch_enabled": _renders_the_target_switch(control_system),
@@ -1008,9 +1005,10 @@ def _renders_the_target_switch(control_system: dict) -> bool:
     those have defaults and can be present in a deployment with nowhere to
     switch to, while a connector block cannot be defaulted into existence.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import switch_capable
 
-    return switch_capable(control_system)
+    return switch_capable(ControlSystemSection.read(control_system))
 
 
 def _policy_unit_of(tool: str, units: dict[str, tuple[str, frozenset[str]]]) -> list[str]:
@@ -1349,6 +1347,7 @@ def build_claude_code_context(
         rule_carries_both_write_hooks,
         rule_carries_writes_check,
     )
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     control_system = config.get("control_system", {}) or {}
@@ -1358,7 +1357,7 @@ def build_claude_code_context(
     # same reason the kill switch is — the tier is not settled there.
     _lint_write_gates_are_selected(ctx, control_system)
 
-    writes_tier = tier_writes(control_system)
+    writes_tier = tier_writes(ControlSystemSection.read(control_system))
     never = writes_tier == "never"
     # Read by `_lint_write_tools_are_gated`: on an arming render a lifted shell
     # is refused, not warned about (PR-12).
@@ -2085,11 +2084,12 @@ def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
         BuildProfileError: Naming each unselected gate and what it was meant
             to guard.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_allows, tier_writes
 
     selection = set(ctx.get("selected_hooks") or [])
 
-    if not tier_allows(control_system):
+    if not tier_allows(ControlSystemSection.read(control_system)):
         if "writes-check" in selection:
             return
         guarded: list[str] = []
@@ -2122,7 +2122,7 @@ def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
         return
     raise BuildProfileError(
         f"This deployment allows writes (`control_system.writes: "
-        f"{tier_writes(control_system)}`), and these write gates are not installed:\n  "
+        f"{tier_writes(ControlSystemSection.read(control_system))}`), and these write gates are not installed:\n  "
         + "\n  ".join(
             f"the {name!r} hook guards the {server!r} server's write tools but is not in "
             f"the profile's `hooks:` list"
@@ -2715,6 +2715,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
             "build_cmd._profile_setup_patch_capable about the floor."
         )
 
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_allows
 
     deny = _rendered_deny_list(ctx)
@@ -2724,7 +2725,11 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     for tool in WRITE_CAPABLE_BUILTINS:
         if tool in deny:
             continue
-        if tool in SHELL_TOOLS and tool in remove_deny and tier_allows({"writes": tier}):
+        if (
+            tool in SHELL_TOOLS
+            and tool in remove_deny
+            and tier_allows(ControlSystemSection.read({"writes": tier}))
+        ):
             render = ctx.get("project_name") or "this render"
             raise BuildProfileError(
                 f"Render {render!r} has tier control_system.writes: {tier} and its "

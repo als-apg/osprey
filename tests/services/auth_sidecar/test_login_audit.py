@@ -227,7 +227,7 @@ class TestWhereARecordLands:
         def _explode(*args: Any, **kwargs: Any) -> Path:
             raise AssertionError("the sidecar must not resolve a project root")
 
-        monkeypatch.setattr("osprey_connectors.workspace.resolve_project_root", _explode)
+        monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", _explode)
         with _password_client() as client:
             assert _login(client).status_code == 303
         assert len(zone.records()) == 1
@@ -249,7 +249,7 @@ class TestWhereARecordLands:
             raise RuntimeError("no project root in this image")
 
         monkeypatch.delenv(SPOOL_DIR_ENV, raising=False)
-        monkeypatch.setattr("osprey_connectors.workspace.resolve_project_root", _no_root)
+        monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", _no_root)
         with (
             caplog.at_level(logging.INFO, logger=audit.logger.name),
             _password_client() as client,

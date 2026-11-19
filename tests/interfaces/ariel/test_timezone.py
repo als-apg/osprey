@@ -26,9 +26,9 @@ _NO_ROWS = {"attachment_rows": None, "model_id": None, "file_source": False}
 
 @pytest.fixture()
 def facility_tokyo(monkeypatch):
-    # to_facility_iso resolves the zone via the config module's get_facility_timezone;
+    # to_facility_iso resolves the zone via the config module's facility_timezone;
     # patch it there so both the web and MCP call sites see the same facility zone.
-    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: TOKYO)
+    monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda: TOKYO)
 
 
 def _entry() -> dict:

@@ -81,7 +81,13 @@ class ChannelArchive(_Backend, ABC):
     """The archived history of the channels of one control target.
 
     Example:
-        >>> table = service_targets(config)
+        >>> cfg = current_config()
+        >>> table = service_targets(
+        >>>     cfg.pv_directory,
+        >>>     cfg.archiver,
+        >>>     simulator_port=virtual_accelerator_port(cfg.raw_tree()),
+        >>>     built_simulator=has_simulator(cfg.raw_tree()),
+        >>> )
         >>> archive = await ConnectorFactory.create_service(table.archive["live"])
         >>> try:
         >>>     frame = await archive.history(

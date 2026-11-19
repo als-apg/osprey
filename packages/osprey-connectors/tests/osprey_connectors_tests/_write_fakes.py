@@ -1,6 +1,6 @@
 """Shared fakes for the write-path and write-posture tests.
 
-One recording connector, one config-reader shape, one mocked ``EPICSConnector``
+One recording connector, one served config, one mocked ``EPICSConnector``
 builder and one way to arm writes, so the files that pin the write guard do not
 each carry their own byte-equivalent copy.
 
@@ -11,13 +11,13 @@ writes to, and the login's switch turned on for that machine in its record.
 :data:`ARMED_SECTION` is the first, :func:`arm_switch` the other two.
 """
 
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 from osprey_connectors import control_context, testing
+from osprey_connectors.config import LoadedConfig
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
@@ -26,6 +26,7 @@ from osprey_connectors.control_system._base import (
     SendReport,
 )
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,
@@ -41,30 +42,14 @@ ARMED_SECTION: dict[str, Any] = {"writes": "allowed"}
 ARMED_TARGET = TARGET_VA
 
 
-def writes_enabled_config(key: str, default: Any = None) -> Any:
-    """``get_config_value`` stand-in: a write tier that allows, all else defaulted.
+def serve_writes_enabled() -> LoadedConfig:
+    """Serve :data:`ARMED_SECTION` as the process config's ``control_system`` section.
 
-    Serves :data:`ARMED_SECTION` as the ``control_system`` section. The tier
-    alone arms nothing: the write also needs its machine's switch on
+    For the rest of the test (see :func:`osprey_connectors_tests._config_trees.serve_config`).
+    The tier alone arms nothing: the write also needs its machine's switch on
     (:func:`arm_switch`).
     """
-    if key == "control_system":
-        return dict(ARMED_SECTION)
-    return default
-
-
-def config_reader(section: dict[str, Any]) -> Callable[..., Any]:
-    """A ``get_config_value`` stand-in serving one ``control_system:`` section.
-
-    Answers the whole section, which the write verdict reads its tier from.
-    """
-
-    def _get(key: str, default: Any = None) -> Any:
-        if key == "control_system":
-            return section
-        return default
-
-    return _get
+    return serve_control_system(ARMED_SECTION)
 
 
 def armed_context(**fields: Any) -> ConnectorContext:
@@ -97,9 +82,8 @@ def arm_switch(
     connects with :func:`armed_context` does too. A test about the unstamped
     connector passes ``stamp=False``.
 
-    The tier is not set here: serve a section that allows writes
-    (:data:`ARMED_SECTION`, :func:`writes_enabled_config`) through
-    ``get_config_value``.
+    The tier is not set here: serve a section that allows writes as the process
+    config (:func:`serve_writes_enabled`, which serves :data:`ARMED_SECTION`).
 
     Returns:
         The record's path, or ``None`` when no record was written.

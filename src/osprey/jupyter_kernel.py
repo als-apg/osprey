@@ -523,6 +523,7 @@ def _hint_for(value: BaseException) -> str | None:
     from osprey.mcp_server.python_executor import executor
     from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
     from osprey_connectors import write_switch
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.errors import ChannelWriteBlockedError, ClientLibraryRefusedError
     from osprey_connectors.targets import baseline_target
 
@@ -538,10 +539,10 @@ def _hint_for(value: BaseException) -> str | None:
     target = (os.environ.get(executor.ENV_CONTROL_TARGET) or "").strip() or None
     if target is None:
         try:
-            target = baseline_target(section)
+            target = baseline_target(ControlSystemSection.read(section))
         except Exception:  # no baseline to name: the verdict answers target_unknown
             target = None
-    reason = write_switch.write_verdict(section, target).reason
+    reason = write_switch.write_verdict(ControlSystemSection.read(section), target).reason
     return HINT_WRITES_OFF if reason in _WRITES_OFF_REASONS else None
 
 

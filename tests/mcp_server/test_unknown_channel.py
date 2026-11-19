@@ -21,7 +21,7 @@ from osprey.mcp_server.control_system.server_context import initialize_server_co
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.write_target import KIND_BANNERS
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server.conftest import (
@@ -48,7 +48,8 @@ async def served(tmp_path, monkeypatch):
 
     The login's switch is on for the simulator and the connector is stamped with it
     (:func:`arm_switch`); with a write tier that allows, the reference monitor lets the
-    write through to the simulator, which answers for the unknown address.
+    write through to the simulator, which answers for the unknown address. The
+    tier is the ``config.yml`` this fixture writes, which every reader loads.
     """
     monkeypatch.chdir(tmp_path)
     arm_switch(monkeypatch, tmp_path / "armed-data")
@@ -60,7 +61,6 @@ async def served(tmp_path, monkeypatch):
     }
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     initialize_server_context()
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
     connector = VAInProcessConnector()
     await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))

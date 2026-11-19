@@ -12,6 +12,8 @@ import math
 import pytest
 
 from osprey.interfaces.artifacts import app as artifacts_app
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 
 def _write_artifact(store, workspace_root, payload, filename, title):
@@ -501,28 +503,26 @@ class TestTheTimeseriesSizeCapIsAConfigKey:
     reader is what decides how far a value gets.
     """
 
-    def test_default_when_no_config_is_primed(self, monkeypatch):
+    def test_default_when_no_config_is_primed(self, monkeypatch, tmp_path):
         """A standalone gallery reads no config and still has a bound."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no config")),
-        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
 
         assert (
             artifacts_app._max_timeseries_file_bytes()
             == artifacts_app.DEFAULT_MAX_TIMESERIES_FILE_MB * 1024 * 1024
         )
 
-    def test_configured_value_is_read_in_megabytes(self, monkeypatch):
+    def test_configured_value_is_read_in_megabytes(self):
         """The key is authored in MB; the handler compares bytes."""
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", lambda *a, **k: 500)
+        serve_config(config_of({"artifact_server": {"max_timeseries_file_mb": 500}}))
 
         assert artifacts_app._max_timeseries_file_bytes() == 500 * 1024 * 1024
 
     @pytest.mark.parametrize("bad", [0, -1, True, "500", None])
-    def test_an_unusable_value_falls_back_to_the_default(self, monkeypatch, bad):
+    def test_an_unusable_value_falls_back_to_the_default(self, bad):
         """A nonsense cap keeps the documented bound rather than removing it."""
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", lambda *a, **k: bad)
+        serve_config(config_of({"artifact_server": {"max_timeseries_file_mb": bad}}))
 
         assert (
             artifacts_app._max_timeseries_file_bytes()

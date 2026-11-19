@@ -3372,9 +3372,9 @@ ARCHIVER_CONFIG = {
     "services": {"mongodb": {"compression": "zstd", "port_host": 27017}},
     "va_archiver": {
         "retention_days": 1,
-        "hot_span_hours": 1,
-        "hot_cadence_sec": 10,
-        "tail_cadence_sec": 60,
+        "hot_span_h": 1,
+        "hot_cadence_s": 10,
+        "tail_cadence_s": 60,
     },
     "archiver": {
         "mongodb_archiver": {
@@ -4178,11 +4178,11 @@ def _load_the_entry_point_chain(monkeypatch, repo: Path) -> None:
     because what is being measured IS that this step is what makes the shared
     half visible downstream.
     """
-    import osprey_connectors.config as config
+    import osprey_connectors.dotenv as dotenv_module
 
-    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setattr(dotenv_module, "_shell_overrides", {})
     monkeypatch.chdir(repo)
-    config.load_project_dotenv()
+    dotenv_module.load_project_dotenv()
 
 
 class _StoreRuntime:
@@ -5004,9 +5004,9 @@ def test_down_targets_the_recorded_project_after_a_rename(monkeypatch, tmp_path)
     from osprey.deployment.deployment_record import DeploymentRecord
 
     repo = _recorded_web_repo(tmp_path, DeploymentRecord("docker", "project-a"))
-    built = container_lifecycle.load_project_config(
-        str(container_lifecycle.as_built_config_path(repo))
-    )
+    built = container_lifecycle.load_config(
+        container_lifecycle.as_built_config_path(repo)
+    ).raw_tree()
     assert resolve_project_name(built) != "project-a"
     runs, _ = _host_whose_setting_says_docker(monkeypatch)
 

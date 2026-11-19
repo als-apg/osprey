@@ -42,11 +42,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.health.models import CheckResult, Status
 from osprey.health.offload import run_sync
 from osprey.models.provider_registry import get_provider_registry
-from osprey_connectors.config import (
-    get_config_value,
-    is_unresolved_placeholder,
-    resolve_env_vars,
-)
+from osprey_connectors.config import current_config, is_unresolved_placeholder, resolve_env_vars
 
 if TYPE_CHECKING:
     from osprey.health.probes import ProbeContext
@@ -84,7 +80,7 @@ def _provider_block(provider_name: str, config: Mapping[str, Any] | None) -> Map
     ``ctx.config``, e.g. the web surface) is authoritative when present — the
     global config singleton is never consulted in that case, keeping a
     config-driven run free of process-default side effects; otherwise the block
-    falls back to the global singleton via :func:`get_config_value` (the
+    falls back to the process config (:func:`~osprey_connectors.config.current_config`; the
     CLI/standalone path).
 
     Any failure to load config (no ``config.yml``, unparseable YAML) is
@@ -97,7 +93,7 @@ def _provider_block(provider_name: str, config: Mapping[str, Any] | None) -> Map
             block = block.get(key) if isinstance(block, Mapping) else None
         return block if isinstance(block, Mapping) else {}
     try:
-        block = get_config_value(f"api.providers.{provider_name}", {})
+        block = current_config().get(f"api.providers.{provider_name}", {})
     except Exception:  # config unavailability degrades to no block
         return {}
     return block if isinstance(block, Mapping) else {}

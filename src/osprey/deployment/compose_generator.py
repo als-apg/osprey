@@ -86,7 +86,7 @@ from osprey.port_layout import layout_ports, resolve_port_base
 # the container and every refusal that names the key back to the operator all
 # read it from there.
 from osprey_connectors import dotenv, yaml_loader
-from osprey_connectors.config import ConfigBuilder, load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
@@ -1052,6 +1052,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         not a string (a mode other than ``optional``), or names a file that is
         not on this host
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
     from osprey_connectors.limits_posture import tier_limits_database_targets
     from osprey_connectors.write_tier import WRITES_KEY, tier_writes
@@ -1068,14 +1069,16 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         config_path=str(Path(config_dir) / "config.yml"),
     )
     limits_required = bool(
-        tier_limits_database_targets(control_system, path_configured=resolved is not None)
+        tier_limits_database_targets(
+            ControlSystemSection.read(control_system), path_configured=resolved is not None
+        )
     )
 
     if resolved is None:
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
-                    f"The login tier arms writes ({WRITES_KEY}: {tier_writes(control_system)}) AND "
+                    f"The login tier arms writes ({WRITES_KEY}: {tier_writes(ControlSystemSection.read(control_system))}) AND "
                     f"at least one control target has limits_checking.enabled "
                     f"on in a mode other than optional, so the "
                     f"channel-limits database is mounted into the services that "
@@ -1125,7 +1128,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
-                    f"The login tier arms writes ({WRITES_KEY}: {tier_writes(control_system)}) AND "
+                    f"The login tier arms writes ({WRITES_KEY}: {tier_writes(ControlSystemSection.read(control_system))}) AND "
                     f"at least one control target has limits_checking.enabled "
                     f"on, so the "
                     f"channel-limits database is mounted into the services that "
@@ -2054,9 +2057,10 @@ def drives_target_write_posture(services, control_system):
         the ``drives_target`` role (:func:`service_role`)
     :rtype: dict[str, bool]
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_allows
 
-    armed = tier_allows(control_system)
+    armed = tier_allows(ControlSystemSection.read(control_system))
     config = {"services": services}
     return {
         key: armed
@@ -2569,9 +2573,10 @@ def _drives_target_stop_grace_period(control_system):
     :raises ValueError: The connector block's ``timeout_s`` is not a duration
     """
     from osprey_connectors.call_timeout import call_timeout_s
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import resolve_control_system_type
 
-    connector_type = resolve_control_system_type(control_system)
+    connector_type = resolve_control_system_type(ControlSystemSection.read(control_system))
     timeout_s = call_timeout_s(_connector_block(control_system, connector_type), connector_type)
     return f"{math.ceil(timeout_s) + 10}s"
 
@@ -2599,12 +2604,13 @@ def _ca_name_servers(config):
     :return: The address, or ``None`` when none can be derived
     :rtype: str or None
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import DEFAULT_VA_PORT, TARGET_STANDIN, TARGET_VA
     from osprey_connectors.gateways import derive_endpoints
     from osprey_connectors.targets import baseline_target
 
     section = config.get("control_system")
-    target = baseline_target(section)
+    target = baseline_target(ControlSystemSection.read(section))
     instance = {TARGET_VA: "virtual_accelerator", TARGET_STANDIN: "live_standin"}.get(target)
     if instance is not None:
         if instance not in (config.get("deployed_services") or []):
@@ -2637,15 +2643,18 @@ def _drives_target_ca_env(config, key, block):
     :raises DeploymentPreconditionError: The container is on the bridge against
         a Channel Access target and no name server can be derived
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import speaks_channel_access
     from osprey_connectors.write_tier import tier_allows
 
-    if block.get("network") == "host" or not speaks_channel_access(config.get("control_system")):
+    if block.get("network") == "host" or not speaks_channel_access(
+        ControlSystemSection.read(config.get("control_system"))
+    ):
         return None
     name_servers = _ca_name_servers(config)
     if name_servers is None:
         section = config.get("control_system")
-        role = "write_access" if tier_allows(section) else "read_only"
+        role = "write_access" if tier_allows(ControlSystemSection.read(section)) else "read_only"
         app = block.get("app")
         if app:
             # A projected container: ``services.<key>`` is the projection's, so the
@@ -5453,6 +5462,7 @@ def simulated_target_configured(config):
     :return: Whether any configured target is simulated
     :rtype: bool
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import (
         SIMULATED_TYPES,
         STANDIN_TYPES,
@@ -5464,12 +5474,15 @@ def simulated_target_configured(config):
 
     section = config.get("control_system") if isinstance(config, Mapping) else None
     try:
-        own_type = resolve_control_system_type(section)
+        own_type = resolve_control_system_type(ControlSystemSection.read(section))
     except (TypeError, ValueError):
         own_type = None
     if own_type in (*SIMULATED_TYPES, *STANDIN_TYPES):
         return True
-    return any(target_configured(section, target) for target in (TARGET_VA, TARGET_STANDIN))
+    return any(
+        target_configured(ControlSystemSection.read(section), target)
+        for target in (TARGET_VA, TARGET_STANDIN)
+    )
 
 
 def ensure_simulator_log_dirs(repo_root, relative_to=None):
@@ -5548,6 +5561,7 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
         be provisioned or the platform reports none
     :rtype: int | None
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import configured_targets
 
     section = config.get("control_system") if isinstance(config, Mapping) else None
@@ -5559,7 +5573,7 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
         "consequence": "A guarded run may be unable to take its lock.",
     }
     gid = _ensure_group_shared_dir(root, **provision)
-    for target in configured_targets(section):
+    for target in configured_targets(ControlSystemSection.read(section)):
         _ensure_group_shared_dir(root / target, **provision)
     return gid
 
@@ -5652,7 +5666,8 @@ def _ensure_agent_data_structure(config):
     directories. The root comes from ``agent_data.base_dir`` — ``var/agent_data``
     under the repo root unless a profile moved it; each subdirectory below
     is created only when ``file_paths`` declares its name, so the created structure
-    matches what :func:`osprey_connectors.config.get_agent_dir` resolves at runtime. The
+    matches what the runtime resolves under the loaded config's
+    :attr:`~osprey_connectors.config.LoadedConfig.agent_data_root`. The
     scenario state directory is the one addition outside ``file_paths``, created only
     for a Virtual Accelerator deployment — the one compose service that mounts it.
     The control-context tree is the other: its root, its marker and one directory
@@ -6139,12 +6154,13 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
         return False
 
     from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import talks_to_network
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
     view_path = f"data/{BLUESKY_DEVICES_FILE}"
 
-    if not talks_to_network(config.get("control_system")):
+    if not talks_to_network(ControlSystemSection.read(config.get("control_system"))):
         _discard_staged_devices(staged_path)
         _report_fact("bluesky plans browse-only: the simulator in process serves no Channel Access")
         return False
@@ -6415,7 +6431,7 @@ def setup_build_dir(
 
     .. seealso::
        :func:`render_template` : Template rendering used by this function
-       :class:`configs.config.ConfigBuilder` : Configuration flattening
+       :func:`osprey_connectors.config.load_config` : Configuration flattening
     """
     # Create the build directory for this service
     source_dir = os.path.relpath(os.path.dirname(template_path), os.getcwd())
@@ -6604,9 +6620,8 @@ def setup_build_dir(
             # The container will expand ${VAR} placeholders at runtime from environment variables
             try:
                 with quiet_logger(["registry", "CONFIG"]):
-                    global_config = ConfigBuilder()
                     # Preserves ${VAR} placeholders - secrets not written to disk
-                    flattened_config = global_config.get_unexpanded_config()
+                    flattened_config = load_config().unexpanded_tree()
 
                 # Adjust paths for container environment
                 # In containers, src/ is copied to repo_src/, so config paths must be updated
@@ -7093,7 +7108,7 @@ def prepare_compose_files(
     if dev_mode:
         preflight_dev_mode()
 
-    config = load_project_config(config_path, wrap_errors=True)
+    config = load_config(config_path).raw_tree()
 
     # Where the config sits, and where the config this render produces will be
     # READ from. Both are recorded before the ``build_dir`` override below,

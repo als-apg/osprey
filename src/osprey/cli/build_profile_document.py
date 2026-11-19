@@ -29,6 +29,7 @@ import yaml
 from osprey.errors import BuildProfileError
 from osprey.utils.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 from osprey_connectors import yaml_loader
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import resolve_control_system_type
 from osprey_connectors.targets import (
     baseline_target,
@@ -512,7 +513,7 @@ def _retired_target_armed(section: Any, target: Any) -> bool:
     that does not resolve has no type, and answers the flat leaf.
     """
     try:
-        connector_type = resolve_target(section, target)
+        connector_type = resolve_target(ControlSystemSection.read(section), target)
     except ValueError:
         return _retired_flat_armed(section)
     return _retired_type_armed(section, connector_type)
@@ -524,12 +525,15 @@ def _retired_session_posture(section: Any) -> dict[str, bool]:
     Every configured target when the deployment renders the switch, else the
     one built connector type under its baseline target.
     """
-    if switch_capable(section):
+    if switch_capable(ControlSystemSection.read(section)):
         return {
-            target: _retired_target_armed(section, target) for target in configured_targets(section)
+            target: _retired_target_armed(section, target)
+            for target in configured_targets(ControlSystemSection.read(section))
         }
-    built = resolve_control_system_type(section)
-    return {baseline_target(section): _retired_type_armed(section, built)}
+    built = resolve_control_system_type(ControlSystemSection.read(section))
+    return {
+        baseline_target(ControlSystemSection.read(section)): _retired_type_armed(section, built)
+    }
 
 
 def _retired_tier(section: Any) -> str:

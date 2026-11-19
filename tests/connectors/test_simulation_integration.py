@@ -7,14 +7,18 @@ no rows for an address the view does not hold.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import pytest
 
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.service_answers import BackendSpec
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
+from osprey_connectors_tests._config_trees import control_system_config, installed
+from osprey_connectors_tests._write_fakes import (
+    ARMED_SECTION,
+    arm_switch,
+    armed_context,
+)
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: The test rig's channels, in the facility schema's own spelling.
@@ -38,7 +42,7 @@ RIG = {
 def _switch_on(monkeypatch, tmp_path):
     """The login's switch on for the simulator target, connectors stamped with it.
 
-    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    With :func:`serve_writes_enabled` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
     """
@@ -61,7 +65,7 @@ class TestVAInProcessConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_read_engine_channel(self, view):
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with installed(control_system_config({})):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -79,7 +83,7 @@ class TestVAInProcessConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_string_channel_passes_through(self, view):
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with installed(control_system_config({})):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -93,10 +97,7 @@ class TestVAInProcessConnectorSimulation:
     @pytest.mark.asyncio
     async def test_write_is_echoed_into_the_paired_readback(self, view):
         connector = VAInProcessConnector()
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=writes_enabled_config,
-        ):
+        with installed(control_system_config(ARMED_SECTION)):
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
             )
@@ -109,7 +110,7 @@ class TestVAInProcessConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_get_metadata_from_the_channel_record(self, view):
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with installed(control_system_config({})):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))

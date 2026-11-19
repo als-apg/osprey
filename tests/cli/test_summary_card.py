@@ -34,6 +34,7 @@ from osprey.cli.phase_reporter import (
 )
 from osprey.cli.styles import osprey_theme
 from osprey.cli.summary_card import format_summary_card, owns_summary_card, print_summary_card
+from osprey_connectors.testing import config_of
 from tests._simulator_view import write_scenarios_view
 from tests.cli._reporters import ConsoleReporter, installed
 
@@ -507,7 +508,7 @@ def deploy_stubs(monkeypatch, repo: Path):
     )
     monkeypatch.setattr(deploy_cmd, "gate_start_from_build", lambda *a, **k: None)
     monkeypatch.setattr(deploy_cmd, "ensure_repo_env", lambda *a, **k: None)
-    monkeypatch.setattr(deploy_cmd, "load_project_config", lambda *a, **k: {})
+    monkeypatch.setattr(deploy_cmd, "load_config", lambda *a, **k: config_of({}))
     monkeypatch.setattr(
         container_lifecycle, "as_built_config_path", lambda root: repo / "build" / "config.yml"
     )

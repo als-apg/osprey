@@ -77,9 +77,9 @@ def _resolve_path(path_str: str) -> Path:
     if path.is_absolute():
         return path
     try:
-        from osprey_connectors.workspace import resolve_path
+        from osprey_connectors.config import current_config
 
-        return resolve_path(path_str)
+        return current_config().repo_path(path_str)
     except Exception:
         return Path.cwd() / path
 
@@ -866,9 +866,9 @@ def preview_database(
             console.print(f"[error]\u2717 Error loading database from {db_path}: {e}[/error]")
             return
     else:
-        from osprey_connectors.config import load_config as get_config
+        from osprey_connectors.config import current_config
 
-        config = get_config()
+        config = current_config().raw_tree()
         pipeline_type, detected = detect_pipeline_config(config)
 
         if pipeline_type == "graph":

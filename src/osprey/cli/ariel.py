@@ -17,8 +17,7 @@ from typing import TYPE_CHECKING, NoReturn
 
 import click
 
-# Import get_config_value at module level for easier patching in tests
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 
 from . import output
 from .retired import retired_web_command
@@ -61,7 +60,7 @@ def _emit_json_document(payload: object) -> None:
 
 def _load_ariel_config() -> dict:
     """Load ARIEL config dict, raising SystemExit if missing."""
-    config_dict = get_config_value("ariel", {})
+    config_dict = current_config().get("ariel", {})
     if not isinstance(config_dict, dict) or not config_dict:
         output.fail(
             "ARIEL is not configured in config.yml",
@@ -78,7 +77,7 @@ def _ariel_section() -> dict[str, object]:
     Unset or empty reads as ``{}``. A section that is set but is not a mapping
     exits, naming the key, rather than reaching the command as some other shape.
     """
-    section = get_config_value("ariel", {})
+    section = current_config().get("ariel", {})
     if not section:
         return {}
     if isinstance(section, dict):
@@ -109,10 +108,10 @@ def _config_dir() -> Path | None:
         which case the shared resolver falls back to its own rule.
     """
     from osprey.utils.config_paths import resolve_config_dir
-    from osprey_connectors.config import default_config_path
+    from osprey_connectors.config import active_config
 
-    loaded = default_config_path()
-    return Path(loaded).parent if loaded else resolve_config_dir()
+    loaded = active_config()
+    return loaded.path.parent if loaded is not None else resolve_config_dir()
 
 
 def _report_vocabulary(vocabulary: dict | None) -> None:
@@ -320,7 +319,7 @@ def _module_route(config_dict: dict, name: str) -> tuple[str, str | None, str | 
         model_id = first.get("name") if isinstance(first, dict) else None
     if not base_url and provider:
         try:
-            base_url = get_config_value(f"api.providers.{provider}.base_url", None)
+            base_url = current_config().get(f"api.providers.{provider}.base_url", None)
         except Exception:
             base_url = None
     return str(provider or "its provider"), model_id, _redacted_base_url(base_url)
@@ -613,13 +612,13 @@ def _anchor_project_config(ctx: click.Context) -> None:
     to find, nothing is anchored: a verb that needs none (``vocab-check PATH``,
     ``--help``) still runs, and one that needs one reports it missing.
     """
-    from osprey_connectors.config import config_anchored_at
+    from osprey.utils.config_paths import deployment_config
 
     from .project_utils import resolve_config_path
 
     config_path = Path(resolve_config_path())
     if config_path.is_file():
-        ctx.with_resource(config_anchored_at(config_path))
+        ctx.with_resource(deployment_config(config_path))
 
 
 class _ArielGroup(click.Group):
@@ -912,7 +911,7 @@ def _backfill_project_config() -> dict:
     found: dict = {}
     for key in keys:
         try:
-            value = get_config_value(key, None)
+            value = current_config().get(key, None)
         except Exception:
             value = None
         if isinstance(value, (str, Path)) and str(value):

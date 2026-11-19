@@ -24,8 +24,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig, freshness_max_age_s
-from osprey.services.pv_directory._connectors import service_targets
+from osprey.services.pv_directory import _connectors
 from osprey_connectors.archiver_selection import resolve_archiver_type
+from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.connector_types import MONGODB_ARCHIVER, TARGET_VA
 from osprey_connectors.simulation.archive import SeedKnobs
 from osprey_connectors.targets import configured_targets
@@ -39,7 +40,7 @@ __all__ = [
 ]
 
 #: The recorder knob the configuration shows beside the seed's.
-_RECORDER_CADENCE = "recorder_cadence_sec"
+_RECORDER_CADENCE = "recorder_cadence_s"
 
 
 def history_targets(config: Mapping[str, Any]) -> frozenset[str]:
@@ -48,18 +49,17 @@ def history_targets(config: Mapping[str, Any]) -> frozenset[str]:
     The archive row of the connectors' ``service_targets``, without the mock;
     none on a connectors release without the PV directory modules.
     """
-    if service_targets is None:
+    if not _connectors.DIRECTORY_CONNECTORS_AVAILABLE:
         return frozenset()
-    held: frozenset[str] = service_targets(config).history_targets()
+    held: frozenset[str] = _connectors.service_table(config).history_targets()
     return held
 
 
 def own_store(config: Mapping[str, Any], target: str) -> bool:
     """Whether *target*'s archive is the deployment's own store (the VA's recorder)."""
-    archiver = config.get("archiver")
     return (
         target == TARGET_VA
-        and resolve_archiver_type(archiver) == MONGODB_ARCHIVER
+        and resolve_archiver_type(ArchiverSection.read(config.get("archiver"))) == MONGODB_ARCHIVER
         and target in history_targets(config)
     )
 
@@ -71,7 +71,9 @@ def deployed_configuration(config: Mapping[str, Any], target: str) -> dict[str, 
     ``va_archiver`` knobs the seed and the recorder read. Nothing that says
     where the store is or how to log in.
     """
-    shown: dict[str, Any] = {"archiver": {"type": resolve_archiver_type(config.get("archiver"))}}
+    shown: dict[str, Any] = {
+        "archiver": {"type": resolve_archiver_type(ArchiverSection.read(config.get("archiver")))}
+    }
     if not own_store(config, target):
         return shown
     knobs = _knobs(config)
@@ -89,7 +91,7 @@ def freshness_bound_s(config: Mapping[str, Any]) -> int | None:
     knobs = _knobs(config)
     if knobs is None:
         return None
-    return freshness_max_age_s(VAArchiverConfig(recorder_cadence_sec=knobs[_RECORDER_CADENCE]))
+    return freshness_max_age_s(VAArchiverConfig(recorder_cadence_s=knobs["recorder_cadence_sec"]))
 
 
 def served_targets(config: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -97,12 +99,16 @@ def served_targets(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     served = history_targets(config)
     return [
         {"target": target, "archive": target in served}
-        for target in configured_targets(config.get("control_system"))
+        for target in configured_targets(ControlSystemSection.read(config.get("control_system")))
     ]
 
 
 def _knobs(config: Mapping[str, Any]) -> dict[str, int] | None:
-    """The store's shape as rendered: the seed's knobs and the recorder's cadence."""
+    """The store's shape as rendered: the seed's knobs and the recorder's cadence.
+
+    Keyed by the names the directory API serves, which predate the rendered
+    keys' ``_h``/``_s`` spelling and stay as served.
+    """
     try:
         seed = SeedKnobs.from_config(config)
     except ValueError:
@@ -111,12 +117,12 @@ def _knobs(config: Mapping[str, Any]) -> dict[str, int] | None:
     rendered = block if isinstance(block, Mapping) else {}
     knobs = {
         "retention_days": seed.retention_days,
-        "hot_span_hours": seed.hot_span_hours,
-        "hot_cadence_sec": seed.hot_cadence_sec,
-        "tail_cadence_sec": seed.tail_cadence_sec,
+        "hot_span_hours": seed.hot_span_h,
+        "hot_cadence_sec": seed.hot_cadence_s,
+        "tail_cadence_sec": seed.tail_cadence_s,
     }
-    cadence = rendered.get(_RECORDER_CADENCE, VAArchiverConfig.recorder_cadence_sec)
+    cadence = rendered.get(_RECORDER_CADENCE, VAArchiverConfig.recorder_cadence_s)
     if isinstance(cadence, bool) or not isinstance(cadence, int) or cadence < 1:
         return None
-    knobs[_RECORDER_CADENCE] = cadence
+    knobs["recorder_cadence_sec"] = cadence
     return knobs

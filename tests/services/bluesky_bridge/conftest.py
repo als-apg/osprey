@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.validation_record import validation_records
+from osprey_connectors_tests._config_trees import serve_control_system
 from tests._control_system import section_for
 from tests.services.bluesky_bridge._bridge_state import reset_bridge_state
 
@@ -55,28 +56,24 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def connector(monkeypatch: pytest.MonkeyPatch) -> Callable[[str | Exception], None]:
     """Set (or break) the ``control_system.type`` the bridge resolves.
 
-    Both `_resolve_connector_type` and the shared `_resolve_control_system_type`
-    it delegates to import `get_config_value` inside the function body, so
-    patching it at its home module covers both.
+    Served as the process config both `_resolve_connector_type` and the shared
+    `_resolve_control_system_type` it delegates to read; an exception stands
+    for a config that does not load, raised by `current_config` itself.
     """
 
     def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, default: Any = None) -> Any:
-            if isinstance(value, Exception):
-                raise value
-            # Only the control system is what this fixture is about. Every
-            # other key falls through to its default, because the bridge reads
-            # more than one (the lifespan's limits guard reads three) and
-            # answering all of them with the connector type would stage a
-            # nonsense config: a `writes_enabled` of "epics" is truthy.
-            section = section_for(value)
-            if key == "control_system.type":
-                return section["type"]
-            if key == "control_system":
-                return section
-            return default
+        if isinstance(value, Exception):
 
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+            def unreadable() -> Any:
+                raise value
+
+            monkeypatch.setattr("osprey_connectors.config.current_config", unreadable)
+            return
+        # Only the control system is what this fixture is about: no other key is
+        # set, because the bridge reads more than one (the lifespan's limits
+        # guard reads three) and a config staged around the connector type alone
+        # would be a nonsense one.
+        serve_control_system(section_for(value))
 
     return _set
 

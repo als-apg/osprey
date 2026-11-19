@@ -373,9 +373,9 @@ def resolve_web_server_address(
     definition = FRAMEWORK_WEB_SERVERS[key]
 
     if config is None:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        config = load_osprey_config() or {}
+        config = loaded_or_empty() or {}
         if not config:
             logger.warning(
                 "No OSPREY config could be loaded, so %s falls back to the default port "

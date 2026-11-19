@@ -32,6 +32,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.set_cmd import set as set_cmd
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
@@ -184,7 +185,9 @@ class TestServingInProcessEngagesTheConnector:
         monkeypatch.chdir(served_in_process_repo)
         render_view = served_in_process_repo / "build" / "data" / "simulator"
         cs_config["connector"]["virtual_accelerator"].update(in_process_config(render_view))
-        connector = await ConnectorFactory.create_control_system_connector(cs_config)
+        connector = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(cs_config)
+        )
         try:
             assert isinstance(connector, VAInProcessConnector)
             assert connector._connected is True

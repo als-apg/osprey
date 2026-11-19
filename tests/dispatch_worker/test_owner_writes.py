@@ -29,6 +29,7 @@ from osprey_connectors.connector_types import TARGET_LIVE
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import (
     REFUSAL_BAN_LIST,
     VERDICT_ENV_VARS,
@@ -36,7 +37,7 @@ from osprey_connectors_tests._harness import (
     write_payload,
 )
 from osprey_connectors_tests._harness._write_verdict_cases import case_environment
-from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
+from osprey_connectors_tests._write_fakes import RecordingConnector
 
 __all__ = ["case_environment"]
 
@@ -57,9 +58,9 @@ def clean_environment(case_environment):
 
 
 @pytest.fixture(autouse=True)
-def deployment(monkeypatch):
-    """Serve :data:`SECTION` through ``get_config_value``."""
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(SECTION))
+def deployment():
+    """Serve :data:`SECTION` as the process config's ``control_system`` section."""
+    serve_control_system(SECTION)
 
 
 @pytest.fixture
@@ -222,7 +223,7 @@ async def _agent_env(monkeypatch, tmp_path, worker_env: dict[str, str], **kwargs
         "osprey.agent_runner.sdk_context.make_tool_allowlist",
         lambda tools, denied=(): lambda *a, **k: None,
     )
-    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda *a, **k: "UTC")
+    monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda *a, **k: "UTC")
     captured: dict = {}
 
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - stream_query signature

@@ -1825,7 +1825,7 @@ def test_agent_data_volume_mounts_where_the_container_resolves_its_agent_data_ro
     """The mount target is read from `agent_data.base_dir`, not spelled as a literal.
 
     The container resolves its own agent-data root from that key (see
-    ``workspace.resolve_agent_data_root``, anchored on the config's
+    ``LoadedConfig.agent_data_root``, anchored on the config's
     ``project_root`` — in-container, ``container_project_dir``). If the mount
     names a different path, the volume is mounted over an empty directory while
     memory, sessions and artifacts are written into the container's writable

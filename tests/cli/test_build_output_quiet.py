@@ -316,9 +316,7 @@ class TestLoggerArchiverSeedQuiet:
         """
         from osprey_connectors.simulation.archive import SeedKnobs, seed_base
 
-        knobs = SeedKnobs(
-            retention_days=1, hot_span_hours=1, hot_cadence_sec=600, tail_cadence_sec=3600
-        )
+        knobs = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=600, tail_cadence_s=3600)
         with caplog.at_level(logging.DEBUG):
             report = seed_base(
                 _StubCollection(),  # type: ignore[arg-type]

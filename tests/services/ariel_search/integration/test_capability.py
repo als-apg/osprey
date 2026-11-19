@@ -7,9 +7,10 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
+
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
@@ -62,9 +63,7 @@ class TestCapabilityIntegration:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service = await get_ariel_search_service()
 
         # Should be real service instance
@@ -84,9 +83,7 @@ class TestCapabilityIntegration:
             "database": {"uri": database_url},
         }
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service1 = await get_ariel_search_service()
             service2 = await get_ariel_search_service()
 
@@ -99,7 +96,7 @@ class TestCapabilityIntegration:
         from osprey.services.ariel_search import ConfigurationError
         from osprey.services.ariel_search.capability import get_ariel_search_service
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value={}):
+        with installed(config_of({})):
             with pytest.raises(ConfigurationError) as exc_info:
                 await get_ariel_search_service()
 
@@ -115,9 +112,7 @@ class TestCapabilityIntegration:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service1 = await get_ariel_search_service()
 
             # Close and reset (proper cleanup)
@@ -142,9 +137,7 @@ class TestCapabilityWithRealService:
             "database": {"uri": database_url},
         }
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service = await get_ariel_search_service()
 
         count = await service.repository.count_entries()
@@ -162,9 +155,7 @@ class TestCapabilityWithRealService:
             "database": {"uri": database_url},
         }
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service = await get_ariel_search_service()
 
         # Create and store entry
@@ -191,9 +182,7 @@ class TestCapabilityWithRealService:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service = await get_ariel_search_service()
 
         result = await service.search("test query")
@@ -225,9 +214,7 @@ class TestCapabilityConfig:
             },
         }
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service = await get_ariel_search_service()
 
         # Should have search modules enabled
@@ -243,9 +230,7 @@ class TestCapabilityConfig:
             "database": {"uri": database_url},
         }
 
-        with patch(
-            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
-        ):
+        with installed(config_of({"ariel": mock_config})):
             service = await get_ariel_search_service()
 
         # Should have service with default settings

@@ -85,11 +85,12 @@ async def target_model_statuses(
     Returns:
         Each model's status text, by model name.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.simulation.status import model_status, read_model_status
 
     connector = await ConnectorFactory.create_control_system_connector(
-        section, control_target=target
+        ControlSystemSection.read(section), control_target=target
     )
     try:
         if addresses is None:
@@ -115,8 +116,9 @@ async def read_in_child(
         target: The control target.
         models: The served physics models to report.
         addresses: Each model's status address.
-        config_path: The rendered config the child reads as ``CONFIG_FILE``,
-            which decides the port of a gateway that states none.
+        config_path: The rendered config the child reads, named to it as
+            ``OSPREY_CONFIG`` (and ``CONFIG_FILE``), which decides the port of
+            a gateway that states none.
         timeout_s: Seconds the child may take; it is killed after that.
 
     Returns:
@@ -128,7 +130,7 @@ async def read_in_child(
     """
     env = dict(os.environ)
     if config_path is not None:
-        env["CONFIG_FILE"] = str(config_path)
+        env["OSPREY_CONFIG"] = env["CONFIG_FILE"] = str(config_path)
     child = await asyncio.create_subprocess_exec(
         sys.executable,
         # Safe path: the cwd is the operator's, and code found there must not run.

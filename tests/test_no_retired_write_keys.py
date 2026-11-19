@@ -133,6 +133,12 @@ ALLOWED: dict[str, tuple[str, Scope]] = {
     "tests/cli/test_init_revalidate.py": ("migration test", None),
     "tests/cli/test_init_revalidate_write_keys.py": ("migration test", None),
     "tests/deployment/web_terminals/test_lint.py": ("migration test", None),
+    # The section-equivalence corpus: every control_system block the tree held
+    # at a4d8f67c62, retired keys included, compared as written.
+    "packages/osprey-connectors/tests/osprey_connectors_tests/fixtures/section_corpus.py": (
+        "section equivalence corpus",
+        None,
+    ),
     # A repo as the previous release left it.
     "tests/fixtures/previous_release_repo": ("previous release fixture", None),
     # The manifest's retired rows, and nothing else in it.

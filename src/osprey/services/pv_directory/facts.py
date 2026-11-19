@@ -743,7 +743,7 @@ def _caveats(backend: Any) -> list[str]:
     """The deployment's notes on *backend*'s source; none without a backend."""
     if backend is None:
         return []
-    return list(backend.spec.settings.get("caveats") or ())
+    return list(backend.spec.settings.model_dump().get("caveats") or ())
 
 
 def _config_section(backend: Any, record: Any) -> dict[str, Any]:

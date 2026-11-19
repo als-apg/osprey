@@ -10,11 +10,14 @@ import pytest
 
 from osprey_connectors.connection import (
     ConnectionSettings,
+    PasswordLogin,
+    TokenLogin,
     read_ca_bundle,
     read_connection_settings,
     read_credential_env_names,
     urllib_opener,
 )
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors_tests._loopback_https import Reply, loopback_pair
 
 WHERE = "archiver.settings"
@@ -46,22 +49,30 @@ def test_an_absent_block_reads_as_nothing_set(block):
 
 def test_a_token_login_names_its_variable():
     settings = _read({"auth": {"token_env": "OSPREY_ARCHIVER_TOKEN"}})
-    assert settings.login is not None
-    assert settings.login.kind == "token"
-    assert settings.login.token_env == "OSPREY_ARCHIVER_TOKEN"
-    assert settings.login.username is None
-    assert settings.login.password_env is None
+    assert settings.login == TokenLogin(token_env="OSPREY_ARCHIVER_TOKEN")
+    assert (settings.login.secret_key, settings.login.secret_env) == (
+        "token_env",
+        "OSPREY_ARCHIVER_TOKEN",
+    )
     assert settings.credential_env_names == ("OSPREY_ARCHIVER_TOKEN",)
 
 
 def test_a_password_login_names_user_and_variable():
     settings = _read({"auth": {"username": "reader", "password_env": "ARCHIVER_PASSWORD"}})
-    assert settings.login is not None
-    assert settings.login.kind == "password"
-    assert settings.login.username == "reader"
-    assert settings.login.password_env == "ARCHIVER_PASSWORD"
-    assert settings.login.token_env is None
+    assert settings.login == PasswordLogin(username="reader", password_env="ARCHIVER_PASSWORD")
+    assert (settings.login.secret_key, settings.login.secret_env) == (
+        "password_env",
+        "ARCHIVER_PASSWORD",
+    )
     assert settings.credential_env_names == ("ARCHIVER_PASSWORD",)
+
+
+@pytest.mark.parametrize("username", [" reader", "reader ", "\treader"])
+def test_a_password_login_username_with_space_around_it_is_refused(username):
+    """A login is validated, never normalised: " reader" is not taken for "reader"."""
+    with pytest.raises(ConfigurationError) as raised:
+        _read({"auth": {"username": username, "password_env": "ARCHIVER_PASSWORD"}})
+    assert raised.value.key == "archiver.settings.auth.username"
 
 
 def test_two_logins_are_refused():

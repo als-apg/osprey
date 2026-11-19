@@ -17,7 +17,13 @@ from osprey_connectors.control_system._limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
+from osprey_connectors_tests._config_trees import control_system_config, installed
+from osprey_connectors_tests._write_fakes import (
+    ARMED_SECTION,
+    arm_switch,
+    armed_context,
+    serve_writes_enabled,
+)
 from tests.facility.served_tree import in_process_config, served_tree
 
 A, B, STEPPED = "SIM:A:SP", "SIM:B:SP", "SIM:STEPPED:SP"
@@ -40,8 +46,8 @@ def _validator() -> LimitsValidator:
 
 
 @pytest.fixture
-async def simulator(monkeypatch, tmp_path):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+async def simulator(tmp_path):
+    serve_writes_enabled()
     connector = VAInProcessConnector()
     await connector.connect(
         armed_context(
@@ -127,7 +133,7 @@ class TestTangoBatch:
                 "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
                 return_value=None,
             ),
-            patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             from osprey_connectors.control_system._tango_connector import TangoConnector
 

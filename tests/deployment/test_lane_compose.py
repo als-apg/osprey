@@ -1388,10 +1388,9 @@ def test_one_template_serving_two_lanes_is_passed_to_compose_once() -> None:
 @pytest.fixture
 def rendered_config(monkeypatch: pytest.MonkeyPatch):
     """Patch the config the connection resolvers read, and return the setter."""
-    from osprey_connectors import workspace
 
     def _set(config: dict[str, Any]) -> None:
-        monkeypatch.setattr(workspace, "load_osprey_config", lambda *a, **kw: config)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **kw: config)
 
     _set({})
     return _set

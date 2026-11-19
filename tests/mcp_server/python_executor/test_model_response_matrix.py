@@ -194,7 +194,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     collects each execution folder handed out, and ``state["seed"]`` maps file
     names to text each new folder receives first.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     root = tmp_path / "deployment"
     (root / "var" / "agent_data").mkdir(parents=True)
@@ -210,7 +210,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root / "var" / "agent_data"))
-    reset_config_cache()
+    clear_config_state()
 
     state: dict[str, Any] = {"render": None, "folders": [], "seed": {}, "timeout": TIMEOUT_S}
 

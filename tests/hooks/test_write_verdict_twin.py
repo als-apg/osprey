@@ -41,6 +41,7 @@ from osprey_connectors import (
     write_switch,
     write_tier,
 )
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors_tests import _paths
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -104,7 +105,7 @@ def test_twin_and_package_agree_on_kind_and_position(case: Case, monkeypatch, tm
         case.section, case.target, **kwargs, **owner_argument(case, no_owner=reader.NO_OWNER)
     )
     package = write_switch.write_verdict(
-        case.section, case.target, **kwargs, **owner_argument(case)
+        ControlSystemSection.read(case.section), case.target, **kwargs, **owner_argument(case)
     )
 
     assert (twin.allowed, twin.reason, twin.target, twin.kind, twin.position) == (
@@ -121,7 +122,7 @@ def test_twin_and_package_agree_on_kind_and_position(case: Case, monkeypatch, tm
 
 def _both_verdicts(section, **kwargs):
     twin = reader.write_verdict(section, "live", **kwargs)
-    package = write_switch.write_verdict(section, "live", **kwargs)
+    package = write_switch.write_verdict(ControlSystemSection.read(section), "live", **kwargs)
     return (
         (twin.allowed, twin.reason, twin.position),
         (package.allowed, package.reason, package.position),
@@ -255,11 +256,13 @@ def test_the_routes_ceiling_is_the_verdicts_under_a_tree(
     _stage_tree_switch(monkeypatch, tmp_path, {"live": "allowed"})
     section = {"type": "epics", "writes": section_tier, "login_tiers": {"alice": map_tier}}
 
-    verdict = write_switch.write_verdict(section, "live", owner="alice")
+    verdict = write_switch.write_verdict(ControlSystemSection.read(section), "live", owner="alice")
 
     assert verdict.position == map_tier
     assert login_tier(section, "alice") == verdict.position
-    assert write_switch.write_ceiling(section, "alice") == verdict.position
+    assert (
+        write_switch.write_ceiling(ControlSystemSection.read(section), "alice") == verdict.position
+    )
 
 
 @pytest.mark.usefixtures("case_environment")
@@ -272,19 +275,22 @@ def test_the_routes_ceiling_is_the_verdicts_on_a_host(tmp_path, section_tier, ma
     login = acting_identity()
     section = {"type": "epics", "writes": section_tier, "login_tiers": {login: map_tier}}
 
-    verdict = write_switch.write_verdict(section, "live", owner=login)
+    verdict = write_switch.write_verdict(ControlSystemSection.read(section), "live", owner=login)
 
     assert verdict.position == section_tier
     assert login_tier(section, login) == verdict.position
-    assert write_switch.write_ceiling(section, login) == verdict.position
+    assert write_switch.write_ceiling(ControlSystemSection.read(section), login) == verdict.position
 
 
 def test_a_ceiling_under_a_tree_with_no_map_is_unknown(monkeypatch):
     monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
-    assert write_switch.write_ceiling({"writes": "allowed"}, "alice") == "unknown"
-    assert write_switch.write_ceiling({"writes": "allowed"}, "alice", tree_bound=False) == (
-        "allowed"
+    assert (
+        write_switch.write_ceiling(ControlSystemSection.read({"writes": "allowed"}), "alice")
+        == "unknown"
     )
+    assert write_switch.write_ceiling(
+        ControlSystemSection.read({"writes": "allowed"}), "alice", tree_bound=False
+    ) == ("allowed")
 
 
 @pytest.mark.usefixtures("case_environment")
@@ -351,14 +357,22 @@ def test_switch_position_reads_no_record_as_off_on_both_sides():
 def test_tier_readers_match_the_package(value):
     section = {"writes": value}
 
-    assert reader.tier_writes(section) == write_tier.tier_writes(section)
-    assert reader.tier_allows(section) is write_tier.tier_allows(section)
+    assert reader.tier_writes(section) == write_tier.tier_writes(ControlSystemSection.read(section))
+    assert reader.tier_allows(section) is write_tier.tier_allows(ControlSystemSection.read(section))
 
 
 @pytest.mark.parametrize("section", [None, "allowed", [], {}], ids=repr)
 def test_tier_readers_match_the_package_on_a_section_with_no_tier(section):
-    assert reader.tier_writes(section) == write_tier.tier_writes(section) == "never"
-    assert reader.tier_allows(section) is write_tier.tier_allows(section) is False
+    assert (
+        reader.tier_writes(section)
+        == write_tier.tier_writes(ControlSystemSection.read(section))
+        == "never"
+    )
+    assert (
+        reader.tier_allows(section)
+        is write_tier.tier_allows(ControlSystemSection.read(section))
+        is False
+    )
 
 
 @pytest.mark.usefixtures("case_environment")
@@ -382,7 +396,9 @@ def test_tier_readers_match_the_package_on_a_section_with_no_tier(section):
 def test_owner_tier_term_matches_the_package(login_tiers, owner):
     section = {"login_tiers": login_tiers}
 
-    assert reader.owner_tier_term(section, owner) == write_switch.owner_tier_term(section, owner)
+    assert reader.owner_tier_term(section, owner) == write_switch.owner_tier_term(
+        ControlSystemSection.read(section), owner
+    )
 
 
 def test_a_dispatch_run_resolves_no_owner_on_both_sides(monkeypatch, tmp_path):
@@ -601,7 +617,7 @@ def _open_flag() -> None:
 def _agree(section: object, target: object) -> tuple:
     """Both sides' whole answer, asserted equal; returned for a test to read."""
     twin = reader.execution_verdict(section, target)
-    package = write_switch.execution_verdict(section, target)
+    package = write_switch.execution_verdict(ControlSystemSection.read(section), target)
     assert (twin.allowed, twin.reason, twin.target, twin.kind) == (
         package.allowed,
         package.reason,
@@ -820,7 +836,7 @@ def test_twin_and_package_agree_on_every_row_while_held(case: Case, monkeypatch,
         case.section, case.target, **kwargs, **owner_argument(case, no_owner=reader.NO_OWNER)
     )
     package = write_switch.execution_verdict(
-        case.section, case.target, **kwargs, **owner_argument(case)
+        ControlSystemSection.read(case.section), case.target, **kwargs, **owner_argument(case)
     )
 
     assert (twin.allowed, twin.reason, twin.target, twin.kind) == (

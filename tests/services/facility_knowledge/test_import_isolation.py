@@ -485,9 +485,9 @@ class TestGraphMcpServerDriverIsolation:
         """With no project config at all, startup fails — but never via the driver.
 
         ``create_server()`` currently raises ``FileNotFoundError`` when neither
-        ``CONFIG_FILE`` nor ``OSPREY_CONFIG`` is set (``get_config_value`` builds
-        a ConfigBuilder and finds no ``config.yml``). Whatever the outcome, the
-        neo4j driver must stay out of ``sys.modules``.
+        ``CONFIG_FILE`` nor ``OSPREY_CONFIG`` is set (``current_config()`` finds
+        no ``config.yml`` and raises ``ConfigNotFoundError``). Whatever the
+        outcome, the neo4j driver must stay out of ``sys.modules``.
         """
         ok, stderr = _run_absent_check("neo4j", _CREATE_SERVER_NO_CONFIG_SETUP, env=no_config_env)
         assert ok, f"neo4j leaked while the graph server failed to start:\n{stderr}"

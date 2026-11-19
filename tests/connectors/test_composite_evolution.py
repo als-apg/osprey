@@ -150,7 +150,7 @@ def _timed_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         return engines[name] if name in engines else real(name)
 
     monkeypatch.setattr(Composite, "_engine", staticmethod(engine))
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
 
 
 # -- a synthetic view ----------------------------------------------------------

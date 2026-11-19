@@ -24,6 +24,7 @@ from click.testing import CliRunner
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.cli.set_cmd import set as set_command
 from osprey.utils.config_writer import config_update_fields
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_writes
 
 _ROOT_LINE = re.compile(r"^  control_system\.writes: .*\n", re.MULTILINE)
@@ -57,7 +58,11 @@ def _rendered_ceiling(repo: Path) -> str:
     target = repo / "rendered-config.yml"
     target.write_text("{}\n", encoding="utf-8")
     config_update_fields(target, profile.config)
-    return tier_writes(yaml.safe_load(target.read_text(encoding="utf-8")).get("control_system"))
+    return tier_writes(
+        ControlSystemSection.read(
+            yaml.safe_load(target.read_text(encoding="utf-8")).get("control_system")
+        )
+    )
 
 
 def _silent_root(repo: Path, preset: str, *config_lines: str) -> Path:

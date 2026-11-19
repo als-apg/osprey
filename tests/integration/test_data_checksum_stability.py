@@ -26,10 +26,10 @@ import yaml
 
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey.interfaces.channel_finder.app import feedback_dir
-from osprey_connectors.config import ConfigBuilder
 from osprey_connectors.config import (
     _runtime_write_paths_under_data as find_runtime_write_paths_under_data,
 )
+from osprey_connectors.config import load_config
 from osprey_connectors.workspace import agent_data_base_dir
 from tests._builds import BuiltProject, copy_build
 
@@ -263,6 +263,6 @@ class TestTheWarningFiresWhenAWriterIsPointedBackIntoData:
         config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
 
         with caplog.at_level("WARNING", logger="CONFIG"):
-            ConfigBuilder(str(config_path), load_env=False)
+            load_config(config_path)
 
         assert "simulation.state_dir" in caplog.text

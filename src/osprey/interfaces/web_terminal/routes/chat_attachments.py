@@ -71,7 +71,7 @@ from fastapi.responses import JSONResponse
 from starlette.requests import ClientDisconnect
 
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
-from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+from osprey.interfaces.web_terminal.operator_session import shared_data_root
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.stores.artifact_store import ArtifactStore
 from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
@@ -275,7 +275,7 @@ def _uploads_total(ledger: _Ledger, uploads_dir: Path) -> int:
 
 def _uploads_dir(request: Request) -> Path:
     """The directory holding every chat's uploads, under the app's agent-data root."""
-    return Path(resolve_agent_data_root(request.app)) / UPLOADS_DIR
+    return Path(shared_data_root(request.app)) / UPLOADS_DIR
 
 
 def _sent_names(chat_dir: Path) -> set[str]:
@@ -321,7 +321,7 @@ def mark_sent(app: Any, chat_id: str, prompt: str) -> dict[str, str]:
     """
     if not is_posture_key(chat_id):
         return {}
-    chat_dir = Path(resolve_agent_data_root(app)) / UPLOADS_DIR / chat_id
+    chat_dir = Path(shared_data_root(app)) / UPLOADS_DIR / chat_id
     names = _attached_names(chat_dir, prompt)
     if not names:
         return {}
@@ -473,7 +473,7 @@ def sweep_uploads(uploads_dir: Path, ledger: _Ledger, *, now: float | None = Non
 def sweep_uploads_at_startup(app: Any) -> None:
     """The startup sweep: before any upload is counted, so the caps measure the swept tree."""
     try:
-        sweep_uploads(Path(resolve_agent_data_root(app)) / UPLOADS_DIR, _ledger(app))
+        sweep_uploads(Path(shared_data_root(app)) / UPLOADS_DIR, _ledger(app))
     except Exception:
         logger.warning("The upload sweep did not run", exc_info=True)
 

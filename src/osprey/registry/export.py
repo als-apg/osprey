@@ -16,7 +16,7 @@ from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig
 
-logger = get_logger(name="registry.export", color="sky_blue2")
+logger = get_logger("registry.export")
 
 
 def export_registry_to_json(

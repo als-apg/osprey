@@ -1036,7 +1036,7 @@ zstd-compressed; the project's end-to-end test budgets the seeded store at under
 .. note::
 
    Every number in this section is a knob in the build profile's ``va_archiver:`` block —
-   ``retention_days``, ``hot_span_hours``, the cadences — not a constant in the
+   ``retention_days``, ``hot_span_h``, the cadences — not a constant in the
    code. Changing one is a profile edit and a rebuild; the next
    ``osprey up`` notices the archive no longer describes what the profile
    asks for and reseeds it. See :doc:`../build-profiles`.
@@ -1053,9 +1053,9 @@ current pulse — is archived beside the scalars, not among them:
   of floats.
 - **one trace a minute.** The seed and the recorder both write a waveform at the
   tail cadence: **every 60 seconds** at the shipped defaults
-  (``tail_cadence_sec``). Neither writes one at the 10-second scalar cadence, so
+  (``tail_cadence_s``). Neither writes one at the 10-second scalar cadence, so
   the hot span holds no denser waveform history than the rest of the window. The
-  build requires the recorder's waveform cadence (``recorder_tail_cadence_sec``)
+  build requires the recorder's waveform cadence (``recorder_tail_cadence_s``)
   to equal the seed's, so both write one history on one grid.
 - **raw reads only.** The archiver connector returns a waveform channel's value
   as ``list[float]``, every stored trace in range, unbinned. Raw is the only

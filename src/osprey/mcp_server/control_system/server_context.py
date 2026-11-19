@@ -94,6 +94,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 )
 from osprey_connectors import control_context
 from osprey_connectors.config import mapping_or_empty
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_system import ControlSystem, ControlSystemConnector
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
@@ -391,8 +392,8 @@ class ControlSystemContext:
             # The targets this config configures, not every target the
             # connectors package names. Whether a write lands is the write
             # verdict's, per call; what is known at start is the tier alone.
-            list(configured_targets(self._config.control_system)),
-            tier_allows(self._config.control_system),
+            list(configured_targets(ControlSystemSection.read(self._config.control_system))),
+            tier_allows(ControlSystemSection.read(self._config.control_system)),
             "connector-host child" if self.switch_capable else "in-process connector",
         )
 
@@ -692,7 +693,7 @@ class ControlSystemContext:
             # invalidate_connector() take the write verdict for the same target
             # the instance it replaces was taking it for.
             instance = await ConnectorFactory.create_control_system_connector(
-                entry.config, control_target=self.baseline
+                ControlSystemSection.read(entry.config), control_target=self.baseline
             )
         else:
             raise ValueError(f"Unknown connector: {name}")
@@ -789,10 +790,11 @@ class ControlSystemContext:
     @staticmethod
     def _load_config() -> MCPServerConfig:
         """Load config.yml via the shared config loader."""
-        from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+        from osprey.utils.config_paths import loaded_or_empty
+        from osprey_connectors.config import locate_config
 
-        raw = load_osprey_config()
-        config_path = resolve_config_path()
+        raw = loaded_or_empty()
+        config_path = locate_config()
         if not config_path.exists():
             logger.warning("Config file not found: %s", config_path)
 
@@ -856,6 +858,7 @@ class ControlSystemContext:
         ``control_system:`` section does not name.
         """
         from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.connector_types import MONGODB_ARCHIVER, resolve_control_system_type
 
         pairing = pairing_in_rendered_config(self.config.raw)
@@ -864,7 +867,9 @@ class ControlSystemContext:
 
         # The same section the pairing just judged, read by the same resolver,
         # so the message cannot name a machine other than the refused one.
-        control_system_type = resolve_control_system_type(self.config.control_system)
+        control_system_type = resolve_control_system_type(
+            ControlSystemSection.read(self.config.control_system)
+        )
 
         raise ConfigurationError(
             f"Refusing to start: {self.config.config_path} pairs control_system.type "

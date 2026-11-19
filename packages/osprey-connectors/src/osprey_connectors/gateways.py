@@ -26,10 +26,19 @@ module loads neither :mod:`osprey_connectors.ipc` nor its wire codec.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import SupportsIndex, SupportsInt
 
-from osprey_connectors.config import config_flag, config_section, connector_block, subsection
+from osprey_connectors.config import config_section
+from osprey_connectors.config_sections import (
+    ConnectorBlock,
+    ControlSystemSection,
+    GatewayMode,
+    GatewayRole,
+    GatewayRow,
+    GatewaysDeclared,
+    SelectedRole,
+    Unreadable,
+)
 from osprey_connectors.connector_types import (
     STANDIN_TYPES,
     TARGET_LIVE,
@@ -40,13 +49,10 @@ from osprey_connectors.connector_types import (
     connector_transport,
 )
 from osprey_connectors.control_system._gateway_role import (
-    GatewayMode,
-    GatewayRole,
-    GatewaysDeclared,
-    SelectedRole,
     _selected_role,
     readonly_gateway_refusal,
 )
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.targets import resolve_target
@@ -79,13 +85,11 @@ _DEFAULT_PVA_PORT = 5075
 class Endpoint(FrozenModel):
     """Where one gateway role points, and how the child will say so to EPICS."""
 
-    #: The ``address`` the gateway block carries, as written: a string in any
-    #: config that names a host, but whatever the config holds, so a block
-    #: whose address is no host still derives a row the verifiers refuse.
-    host: object
-    #: The ``port`` the gateway block carries, as written (or the default the
-    #: derivation filled in): usually an ``int``, but whatever the config holds.
-    port: object
+    #: The ``address`` the gateway block carries, as written (never stripped).
+    host: str
+    #: The ``port`` the gateway block carries, or the default the derivation
+    #: filled in; ``None`` for a PVA address list that names none.
+    port: int | None
     mode: GatewayMode
 
 
@@ -129,35 +133,12 @@ class TargetDerivation(FrozenModel):
         return self.endpoints.get(self.selected_role)
 
 
-def _mode(gateway: Mapping[str, object], key: str) -> GatewayMode:
-    name_server = config_flag(gateway.get("use_name_server"), key=f"{key}.use_name_server")
-    return "name_server" if name_server else "addr_list"
-
-
-def _row(gateway: object, default_port: int | None, key: str) -> Endpoint | None:
-    """One endpoint row, or ``None`` for a gateway ``connect()`` would ignore.
-
-    ``connect()`` guards its environment derivation with ``if gateway_config:``,
-    so a missing, non-mapping or empty gateway configures nothing at all — and a
-    role that configures nothing is not a role this deployment can select.
-    """
-    if not isinstance(gateway, dict) or not gateway:
-        return None
-    return Endpoint(
-        host=gateway.get("address", ""),
-        port=gateway.get("port", default_port),
-        mode=_mode(gateway, key),
-    )
-
-
-def _pva_globs(block: Mapping[str, object]) -> list[str]:
-    """The PVA routing globs, normalized exactly as ``connect()`` normalizes."""
-    pva_channels = block.get("pva_channels") or []
-    if isinstance(pva_channels, str):
-        pva_channels = [pva_channels]
-    if not isinstance(pva_channels, list | tuple):
-        return []
-    return [str(pattern).strip() for pattern in pva_channels if str(pattern).strip()]
+def _endpoint(row: GatewayRow | Unreadable, default_port: int | None) -> Endpoint:
+    """The endpoint one gateway row derives; a row no connection is made through is refused."""
+    if isinstance(row, Unreadable):
+        raise GatewayRow.refusal(row)
+    port = default_port if row.port is None else row.port
+    return Endpoint(host=row.address, port=port, mode=row.mode)
 
 
 def derive_endpoints(
@@ -184,8 +165,8 @@ def derive_endpoints(
             :func:`~osprey_connectors.execution_mode.is_readonly_run`.
         config_path: The project config an unset virtual-accelerator gateway
             port is filled from — the file the child reads, so the port derived
-            here is the port it connects to. ``None`` reads ``CONFIG_FILE``,
-            else ``./config.yml``.
+            here is the port it connects to. ``None`` reads the file
+            :func:`~osprey_connectors.config.locate_config` finds.
 
     Returns:
         The derivation, whose ``endpoints`` may be empty when the deployment has
@@ -196,12 +177,18 @@ def derive_endpoints(
         ValueError: Propagated from
             :func:`~osprey_connectors.targets.resolve_target` when the target is
             unknown, or is ``live`` on a deployment that has never named its real
-            machine, and from :func:`~osprey_connectors.config.config_flag` when a
-            ``use_name_server`` spells neither true nor false.
+            machine; and a
+            :class:`~osprey_connectors.errors.ConfigurationError` naming the key
+            when the selected role's gateway (or the PVA gateway, or
+            ``pva_channels``) is written as something no connection can be made
+            through: an address that is not a non-blank string, a port that is
+            not an integer, a ``use_name_server`` that spells neither true nor
+            false. A malformed row of the role not selected refuses nothing and
+            derives no endpoint.
             :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_eligibility`
             is where that becomes a reason rather than an exception.
     """
-    control_system = config_section(config, "control_system")
+    control_system = ControlSystemSection.read(config_section(config, "control_system"))
     connector_type = resolve_target(control_system, target)
     transport = connector_transport(control_system, connector_type)
 
@@ -221,8 +208,10 @@ def derive_endpoints(
     if readonly_run is None:
         readonly_run = is_readonly_run()
 
-    raw_block = connector_block(config, connector_type)
-    block: Mapping[str, object] = raw_block if isinstance(raw_block, dict) else {}
+    block_key = f"control_system.connector.{connector_type}"
+    found = control_system.block(connector_type)
+    block = found if isinstance(found, ConnectorBlock) else ConnectorBlock(key=block_key)
+    gateways = {} if isinstance(block.gateways, str) else dict(block.gateways)
     # The virtual accelerator served from its container is a service this
     # project deploys, so an unset gateway port follows
     # services.virtual_accelerator.port. Filled through the
@@ -234,39 +223,45 @@ def derive_endpoints(
         # every other one.
         from osprey_connectors.control_system._va_connector import fill_gateway_ports
 
-        block = fill_gateway_ports(block, config_path)
+        gateways = fill_gateway_ports(gateways, config_path)
 
-    block_key = f"control_system.connector.{connector_type}"
-    gateways = subsection(block, "gateways")
+    selected_role = _selected_role(
+        gateways, writes_enabled=bool(writes_enabled), readonly_run=bool(readonly_run)
+    )
     endpoints: dict[GatewayRole, Endpoint] = {}
     role: SelectedRole
     for role in ("read_only", "write_access"):
-        row = _row(gateways.get(role), _DEFAULT_CA_PORT, f"{block_key}.gateways.{role}")
-        if row is not None:
-            endpoints[role] = row
+        row = gateways.get(role)
+        if row is None:
+            continue
+        if isinstance(row, Unreadable) and role != selected_role:
+            # A row the child never connects through refuses nothing: only the
+            # selected role's row configures the process.
+            continue
+        endpoints[role] = _endpoint(row, _DEFAULT_CA_PORT)
 
     # PVA is derived only under the same conjunction connect() requires: routing
     # globs AND a gateway. Globs without a gateway import p4p but touch no PVA
     # environment variable, so there is no endpoint to report.
-    if _pva_globs(block):
-        pva_gateway = block.get("pva_gateway")
+    globs = block.pva_channels
+    if isinstance(globs, Unreadable):
+        raise ConfigurationError(
+            f"{globs.key} is {globs.raw!r}; it is a glob or a list of them", key=globs.key
+        )
+    pva_gateway = block.pva_gateway
+    if globs and pva_gateway is not None:
         # connect() appends no port to an address list unless one is set; the
         # TCP default applies to name servers only.
-        pva_key = f"{block_key}.pva_gateway"
-        name_server = isinstance(pva_gateway, dict) and _mode(pva_gateway, pva_key) == "name_server"
-        pva_row = _row(pva_gateway, _DEFAULT_PVA_PORT if name_server else None, pva_key)
-        if pva_row is not None:
-            endpoints["pva"] = pva_row
+        name_server = isinstance(pva_gateway, GatewayRow) and pva_gateway.use_name_server
+        endpoints["pva"] = _endpoint(pva_gateway, _DEFAULT_PVA_PORT if name_server else None)
 
     return TargetDerivation(
         target=target,
         connector_type=connector_type,
         endpoints=endpoints,
-        selected_role=_selected_role(
-            gateways, writes_enabled=bool(writes_enabled), readonly_run=bool(readonly_run)
-        ),
+        selected_role=selected_role,
         transport=transport,
-        gateways_declared=declared_gateways(block),
+        gateways_declared=block.declared_gateways,
     )
 
 
@@ -280,9 +275,7 @@ def declared_gateways(block: object) -> GatewaysDeclared:
     """
     if not isinstance(block, dict):
         return "missing"
-    if block.get("gateways") == []:
-        return "none_declared"
-    return "rows" if subsection(block, "gateways") else "missing"
+    return ConnectorBlock.read(block, "control_system.connector").declared_gateways
 
 
 # -- Comparing two rows -----------------------------------------------------

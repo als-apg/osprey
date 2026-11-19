@@ -57,6 +57,7 @@ from osprey.services.auth_sidecar.identity_headers import (
 )
 from osprey_connectors import yaml_loader
 from osprey_connectors.archiver_selection import archiver_settings_key, resolve_archiver_settings
+from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from osprey_connectors.write_tier import WRITES_KEY, tier_allows
@@ -534,7 +535,7 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
         return False
     if not _config_renders_lane(root, lane):
         return False
-    return tier_allows(root.get("control_system"))
+    return tier_allows(ControlSystemSection.read(root.get("control_system")))
 
 
 def launch_token_writes_key(config: Any, lane: str) -> str:
@@ -668,9 +669,10 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
     connector = archiver.get("type")
     if not isinstance(connector, str) or not connector:
         return ()
-    where = archiver_settings_key(archiver)
+    section = ArchiverSection.read(archiver)
+    where = archiver_settings_key(section)
     names: list[str] = []
-    for key, raw in read_credential_env_names(resolve_archiver_settings(archiver), where=where):
+    for key, raw in read_credential_env_names(resolve_archiver_settings(section), where=where):
         if not isinstance(raw, str) or not raw.strip():
             continue
         if not ENV_NAME_RE.match(raw):
@@ -717,8 +719,9 @@ def config_archiver_ca_bundles(config: Any) -> tuple[str, ...]:
     connector = archiver.get("type")
     if not isinstance(connector, str) or not connector:
         return ()
+    section = ArchiverSection.read(archiver)
     return ca_bundle_mounts(
-        resolve_archiver_settings(archiver), where=archiver_settings_key(archiver)
+        resolve_archiver_settings(section), where=archiver_settings_key(section)
     )
 
 

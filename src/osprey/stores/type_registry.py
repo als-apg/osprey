@@ -306,24 +306,20 @@ def _entry_point_declarations(eps: Iterable[Any] | None, errors: list[str]) -> l
 def _read_config_block() -> tuple[Any, Path | None]:
     """(``artifact_server`` block, project root) from this process's config.
 
-    A process whose ConfigBuilder was primed (both startup sites) reads that
-    one; an unprimed process (lazy first use, e.g. the hub) reads the config the
-    ordinary rule resolves (``OSPREY_CONFIG``, then the render under the cwd)
+    A process that installed its config (both startup sites) reads that one;
+    one that has none yet (lazy first use, e.g. the hub) reads the config the
+    ordinary rule locates (``OSPREY_CONFIG``, then the render under the cwd)
     without making it the process default.
     """
-    from osprey_connectors import config as config_mod
-    from osprey_connectors.workspace import resolve_config_path, resolve_project_root
+    from osprey_connectors.config import active_config, load_config, locate_config
 
-    if getattr(config_mod, "_default_config", None) is not None:
-        cb = config_mod.get_config_builder()
-    else:
-        path = resolve_config_path()
+    loaded = active_config()
+    if loaded is None:
+        path = locate_config()
         if not path.is_file():
             return {}, None
-        cb = config_mod.get_config_builder(config_path=str(path))
-    raw = getattr(cb, "raw_config", None)
-    block = cb.get("artifact_server", {})
-    return block, resolve_project_root(raw if isinstance(raw, Mapping) else None)
+        loaded = load_config(path)
+    return loaded.get("artifact_server", {}), loaded.repo_root
 
 
 def load_extension_types(
@@ -348,11 +344,12 @@ def load_extension_types(
 
     Args:
         validate: Raise instead of logging and skipping.
-        config: A loaded config mapping to read instead of the global
-            ConfigBuilder. When given, the result is returned without
+        config: A loaded config mapping to read instead of the process
+            config. When given, the result is returned without
             replacing the process registry.
         project_root: Containment root for config viewers; defaults to
-            :func:`osprey_connectors.workspace.resolve_project_root`.
+            the repo root of *config* (:func:`osprey.utils.config_paths.repo_root_of`),
+            else of the process config.
         entry_points: Entry points to read instead of the installed ones.
 
     Returns:
@@ -377,9 +374,9 @@ def load_extension_types(
         block = config.get("artifact_server", {})
         root = None
         if project_root is None:
-            from osprey_connectors.workspace import resolve_project_root
+            from osprey.utils.config_paths import repo_root_of
 
-            root = resolve_project_root(config)
+            root = repo_root_of(config)
     if project_root is not None:
         root = Path(project_root)
     if not isinstance(block, Mapping):

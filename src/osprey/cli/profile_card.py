@@ -98,6 +98,7 @@ def _document_tier(config: Any) -> str | None:
     the rewrite the normalizer applies — a layer handed to the card may be a
     raw parse); else ``None``, a block that says nothing about the posture.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     from .build_profile_document import retired_write_answer
@@ -107,7 +108,7 @@ def _document_tier(config: Any) -> str | None:
         return None
     section = effective_config_subtree(config, ("control_system",))
     if "writes" in section:
-        return tier_writes({"writes": section["writes"]})
+        return tier_writes(ControlSystemSection.read({"writes": section["writes"]}))
     return retired_write_answer(dict(config))
 
 
@@ -125,12 +126,13 @@ def _write_rights(
     write, so there is no per-target answer to print. The word is the ceiling
     the slider stops at: ``asked`` or ``allowed``.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_allows
 
     tier = _document_tier(layer_deltas.get(render, {}).get("config"))
     if tier is None:
         tier = _document_tier(profile.config)
-    return [f"rights {tier}"] if tier_allows({"writes": tier}) else []
+    return [f"rights {tier}"] if tier_allows(ControlSystemSection.read({"writes": tier})) else []
 
 
 def _panel_labels(

@@ -14,7 +14,7 @@ import aiohttp
 
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.http import build_ssl_context
-from osprey_connectors.config import localize_facility
+from osprey_connectors.config import facility_timezone, localize_facility
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -360,6 +360,6 @@ def parse_entry_time(value: object) -> datetime:
             parsed = datetime.fromisoformat(text)
         except ValueError:
             return datetime.fromtimestamp(float(text), tz=UTC)
-        return localize_facility(parsed).astimezone(UTC)
+        return localize_facility(parsed, facility_timezone()).astimezone(UTC)
     except (ValueError, OverflowError, OSError) as err:
         raise ValueError(message) from err

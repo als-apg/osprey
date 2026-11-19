@@ -34,6 +34,7 @@ from osprey_connectors.simulation.records import (
     VariablesDocument,
 )
 from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
+from osprey_connectors.testing import config_of
 from tests._simulator_view import view_channel
 from tests.connectors._view_records import activate
 
@@ -145,7 +146,7 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         return STUB if name == "stub" else real(name)
 
     monkeypatch.setattr(Composite, "_engine", staticmethod(engine))
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
 
 
 # -- a synthetic view ----------------------------------------------------------
@@ -609,7 +610,7 @@ def test_the_log_appends_one_line_per_record_widened_past_the_umask(
 ) -> None:
     (tmp_path / "build").mkdir()
     config = tmp_path / "build" / "config.yml"
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: str(config))
+    monkeypatch.setattr(composite_module, "active_config", lambda: config_of({}, path=config))
     previous = os.umask(0o022)
     try:
         _composite(tmp_path, settings={"fail": "x" * 6000})

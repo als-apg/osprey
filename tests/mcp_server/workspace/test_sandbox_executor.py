@@ -22,7 +22,7 @@ from tests.mcp_server._zones import zone_away_from_host
 async def _run_in_sandbox(code, execution_folder, workspace_root, *, timeout=30):
     """Execute ``code`` in the sandbox with the agent-data root at ``workspace_root``."""
     with patch(
-        "osprey_connectors.workspace.resolve_agent_data_root",
+        "osprey.utils.config_paths.session_agent_data_root",
         return_value=workspace_root,
     ):
         return await execute_sandbox_code(
@@ -306,7 +306,7 @@ class TestExecuteSandboxCode:
         code = "import subprocess\nsubprocess.run(['ls'])"
 
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -353,7 +353,7 @@ class TestExecuteSandboxCode:
         code = "x = 1 / 0"
 
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -366,7 +366,7 @@ class TestExecuteSandboxCode:
     ):
         """The child stamps offset-aware times, so its metadata is orderable."""
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code="x = 1", execution_folder=execution_folder)
@@ -380,7 +380,7 @@ class TestExecuteSandboxCode:
         code = "print('hello from sandbox')"
 
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -430,7 +430,7 @@ print(content)
 """
 
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -449,7 +449,7 @@ except PermissionError:
 """
 
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -479,11 +479,11 @@ for label, read in (
 
         with (
             patch(
-                "osprey_connectors.workspace.resolve_agent_data_root",
+                "osprey.utils.config_paths.session_agent_data_root",
                 return_value=workspace_root,
             ),
             patch(
-                "osprey_connectors.workspace.resolve_project_root",
+                "osprey.utils.config_paths.process_repo_root",
                 return_value=project,
             ),
         ):
@@ -552,7 +552,7 @@ class TestCreateExecutionFolder:
         ws.mkdir()
 
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=ws,
         ):
             folder = create_sandbox_execution_folder()
@@ -567,10 +567,10 @@ class TestCreateExecutionFolder:
         ws = tmp_path / "_agent_data"
         ws.mkdir()
         zone = zone_away_from_host()
-        monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: zone)
+        monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda: zone)
 
         with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=ws,
         ):
             folder = create_sandbox_execution_folder()

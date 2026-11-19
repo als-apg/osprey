@@ -23,6 +23,7 @@ import pytest
 from osprey.dispatch.sources import epics_ca
 from osprey.dispatch.sources.epics_ca import EpicsCaSource, _PvWatcher
 from osprey.dispatch.trigger_config import TriggerConfig
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import ChannelValue
 from tests import _live
 
@@ -716,7 +717,7 @@ class TestConnect:
         ):
             connector = await epics_ca._connect()
 
-        create.assert_awaited_once_with({"type": "epics"})
+        create.assert_awaited_once_with(ControlSystemSection.read({"type": "epics"}))
         assert connector is create.return_value
 
     @pytest.mark.asyncio

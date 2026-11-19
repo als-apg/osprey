@@ -1,16 +1,20 @@
 """Unit tests for Channel Limits Validator."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
+    mapping_config_lookup,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config, serve_control_system
 
 
 class TestChannelLimitsConfig:
@@ -325,15 +329,14 @@ class TestLimitsValidator:
     # Configuration Loading Tests
     # =========================================================================
 
-    @patch("osprey_connectors.config.get_config_value")
-    def test_from_config_disabled(self, mock_get_config):
+    def test_from_config_disabled(self):
         """Test that from_config returns None when disabled.
 
-        Every key answers ``False``, the ``control_system`` section included: a
-        section that is not a mapping is a deployment that stated no posture, so
-        the answer is still no validator rather than a crash on the shape.
+        The ``control_system`` section is ``False``: a section that is not a
+        mapping is a deployment that stated no posture, so the answer is still
+        no validator rather than a crash on the shape.
         """
-        mock_get_config.return_value = False
+        serve_config(config_of({"control_system": False}, environ={}))
 
         validator = LimitsValidator.from_config()
 
@@ -347,55 +350,30 @@ class TestLimitsValidator:
             pytest.param("/nonexistent/path/to/limits.json", id="missing-file"),
         ],
     )
-    @patch("osprey_connectors.config.get_config_value")
-    def test_from_config_without_a_usable_database_blocks_all_writes(
-        self, mock_get_config, database_path
-    ):
+    def test_from_config_without_a_usable_database_blocks_all_writes(self, database_path):
         """from_config degrades to the empty block-all validator."""
-
-        def config_side_effect(key, default):
-            if key == "control_system":
-                return {"limits_checking": {"enabled": True, "database_path": database_path}}
-            elif key == "control_system.limits_checking.enabled":
-                return True
-            elif key == "control_system.limits_checking.database_path":
-                return database_path
-            elif key == "control_system.limits_checking.mode":
-                return "exclusive"
-            return default
-
-        mock_get_config.side_effect = config_side_effect
+        serve_control_system({"limits_checking": {"enabled": True, "database_path": database_path}})
 
         validator = LimitsValidator.from_config()
 
         assert validator is not None
         assert validator.limits == {}  # Empty database (blocks all writes)
 
-    @patch("osprey_connectors.config.get_config_value")
-    def test_from_config_loads_database(self, mock_get_config, tmp_path):
+    def test_from_config_loads_database(self, tmp_path):
         """Test that from_config loads database from configured path."""
         db_file = tmp_path / "test_boundaries.json"
         db_content = {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}}
         db_file.write_text(json.dumps(db_content))
 
-        def config_side_effect(key, default):
-            if key == "control_system":
-                return {
-                    "limits_checking": {
-                        "enabled": True,
-                        "database_path": str(db_file),
-                        "mode": "exclusive",
-                    }
+        serve_control_system(
+            {
+                "limits_checking": {
+                    "enabled": True,
+                    "database_path": str(db_file),
+                    "mode": "exclusive",
                 }
-            elif key == "control_system.limits_checking.enabled":
-                return True
-            elif key == "control_system.limits_checking.database_path":
-                return str(db_file)
-            elif key == "control_system.limits_checking.mode":
-                return "exclusive"
-            return default
-
-        mock_get_config.side_effect = config_side_effect
+            }
+        )
 
         validator = LimitsValidator.from_config()
 
@@ -404,8 +382,7 @@ class TestLimitsValidator:
         assert "TEST:PV" in validator.limits
         assert validator.policy["mode"] == "exclusive"
 
-    @patch("osprey_connectors.config.get_config_value")
-    def test_from_config_invalid_json_blocks_all_writes(self, mock_get_config, tmp_path):
+    def test_from_config_invalid_json_blocks_all_writes(self, tmp_path):
         """An unparseable database degrades to the empty block-all validator.
 
         Same failsafe as the missing-database-path case: never crash the
@@ -415,24 +392,15 @@ class TestLimitsValidator:
         db_file = tmp_path / "invalid.json"
         db_file.write_text('{"PV1": {"min_value": 0.0},}')  # Trailing comma
 
-        def config_side_effect(key, default):
-            if key == "control_system":
-                return {
-                    "limits_checking": {
-                        "enabled": True,
-                        "database_path": str(db_file),
-                        "mode": "exclusive",
-                    }
+        serve_control_system(
+            {
+                "limits_checking": {
+                    "enabled": True,
+                    "database_path": str(db_file),
+                    "mode": "exclusive",
                 }
-            elif key == "control_system.limits_checking.enabled":
-                return True
-            elif key == "control_system.limits_checking.database_path":
-                return str(db_file)
-            elif key == "control_system.limits_checking.mode":
-                return "exclusive"
-            return default
-
-        mock_get_config.side_effect = config_side_effect
+            }
+        )
 
         validator = LimitsValidator.from_config()
 
@@ -446,15 +414,15 @@ class TestLimitsValidator:
     def test_from_config_resolves_relative_path_against_config_file_dir(
         self, monkeypatch, tmp_path
     ):
-        """A relative database_path resolves against CONFIG_FILE's directory
-        when CONFIG_FILE is set, NOT against project_root.
+        """A relative database_path resolves against the loaded config's
+        directory (here the file OSPREY_CONFIG names), NOT against project_root.
 
-        Simulates the container deploy: config.yml (and CONFIG_FILE) live
+        Simulates the container deploy: config.yml (and OSPREY_CONFIG) live
         under the mounted /app/project, while project_root is the flattened
         HOST build path — which does not exist in the container and must
         NOT be used as the resolution base.
         """
-        # CONFIG_FILE dir: where the mounted config.yml actually lives.
+        # OSPREY_CONFIG dir: where the mounted config.yml actually lives.
         container_dir = tmp_path / "app_project"
         container_dir.mkdir()
         db_file = container_dir / "data" / "channel_limits.json"
@@ -462,45 +430,46 @@ class TestLimitsValidator:
         db_file.write_text(
             json.dumps({"TEST:PV": {"writable": True, "min_value": 0.0, "max_value": 100.0}})
         )
-        monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
 
         # project_root: a HOST path that does NOT exist in this environment
         # either — proves resolution did not fall through to it.
         bogus_project_root = tmp_path / "host_build_path_does_not_exist"
-
-        def config_side_effect(key, default):
-            if key == "control_system":
-                return {
-                    "limits_checking": {
-                        "enabled": True,
-                        "database_path": "data/channel_limits.json",
-                        "mode": "exclusive",
-                    }
+        config_file = container_dir / "config.yml"
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "project_root": str(bogus_project_root),
+                    "control_system": {
+                        "limits_checking": {
+                            "enabled": True,
+                            "database_path": "data/channel_limits.json",
+                            "mode": "exclusive",
+                        }
+                    },
                 }
-            elif key == "control_system.limits_checking.enabled":
-                return True
-            elif key == "control_system.limits_checking.database_path":
-                return "data/channel_limits.json"
-            elif key == "control_system.limits_checking.mode":
-                return "exclusive"
-            elif key == "project_root":
-                return str(bogus_project_root)
-            return default
+            )
+        )
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+        monkeypatch.chdir(tmp_path)
 
-        with patch("osprey_connectors.config.get_config_value", side_effect=config_side_effect):
-            validator = LimitsValidator.from_config()
+        validator = LimitsValidator.from_config()
 
         assert validator is not None
         assert len(validator.limits) == 1
         assert "TEST:PV" in validator.limits
 
-    def test_from_config_resolves_relative_path_against_project_root_when_no_config_file(
+    def test_a_lookup_without_a_config_file_resolves_against_project_root(
         self, monkeypatch, tmp_path
     ):
-        """Unchanged host/local behavior: with CONFIG_FILE unset, a relative
-        database_path still resolves against project_root.
+        """Last resort: a caller holding the config as a dict, naming no config
+        file, with OSPREY_CONFIG unset, resolves a relative database_path
+        against the config's project_root.
+
+        ``from_config`` itself always loads a config first and anchors on that
+        file's directory, so this fallback is reached only by a caller that
+        supplies its own lookup and no anchor.
         """
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -509,32 +478,25 @@ class TestLimitsValidator:
         db_file.write_text(
             json.dumps({"TEST:PV": {"writable": True, "min_value": 0.0, "max_value": 100.0}})
         )
-
-        def config_side_effect(key, default):
-            if key == "control_system":
-                return {
+        lookup = mapping_config_lookup(
+            {
+                "project_root": str(project_root),
+                "control_system": {
                     "limits_checking": {
                         "enabled": True,
                         "database_path": "data/channel_limits.json",
                         "mode": "exclusive",
                     }
-                }
-            elif key == "control_system.limits_checking.enabled":
-                return True
-            elif key == "control_system.limits_checking.database_path":
-                return "data/channel_limits.json"
-            elif key == "control_system.limits_checking.mode":
-                return "exclusive"
-            elif key == "project_root":
-                return str(project_root)
-            return default
+                },
+            }
+        )
 
-        with patch("osprey_connectors.config.get_config_value", side_effect=config_side_effect):
-            validator = LimitsValidator.from_config()
+        loaded, reason = LimitsValidator.load_configured_database(config_lookup=lookup)
 
-        assert validator is not None
-        assert len(validator.limits) == 1
-        assert "TEST:PV" in validator.limits
+        assert reason is None
+        assert loaded is not None
+        limits, _raw = loaded
+        assert list(limits) == ["TEST:PV"]
 
 
 class TestChannelLimitsViolationError:

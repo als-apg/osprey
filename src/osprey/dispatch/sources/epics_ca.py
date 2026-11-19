@@ -57,9 +57,12 @@ async def _connect() -> ControlSystemConnector:
     name an address only the agent's own network reaches. With no gateway
     configured, ``connect()`` leaves the environment as it stands.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
 
-    return await ConnectorFactory.create_control_system_connector({"type": "epics"})
+    return await ConnectorFactory.create_control_system_connector(
+        ControlSystemSection.read({"type": "epics"})
+    )
 
 
 def _number_setting(

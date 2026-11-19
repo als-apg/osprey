@@ -17,19 +17,19 @@ def _reset_registry():
     there.
     """
     import osprey_connectors.config as _cfg
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     reset_cf_hier_context()
-    reset_config_cache()
-    _cfg._default_config = None
-    _cfg._default_configurable = None
-    _cfg._config_cache.clear()
+    clear_config_state()
+    _cfg._installed = None
+    _cfg._last_lazy = None
+    _cfg._loads.clear()
 
     yield
 
     reset_cf_hier_context()
-    reset_config_cache()
-    _cfg._config_cache.clear()
+    clear_config_state()
+    _cfg._loads.clear()
 
 
 @pytest.fixture

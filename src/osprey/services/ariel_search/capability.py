@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.service import ARIELSearchService
@@ -44,7 +44,7 @@ async def get_ariel_search_service() -> ARIELSearchService:
         from osprey.services.ariel_search import ARIELConfig, ConfigurationError
         from osprey.services.ariel_search.service import create_ariel_service
 
-        config = get_config_value("ariel", {})
+        config = current_config().get("ariel", {})
 
         if not config:
             raise ConfigurationError(
@@ -57,7 +57,7 @@ async def get_ariel_search_service() -> ARIELSearchService:
                 f"ariel must be a mapping, got {type(config).__name__}",
                 config_key="ariel",
             )
-        services = get_config_value("services.postgresql", {})
+        services = current_config().get("services.postgresql", {})
         if services is not None and not isinstance(services, dict):
             raise ConfigurationError(
                 f"services.postgresql must be a mapping, got {type(services).__name__}",
@@ -70,7 +70,7 @@ async def get_ariel_search_service() -> ARIELSearchService:
         ariel_config = ARIELConfig.from_dict(
             config,
             services,
-            base=resolve_port_base({"deployment": get_config_value("deployment", {})}),
+            base=resolve_port_base({"deployment": current_config().get("deployment", {})}),
         )
         _ariel_service_instance = await create_ariel_service(
             ariel_config, store_deadline_s=_STORE_DEADLINE_S

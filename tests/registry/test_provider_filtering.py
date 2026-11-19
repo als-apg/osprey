@@ -15,6 +15,8 @@ from osprey.models.providers.base import BaseProvider
 from osprey.registry.base import ProviderRegistration, RegistryConfig
 from osprey.registry.initializers import _get_configured_provider_names
 from osprey.registry.manager import RegistryManager
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 
 class TestProviderRegistrationName:
@@ -33,71 +35,64 @@ class TestProviderRegistrationName:
         assert reg.name == "custom"
 
 
+def _serve_models(models: object) -> None:
+    """Serve a config whose ``models`` section is *models*."""
+    serve_config(config_of({"models": models}))
+
+
 class TestGetConfiguredProviderNames:
     """Test _get_configured_provider_names() helper."""
 
     def test_extracts_provider_names_from_config(self):
         """Extracts provider names from model configs."""
-        mock_config = {
-            "primary": {"provider": "anthropic", "model": "claude-sonnet-4-5-20250929"},
-            "secondary": {"provider": "openai", "model": "gpt-4o"},
-        }
-        with patch(
-            "osprey.registry.initializers.get_config_value", return_value=mock_config
-        ) as mock_gcv:
-            result = _get_configured_provider_names()
-            mock_gcv.assert_called_once_with("models", None)
-        assert result == {"anthropic", "openai"}
+        _serve_models(
+            {
+                "primary": {"provider": "anthropic", "model": "claude-sonnet-4-5-20250929"},
+                "secondary": {"provider": "openai", "model": "gpt-4o"},
+            }
+        )
+        assert _get_configured_provider_names() == {"anthropic", "openai"}
 
-    def test_returns_none_when_exception(self):
-        """Returns None when config is unavailable (exception path)."""
-        with patch(
-            "osprey.registry.initializers.get_config_value",
-            side_effect=Exception("no config"),
-        ):
-            result = _get_configured_provider_names()
-        assert result is None
+    def test_returns_none_when_config_unavailable(self, tmp_path, monkeypatch):
+        """Returns None when no config can be read (the loader raises)."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+        assert _get_configured_provider_names() is None
 
     def test_returns_none_when_models_empty_dict(self):
         """Returns None when models config is empty dict."""
-        with patch("osprey.registry.initializers.get_config_value", return_value={}):
-            result = _get_configured_provider_names()
-        assert result is None
+        _serve_models({})
+        assert _get_configured_provider_names() is None
 
     def test_returns_none_when_models_is_none(self):
         """Returns None when models config is None."""
-        with patch("osprey.registry.initializers.get_config_value", return_value=None):
-            result = _get_configured_provider_names()
-        assert result is None
+        _serve_models(None)
+        assert _get_configured_provider_names() is None
 
     def test_returns_none_when_no_provider_keys(self):
         """Returns None when role configs have no provider keys."""
-        mock_config = {
-            "primary": {"model": "claude-sonnet-4-5-20250929"},  # no "provider" key
-        }
-        with patch("osprey.registry.initializers.get_config_value", return_value=mock_config):
-            result = _get_configured_provider_names()
-        assert result is None
+        _serve_models({"primary": {"model": "claude-sonnet-4-5-20250929"}})  # no "provider" key
+        assert _get_configured_provider_names() is None
 
     def test_handles_non_dict_role_configs(self):
         """Handles non-dict role configs gracefully (e.g., string values)."""
-        mock_config = {
-            "primary": "anthropic/claude-sonnet-4-5-20250929",  # string, not dict
-            "secondary": {"provider": "openai", "model": "gpt-4o"},
-        }
-        with patch("osprey.registry.initializers.get_config_value", return_value=mock_config):
-            result = _get_configured_provider_names()
-        assert result == {"openai"}
+        _serve_models(
+            {
+                "primary": "anthropic/claude-sonnet-4-5-20250929",  # string, not dict
+                "secondary": {"provider": "openai", "model": "gpt-4o"},
+            }
+        )
+        assert _get_configured_provider_names() == {"openai"}
 
     def test_deduplicates_providers(self):
         """Same provider used for multiple roles is only returned once."""
-        mock_config = {
-            "primary": {"provider": "anthropic", "model": "claude-sonnet-4-5-20250929"},
-            "secondary": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
-        }
-        with patch("osprey.registry.initializers.get_config_value", return_value=mock_config):
-            result = _get_configured_provider_names()
-        assert result == {"anthropic"}
+        _serve_models(
+            {
+                "primary": {"provider": "anthropic", "model": "claude-sonnet-4-5-20250929"},
+                "secondary": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
+            }
+        )
+        assert _get_configured_provider_names() == {"anthropic"}
 
 
 class TestInitializeProvidersFiltering:

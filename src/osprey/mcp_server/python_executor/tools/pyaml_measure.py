@@ -350,15 +350,14 @@ async def pyaml_measure(
         stopped the run, or ``null`` when nothing raised.
     """
     from osprey.mcp_server.python_executor.tools._response_builder import _note_writes
-    from osprey.utils.config_paths import resolve_config_dir
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty, resolve_config_dir
 
     enforce_posture_clamp(_EXECUTION_MODE, tool=TOOL_NAME)
 
     config_dir = resolve_config_dir()
     if config_dir is None:
         _refuse("no rendered config.yml to read the pyAML view from", "Run `osprey build`.")
-    config = load_osprey_config()
+    config = loaded_or_empty()
     args = resolve_measure_args(
         kind,
         model,

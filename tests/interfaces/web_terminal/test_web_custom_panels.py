@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import os
 import threading
 import time
 from contextlib import ExitStack, contextmanager, nullcontext, suppress
@@ -14,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import app as web_terminal_app
@@ -24,9 +26,10 @@ from osprey.interfaces.web_terminal.app import (
     _load_panel_presets,
     create_app,
 )
-from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+from osprey.interfaces.web_terminal.operator_session import shared_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, JUPYTER_PANEL_ID, SIDECAR_PANELS
+from osprey_connectors_tests._config_trees import config_tree
 from tests._live import wait_until
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -151,13 +154,10 @@ def _stub_sidecar_class(script):
     return _StubSidecar
 
 
-def _config_reader(values):
-    """A ``get_config_value`` stand-in answering *values*, else the caller's default."""
-
-    def _get(path, default=None, _config_path=None):
-        return values.get(path, default)
-
-    return _get
+def _config_file_named(path: Path, values: dict):
+    """Write *values* (dotted keys) to *path* and name it in ``OSPREY_CONFIG``."""
+    path.write_text(yaml.safe_dump(config_tree(values)), encoding="utf-8")
+    return patch.dict(os.environ, {"OSPREY_CONFIG": str(path)})
 
 
 def _make_client(
@@ -169,17 +169,17 @@ def _make_client(
 ):
     """Create a TestClient with the given panel config.
 
-    *config_values* maps dotted config keys to what ``get_config_value`` returns
-    for them; every other key resolves to the default its reader passes.
+    *config_values* maps dotted config keys to their values in a ``config.yml``
+    next to the watched directory, named by ``OSPREY_CONFIG`` so the lifespan's
+    own reset of the process default finds it again; every other key is absent,
+    so it resolves to the default its reader passes.
     """
     if enabled_panels is None:
         enabled_panels = set(UNIVERSAL_PANELS)
     if custom_panels is None:
         custom_panels = []
     config_patch = (
-        patch(
-            "osprey_connectors.config.get_config_value", side_effect=_config_reader(config_values)
-        )
+        _config_file_named(Path(workspace_dir).parent / "config.yml", config_values)
         if config_values is not None
         else nullcontext()
     )
@@ -235,7 +235,7 @@ class TestLoadPanelConfig:
     def test_no_panels_declared(self, config):
         """No ``web.panels`` entries returns only the universal panels."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value=config,
         ):
             enabled, custom, _default = _load_panel_config()
@@ -245,7 +245,7 @@ class TestLoadPanelConfig:
     def test_domain_panels_enabled(self):
         """Domain panels with enabled: true are added."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {
                     "panels": {
@@ -265,7 +265,7 @@ class TestLoadPanelConfig:
     def test_domain_panel_disabled(self):
         """Domain panels with enabled: false are excluded."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {
                     "panels": {
@@ -282,7 +282,7 @@ class TestLoadPanelConfig:
     def test_domain_panel_bare_true(self):
         """A bare `true` value (not dict) enables the panel."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": {"panels": {"ariel": True}}},
         ):
             enabled, custom, _default = _load_panel_config()
@@ -291,7 +291,7 @@ class TestLoadPanelConfig:
     def test_domain_panel_dict_defaults_enabled(self):
         """A dict without explicit enabled key defaults to enabled."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": {"panels": {"ariel": {}}}},
         ):
             enabled, custom, _default = _load_panel_config()
@@ -300,7 +300,7 @@ class TestLoadPanelConfig:
     def test_custom_panel_extracted(self):
         """Non-builtin panel IDs are returned as custom panels."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {
                     "panels": {
@@ -324,7 +324,7 @@ class TestLoadPanelConfig:
     def test_custom_panel_rewrite_prefixes_are_threaded(self):
         """A panel's ``rewrite_prefixes`` reach the proxy as ``rewritePrefixes``."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {
                     "panels": {
@@ -347,7 +347,7 @@ class TestLoadPanelConfig:
         select, so a render that inherits a url-backed block for a tab it
         excluded must not get the tab."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {
                     "panels": {
@@ -373,7 +373,7 @@ class TestLoadPanelConfig:
         builtin `enabled` set where its url is discarded and no frontend tab exists.
         """
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {
                     "panels": {
@@ -406,7 +406,7 @@ class TestLoadPanelConfig:
         (register reservation).
         """
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {"panels": {"events": {"label": "EVENTS", "url": "http://localhost:8020"}}}
             },
@@ -417,7 +417,7 @@ class TestLoadPanelConfig:
     def test_config_load_failure(self):
         """Config load failure returns universal panels only."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             side_effect=RuntimeError("no config"),
         ):
             enabled, custom, _default = _load_panel_config()
@@ -458,7 +458,7 @@ class TestAPanelIdMustBeSpellable:
     @staticmethod
     def _load(panels):
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": {"panels": panels}},
         ):
             return _load_panel_config()
@@ -518,7 +518,7 @@ class TestAPanelIdMustBeSpellable:
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey_connectors.workspace.load_osprey_config",
+                "osprey.utils.config_paths.loaded_or_empty",
                 return_value={"web": {"panels": {"überblick": {"url": "http://localhost:9000"}}}},
             ),
         ):
@@ -534,7 +534,7 @@ class TestLoadPanelPresets:
     def test_fail_open_on_config_error(self):
         """Any config-read error resolves to an empty preset list (fail open)."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             side_effect=RuntimeError("no config"),
         ):
             assert _load_panel_presets({"artifacts"}, []) == []
@@ -542,7 +542,7 @@ class TestLoadPanelPresets:
     def test_no_presets_returns_empty(self):
         """A config with no web.presets yields an empty list (the default)."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": {}},
         ):
             assert _load_panel_presets({"artifacts"}, []) == []
@@ -563,7 +563,7 @@ class TestLoadPanelPresets:
                 }
             }
         }
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
         assert presets == [
             {
@@ -582,7 +582,7 @@ class TestLoadPanelPresets:
     def test_drops_preset_that_resolves_empty(self):
         """A preset whose tabs are all unknown is dropped entirely."""
         cfg = {"web": {"presets": {"Empty": {"tabs": ["ghost"]}, "Good": {"tabs": ["artifacts"]}}}}
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
         assert presets == [
             {
@@ -595,7 +595,7 @@ class TestLoadPanelPresets:
     def test_preserves_config_order(self):
         """Preset order follows config insertion order (pyyaml preserves it)."""
         cfg = {"web": {"presets": {"B": {"tabs": ["artifacts"]}, "A": {"tabs": ["ariel"]}}}}
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
         assert [p["name"] for p in presets] == ["B", "A"]
 
@@ -604,7 +604,7 @@ class TestLoadPanelPresets:
         layout = {"split": "row", "items": [{"tabs": ["my-dash"]}, {"tabs": ["artifacts"]}]}
         cfg = {"web": {"presets": {"Dash": layout}}}
         custom = [{"id": "my-dash", "label": "DASH", "url": "http://x:9000"}]
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, custom)
         assert [p["panels"] for p in presets] == [["my-dash", "artifacts"]]
 
@@ -622,7 +622,7 @@ class TestLoadPanelPresets:
     def test_a_value_that_is_not_a_preset_is_skipped(self, bad):
         """A value that is not a dock layout over panel ids is skipped, never crashed on."""
         cfg = {"web": {"presets": {"Bad": bad, "Good": {"tabs": ["artifacts"]}}}}
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
         assert [p["name"] for p in presets] == ["Good"]
 
@@ -736,7 +736,7 @@ def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
             return_value=(set(UNIVERSAL_PANELS), [], None),
         ),
         patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": web_cfg},
         ),
     ) as c:
@@ -752,7 +752,7 @@ def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panel
             return_value=(set(enabled_panels), [], None),
         ),
         patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": {"panels": {hidden_panel_id: {"enabled": True, "hidden": True}}}},
         ),
     ) as c:
@@ -770,7 +770,7 @@ def _make_client_runtime_with_config_events(workspace_dir):
     with terminal_client(
         workspace_dir,
         patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={
                 "web": {
                     "allow_runtime_panels": True,
@@ -820,7 +820,7 @@ class TestPanelsAPIShape:
 
     def test_visible_defaults_to_all_enabled_when_no_hidden_flags(self, client_all_panels):
         """visible equals the full enabled set when no hidden:true flags are configured."""
-        # Arrange — no hidden flags in config (load_osprey_config returns {})
+        # Arrange — no hidden flags in config (no config is loaded)
 
         # Act
         resp = client_all_panels.get("/api/panels")
@@ -1334,15 +1334,12 @@ class TestSidecarReadyTimeout:
         assert repr(value) in warnings[0].getMessage()
 
     def test_a_config_read_that_raises_waits_the_default(
-        self, workspace_dir, ready_sidecar, caplog
+        self, workspace_dir, ready_sidecar, caplog, tmp_path, monkeypatch
     ):
-        def _reader(path, default=None, _config_path=None):
-            if path == self.KEY:
-                raise RuntimeError("config unreadable")
-            return default
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
 
         with (
-            patch("osprey_connectors.config.get_config_value", side_effect=_reader),
             patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(ready_sidecar)),
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_config",
@@ -1436,7 +1433,7 @@ class TestSidecarPanelAvailability:
 
         # The sidecar shares the agent-data root every other child of this
         # server is stamped with, not a directory of its own.
-        assert shared_root == Path(resolve_agent_data_root(client_with_sidecar.app))
+        assert shared_root == Path(shared_data_root(client_with_sidecar.app))
         assert outer_prefix == ""
         assert pinned_mode == state.web_theme_mode
 

@@ -22,13 +22,16 @@ is the baseline of and the kind of machine it serves. Which machine a target
 means in one deployment is :mod:`osprey_connectors.targets`'s answer.
 """
 
-from typing import Final, Literal, Self, TypeGuard, get_args
+from typing import TYPE_CHECKING, Final, Literal, Self, get_args
 
 from pydantic import model_validator
 from typing_extensions import TypeIs
 
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.model import FrozenModel
+
+if TYPE_CHECKING:
+    from osprey_connectors.config_sections import ConnectorBlock, ControlSystemSection
 
 __all__ = [
     "BUILTIN_CONNECTORS",
@@ -399,39 +402,20 @@ STANDIN_TYPES = tuple(row.name for row in _CONTROL_SYSTEMS if row.machine == "re
 INVENTED_HISTORY_TYPES = tuple(row.name for row in _CONTROL_SYSTEMS if row.invents_history)
 
 
-def _resolve_type(section: object, fallback: str) -> str:
-    """The connector type a factory builds from a config section.
-
-    A section that is missing, is not a mapping, or carries no usable ``type``
-    resolves to *fallback* — the factory's documented fail-closed default, which
-    it announces with a ``… is not set; defaulting to …`` warning. For a control
-    system that default is the simulator in process, which dials nothing; the
-    transport (:func:`connector_transport`), never the type, says whether a
-    connector dials a network. Empty and
-    ``None`` count as absent (YAML gives ``None`` for a bare ``type:``); any
-    other value is returned as written, so a typo reaches the factory's
-    "Unknown … type" error rather than being quietly rounded to something.
-    """
-    value = section.get("type") if isinstance(section, dict) else None
-    return str(value) if value else fallback
-
-
-def resolve_control_system_type(section: object) -> str:
+def resolve_control_system_type(section: "ControlSystemSection") -> str:
     """The control system a ``control_system:`` config section actually selects.
 
     A section that states no type selects the simulator, and
     :func:`resolve_serving` runs it in process, so it dials nothing. The
     transport (:func:`connector_transport`), never the type, says whether a
-    connector dials a network.
+    connector dials a network. Any other value is returned as written (see
+    :attr:`~osprey_connectors.config_sections.ControlSystemSection.type`), so a
+    typo reaches the factory's "Unknown … type" error.
     """
-    return _resolve_type(section, VIRTUAL_ACCELERATOR)
+    return section.type or VIRTUAL_ACCELERATOR
 
 
-def _states_type(section: object) -> TypeGuard[dict[object, object]]:
-    return isinstance(section, dict) and bool(section.get("type"))
-
-
-def resolve_serving(section: object) -> Serving:
+def resolve_serving(section: "ControlSystemSection") -> Serving:
     """Where the simulator a ``control_system:`` section selects runs.
 
     A section that states no type is the fail-safe default, the simulator in
@@ -443,23 +427,29 @@ def resolve_serving(section: object) -> Serving:
     Raises:
         ConfigurationError: when the leaf holds a value outside :data:`SERVING_MODES`.
     """
-    if not _states_type(section):
+    if section.type is None:
         return IN_PROCESS
     if resolve_control_system_type(section) != VIRTUAL_ACCELERATOR:
         return SERVED
-    connector = section.get("connector")
-    block: object = connector.get(VIRTUAL_ACCELERATOR) if isinstance(connector, dict) else None
-    value: object = block.get(SERVING_LEAF) if isinstance(block, dict) else None
-    if value is None or value == SERVED:
-        return SERVED
-    if value == IN_PROCESS:
-        return IN_PROCESS
+    block = section.block(VIRTUAL_ACCELERATOR)
+    value = block.serving if _is_block(block) else None
+    if value is None or isinstance(value, str):
+        return value or SERVED
     raise ConfigurationError(
-        f"{SERVING_KEY} is {value!r}; it is {SERVED!r} or {IN_PROCESS!r}.", key=SERVING_KEY
+        f"{SERVING_KEY} is {value.raw!r}; it is {SERVED!r} or {IN_PROCESS!r}.", key=SERVING_KEY
     )
 
 
-def connector_transport(section: object, connector_type: str | None = None) -> Transport | None:
+def _is_block(value: object) -> "TypeIs[ConnectorBlock]":
+    """Whether *value* is a connector block the section could read."""
+    from osprey_connectors.config_sections import ConnectorBlock
+
+    return isinstance(value, ConnectorBlock)
+
+
+def connector_transport(
+    section: "ControlSystemSection", connector_type: str | None = None
+) -> Transport | None:
     """The wire a connector built from *section* speaks.
 
     Computed once, here, from the type and the serving leaf, so every check that
@@ -483,7 +473,9 @@ def connector_transport(section: object, connector_type: str | None = None) -> T
     return _TRANSPORTS.get(connector_type)
 
 
-def speaks_channel_access(section: object, connector_type: str | None = None) -> bool:
+def speaks_channel_access(
+    section: "ControlSystemSection", connector_type: str | None = None
+) -> bool:
     """Whether a connector built from *section* speaks real Channel Access.
 
     The facility's own EPICS machine, the simulator served from its container,
@@ -498,7 +490,7 @@ def speaks_channel_access(section: object, connector_type: str | None = None) ->
     return connector_transport(section, connector_type) == TRANSPORT_CA
 
 
-def talks_to_network(section: object, connector_type: str | None = None) -> bool:
+def talks_to_network(section: "ControlSystemSection", connector_type: str | None = None) -> bool:
     """Whether a connector built from *section* dials anything at all.
 
     False only for the simulator served in process. A transport this module has

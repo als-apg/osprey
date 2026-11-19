@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 import subprocess
 import sys
 from contextlib import ExitStack
@@ -59,7 +60,7 @@ def test_startup_timer_emits_on_exception(capsys, monkeypatch):
 
 def test_prime_config_builder_noop_without_env(monkeypatch):
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    with patch("osprey_connectors.config.get_config_builder") as gcb:
+    with patch("osprey_connectors.config.load_config") as gcb:
         startup.prime_config_builder()
     gcb.assert_not_called()
 
@@ -67,13 +68,13 @@ def test_prime_config_builder_noop_without_env(monkeypatch):
 def test_prime_config_builder_primes_and_loads_extension_types(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/does-not-matter/config.yml")
     with (
-        patch("osprey_connectors.config.get_config_builder") as gcb,
+        patch("osprey_connectors.config.load_config") as gcb,
+        patch("osprey_connectors.config.install_config") as install,
         patch("osprey.stores.type_registry.load_extension_types", return_value={}) as load_ext,
     ):
         startup.prime_config_builder()
-    gcb.assert_called_once()
-    assert gcb.call_args.kwargs["config_path"] == "/tmp/does-not-matter/config.yml"
-    assert gcb.call_args.kwargs["set_as_default"] is True
+    gcb.assert_called_once_with("/tmp/does-not-matter/config.yml")
+    install.assert_called_once_with(gcb.return_value)
     load_ext.assert_called_once()
 
 
@@ -81,11 +82,12 @@ def test_prime_config_builder_expands_vars(monkeypatch):
     monkeypatch.setenv("MYROOT", "/opt/osprey")
     monkeypatch.setenv("OSPREY_CONFIG", "$MYROOT/config.yml")
     with (
-        patch("osprey_connectors.config.get_config_builder") as gcb,
+        patch("osprey_connectors.config.load_config") as gcb,
+        patch("osprey_connectors.config.install_config"),
         patch("osprey.stores.type_registry.load_extension_types", return_value={}),
     ):
         startup.prime_config_builder()
-    assert gcb.call_args.kwargs["config_path"] == "/opt/osprey/config.yml"
+    assert gcb.call_args.args[0] == "/opt/osprey/config.yml"
 
 
 def test_prime_config_builder_swallows_priming_failure(monkeypatch):
@@ -95,7 +97,7 @@ def test_prime_config_builder_swallows_priming_failure(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
     with (
         patch(
-            "osprey_connectors.config.get_config_builder",
+            "osprey_connectors.config.load_config",
             side_effect=RuntimeError("bad config"),
         ),
         patch.object(startup, "logger") as mock_logger,
@@ -105,11 +107,43 @@ def test_prime_config_builder_swallows_priming_failure(monkeypatch):
     assert any("priming failed" in msg.lower() for msg in logged)
 
 
+def test_priming_reads_no_env_chain(monkeypatch, tmp_path):
+    """Priming loads the named file and nothing else: the env chain is the
+    server's own startup step (``load_dotenv_from_project``, which withholds the
+    deployment's credentials), and a load that re-applied the working
+    directory's chain would hand those credentials back to an agent-spawned
+    server."""
+    from osprey_connectors.config import current_config, install_config
+
+    config_file = tmp_path / "build" / "config.yml"
+    config_file.parent.mkdir()
+    config_file.write_text("marker: ${HM_PRIME_VAR}\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "HM_PRIME_VAR=from-the-file\nOSPREY_TERMINAL_SECRET=not-for-servers\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    for name in ("HM_PRIME_VAR", "OSPREY_TERMINAL_SECRET", "OSPREY_ENV_CHAIN_APPLIED"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+    previous = install_config(None)
+    try:
+        with patch("osprey.stores.type_registry.load_extension_types", return_value={}):
+            startup.prime_config_builder()
+
+        assert current_config().get("marker") == "${HM_PRIME_VAR}"
+    finally:
+        install_config(previous)
+    assert "HM_PRIME_VAR" not in os.environ
+    assert "OSPREY_TERMINAL_SECRET" not in os.environ
+
+
 def test_prime_config_builder_survives_extension_type_load_failure(monkeypatch):
     """Extension type loading is best-effort; its failure doesn't abort priming."""
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
     with (
-        patch("osprey_connectors.config.get_config_builder"),
+        patch("osprey_connectors.config.load_config"),
+        patch("osprey_connectors.config.install_config"),
         patch(
             "osprey.stores.type_registry.load_extension_types",
             side_effect=RuntimeError("registry down"),
@@ -132,7 +166,7 @@ def test_initialize_workspace_singletons(tmp_path):
     with (
         patch("osprey.stores.artifact_store.initialize_artifact_store") as init,
         patch(
-            "osprey_connectors.workspace.resolve_shared_data_root", return_value=tmp_path
+            "osprey.utils.config_paths.process_agent_data_root", return_value=tmp_path
         ) as resolve,
     ):
         startup.initialize_workspace_singletons()

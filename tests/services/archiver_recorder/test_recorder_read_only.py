@@ -28,6 +28,7 @@ import pytest
 import osprey.services.archiver_recorder as recorder_package
 from osprey.services.archiver_recorder import recorder
 from osprey.services.archiver_recorder.config import RecorderSettings
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ControlSystemConnector,
@@ -35,9 +36,9 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_switch import write_verdict
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._epics_fakes import install_fake_aioca
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
-from osprey_connectors_tests._write_fakes import config_reader
 
 #: Every method or property on the connector interface that writes, or decides a write.
 WRITE_NAMES = frozenset(
@@ -64,10 +65,10 @@ def _settings() -> RecorderSettings:
         username="osprey",
         password_env="MONGO_ROOT_PASSWORD",
         timeout_s=5,
-        cadence_sec=1,
-        tail_cadence_sec=60,
-        poll_sec=30,
-        hot_span_hours=48,
+        cadence_s=1,
+        tail_cadence_s=60,
+        poll_s=30,
+        hot_span_h=48,
         retention_days=30,
     )
 
@@ -121,9 +122,7 @@ async def test_the_recorders_connector_carries_no_target_and_refuses_a_write(tmp
     root = tmp_path / "agent-data"
     isolate_verdict_environment(monkeypatch, root)
     write_control_context(root, owned_by=None, switch={"live": "on", "va": "on"})
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value", config_reader(dict(WRITES_ALLOWED))
-    )
+    serve_control_system(WRITES_ALLOWED)
 
     connector = await recorder._connect()
     result = await connector.write_channel("SR:BPM01:X", 1.0)
@@ -131,8 +130,11 @@ async def test_the_recorders_connector_carries_no_target_and_refuses_a_write(tmp
     assert connector._control_target is None
     # Armed for every target the connector could have been stamped with, so the
     # missing stamp is the only thing that refuses.
-    assert write_verdict(dict(WRITES_ALLOWED), "live").allowed
-    assert write_verdict(dict(WRITES_ALLOWED), None).reason == "target_unknown"
+    assert write_verdict(ControlSystemSection.read(dict(WRITES_ALLOWED)), "live").allowed
+    assert (
+        write_verdict(ControlSystemSection.read(dict(WRITES_ALLOWED)), None).reason
+        == "target_unknown"
+    )
     assert result.outcome is WriteOutcome.REFUSED
     assert refusal_phrase("target_unknown") in (result.error_message or "")
     assert aioca.puts == []

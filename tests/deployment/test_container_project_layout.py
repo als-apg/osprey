@@ -54,6 +54,7 @@ from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
 from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, TIERS_DIRNAME
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
 from osprey_connectors.write_tier import WRITES_KEY, tier_writes
 
@@ -661,7 +662,7 @@ def test_a_render_context_carries_its_own_merged_config(
     section = config["control_system"]
     expected = writes
     assert section[WRITES_KEY.split(".")[-1]] == expected
-    assert tier_writes(section) == expected
+    assert tier_writes(ControlSystemSection.read(section)) == expected
     assert "writes_enabled" not in section
     assert not [
         connector_type

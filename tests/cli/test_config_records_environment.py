@@ -21,7 +21,6 @@ with a debug log, never an error.
 
 from __future__ import annotations
 
-import logging
 import re
 import sys
 from collections.abc import Iterator
@@ -34,7 +33,7 @@ from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.config import load_config
 from tests._config_render_context import CONFIG_TEMPLATES, MINIMAL_CONFIG_CONTEXT
 from tests.cli._lifecycle_build import invoke_build
 
@@ -42,7 +41,6 @@ from tests.cli._lifecycle_build import invoke_build
 _INTERPRETER_PATH = re.compile(r"bin/python[\d.]*$")
 
 # ``osprey_connectors.config`` logs under a flat name, not its module path.
-_CONFIG_LOGGER = "CONFIG"
 
 
 def _walk_scalars(node: Any, path: str = "") -> Iterator[tuple[str, Any]]:
@@ -258,52 +256,24 @@ class TestRetiredPythonEnvPathIsIgnored:
         return config_file
 
     def test_old_config_loads_without_error(self, tmp_path):
-        builder = ConfigBuilder(str(self._legacy_config(tmp_path)), load_env=False)
+        loaded = load_config(self._legacy_config(tmp_path))
 
-        assert builder.configurable["execution"]["execution_method"] == "local"
+        assert loaded.get("execution.execution_method") == "local"
 
-    def test_retired_keys_are_dropped_from_the_execution_config(self, tmp_path):
-        builder = ConfigBuilder(str(self._legacy_config(tmp_path)), load_env=False)
-        execution = builder.configurable["execution"]
+    def test_the_retired_key_is_read_by_nothing(self, tmp_path):
+        """The executor's reader names the method only, so the retired key changes nothing."""
+        from osprey.utils.execution_method import resolve_execution_method
 
-        assert "python_env_path" not in execution
-        # Jupyter-era kernel/gateway descriptions: retired alongside it.
-        assert "modes" not in execution
+        tree = load_config(self._legacy_config(tmp_path)).raw_tree()
 
-    def test_sibling_execution_keys_survive(self, tmp_path):
-        builder = ConfigBuilder(str(self._legacy_config(tmp_path)), load_env=False)
+        assert resolve_execution_method(tree) == "subprocess"
 
-        assert builder.configurable["execution"]["execution_method"] == "local"
-
-    def test_it_is_logged_at_debug_not_warning(self, tmp_path, caplog):
-        config_file = self._legacy_config(tmp_path)
-
-        with caplog.at_level(logging.DEBUG, logger=_CONFIG_LOGGER):
-            ConfigBuilder(str(config_file), load_env=False)
-
-        records = [r for r in caplog.records if "python_env_path" in r.getMessage()]
-        assert records, "expected a log line about the retired key"
-        assert [r.levelno for r in records] == [logging.DEBUG]
-        assert "/vanished/host/.venv/bin/python" in records[0].getMessage()
-
-    def test_a_current_config_says_nothing_about_the_retired_key(self, tmp_path, caplog):
-        """No noise on the configs the build actually generates."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text('execution:\n  execution_method: "subprocess"\n', encoding="utf-8")
-
-        with caplog.at_level(logging.DEBUG, logger=_CONFIG_LOGGER):
-            ConfigBuilder(str(config_file), load_env=False)
-
-        assert not [r for r in caplog.records if "python_env_path" in r.getMessage()]
-
-    def test_defaults_record_no_interpreter_path(self, tmp_path):
-        """The synthesized defaults for a config with no ``execution:`` block
-        must not reintroduce an interpreter path either."""
+    def test_a_config_with_no_execution_block_records_no_interpreter_path(self, tmp_path):
+        """The load synthesizes no ``execution:`` block, so no interpreter path appears."""
         config_file = tmp_path / "config.yml"
         config_file.write_text("project_root: /srv/als-assistant\n", encoding="utf-8")
 
-        execution = ConfigBuilder(str(config_file), load_env=False).configurable["execution"]
+        tree = load_config(config_file).raw_tree()
 
-        assert execution["execution_method"] == "subprocess"
-        assert "python_env_path" not in execution
-        assert _interpreter_paths(execution) == []
+        assert "execution" not in tree
+        assert _interpreter_paths(tree) == []

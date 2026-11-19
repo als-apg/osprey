@@ -83,7 +83,7 @@ def main() -> int:
         "Archiver recorder started: %d channels available, enablement re-read from %s every %ds.",
         len(addresses),
         config_path,
-        settings.poll_sec,
+        settings.poll_s,
     )
     try:
         asyncio.run(_run(recorder))

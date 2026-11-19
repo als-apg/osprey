@@ -163,12 +163,13 @@ def _reset_hook_config_memo(staged: Staged, hook_function: Callable[..., Any]) -
 
 
 def _package(staged: Staged) -> Any:
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import write_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
 
     case = staged.case
     verdict = write_verdict(
-        case.section,
+        ControlSystemSection.read(case.section),
         case.target,
         ignore_launch_pin=case.ignore_launch_pin,
         **owner_argument(case),
@@ -177,9 +178,10 @@ def _package(staged: Staged) -> Any:
 
 
 def _package_backstop(staged: Staged) -> Any:
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import backstop_verdict
 
-    verdict = backstop_verdict(staged.case.section)
+    verdict = backstop_verdict(ControlSystemSection.read(staged.case.section))
     return (verdict.allowed, verdict.reason), _expected(staged.case)
 
 
@@ -327,7 +329,7 @@ def _app_tool_call(staged: Staged) -> Any:
         "apps": {"surface": {"approval": {"act": {"app": "surface"}}}},
     }
     staged.monkeypatch.setenv(_approval.APP_NAME_ENV_VAR, "surface")
-    staged.monkeypatch.setattr(_approval, "load_osprey_config", lambda: config)
+    staged.monkeypatch.setattr(_approval, "loaded_or_empty", lambda: config)
     try:
         check_approved_call("act", {})
     except ApprovalRefused as error:
@@ -341,10 +343,11 @@ def _phoebus_drive(staged: Staged) -> Any:
     if not _ladder_pin_honoured(case) or not isinstance(case.section, dict):
         return OUT_OF_DOMAIN
     from osprey.mcp_server.phoebus.tools.bridge_tools import _check_drive_switch
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import baseline_target
 
     try:
-        if baseline_target(case.section) != case.target:
+        if baseline_target(ControlSystemSection.read(case.section)) != case.target:
             return OUT_OF_DOMAIN
     except Exception:
         return OUT_OF_DOMAIN
@@ -597,13 +600,14 @@ def _held(project: Callable[[Staged], Any]) -> Callable[[Staged], Any]:
     """*project*, asked with the session held: the row's answer gives way to the hold."""
 
     def held(staged: Staged) -> Any:
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.write_switch import backstop_verdict
 
         _hold(staged)
         answer = project(staged)
         if answer is OUT_OF_DOMAIN:
             return answer
-        backstop = backstop_verdict(staged.case.section)
+        backstop = backstop_verdict(ControlSystemSection.read(staged.case.section))
         expected = (False, backstop.reason if not backstop.allowed else "session_held")
         return answer[0], expected
 
@@ -790,11 +794,12 @@ def _authorized_execution_answer(staged: Staged) -> Any:
     case = staged.case
     if not _pin_honoured_any_owner(case):
         return OUT_OF_DOMAIN
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_authorization import authorized_execution_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
 
     verdict = authorized_execution_verdict(
-        case.section,
+        ControlSystemSection.read(case.section),
         case.target,
         [("SR:CH:1", 1.0)],
         authorization=_NO_GRANT,
@@ -824,11 +829,15 @@ def _authorized_gateway(staged: Staged) -> Any:
     case = staged.case
     if not _pin_honoured_any_owner(case) or _expected(case) in _AUTHORIZATION_DECIDES:
         return OUT_OF_DOMAIN
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_authorization import authorized_write_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
 
     verdict = authorized_write_verdict(
-        case.section, case.target, authorization=_NO_GRANT, **owner_argument(case)
+        ControlSystemSection.read(case.section),
+        case.target,
+        authorization=_NO_GRANT,
+        **owner_argument(case),
     )
     return (verdict.allowed, verdict.reason), _expected(case)
 

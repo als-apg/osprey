@@ -128,8 +128,9 @@ from osprey.deployment.web_terminals.roster import (
     single_user_alias_services,
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
+from osprey.utils.config_paths import deployment_config
 from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
-from osprey_connectors.config import config_anchored_at, load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
@@ -1289,7 +1290,7 @@ def _refuse_invented_history(config: dict) -> None:
     deployment claims about itself. An attached project deploying no simulator
     container of its own still points its agent at one.
 
-    Both keys are resolved through nested sections only, the way ``ConfigBuilder``
+    Both keys are resolved through nested sections only, the way ``load_config``
     reads a rendered ``config.yml`` — see
     :func:`~osprey.deployment.honesty.pairing_in_rendered_config`.
 
@@ -1305,6 +1306,7 @@ def _refuse_invented_history(config: dict) -> None:
         archiver, an unset ``archiver.type`` included.
     """
     from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import resolve_control_system_type
 
     pairing = pairing_in_rendered_config(config)
@@ -1315,7 +1317,9 @@ def _refuse_invented_history(config: dict) -> None:
     # just judged it with, so the message cannot name a machine other than the
     # one that was refused.
     control_system_type = resolve_control_system_type(
-        config.get("control_system") if isinstance(config, dict) else None
+        ControlSystemSection.read(
+            config.get("control_system") if isinstance(config, dict) else None
+        )
     )
 
     raise RuntimeError(
@@ -3992,7 +3996,7 @@ def _preflight_env_shadowing(
         directory and the home of the env chain compose is pointed at.
     :param environ: The process environment to compare against. ``None`` reads
         the live one, overlaid with the shell values the CLI's entry-time
-        ``.env`` load replaced (:func:`~osprey_connectors.config.dotenv_shell_overrides`)
+        ``.env`` load replaced (:func:`~osprey_connectors.dotenv.dotenv_shell_overrides`)
         — the comparison is against what the operator's shell actually
         exported, which the in-process override would otherwise have erased.
     :param provider: The detected compose provider, when the caller has probed
@@ -4019,7 +4023,7 @@ def _preflight_env_shadowing(
     chain_values = merge_chain(root)
 
     if environ is None:
-        from osprey_connectors.config import dotenv_shell_overrides
+        from osprey_connectors.dotenv import dotenv_shell_overrides
 
         process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
     else:
@@ -4227,7 +4231,7 @@ def _preflight_declared_env_unset(
         return []
 
     if environ is None:
-        from osprey_connectors.config import dotenv_shell_overrides
+        from osprey_connectors.dotenv import dotenv_shell_overrides
 
         process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
     else:
@@ -4450,7 +4454,7 @@ def _preflight_buildkit(config: dict) -> None:
     except RuntimeError:
         return
 
-    from osprey_connectors.config import dotenv_shell_overrides
+    from osprey_connectors.dotenv import dotenv_shell_overrides
 
     refusal = buildkit_missing(runtime, {**os.environ, **dotenv_shell_overrides()})
     if refusal is not None:
@@ -4800,7 +4804,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     :raises RuntimeError: The render carries no simulator view.
     :raises ViewSchemaError: The render's view is from an older build.
     """
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.config import facility_timezone
     from osprey_connectors.simulation.archive import build
     from osprey_connectors.simulation.state import read_active_state
     from osprey_connectors.simulation.view import SimulatorView, view_path
@@ -4814,7 +4818,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
             "Run `osprey build`; the seed never invents a namespace."
         )
     active = read_active_state(resolve_simulation_state_dir(config, project_dir))
-    return build(view, active, tz=get_facility_timezone())
+    return build(view, active, tz=facility_timezone())
 
 
 def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
@@ -5533,13 +5537,13 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
     What a relative ``services.graphdb.ttl_path`` resolves against — see
     :func:`_graphdb_ttl_text`. Derived from the project root the deploy was
     handed rather than from
-    :func:`osprey_connectors.workspace.resolve_config_path`, which falls back
+    :func:`osprey_connectors.config.locate_config`, which falls back
     to the process working directory: a deploy driven with ``--repo`` from
     somewhere else would otherwise resolve the corpus against whatever
     directory the operator happened to be standing in.
 
     Both project shapes are covered by one rule, the same one
-    ``resolve_config_path`` applies to a working directory: the render one zone
+    ``locate_config`` applies to a working directory: the render one zone
     down in ``build/`` when it is there, and the project root itself otherwise —
     a container's project directory, or a legacy flat project, IS its own render.
     """
@@ -5901,7 +5905,7 @@ def deploy_up(
     # `<repo>/build/config.yml`: a legacy flat project's own directory is its
     # render, so deriving the path would name a file that does not exist there.
     # Same contract as the as-built path — see `_start_as_built`.
-    with config_anchored_at(config_path):
+    with deployment_config(config_path):
         _start_stack(
             config,
             compose_files,
@@ -6752,7 +6756,7 @@ def _start_stack(
     # handing compose the overridden copy would make that a lie and silently
     # start the stack on the store's value instead. Variables `.env` added that
     # the shell never set are untouched (their process value IS the file's).
-    from osprey_connectors.config import dotenv_shell_overrides
+    from osprey_connectors.dotenv import dotenv_shell_overrides
 
     env = {**os.environ, **dotenv_shell_overrides()}
     if dev_mode:
@@ -7524,7 +7528,7 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
 
         preflight_dev_mode()
 
-    config = load_project_config(str(config_path), wrap_errors=True)
+    config = load_config(str(config_path)).raw_tree()
 
     # Before anything below can matter: a deployment whose archive is fabricated
     # does not get to start. build/config.yml is what the last build wrote, but
@@ -7608,9 +7612,9 @@ def _start_as_built(
     project directory; a start pointed at another repo stands in neither, and
     without the anchor its lookups would resolve against the working directory
     and degrade to defaults without failing. See
-    :func:`~osprey_connectors.config.config_anchored_at`.
+    :func:`~osprey.utils.config_paths.deployment_config`.
     """
-    with config_anchored_at(as_built_config_path(repo_root)):
+    with deployment_config(as_built_config_path(repo_root)):
         _warn_on_timezone_drift(config)
         _start_stack(
             config,
@@ -7634,8 +7638,8 @@ def _start_as_built(
 def _warn_on_timezone_drift(config: dict) -> None:
     """Promote a host-vs-facility timezone divergence at the start of an up.
 
-    The same divergence :func:`osprey_connectors.config._warn_on_tz_drift`
-    records when a timestamp is first stamped — but that record is a library
+    The same divergence :func:`osprey_connectors.config.facility_timezone`
+    reports when a timestamp is first stamped — but that record is a library
     warning the altitude gate keeps off the terminal while a lifecycle verb
     runs, and it fires minutes into the start, wherever the first timestamp
     happens to be minted. The operator-facing copy of it belongs to the verb:
@@ -7888,9 +7892,7 @@ def down_deployment(
     if (runtime is None) != (project is None):
         raise ValueError("runtime and project are given together or not at all")
     config_path = as_built_config_path(repo_root)
-    config = (
-        load_project_config(str(config_path), wrap_errors=True) if config_path.is_file() else None
-    )
+    config = load_config(str(config_path)).raw_tree() if config_path.is_file() else None
     if runtime is None or project is None:
         try:
             record = read_deployment_record(repo_root)

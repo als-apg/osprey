@@ -2,8 +2,8 @@
 
 ``docs/source/how-to/deploy-project/env-chain.rst`` tells a deployer which
 variables the ``.env`` chain never applies. The refusal itself lives in
-:data:`osprey_connectors.config._SHELL_ONLY_ENV_VARS` and
-:data:`osprey_connectors.config._SHELL_ONLY_ENV_PREFIXES`. The paragraph names
+:data:`osprey_connectors.dotenv._SHELL_ONLY_ENV_VARS` and
+:data:`osprey_connectors.dotenv._SHELL_ONLY_ENV_PREFIXES`. The paragraph names
 most entries literally and covers the rest with a phrase for a whole group, so
 each direction is checked here: every refused name or prefix is on the page,
 and every name the page lists is refused.
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.config import (
+from osprey_connectors.dotenv import (
     _SHELL_ONLY_ENV_PREFIXES,
     _SHELL_ONLY_ENV_VARS,
     _is_shell_only_env_var,

@@ -1908,10 +1908,11 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
         and its value when ``limits_checking`` is not a mapping; nothing for a
         render whose blocks are complete or absent.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.limits_posture import incomplete_limits_blocks
 
     errors: list[str] = incomplete_limits_blocks(
-        _rendered_config(render_dir).get("control_system") or {}
+        ControlSystemSection.read(_rendered_config(render_dir).get("control_system") or {})
     )
     return errors
 
@@ -1928,9 +1929,9 @@ def _archiver_settings_errors(render_dir: Path) -> list[str]:
     Returns:
         One line per block no archiver reads; nothing for a runnable section.
     """
-    from osprey_connectors.archiver_selection import archiver_settings_errors
+    from osprey_connectors.config_sections import ArchiverSection
 
-    return archiver_settings_errors(_rendered_config(render_dir).get("archiver") or {})
+    return list(ArchiverSection.read(_rendered_config(render_dir).get("archiver")).problems)
 
 
 def _template_host_config(

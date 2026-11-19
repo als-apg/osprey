@@ -11,7 +11,7 @@ from click.testing import CliRunner
 from osprey.cli.users_cmd import users
 from osprey.deployment.web_terminals import roster_report
 from osprey.deployment.web_terminals.roster_report import build_roster_report, last_sign_ins
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 
 CONFIG = textwrap.dedent(
     """
@@ -61,7 +61,7 @@ def repo(tmp_path):
 
 
 def _report(repo):
-    config = load_project_config(str(repo / "build" / "config.yml"))
+    config = load_config(str(repo / "build" / "config.yml")).raw_tree()
     return build_roster_report(
         config, repo, project_name="demo", shared_titles={"search": "Search"}
     )

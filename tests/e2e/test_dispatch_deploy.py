@@ -115,6 +115,7 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     TARGET_LIVE,
     TARGET_STANDIN,
@@ -1143,7 +1144,7 @@ def _write_posture(render: Path) -> bool:
     verdict reads it: ``control_system.writes``, target-blind (the session's
     switch picks the machine)."""
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
-    return tier_allows(config.get("control_system") or {})
+    return tier_allows(ControlSystemSection.read(config.get("control_system") or {}))
 
 
 def _permissions(render: Path) -> dict:

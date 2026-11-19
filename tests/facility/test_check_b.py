@@ -377,7 +377,7 @@ def test_a_write_through_the_replica_settles_on_its_readback(
 ) -> None:
     import osprey.runtime
     from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     monkeypatch.chdir(tmp_path)
     for name in ("OSPREY_CONFIG", ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION):
@@ -388,7 +388,7 @@ def test_a_write_through_the_replica_settles_on_its_readback(
         yaml.safe_dump({"control_system": {"type": "epics", "connector": {"epics": {}}}}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("CONFIG_FILE", str(config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
     (tmp_path / "build" / "facility.json").write_text(
         json.dumps(
             {
@@ -404,7 +404,7 @@ def test_a_write_through_the_replica_settles_on_its_readback(
         ),
         encoding="utf-8",
     )
-    reset_config_cache()
+    clear_config_state()
     try:
         composite = _Composite({"H1:SP": 0.0, "H1:RB": 2.01})
         ReplicaRuntime(composite, {}).install(monkeypatch)
@@ -418,4 +418,4 @@ def test_a_write_through_the_replica_settles_on_its_readback(
         assert ["H1:RB"] in reads
         assert osprey.runtime._runtime_connector is None
     finally:
-        reset_config_cache()
+        clear_config_state()

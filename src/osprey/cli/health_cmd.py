@@ -10,7 +10,7 @@ runs the async health suite, and renders the report. All check logic lives in
 Design contracts honored here:
 
 * **Single config load.** The CLI loads ``config.yml`` exactly once via
-  :func:`osprey_connectors.config.get_config_builder` and reports on the outcome
+  :func:`osprey_connectors.config.load_config` and reports on the outcome
   through a :class:`~osprey.health.core.configuration.ConfigState`. A load
   failure never crashes the command — it degrades into configuration error rows
   while the rest of the report still renders.
@@ -54,7 +54,7 @@ _NOISY_LOADER_LOGGERS = ("CONFIG", "registry")
 
 # A level above CRITICAL: nothing a logger or handler emits reaches it, so a
 # handler/logger pinned here stays silent for every record — including the
-# ERROR-level config-load failure block that ConfigBuilder emits.
+# warnings the config load emits (an empty file, a runtime path under data/).
 _SILENT_LEVEL = logging.CRITICAL + 1
 
 
@@ -63,9 +63,9 @@ def _quiet_run_logs(*, as_json: bool, verbose: bool) -> Iterator[None]:
     """Keep incidental log output from corrupting the command's stdout.
 
     Osprey's root logging handler renders to stdout, so any record it emits
-    during the run lands on stdout. ConfigBuilder logs config-load failures at
-    ``ERROR``, so merely capping at ``ERROR`` would still leak a Rich error block
-    ahead of the report — breaking the ``--json`` machine-clean contract. Both
+    during the run lands on stdout. The config load logs its advisories at
+    ``WARNING``, and any record would leak a Rich block ahead of the report —
+    breaking the ``--json`` machine-clean contract. Both
     paths therefore pin to :data:`_SILENT_LEVEL` (above ``CRITICAL``): ``--json``
     silences every root handler, and the human path (unless ``--verbose``)
     silences the noisy loader loggers. Genuine config failures are never lost —
@@ -110,7 +110,7 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
     So the config is looked up through
     :func:`osprey.cli.project_utils.project_config_path` (render first, then the
     flat spelling a container project directory uses — the same order
-    :func:`osprey_connectors.workspace.resolve_config_path` reads, and the same one
+    :func:`osprey_connectors.config.locate_config` reads, and the same one
     the ``channel-finder`` group resolves through), the repo root is derived from
     wherever that landed, and the env chain comes from
     :func:`osprey.utils.workspace.deployment_env_chain` — the same
@@ -142,7 +142,7 @@ def _load_project_env(dotenv_paths: list[Path]) -> None:
     missing file is skipped, and the shell-only launch variables are never
     applied.
     """
-    from osprey_connectors.config import apply_env_chain
+    from osprey_connectors.dotenv import apply_env_chain
 
     apply_env_chain(os.environ, dotenv_paths)
 

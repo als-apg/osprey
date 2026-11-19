@@ -605,7 +605,7 @@ class TestEndToEndArmingPath:
             second_denied_port = 19682
             # The real executor path writes an in-flight marker under
             # `target_state.state_dir()`, which with no stamp resolves through
-            # `resolve_shared_data_root()` to the REPOSITORY — so this test
+            # `process_agent_data_root()` to the REPOSITORY — so this test
             # created `<repo>/var/agent_data/control_target/` and, because the
             # marker is unlinked on the way out, left only an empty gitignored
             # directory nothing would notice. Stamp it into tmp instead.

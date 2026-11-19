@@ -116,14 +116,14 @@ def create_server() -> FastMCP:
     the audit middleware.
     """
     from osprey.mcp_server import startup
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     register = _PENDING.pop()
     app = audit_surface()
     startup.prime_config_builder()
     server = startup.application_server(app)
     register(server)
-    _refuse_undeclared(server, app, load_osprey_config())
+    _refuse_undeclared(server, app, loaded_or_empty())
     server.add_middleware(_AppErrors(app))
     return server
 

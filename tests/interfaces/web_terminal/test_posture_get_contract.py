@@ -55,10 +55,12 @@ from osprey.mcp_server.control_system import (
     target_eligibility,
     target_state,
 )
-from osprey_connectors import control_context, gateways, testing, workspace, write_switch
+from osprey_connectors import control_context, gateways, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import ReadResult
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import (
     owner,
     state_dir_under,
@@ -280,7 +282,7 @@ def agent_data_root(tmp_path, monkeypatch):
 
     ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
     ``write_switch`` both prefer, and the ONLY way this route reaches either —
-    patching ``resolve_shared_data_root`` would redirect one of them and leave
+    patching ``process_agent_data_root`` would redirect one of them and leave
     the other reading the repository's own ``var/agent_data``.
     """
     root = tmp_path / "agent_data"
@@ -300,7 +302,7 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
     """Build an app + TestClient over the stamped root.
 
     The record is written **before** the app starts, so the lifespan claim
-    merges into it rather than minting a fresh one from ``load_osprey_config``,
+    merges into it rather than minting a fresh one from ``loaded_or_empty``,
     which this process has no workspace for. The owner task's loop is stubbed
     out: every tick these tests need has happened by the time the client is
     handed over, and a loop ticking underneath the assertions would be a race
@@ -1114,10 +1116,10 @@ class TestTargetIdentity:
         config = render(tmp_path=tmp_path, va_port=15064, name="terminal.yml")
         try:
             with make_client(config) as client:
-                workspace.reset_config_cache()
+                clear_config_state()
                 payload = get_posture(client)
         finally:
-            workspace.reset_config_cache()
+            clear_config_state()
         assert row_for(payload, "va")["endpoint"].endswith(":15064")
 
     def test_every_roster_derivation_reads_the_terminals_own_render(self, client, monkeypatch):
@@ -1155,7 +1157,9 @@ def armed(tmp_path, **kwargs):
 def fresh_verdict(config_path, target):
     """The write verdict a new call by the signed-in login gets, asked directly."""
     section = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))["control_system"]
-    return write_switch.write_verdict(section, target, owner=acting_identity())
+    return write_switch.write_verdict(
+        ControlSystemSection.read(section), target, owner=acting_identity()
+    )
 
 
 def switch_on(agent_data_root, *targets):

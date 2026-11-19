@@ -73,7 +73,7 @@ from osprey.runtime.session import (
     SessionUnservableError,
 )
 from osprey.runtime.session_env import SessionEnvironmentError, check_environment
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.control_system import ChannelValue
 from osprey_connectors.errors import ConnectorUnavailableError
 
@@ -199,7 +199,7 @@ def _found_row(name: str, reading: ChannelValue) -> ValueRow:
         outcome=ipc.OUTCOME_FOUND,
         value=value,
         # Connectors stamp readings in UTC; the served stamp stays facility-local.
-        timestamp=reading.sampled_at.astimezone(get_facility_timezone()).isoformat(),
+        timestamp=reading.sampled_at.astimezone(facility_timezone()).isoformat(),
         severity=ipc.wire_value(None if alarm is None else alarm.severity),
         status=ipc.wire_value(None if alarm is None else alarm.status),
         reason=too_large,

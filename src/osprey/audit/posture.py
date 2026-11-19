@@ -152,9 +152,9 @@ def control_system_section() -> object:
     """
     try:
         # Imported inside the function: this module is a leaf.
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        return get_config_value("control_system", None)
+        return current_config().get("control_system", None)
     except Exception:  # an unreadable config is a tier that allows nothing
         logger.debug("The control_system section could not be read", exc_info=True)
         return None
@@ -176,11 +176,14 @@ def verdict() -> WriteVerdict:
     ``osprey-connectors`` is a declared dependency of this package, so the lazy
     import below is a leaf's import-cost rule, not an optional feature.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.refusals import VerdictReason
     from osprey_connectors.write_switch import Refused, write_verdict
 
     try:
-        return write_verdict(control_system_section(), recorded_control_target())
+        return write_verdict(
+            ControlSystemSection.read(control_system_section()), recorded_control_target()
+        )
     except Exception:  # write_verdict never raises by contract; refuse if it does
         logger.debug("Write verdict could not be reached; refusing", exc_info=True)
         return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)

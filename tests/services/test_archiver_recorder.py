@@ -75,10 +75,10 @@ def _settings(**overrides) -> RecorderSettings:
         "username": "osprey",
         "password_env": "MONGO_ROOT_PASSWORD",
         "timeout_s": 5,
-        "cadence_sec": 10,
-        "tail_cadence_sec": 60,
-        "poll_sec": 30,
-        "hot_span_hours": 48,
+        "cadence_s": 10,
+        "tail_cadence_s": 60,
+        "poll_s": 30,
+        "hot_span_h": 48,
         "retention_days": 30,
     }
     base.update(overrides)
@@ -135,12 +135,12 @@ def _write_config(
         },
         "va_archiver": {
             "retention_days": 30,
-            "hot_span_hours": 48,
-            "hot_cadence_sec": 10,
-            "tail_cadence_sec": 60,
-            "recorder_cadence_sec": 10,
-            "recorder_tail_cadence_sec": 60,
-            "recorder_poll_sec": 30,
+            "hot_span_h": 48,
+            "hot_cadence_s": 10,
+            "tail_cadence_s": 60,
+            "recorder_cadence_s": 10,
+            "recorder_tail_cadence_s": 60,
+            "recorder_poll_s": 30,
         },
     }
     blocks = (("virtual_accelerator", va_gateway), ("epics", live_gateway))
@@ -212,8 +212,8 @@ def test_settings_come_from_the_rendered_config(tmp_path: Path) -> None:
     with different cadences or retention spans."""
     settings = load_settings(_write_config(tmp_path / "config.yml"))
 
-    assert (settings.cadence_sec, settings.tail_cadence_sec, settings.poll_sec) == (10, 60, 30)
-    assert (settings.hot_span_hours, settings.retention_days) == (48, 30)
+    assert (settings.cadence_s, settings.tail_cadence_s, settings.poll_s) == (10, 60, 30)
+    assert (settings.hot_span_h, settings.retention_days) == (48, 30)
     assert (settings.database, settings.collection) == ("osprey_archiver", "pv_history")
     assert settings.password_env == "MONGO_ROOT_PASSWORD"
 
@@ -267,7 +267,7 @@ def test_load_settings_refuses_a_url(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("block", "key"),
-    [("va_archiver", "recorder_cadence_sec"), ("archiver", "mongodb_archiver")],
+    [("va_archiver", "recorder_cadence_s"), ("archiver", "mongodb_archiver")],
 )
 def test_a_missing_knob_is_an_error_naming_it(tmp_path: Path, block: str, key: str) -> None:
     """No silent defaults. A recorder that invented a cadence would write an
@@ -437,7 +437,7 @@ def test_tail_grid_samples_are_kept_for_the_full_retention_span() -> None:
 def test_expiry_tiers_follow_the_configured_spans() -> None:
     """Both spans are knobs: changing retention_days in the profile changes
     what the recorder stamps, with no code edit."""
-    settings = _settings(retention_days=2, hot_span_hours=2)
+    settings = _settings(retention_days=2, hot_span_h=2)
     on_grid = datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)
 
     assert expiry_for(on_grid, settings) == on_grid + timedelta(days=2)
@@ -640,7 +640,7 @@ async def test_a_channel_that_never_answers_does_not_hold_the_sample(
 
     monkeypatch.setattr(recorder, "_connect", connect)
     # A fractional cadence keeps the test short; the deadline arithmetic is the same.
-    read = recorder.channel_access_reader(_settings(cadence_sec=0.2))
+    read = recorder.channel_access_reader(_settings(cadence_s=0.2))
     addresses = ["SR:BPM01:X", "SR:BPM02:X", "SR:BPM03:BROKEN"]
 
     started = time.monotonic()
@@ -672,7 +672,7 @@ async def test_a_connector_that_does_not_connect_in_time_costs_one_sample(
         return _StallingConnector()
 
     monkeypatch.setattr(recorder, "_connect", connect)
-    read = recorder.channel_access_reader(_settings(cadence_sec=0.1))
+    read = recorder.channel_access_reader(_settings(cadence_s=0.1))
 
     assert await read(["SR:BPM01:X"]) == {}
     assert await read(["SR:BPM01:X"]) == {"SR:BPM01:X": 2.5}
@@ -716,7 +716,7 @@ async def test_a_waveform_is_recorded_once_per_tail_cadence_never_in_scalar_docs
     never carry one, and nothing is warned about as non-numeric."""
     writer = _FakeWaveformWriter()
     recorder = Recorder(
-        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        settings=_settings(cadence_s=10, tail_cadence_s=60),
         addresses=ChannelSet(["SR:BPM01:X", WAVEFORM], waveforms=[WAVEFORM]),
         writer=writer,
         config_path=_write_config(tmp_path / "config.yml"),
@@ -751,7 +751,7 @@ async def test_a_waveform_off_the_tail_grid_is_not_recorded(tmp_path: Path) -> N
     trace stamped with an instant it was not read at."""
     writer = _FakeWaveformWriter()
     recorder = Recorder(
-        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        settings=_settings(cadence_s=10, tail_cadence_s=60),
         addresses=ChannelSet([WAVEFORM], waveforms=[WAVEFORM]),
         writer=writer,
         config_path=_write_config(tmp_path / "config.yml"),
@@ -787,7 +787,7 @@ async def test_a_waveform_that_answers_with_no_trace_is_warned_about_once(
 ) -> None:
     writer = _FakeWaveformWriter()
     recorder = Recorder(
-        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        settings=_settings(cadence_s=10, tail_cadence_s=60),
         addresses=ChannelSet([WAVEFORM, "SR:SEK:OTHER"], waveforms=[WAVEFORM, "SR:SEK:OTHER"]),
         writer=writer,
         config_path=_write_config(tmp_path / "config.yml"),
@@ -806,7 +806,7 @@ async def test_a_failed_trace_write_does_not_end_the_loop(tmp_path: Path) -> Non
     writer = _FakeWaveformWriter()
     writer.trace_fail_with = ConnectionError("store restarting")
     recorder = Recorder(
-        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        settings=_settings(cadence_s=10, tail_cadence_s=60),
         addresses=ChannelSet(["SR:BPM01:X", WAVEFORM], waveforms=[WAVEFORM]),
         writer=writer,
         config_path=_write_config(tmp_path / "config.yml"),
@@ -870,7 +870,7 @@ async def test_the_simulator_coming_and_going_takes_effect_without_a_restart(
     config_path = _write_config(tmp_path / "config.yml", va_port=None)
     writer = _FakeWriter()
     recorder = Recorder(
-        settings=_settings(poll_sec=30),
+        settings=_settings(poll_s=30),
         addresses=["SR:BPM01:X"],
         writer=writer,
         config_path=config_path,
@@ -980,7 +980,7 @@ async def test_a_torn_config_read_keeps_the_last_known_state(tmp_path: Path) -> 
     config_path = _write_config(tmp_path / "config.yml")
     writer = _FakeWriter()
     recorder = Recorder(
-        settings=_settings(poll_sec=30),
+        settings=_settings(poll_s=30),
         addresses=["SR:BPM01:X"],
         writer=writer,
         config_path=config_path,
@@ -1001,7 +1001,7 @@ async def test_the_idle_line_names_the_gate_and_where_to_set_it(
     logs`: the target that is recorded, the key that says a simulator was
     built, and the file both are read from."""
     recorder = Recorder(
-        settings=_settings(poll_sec=1),
+        settings=_settings(poll_s=1),
         addresses=["SR:BPM01:X"],
         writer=_FakeWriter(),
         config_path=_write_config(tmp_path / "config.yml", va_port=None),
@@ -1022,7 +1022,7 @@ async def test_idling_logs_once_not_every_poll(
 ) -> None:
     """A recorder idling for a week must not fill the logs saying so."""
     recorder = Recorder(
-        settings=_settings(poll_sec=1),
+        settings=_settings(poll_s=1),
         addresses=["SR:BPM01:X"],
         writer=_FakeWriter(),
         config_path=_write_config(tmp_path / "config.yml", va_port=None),

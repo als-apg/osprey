@@ -24,6 +24,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile_deploy import limits_block_errors
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.limits_posture import (
@@ -32,6 +33,7 @@ from osprey_connectors.limits_posture import (
     incomplete_limits_blocks,
     type_limits_posture,
 )
+from osprey_connectors_tests._config_trees import serve_control_system
 
 BOUNDED = "DEMO:MAG:HCM:01:CURRENT:SP"
 LOCKED = "DEMO:VAC:PUMP:01:VOLTAGE:SP"
@@ -51,20 +53,17 @@ VA_MODE_KEY = f"control_system.connector.{VA}.limits_checking.mode"
 LEFTOVER_LEAF = "allow_unlisted_channels"
 
 
-def _validator(monkeypatch, tmp_path: Path, mode: Any) -> LimitsValidator:
-    """Load the limits file under *mode*, stated deployment-wide."""
+def _serve_limits(tmp_path: Path, limits_checking: dict[str, Any]) -> None:
+    """Serve *limits_checking* deployment-wide, its database the limits file under *tmp_path*."""
     db_file = tmp_path / "channel_limits.json"
     db_file.write_text(json.dumps(LIMITS_FILE), encoding="utf-8")
-    values = {
-        "control_system": {"limits_checking": {"enabled": True, "mode": mode}},
-        "control_system.limits_checking.database_path": str(db_file),
-        "project_root": None,
-    }
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    block = {**limits_checking, "database_path": str(db_file)}
+    serve_control_system({"limits_checking": block})
+
+
+def _validator(tmp_path: Path, mode: Any) -> LimitsValidator:
+    """Load the limits file under *mode*, stated deployment-wide."""
+    _serve_limits(tmp_path, {"enabled": True, "mode": mode})
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator
@@ -80,8 +79,8 @@ class TestTheModeDecidesAChannelWithNoRecord:
     def test_the_two_modes_are_exclusive_and_optional(self) -> None:
         assert LIMITS_MODES == ("exclusive", "optional")
 
-    def test_exclusive_refuses_a_channel_with_no_record(self, monkeypatch, tmp_path) -> None:
-        validator = _validator(monkeypatch, tmp_path, "exclusive")
+    def test_exclusive_refuses_a_channel_with_no_record(self, tmp_path) -> None:
+        validator = _validator(tmp_path, "exclusive")
 
         refusal = _refusal(validator, UNLISTED, 499.5)
 
@@ -90,24 +89,14 @@ class TestTheModeDecidesAChannelWithNoRecord:
 
     @pytest.mark.parametrize("value", [499.5, -1.0e12, 1.0e12])
     def test_optional_writes_a_channel_with_no_record_with_no_bounds(
-        self, monkeypatch, tmp_path, value: float
+        self, tmp_path, value: float
     ) -> None:
-        validator = _validator(monkeypatch, tmp_path, "optional")
+        validator = _validator(tmp_path, "optional")
 
         validator.validate(UNLISTED, value)
 
-    def test_an_unstated_mode_refuses_a_channel_with_no_record(self, monkeypatch, tmp_path) -> None:
-        db_file = tmp_path / "channel_limits.json"
-        db_file.write_text(json.dumps(LIMITS_FILE), encoding="utf-8")
-        values = {
-            "control_system": {"limits_checking": {"enabled": True}},
-            "control_system.limits_checking.database_path": str(db_file),
-        }
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda key, default=None: values.get(key, default),
-        )
-        monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    def test_an_unstated_mode_refuses_a_channel_with_no_record(self, tmp_path) -> None:
+        _serve_limits(tmp_path, {"enabled": True})
 
         refusal = _refusal(LimitsValidator.from_config(), UNLISTED, 499.5)
 
@@ -118,22 +107,22 @@ class TestTheModeDecidesAChannelWithNoRecord:
 class TestARecordMeansTheSameInBothModes:
     @pytest.mark.parametrize("value", [-12.0, 0.0, 12.0])
     def test_the_bounded_record_takes_a_value_inside_its_bounds(
-        self, monkeypatch, tmp_path, mode: str, value: float
+        self, tmp_path, mode: str, value: float
     ) -> None:
-        _validator(monkeypatch, tmp_path, mode).validate(BOUNDED, value)
+        _validator(tmp_path, mode).validate(BOUNDED, value)
 
     @pytest.mark.parametrize(
         ("value", "violation"), [(12.5, "MAX_EXCEEDED"), (-12.5, "MIN_EXCEEDED")]
     )
     def test_the_bounded_record_is_enforced(
-        self, monkeypatch, tmp_path, mode: str, value: float, violation: str
+        self, tmp_path, mode: str, value: float, violation: str
     ) -> None:
-        refusal = _refusal(_validator(monkeypatch, tmp_path, mode), BOUNDED, value)
+        refusal = _refusal(_validator(tmp_path, mode), BOUNDED, value)
 
         assert refusal.violation_type == violation
 
-    def test_the_writable_false_record_is_refused(self, monkeypatch, tmp_path, mode: str) -> None:
-        refusal = _refusal(_validator(monkeypatch, tmp_path, mode), LOCKED, 0.0)
+    def test_the_writable_false_record_is_refused(self, tmp_path, mode: str) -> None:
+        refusal = _refusal(_validator(tmp_path, mode), LOCKED, 0.0)
 
         assert refusal.violation_type == "READ_ONLY_CHANNEL"
 
@@ -145,20 +134,20 @@ class TestTheModeIsPerConnectorType:
     }
 
     def test_a_per_type_block_answers_for_its_type(self) -> None:
-        posture = type_limits_posture(self.SECTION, VA)
+        posture = type_limits_posture(ControlSystemSection.read(self.SECTION), VA)
 
         assert posture == LimitsPosture(enabled=True, mode="optional", connector_type=VA)
         assert posture.key("mode") == VA_MODE_KEY
 
     def test_a_type_with_no_block_reads_the_deployment_wide_mode(self) -> None:
-        posture = type_limits_posture(self.SECTION, "epics")
+        posture = type_limits_posture(ControlSystemSection.read(self.SECTION), "epics")
 
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key("mode") == MODE_KEY
 
     def test_strict_is_enabled_and_exclusive(self) -> None:
-        assert type_limits_posture(self.SECTION, "epics").strict is True
-        assert type_limits_posture(self.SECTION, VA).strict is False
+        assert type_limits_posture(ControlSystemSection.read(self.SECTION), "epics").strict is True
+        assert type_limits_posture(ControlSystemSection.read(self.SECTION), VA).strict is False
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +211,7 @@ class TestABadModeFailsTheBuild:
     def test_a_per_type_bad_mode_names_the_per_type_key(self, mode: Any) -> None:
         section = {"connector": {VA: {"limits_checking": {"enabled": True, "mode": mode}}}}
 
-        (error,) = incomplete_limits_blocks(section)
+        (error,) = incomplete_limits_blocks(ControlSystemSection.read(section))
 
         assert error.startswith(f"{VA_MODE_KEY} is {mode!r}, not exclusive or optional")
 
@@ -262,7 +251,9 @@ class TestALeafTheBlockDoesNotDefineFailsTheBuild:
     def test_a_per_type_block_is_checked_too(self) -> None:
         block = {"enabled": True, "mode": "optional", LEFTOVER_LEAF: True}
 
-        errors = incomplete_limits_blocks({"connector": {VA: {"limits_checking": block}}})
+        errors = incomplete_limits_blocks(
+            ControlSystemSection.read({"connector": {VA: {"limits_checking": block}}})
+        )
 
         assert errors == [
             f"control_system.connector.{VA}.limits_checking.{LEFTOVER_LEAF} is not a limits "
@@ -277,7 +268,9 @@ class TestALeafTheBlockDoesNotDefineFailsTheBuild:
     def test_a_per_type_block_takes_no_database_path(self) -> None:
         block = {"enabled": True, "mode": "optional", "database_path": "data/channel_limits.json"}
 
-        errors = incomplete_limits_blocks({"connector": {VA: {"limits_checking": block}}})
+        errors = incomplete_limits_blocks(
+            ControlSystemSection.read({"connector": {VA: {"limits_checking": block}}})
+        )
 
         assert errors == [
             f"control_system.connector.{VA}.limits_checking.database_path is not a limits "

@@ -59,7 +59,8 @@ from osprey.stores.artifact_manifest import (
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES, PRESET_TRACKING_DIRNAME
 from osprey_connectors import write_switch
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
@@ -340,13 +341,13 @@ def _read_config() -> dict:
             ``python_executor.execution_timeout_seconds`` is not a finite,
             positive number (an explicit null included).
     """
+    from osprey.utils.config_paths import loaded_or_empty
     from osprey.utils.execution_method import (
         DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         resolve_execution_method,
     )
-    from osprey_connectors.workspace import load_osprey_config
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
 
     return {
         "execution_method": resolve_execution_method(config),
@@ -370,9 +371,9 @@ def _resolve_project_root() -> Path:
     exactly one level below it, which stopped being true when it moved under
     ``var/`` and was never true for a project that relocated it.
     """
-    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
+    from osprey.utils.config_paths import process_repo_root
 
-    return resolve_project_root(load_osprey_config())
+    return process_repo_root()
 
 
 def resolve_protected_roots(
@@ -467,12 +468,13 @@ def resolve_permitted_roots(
     Returns:
         Absolute, resolved paths.
     """
-    from osprey_connectors.workspace import agent_data_base_dir, anchored_path, load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
     if config is None:
-        config = load_osprey_config()
+        config = loaded_or_empty()
 
     return (anchored_path(agent_data_base_dir(config), root).resolve(),)
 
@@ -492,10 +494,10 @@ def resolve_secret_roots(project_root: Path | None = None) -> tuple[Path, ...]:
     Returns:
         Absolute, resolved paths — de-duplicated, order preserved.
     """
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
-    return tuple(dict.fromkeys((root.resolve(), resolve_config_path().resolve().parent)))
+    return tuple(dict.fromkeys((root.resolve(), locate_config().resolve().parent)))
 
 
 def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
@@ -533,12 +535,12 @@ def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
 
 def _create_execution_folder() -> Path:
     """Create a folder under the workspace, named for the facility-zone start time."""
-    from osprey_connectors.workspace import resolve_agent_data_root
+    from osprey.utils.config_paths import session_agent_data_root
 
-    base = resolve_agent_data_root() / "data" / "python_executions"
+    base = session_agent_data_root() / "data" / "python_executions"
     base.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(facility_timezone()).strftime("%Y%m%d_%H%M%S")
     folder_name = f"{timestamp}_{uuid.uuid4().hex[:8]}"
     folder = base / folder_name
     folder.mkdir(parents=True, exist_ok=True)
@@ -701,12 +703,24 @@ def _target_is_resolvable(target: str) -> bool:
     A config that cannot be read at all also answers ``False``: not knowing
     whether the target resolves is not the same as knowing that it does.
     """
+    from osprey_connectors.errors import ConfigLoadError
+
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import resolve_target
 
-        section = get_config_value("control_system", {})
-        resolve_target(section if isinstance(section, dict) else {}, target)
+        section = current_config().get("control_system", {})
+        resolve_target(
+            ControlSystemSection.read(section if isinstance(section, dict) else {}), target
+        )
+    except ConfigLoadError:
+        # A config that did not load is a ValueError too (ConfigNotFoundError,
+        # ConfigParseError): it is the unreadable case below, not a refusal.
+        logger.debug(
+            "Could not check target resolvability; execution runs unstamped", exc_info=True
+        )
+        return False
     except ValueError:
         logger.warning(
             "Control target %r is not resolvable on this deployment; execution runs unstamped",
@@ -748,7 +762,9 @@ def _launch_posture(target: str | None) -> str:
     if target is not None:
         try:
             permitted = write_switch.write_verdict(
-                posture.control_system_section(), target, ignore_launch_pin=True
+                ControlSystemSection.read(posture.control_system_section()),
+                target,
+                ignore_launch_pin=True,
             ).allowed
         except Exception:  # write_verdict never raises; an unreachable one grants nothing
             logger.warning(
@@ -996,10 +1012,10 @@ def admission_refusal(code: str, mode: str, tool: str, approved: Mapping[str, st
         could not answer: the review then still runs, because declining here on an unknown
         would launch the code unreviewed if :func:`execute_code` then admitted it.
     """
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     try:
-        _, refusal = _admission(code, mode, load_osprey_config(), tool, approved, {})
+        _, refusal = _admission(code, mode, loaded_or_empty(), tool, approved, {})
     except _SwitchInProgress:
         return True
     except Exception:
@@ -1178,7 +1194,7 @@ async def _execute_via_local(
     (:data:`FAILURE_KIND_UNREVIEWED`) instead of launched unreviewed.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     # cwd = project root so user code can access workspace files via relative
     # paths (e.g. "_agent_data/data/002_archiver_read.json"). Resolved here,
@@ -1186,7 +1202,7 @@ async def _execute_via_local(
     # script are anchored on it: the child is handed absolute literals and
     # never re-derives the layout for itself.
     project_root = _resolve_project_root()
-    osprey_config = load_osprey_config()
+    osprey_config = loaded_or_empty()
 
     # The child gets the allowlist plus the deployment's passthrough names, with
     # the credential set and the sandbox-only drop on top, from one shared helper

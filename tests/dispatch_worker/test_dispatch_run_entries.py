@@ -174,7 +174,7 @@ def real_runner(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "osprey.agent_runner.sdk_context.build_system_prompt", lambda *a, **k: "system"
     )
-    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda *a, **k: "UTC")
+    monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda *a, **k: "UTC")
     transcripts = tmp_path / "projects" / "render"
     events: list[Any] = []
 

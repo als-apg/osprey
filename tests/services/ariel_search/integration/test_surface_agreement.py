@@ -36,6 +36,8 @@ from osprey.services.ariel_search.enhancement.status import (
     image_embedding_marker,
     qmd_export_marker,
 )
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.interfaces.ariel._routes_app import routes_app
 from tests.services.ariel_search.conftest import skip_or_fail
 from tests.services.ariel_search.integration._support import insert_picture, migrated_repository
@@ -280,16 +282,11 @@ async def _problem_facet(service) -> dict[str, int]:
 
 def _status_json(config_dict: dict[str, Any]) -> dict[str, Any]:
     """``osprey ariel status --json``, run as the operator runs it."""
-    from unittest.mock import patch
-
     from click.testing import CliRunner
 
     from osprey.cli.ariel import ariel_group
 
-    def _value(key, default=None, *_a, **_k):
-        return copy.deepcopy(config_dict) if key == "ariel" else default
-
-    with patch("osprey.cli.ariel.get_config_value", side_effect=_value):
+    with installed(config_of({"ariel": config_dict})):
         result = CliRunner().invoke(ariel_group, ["status", "--json"], catch_exceptions=False)
     assert result.exit_code == 0, result.output
     return json.loads(result.output)

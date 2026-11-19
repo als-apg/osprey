@@ -95,7 +95,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 from osprey_connectors import testing, write_switch
 from osprey_connectors.connector_types import TARGET_VA
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
@@ -365,7 +365,7 @@ def _profile_edits() -> dict[str, Any]:
         "services": {},
         "va_archiver": {
             "retention_days": 2,
-            "hot_span_hours": 2,
+            "hot_span_h": 2,
             "port_host": MONGODB_PORT,
         },
     }
@@ -609,7 +609,7 @@ def session_state(tmp_path, monkeypatch):
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: root)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     testing.invalidate_cache()
 
@@ -632,7 +632,7 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     ``osprey up`` minted -- the same two sources a deployed MCP server reads.
 
     ``OSPREY_CONFIG`` is the variable that repoints the framework's config
-    loader (``osprey_connectors.workspace.resolve_config_path``); ``CONFIG_FILE``
+    loader (``osprey_connectors.config.locate_config``); ``CONFIG_FILE``
     is deliberately NOT read there, and is set alongside it only because the
     limits database resolves relative to it. Setting one and not the other is
     the trap this comment exists to stop: with only ``CONFIG_FILE`` set, lane
@@ -651,7 +651,7 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     # The rendered config is cached process-wide; this fixture repoints the
     # loader at the deployment, so the cache has to be dropped on the way in
     # AND on the way out or a later test reads this deployment's config.
-    reset_config_cache()
+    clear_config_state()
     # The plan runs later, in the lane's worker, for the owner the tools stamp
     # on every add (``current_owner`` here); its writes follow THAT owner's
     # switch, read from the deployment's control tree. On for the simulator,
@@ -666,7 +666,7 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
         yield queue_tools
     finally:
         reset_server_context()
-        reset_config_cache()
+        clear_config_state()
 
 
 def _approved(tool: str):

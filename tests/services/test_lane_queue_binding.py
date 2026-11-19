@@ -64,10 +64,12 @@ from osprey.mcp_server.bluesky.server_context import (
 )
 from osprey.mcp_server.bluesky.tools import draft as draft_tools
 from osprey.mcp_server.bluesky.tools import queue
-from osprey.mcp_server.control_system import target_banner, target_state
+from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey_connectors import write_switch
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -252,21 +254,15 @@ def deployment(tmp_path, monkeypatch):
             "approval": {"enabled": False},
         }
 
-        monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
-        monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
-
-        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
-            # The whole section: the write verdict reads the tier and resolves
-            # each lane's target out of it.
-            return {"control_system": section}.get(key, default)
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+        # The rendered config every reader takes: the write verdict reads the
+        # tier and resolves each lane's target out of its section.
+        serve_config(config_of(config, path=tmp_path / "build" / "config.yml", environ={}))
         # The per-server reports and the control-context record have to land in
         # the same scratch deployment: the reports resolve through
         # ``target_state``'s own root helper, the record through the
         # ``OSPREY_AGENT_DATA_ROOT`` stamp. Anchoring one and not the other is
         # how a lane test reads whatever record this machine last left behind.
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
         isolate_verdict_environment(monkeypatch, tmp_path)
         on = switch if switch is not None else tuple(t for t in (baseline, second) if t)
         write_control_context(tmp_path, target=baseline, switch=dict.fromkeys(on, "on"))

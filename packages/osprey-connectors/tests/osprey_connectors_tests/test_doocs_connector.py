@@ -22,9 +22,13 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_trees import control_system_config, installed
 from osprey_connectors_tests._stall import STALL_CEILING_S, Stall
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context
-from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
+from osprey_connectors_tests._write_fakes import (
+    ARMED_SECTION,
+    arm_switch,
+    armed_context,
+)
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock doocs4py objects
@@ -35,7 +39,7 @@ _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
 _LIMITS_PATCH = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
-_TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
+_TZ_PATCH = "osprey_connectors.config.facility_timezone"
 
 # How long an offload test waits on a threading.Event before giving up. It only
 # elapses when the code under test is broken; a passing run never waits on it.
@@ -46,7 +50,7 @@ _OFFLOAD_CEILING_S = 5.0
 def _switch_on(monkeypatch, tmp_path):
     """The login's switch on for the simulator target, connectors stamped with it.
 
-    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    With :func:`serve_writes_enabled` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
     """
@@ -117,7 +121,7 @@ async def connector():
         patch.dict(sys.modules, {"doocs4py": mock_d4py}),
         patch(_LIMITS_PATCH, return_value=None),
         patch(_TZ_PATCH, return_value=UTC),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        installed(control_system_config(ARMED_SECTION)),
     ):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -139,7 +143,7 @@ class TestConnect:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", return_value=False),
+            installed(control_system_config({})),
         ):
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -163,7 +167,7 @@ class TestConnect:
         with (
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
-            patch("osprey_connectors.config.get_config_value", return_value=False),
+            installed(control_system_config({})),
         ):
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -179,7 +183,7 @@ class TestConnect:
             Stall() as names,
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
-            patch("osprey_connectors.config.get_config_value", return_value=False),
+            installed(control_system_config({})),
         ):
             mock_d4py.names.side_effect = names
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
@@ -200,7 +204,7 @@ class TestConnect:
             Stall(answer=[("FACILITY", "XFEL")]) as names,
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
-            patch("osprey_connectors.config.get_config_value", return_value=False),
+            installed(control_system_config({})),
         ):
             mock_d4py.names.side_effect = names
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
@@ -226,7 +230,7 @@ class TestConnect:
         with (
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
-            patch("osprey_connectors.config.get_config_value", return_value=False),
+            installed(control_system_config({})),
         ):
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -332,7 +336,7 @@ async def _write_with_validator(validator, value=10.0, readback=10.0, **kwargs):
         patch.dict(sys.modules, {"doocs4py": mock_d4py}),
         patch(_LIMITS_PATCH, return_value=validator),
         patch(_TZ_PATCH, return_value=UTC),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        installed(control_system_config(ARMED_SECTION)),
     ):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -425,7 +429,7 @@ class TestWriteChannel:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", return_value=False),
+            installed(control_system_config({})),
         ):
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -532,7 +536,7 @@ class TestNonBlockingOffload:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=validator),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -582,7 +586,7 @@ class TestNonBlockingOffload:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=validator),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -622,7 +626,7 @@ class TestBoundedCalls:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(0.2)
@@ -644,7 +648,7 @@ class TestBoundedCalls:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(30)
@@ -662,7 +666,7 @@ class TestBoundedCalls:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             mock_d4py.set.side_effect = send
             conn = await _bounded_connector(0.2)
@@ -688,7 +692,7 @@ class TestBoundedCalls:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=validator),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             validator.validate = MagicMock(side_effect=check)
             conn = await _bounded_connector(0.2)
@@ -710,7 +714,7 @@ class TestBoundedCalls:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            installed(control_system_config(ARMED_SECTION)),
         ):
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(0.2)

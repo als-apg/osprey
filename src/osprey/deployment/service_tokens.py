@@ -308,7 +308,7 @@ def _effective_value(var: str, dotenv: dict[str, str]) -> str:
 
     Reads process env first, then ``dotenv``, then ``""``. On the CLI deploy
     path the project ``.env`` has already been loaded into the process env with
-    override (``ConfigBuilder`` treats the file as the source of truth), so a
+    override (the CLI's start-up treats the file as the source of truth), so a
     shell export is only visible here when the ``.env`` does not carry the key
     — the derived file, not the ambient shell, decides a present key's value.
     """

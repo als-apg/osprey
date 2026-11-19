@@ -107,7 +107,7 @@ import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, SupportsIndex, SupportsInt
+from typing import Any
 
 from osprey.audit.posture import posture_session
 from osprey.deployment.honesty import (
@@ -123,10 +123,12 @@ from osprey_connectors.config import (
     subsection,
     unresolved_placeholders,
 )
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     TARGET_LIVE,
     TARGET_STANDIN,
+    ControlTarget,
     is_control_target,
     speaks_channel_access,
 )
@@ -267,7 +269,7 @@ def target_write_verdict(section: Any, target: str) -> write_switch.WriteVerdict
         The verdict: ``allowed``, and the ``reason`` when it refuses.
     """
     try:
-        return write_switch.write_verdict(section, target)
+        return write_switch.write_verdict(ControlSystemSection.read(section), target)
     except Exception:  # write_verdict never raises; a refusal is still the floor
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
         return write_switch.Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)
@@ -318,22 +320,12 @@ def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
         honesty predicate in this stack fails: an endpoint is a real machine
         until the config proves otherwise.
     """
-    if endpoint is None or not isinstance(config, dict):
+    if endpoint is None or endpoint.port is None or not isinstance(config, dict):
+        # An endpoint that names no port names no stand-in either.
         return False
-    try:
-        port = _port_number(endpoint.port)
-    except (TypeError, ValueError):
-        # The endpoint's port is whatever config carried, and a value that names
-        # no port names no stand-in either.
-        return False
-    return bool(live_standin_active(config, endpoint_host=str(endpoint.host), endpoint_port=port))
-
-
-def _port_number(port: object) -> int:
-    """``int(port)`` for whatever ``int`` converts; ``TypeError`` for anything else."""
-    if isinstance(port, str | bytes | SupportsInt | SupportsIndex):
-        return int(port)
-    raise TypeError(f"{type(port).__name__!r} is not a port number")
+    return bool(
+        live_standin_active(config, endpoint_host=endpoint.host, endpoint_port=endpoint.port)
+    )
 
 
 def endpoint_is_virtual_accelerator(config: Any, endpoint: Endpoint | None) -> bool:
@@ -356,14 +348,10 @@ def endpoint_is_virtual_accelerator(config: Any, endpoint: Endpoint | None) -> b
     Returns:
         ``True`` only for an endpoint that is the deployment's own simulator.
     """
-    if endpoint is None or not isinstance(config, dict):
-        return False
-    try:
-        port = _port_number(endpoint.port)
-    except (TypeError, ValueError):
+    if endpoint is None or endpoint.port is None or not isinstance(config, dict):
         return False
     return bool(
-        virtual_accelerator_active(config, endpoint_host=str(endpoint.host), endpoint_port=port)
+        virtual_accelerator_active(config, endpoint_host=endpoint.host, endpoint_port=endpoint.port)
     )
 
 
@@ -427,6 +415,24 @@ def unknown_target_detail(target: object) -> str:
     """
     valid = ", ".join(repr(name) for name in CONTROL_TARGETS)
     return f"Unknown control target {target!r}. Valid targets are {valid}, spelled exactly."
+
+
+def _placeholder_detail(config: Any, target: ControlTarget) -> str | None:
+    """Why *target*'s block cannot be dialled when it still carries a ``${VAR}``, else ``None``."""
+    try:
+        connector_type = resolve_target(
+            ControlSystemSection.read(config_section(config, "control_system")), target
+        )
+    except ValueError:
+        return None
+    unresolved = unresolved_placeholders(connector_block(config, connector_type))
+    if not unresolved:
+        return None
+    return (
+        f"Refusing target {target!r}: 'control_system.connector.{connector_type}' still "
+        f"carries {', '.join(sorted(set(unresolved)))} after environment resolution. "
+        "Set the variable before switching to this target."
+    )
 
 
 def evaluate_eligibility(
@@ -530,8 +536,12 @@ def evaluate_eligibility(
     except ValueError as exc:
         # Fail-closed at the resolver becomes a reason here: eligibility is the
         # one caller whose job is to answer "no, and here is why" rather than to
-        # propagate. Every other caller establishes a target exists first.
-        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
+        # propagate. Every other caller establishes a target exists first. A
+        # gateway the derivation refuses because a variable was never set is
+        # named as that, the remedy the operator needs.
+        return Eligibility(
+            False, REASON_TARGET_UNRESOLVABLE, _placeholder_detail(config, target) or str(exc)
+        )
 
     connector_type = derivation.connector_type
     control_system_section = config_section(config, "control_system")
@@ -550,15 +560,9 @@ def evaluate_eligibility(
     # Never waived on a return: a placeholder is not an endpoint anything can
     # dial, and left verbatim it would compare equal to itself in the
     # post-connect check.
-    unresolved = unresolved_placeholders(raw_block)
-    if unresolved:
-        return Eligibility(
-            False,
-            REASON_TARGET_UNRESOLVABLE,
-            f"Refusing target {target!r}: '{block_key}' still carries "
-            f"{', '.join(sorted(set(unresolved)))} after environment resolution. "
-            "Set the variable before switching to this target.",
-        )
+    placeholder = _placeholder_detail(config, target)
+    if placeholder is not None:
+        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, placeholder)
 
     # Returning to a deployment's own baseline is exempt — a session stranded on
     # the simulator, unable to come home, is the less safe outcome of the two
@@ -574,7 +578,9 @@ def evaluate_eligibility(
         # table. Judging such a block on its gateways would report the protocol
         # as a key nobody filled in, or worse, walk a deployment on another
         # control system through checks that read a Channel Access address.
-        if not speaks_channel_access(control_system_section, connector_type):
+        if not speaks_channel_access(
+            ControlSystemSection.read(control_system_section), connector_type
+        ):
             transport = derivation.transport or "an unknown transport"
             return Eligibility(
                 False,
@@ -1163,10 +1169,10 @@ def _declared_gateways(config: Any, target: str) -> tuple[str | None, str]:
     """
     control_system = config_section(config, "control_system")
     try:
-        connector_type = resolve_target(control_system, target)
+        connector_type = resolve_target(ControlSystemSection.read(control_system), target)
     except ValueError:
         return None, ""
-    if not speaks_channel_access(control_system, connector_type):
+    if not speaks_channel_access(ControlSystemSection.read(control_system), connector_type):
         return None, connector_type
     return declared_gateways(connector_block(config, connector_type)), connector_type
 

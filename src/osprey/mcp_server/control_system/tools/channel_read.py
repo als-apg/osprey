@@ -10,7 +10,7 @@ from osprey.mcp_server.control_system.error_handling import (
 )
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import MISSING_KEY, NothingAnsweredError, make_error
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
@@ -37,10 +37,10 @@ def _config_int(path: str, default: int) -> int:
     hardware answered. Anything unusable - missing, unloadable, non-numeric or
     negative - degrades to the documented default.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        raw = get_config_value(path, default)
+        raw = current_config().get(path, default)
     except Exception:
         return default
 
@@ -724,7 +724,7 @@ async def channel_read(
         readings_summary: dict = {}
         withheld: list[str] = []
         # Connectors stamp readings in UTC; the served stamp stays facility-local.
-        facility_tz = get_facility_timezone()
+        facility_tz = facility_timezone()
         for addr, cv in readings.items():
             entry: dict = {"timestamp": str(cv.sampled_at.astimezone(facility_tz))}
             value = cv.value

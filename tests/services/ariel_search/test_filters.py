@@ -738,7 +738,7 @@ class TestEntryFilterTime:
     @pytest.fixture(autouse=True)
     def _berlin(self, monkeypatch):
         monkeypatch.setattr(
-            "osprey_connectors.config.get_facility_timezone", lambda: ZoneInfo("Europe/Berlin")
+            "osprey_connectors.config.facility_timezone", lambda: ZoneInfo("Europe/Berlin")
         )
 
     def test_a_date_only_start_is_the_first_instant_of_the_facility_day(self):

@@ -86,7 +86,8 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import testing
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ConnectorUnavailableError
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state, config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
@@ -351,7 +352,7 @@ def state_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: root)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     testing.invalidate_cache()
     write_control_context(
@@ -460,14 +461,14 @@ def served_context(monkeypatch):
 
     def install(manager: ConnectorHostManager) -> ControlSystemContext:
         monkeypatch.setenv("OSPREY_CONFIG", str(manager._config.config_path))
-        reset_config_cache()
+        clear_config_state()
         context = context_for(manager)
         monkeypatch.setattr(server_context_mod, "_registry", context)
         return context
 
     yield install
     server_context_mod.reset_server_context()
-    reset_config_cache()
+    clear_config_state()
 
 
 def approved_call():
@@ -1235,13 +1236,14 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
 
     @pytest.fixture
     def lane_deployment(self, monkeypatch, endpoints):
-        """Arm the Bluesky tools against this module's deployment."""
+        """Arm the Bluesky tools against this module's deployment.
+
+        The banner reads the deployment; every other reader in this process
+        reads an empty process config, so each falls to its own default.
+        """
         config = raw_config(va_port=endpoints.va, live_port=endpoints.live)
-        monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda key, default=None, config_path=None: default,
-        )
+        monkeypatch.setattr(target_banner, "loaded_or_empty", lambda: config)
+        serve_config(config_of({}))
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "va-e2e-switch-token")
         bluesky_context.initialize_server_context()
         yield

@@ -7,10 +7,11 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 from click.testing import CliRunner
+
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
@@ -38,7 +39,7 @@ class TestCLIStatusCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["status"])
 
         # Should succeed
@@ -57,7 +58,7 @@ class TestCLIStatusCommand:
             "database": {"uri": database_url},
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["status", "--json"])
 
         assert result.exit_code == 0
@@ -72,7 +73,7 @@ class TestCLIStatusCommand:
 
         runner = CliRunner()
 
-        with patch("osprey.cli.ariel.get_config_value", return_value={}):
+        with installed(config_of({})):
             result = runner.invoke(ariel_group, ["status"])
 
         assert "not configured" in result.output or "error" in result.output.lower()
@@ -100,7 +101,7 @@ class TestCLIMigrateCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["migrate"])
 
         assert result.exit_code == 0
@@ -121,7 +122,7 @@ class TestCLIIngestCommand:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(
                 ariel_group,
                 [
@@ -178,7 +179,7 @@ class TestCLIIngestCommand:
             if line.strip()
         )
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(
                 ariel_group,
                 [
@@ -205,7 +206,7 @@ class TestCLIIngestCommand:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(
                 ariel_group,
                 [
@@ -241,7 +242,7 @@ class TestCLIModelsCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["models"])
 
         # Should succeed
@@ -264,7 +265,7 @@ class TestCLISearchCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["search", "beam loss"])
 
         # Should succeed (even if no results)
@@ -284,7 +285,7 @@ class TestCLISearchCommand:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["search", "test query", "--json"])
 
         assert result.exit_code == 0, f"Exit: {result.exit_code}, Output: {result.output}"
@@ -309,7 +310,7 @@ class TestCLISearchCommand:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["search", "beam", "--mode", "keyword"])
 
         assert result.exit_code == 0
@@ -331,7 +332,7 @@ class TestCLIEnhanceCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(ariel_group, ["enhance"])
 
         assert result.exit_code == 0
@@ -349,7 +350,7 @@ class TestCLIReembedCommand:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+        with installed(config_of({"ariel": mock_config})):
             result = runner.invoke(
                 ariel_group,
                 [

@@ -24,6 +24,7 @@ import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey_connectors import write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 from tests.mcp_server.test_control_target_roster import standin_config
@@ -111,7 +112,7 @@ def test_both_readers_resolve_the_same_directory_by_default(tmp_path, monkeypatc
 def test_the_name_tables_match():
     assert reader._MACHINE_KINDS == {
         target: write_switch.machine_kind(
-            {"type": "epics", "connector": {"live_standin": {}}}, target
+            ControlSystemSection.read({"type": "epics", "connector": {"live_standin": {}}}), target
         )
         for target in ("live", "standin", "va")
     }

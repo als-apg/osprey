@@ -145,7 +145,7 @@ services:
       # before dropping privileges, so the worker can take a lock another
       # container created.
       OSPREY_GUARDED_RUN_DIR: /app/golden-project/var/guarded_run
-      # The worker process reads OSPREY config directly (e.g. get_facility_timezone
+      # The worker process reads OSPREY config directly (e.g. facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
       # subprocess resolve config from the mounted project (via env inheritance),
@@ -158,8 +158,10 @@ services:
       # project_root = this /app/<project> root). A flat config.yml here would be
       # a path the agent's own MCP servers never read. The standalone service
       # images are the opposite case and stay flat: nothing inside them renders
-      # anything against a project root.
+      # anything against a project root. The connectors package reads
+      # OSPREY_CONFIG alone, so it names the same file.
       CONFIG_FILE: /app/golden-project/build/config.yml
+      OSPREY_CONFIG: /app/golden-project/build/config.yml
       TZ: UTC
       # The plan queue's bridge, by its in-network compose service key — the
       # same address the Bluesky sidecar is handed. Without it the agent this

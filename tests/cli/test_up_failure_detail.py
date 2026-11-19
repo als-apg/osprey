@@ -16,6 +16,7 @@ from click.testing import CliRunner
 from osprey.cli.main import cli
 from osprey.deployment import runtime_helper
 from osprey.deployment.errors import CapturedProcessError
+from osprey_connectors.testing import config_of
 
 ABORT = "dependency failed to start: container demo-bluesky-bridge is unhealthy\n"
 TAIL = "RuntimeError: refusing to start writable: the limits database could not be parsed\n"
@@ -37,7 +38,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(repo_resolver, "find_repo_root", lambda start=None: tmp_path)
     monkeypatch.setattr(deploy_cmd, "gate_start_from_build", lambda *a, **k: None)
     monkeypatch.setattr(deploy_cmd, "ensure_repo_env", lambda *a, **k: None)
-    monkeypatch.setattr(deploy_cmd, "load_project_config", lambda *a, **k: {})
+    monkeypatch.setattr(deploy_cmd, "load_config", lambda *a, **k: config_of({}))
     monkeypatch.setattr(
         container_lifecycle, "as_built_config_path", lambda root: tmp_path / "build" / "config.yml"
     )

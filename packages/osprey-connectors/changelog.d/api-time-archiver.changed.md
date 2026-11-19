@@ -21,5 +21,5 @@ the facility zone, and MongoDB's were naive).
 `ChannelValue.timestamp` is `ChannelValue.sampled_at`, an aware datetime, and
 every built-in connector (EPICS CA and PVA, DOOCS, Tango, the in-process virtual
 accelerator) stamps it in UTC instead of the facility zone. Convert with
-`.astimezone(get_facility_timezone())` where you show it. `ChannelMetadata.timestamp`
+`.astimezone(facility_timezone())` where you show it. `ChannelMetadata.timestamp`
 is gone: it repeated the reading's stamp, so read `ChannelValue.sampled_at`.

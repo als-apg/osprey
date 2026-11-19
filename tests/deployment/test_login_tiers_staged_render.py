@@ -336,6 +336,7 @@ def _shared_app_cards(web_terminals: dict[str, Any]) -> set[str]:
 
 def _own_render_writes(repo: Path, web_terminals: dict[str, Any]) -> dict[str, str]:
     """Each person's own render's ``tier_writes``, whatever sign-in later decides."""
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     roles = (web_terminals.get("authorization") or {}).get("roles") or {}
@@ -350,12 +351,15 @@ def _own_render_writes(repo: Path, web_terminals: dict[str, Any]) -> dict[str, s
         if tier is None:
             continue
         own_render = _load(repo / renders[tier]["project_path"] / "config.yml")
-        writes[_roster_name(entry)] = tier_writes(own_render.get("control_system"))
+        writes[_roster_name(entry)] = tier_writes(
+            ControlSystemSection.read(own_render.get("control_system"))
+        )
     return writes
 
 
 def _expected_map(repo: Path, build_account: str) -> dict[str, str]:
     """The map the roster in ``build/config.yml`` and the renders on disk call for."""
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     root = _load(repo / "build" / "config.yml")
@@ -384,10 +388,10 @@ def _expected_map(repo: Path, build_account: str) -> dict[str, str]:
         if tier is None:
             continue
         own_render = _load(repo / renders[tier]["project_path"] / "config.yml")
-        expected[name] = tier_writes(own_render.get("control_system"))
+        expected[name] = tier_writes(ControlSystemSection.read(own_render.get("control_system")))
 
     if build_account and build_account != UNKNOWN and build_account not in cards:
-        expected[build_account] = tier_writes(root.get("control_system"))
+        expected[build_account] = tier_writes(ControlSystemSection.read(root.get("control_system")))
     return expected
 
 
@@ -421,6 +425,7 @@ def _expected_staged_render(repo: Path, service: str, case: Case) -> dict[str, A
 
 def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
     """Every tree-bound container's staged config under *staged_root* obeys the contract."""
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     build = repo / "build"
@@ -442,7 +447,9 @@ def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
     # The exemplar's apps, so a case naming one exercises the app-card rule.
     assert {"logbook", "knowledge", "channel-finder"} <= apps, apps
     own_writes = _own_render_writes(repo, web_terminals)
-    root_writes = tier_writes(_load(build / "config.yml").get("control_system"))
+    root_writes = tier_writes(
+        ControlSystemSection.read(_load(build / "config.yml").get("control_system"))
+    )
 
     for service in services:
         staged_path = staged_root / "services" / service / "config.yml"
@@ -479,13 +486,17 @@ def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
             # The exemplar deploys machines at loopback: the readdressing is not a no-op.
             assert _expected_staged_render(repo, service, case) != render, staged_path
         assert staged["control_system"].get("writes") == render["control_system"].get("writes")
-        assert tier_writes(staged["control_system"]) == tier_writes(render["control_system"])
+        assert tier_writes(ControlSystemSection.read(staged["control_system"])) == tier_writes(
+            ControlSystemSection.read(render["control_system"])
+        )
 
     if case.worker_tier is not None:
         # The tiered worker runs its tier's posture, not the root's.
         worker = _load(staged_root / "services" / "dispatch_worker" / "config.yml")
         tier_render = _load(_container_render(repo, "dispatch_worker", case))
-        assert tier_writes(worker["control_system"]) == tier_writes(tier_render["control_system"])
+        assert tier_writes(ControlSystemSection.read(worker["control_system"])) == tier_writes(
+            ControlSystemSection.read(tier_render["control_system"])
+        )
         compose = _load(staged_root / "services" / "dispatch_worker" / "docker-compose.yml")
         target = f"/app/{EXEMPLAR_DIRNAME}-{case.worker_tier}/build/config.yml"
         workers = [env for name, env in _service_envs(compose) if TREE_ENV in env]

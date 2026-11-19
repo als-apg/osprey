@@ -8,13 +8,18 @@ running a containerized PyAT-backed soft-IOC as their control system.
 """
 
 from collections.abc import Mapping
+from typing import TypeVar
 
 from typing_extensions import override
 
-from osprey_connectors._contract_types import ContractAny
+from osprey_connectors._config_read import coerce_port
+from osprey_connectors.config_sections import GatewayRow, Unreadable
 from osprey_connectors.connector_types import DEFAULT_VA_PORT
-from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._base import ControlSystemSettings, _settings_as
+from osprey_connectors.control_system._epics_connector import EPICSConnector, EpicsSettings
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import evolve
 
 logger = get_logger("va_connector")
 
@@ -31,22 +36,34 @@ def resolve_va_gateway_port(config_path: str | None = None) -> object:
 
     Args:
         config_path: The project config to read. ``None`` reads the one a child
-            reads — ``CONFIG_FILE``, else ``./config.yml``.
+            reads — ``OSPREY_CONFIG``, else ``build/config.yml`` or
+            ``config.yml`` under the working directory.
 
     Returns:
         The port to default-fill unset gateway ports with.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config, load_config
+    from osprey_connectors.errors import ConfigLoadError
 
     try:
-        return get_config_value("services.virtual_accelerator.port", DEFAULT_VA_PORT, config_path)
-    except (FileNotFoundError, KeyError, RuntimeError, ValueError):
+        config = current_config() if config_path is None else load_config(config_path)
+        return config.get(_VA_PORT_KEY, DEFAULT_VA_PORT)
+    except (ConfigLoadError, FileNotFoundError, KeyError, RuntimeError, ValueError):
+        # Every way a config cannot be read: ConfigNotFoundError is a
+        # FileNotFoundError, ConfigParseError and ConfigurationError ValueErrors,
+        # and a directory a ConfigLoadError.
         return DEFAULT_VA_PORT
 
 
+_Role = TypeVar("_Role", bound=str)
+
+#: The key the deployed simulator's port is read from.
+_VA_PORT_KEY = "services.virtual_accelerator.port"
+
+
 def fill_gateway_ports(
-    config: Mapping[str, object], config_path: str | None = None
-) -> Mapping[str, object]:
+    gateways: Mapping[_Role, GatewayRow | Unreadable], config_path: str | None = None
+) -> dict[_Role, GatewayRow | Unreadable]:
     """Default-fill every gateway's ``port`` from the deployed VA's port.
 
     Precedence:
@@ -57,38 +74,35 @@ def fill_gateway_ports(
          via :func:`resolve_va_gateway_port`.
 
     Args:
-        config: The ``connector.virtual_accelerator`` config block.
+        gateways: The ``connector.virtual_accelerator`` block's gateways, by role.
         config_path: The project config ``services.virtual_accelerator.port``
             is read from; see :func:`resolve_va_gateway_port`.
 
     Returns:
-        A copy of ``config`` whose gateways all carry a ``port``. The caller's
-        mapping is never mutated. Returned unchanged when there is nothing to
-        fill, so a fully explicit config never reads the config file.
-    """
-    gateways = config.get("gateways")
-    if not isinstance(gateways, dict):
-        return config
+        The rows, those that named no port carrying the VA's. An unreadable
+        entry is returned as it is. The config file is read only when some row
+        names no port.
 
+    Raises:
+        ConfigurationError: ``services.virtual_accelerator.port`` names no port.
+    """
     unfilled = [
-        name
-        for name, gateway in gateways.items()
-        if isinstance(gateway, dict) and "port" not in gateway
+        role for role, row in gateways.items() if isinstance(row, GatewayRow) and row.port is None
     ]
     if not unfilled:
-        return config
-
-    port = resolve_va_gateway_port(config_path)
+        return dict(gateways)
+    written = resolve_va_gateway_port(config_path)
+    port = coerce_port(written)
+    if port is None:
+        raise ConfigurationError(f"{_VA_PORT_KEY} is {written!r}, not a port", key=_VA_PORT_KEY)
     logger.debug(
         f"Virtual Accelerator gateways {sorted(unfilled)} have no explicit port; "
         f"using services.virtual_accelerator.port ({port})"
     )
-
-    filled = {
-        name: ({**gateway, "port": port} if name in unfilled else gateway)
-        for name, gateway in gateways.items()
+    return {
+        role: evolve(row, port=port) if role in unfilled and isinstance(row, GatewayRow) else row
+        for role, row in gateways.items()
     }
-    return {**config, "gateways": filled}
 
 
 class VirtualAcceleratorConnector(EPICSConnector):
@@ -130,7 +144,7 @@ class VirtualAcceleratorConnector(EPICSConnector):
     """
 
     @override
-    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Configure the EPICS environment against the deployed Virtual Accelerator.
 
@@ -139,4 +153,6 @@ class VirtualAcceleratorConnector(EPICSConnector):
                 that a gateway may omit ``port`` to follow
                 ``services.virtual_accelerator.port``.
         """
-        await super()._open(fill_gateway_ports(settings))
+        epics = _settings_as(settings, EpicsSettings)
+        rows = fill_gateway_ports(epics.gateways)
+        await super()._open(evolve(epics, gateways=rows))

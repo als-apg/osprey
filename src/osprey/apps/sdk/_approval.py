@@ -35,9 +35,10 @@ from typing import Any
 from osprey.apps.errors import AppManifestError
 from osprey.mcp_server import approval_record
 from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
+from osprey.utils.config_paths import loaded_or_empty
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.refusals import VerdictReason, refusal_text
-from osprey_connectors.workspace import load_osprey_config
 from osprey_connectors.write_switch import Refused, WriteVerdict
 
 logger = logging.getLogger(__name__)
@@ -259,7 +260,7 @@ def _verdict(config: Mapping[str, Any]) -> WriteVerdict:
     target = recorded_control_target()
     section = config.get("control_system")
     try:
-        return execution_verdict(section or {}, target)
+        return execution_verdict(ControlSystemSection.read(section or {}), target)
     except Exception:  # unknown posture must not write
         logger.warning(
             "Execution verdict for an application tool could not be reached", exc_info=True
@@ -293,7 +294,7 @@ def check_approved_call(tool_name: str, arguments: Mapping[str, Any]) -> BoundSt
             f"offers it ({NOT_OFFERED}).",
         )
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     entry = approval_record.app_approval_entry(config, full_name)
     if entry is None:
         raise ApprovalRefused(

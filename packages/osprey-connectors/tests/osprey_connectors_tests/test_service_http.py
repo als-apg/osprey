@@ -13,8 +13,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from osprey_connectors import _service_http as transport_module
-from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
+from osprey_connectors._service_http import (
+    LOGIN_PAGE_REASON,
+    HttpServiceSettings,
+    ReadOnlyTransport,
+)
 from osprey_connectors.service_answers import Unavailable
+
+
+def _reading(settings, allowed, *, where):
+    """The transport a backend builds over the connection block *settings*, read under *where*."""
+    return ReadOnlyTransport(
+        HttpServiceSettings.from_block(settings, key=where).connection, allowed
+    )
+
 
 CHANNELFINDER = (
     ("GET", "/resources/channels"),
@@ -88,9 +100,7 @@ def service() -> Iterator[_Service]:
 
 
 def _transport(service: _Service, allowed=CHANNELFINDER, **settings) -> ReadOnlyTransport:
-    return ReadOnlyTransport(
-        {"url": service.url, **settings}, allowed, where="pv_directory.settings"
-    )
+    return _reading({"url": service.url, **settings}, allowed, where="pv_directory.settings")
 
 
 @contextmanager
@@ -107,7 +117,7 @@ def _serving(do_get: Callable[[BaseHTTPRequestHandler], None]) -> Iterator[ReadO
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True).start()
     try:
-        yield ReadOnlyTransport(
+        yield _reading(
             {"url": f"http://127.0.0.1:{server.server_address[1]}"},
             CHANNELFINDER,
             where="pv_directory.settings",
@@ -158,7 +168,7 @@ async def test_a_refused_request_never_reaches_the_network(service, allowed, met
 
 
 async def test_a_refusal_comes_before_a_broken_connection_block():
-    transport = ReadOnlyTransport({"headers": {}}, CHANNELFINDER, where="pv_directory.settings")
+    transport = _reading({"headers": {}}, CHANNELFINDER, where="pv_directory.settings")
 
     answer = await transport.request("DELETE", "/resources/channels", timeout_s=5)
 
@@ -192,7 +202,7 @@ async def test_an_allowed_request_is_sent(service, allowed, method, path, sent):
 
 async def test_the_base_path_is_kept_and_the_trailing_slash_of_root_is_sent(service):
     service.answer("/alarm-logger/", 200, JSON, b"{}")
-    transport = ReadOnlyTransport(
+    transport = _reading(
         {"url": f"{service.url}/alarm-logger/"}, ALARM_LOGGER, where="alarm_log.settings"
     )
 
@@ -394,7 +404,7 @@ async def test_a_body_dripped_past_the_deadline_times_out():
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True).start()
     try:
-        transport = ReadOnlyTransport(
+        transport = _reading(
             {"url": f"http://127.0.0.1:{server.server_address[1]}"},
             CHANNELFINDER,
             where="pv_directory.settings",
@@ -515,7 +525,7 @@ async def test_a_closed_port_is_unavailable():
     server = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
     port = server.server_address[1]
     server.server_close()
-    transport = ReadOnlyTransport(
+    transport = _reading(
         {"url": f"http://127.0.0.1:{port}"}, CHANNELFINDER, where="pv_directory.settings"
     )
 
@@ -536,7 +546,7 @@ async def test_a_closed_port_is_unavailable():
     ],
 )
 async def test_a_block_that_cannot_be_used_is_unavailable_naming_the_key(settings, named):
-    transport = ReadOnlyTransport(settings, CHANNELFINDER, where="pv_directory.settings")
+    transport = _reading(settings, CHANNELFINDER, where="pv_directory.settings")
 
     answer = await transport.request("GET", "/resources/channels", timeout_s=5)
 
@@ -580,7 +590,7 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
     ],
 )
 async def test_a_url_that_cannot_be_sent_is_unavailable_naming_the_block(url):
-    transport = ReadOnlyTransport({"url": url}, CHANNELFINDER, where="pv_directory.settings")
+    transport = _reading({"url": url}, CHANNELFINDER, where="pv_directory.settings")
 
     answer = await transport.request("GET", "/resources/channels", timeout_s=5)
 
@@ -617,7 +627,7 @@ async def test_a_query_that_cannot_be_encoded_sends_nothing(service, monkeypatch
 
 @pytest.mark.parametrize("suffix", ["/?a=", "/?", "/#frag", "/#", "?a=1"])
 async def test_a_url_with_a_query_or_fragment_sends_nothing(service, suffix):
-    transport = ReadOnlyTransport(
+    transport = _reading(
         {"url": service.url + suffix}, CHANNELFINDER, where="pv_directory.settings"
     )
 

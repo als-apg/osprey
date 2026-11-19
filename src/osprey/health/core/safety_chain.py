@@ -77,6 +77,7 @@ from osprey.deployment.web_terminals.roster import authored_people
 from osprey.health.models import CheckResult, Status
 from osprey.utils.workspace import session_hold_dir
 from osprey_connectors import control_context, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.workspace import (
     agent_data_base_dir,
@@ -385,7 +386,7 @@ def _login_dir(cfg: Mapping[str, Any], repo: Path, login: str) -> Path | None:
 def _ceiling(cfg: Mapping[str, Any], repo: Path, tier: str | None) -> str | None:
     """The login's write ceiling: its tier render's ``writes``, else this config's."""
     if tier is None:
-        return tier_writes(cfg.get("control_system"))
+        return tier_writes(ControlSystemSection.read(cfg.get("control_system")))
     wt = _as_dict(_as_dict(cfg.get("modules")).get("web_terminals"))
     render = _as_dict(_as_dict(wt.get("renders")).get(tier))
     rel = render.get("project_path")
@@ -395,7 +396,7 @@ def _ceiling(cfg: Mapping[str, Any], repo: Path, tier: str | None) -> str | None
         tier_cfg = yaml.safe_load((anchored_path(rel, repo) / "config.yml").read_text())
     except (OSError, yaml.YAMLError):
         return None
-    return tier_writes(_as_dict(tier_cfg).get("control_system"))
+    return tier_writes(ControlSystemSection.read(_as_dict(tier_cfg).get("control_system")))
 
 
 _RANK = {"off": 0, "never": 0, "asked": 1, "allowed": 2}
@@ -480,7 +481,7 @@ def _limits_rows(cfg: Mapping[str, Any], render: Path) -> list[CheckResult]:
     )
 
     section = _as_dict(cfg.get("control_system"))
-    writes_on = tier_writes(section) != "never"
+    writes_on = tier_writes(ControlSystemSection.read(section)) != "never"
     checking = _as_dict(section.get("limits_checking"))
     if checking.get("enabled") is False:
         if writes_on:

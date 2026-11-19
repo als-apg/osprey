@@ -229,10 +229,11 @@ class TestBundleFailureCause:
 
     def _run_create_server(self, monkeypatch, tmp_path: Path, config: dict):
         import osprey.mcp_server.facility_knowledge.server as srv
-        import osprey_connectors.workspace as workspace
 
-        monkeypatch.setattr(workspace, "resolve_config_path", lambda: tmp_path / "config.yml")
-        monkeypatch.setattr(workspace, "load_osprey_config", lambda: config)
+        monkeypatch.setattr(
+            "osprey_connectors.config.locate_config", lambda: tmp_path / "config.yml"
+        )
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
         monkeypatch.setattr(srv, "_bundle", None)
         monkeypatch.setattr(srv, "_bundle_error", None)
 

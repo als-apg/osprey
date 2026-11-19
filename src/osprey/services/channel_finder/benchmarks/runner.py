@@ -268,8 +268,8 @@ class BenchmarkRunner:
         This census is the one place in the graph paradigm that deliberately
         does NOT go through
         :class:`osprey.mcp_server.graph.server_context.GraphContext`. That
-        context resolves the *ambient* process configuration and primes the
-        ConfigBuilder singleton — right for a server running inside a rendered
+        context resolves the *ambient* process configuration and installs it as
+        the process default — right for a server running inside a rendered
         project, wrong here: the benchmark runner is a tool acting *on* a
         project directory it was handed, from a working directory that is
         usually the repo root. So the census reads the project's own

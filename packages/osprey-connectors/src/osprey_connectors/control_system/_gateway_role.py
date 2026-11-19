@@ -1,40 +1,22 @@
 """The gateway role a connector selects, and why a readonly run cannot connect.
 
-The one place the role rule and the gateway words live. It sits in the control-system layer, the
-bottom of the connectors layering, so ``EPICSConnector.connect()`` takes it
-from below, and :mod:`osprey_connectors.gateways` (the derivation, which
-re-exports these types) and the connector host's report import it from here
-rather than restating it.
+The one place the role rule lives. The gateway words it is written in are
+:mod:`osprey_connectors.config_sections`', where the gateways table is parsed;
+:mod:`osprey_connectors.gateways` re-exports them for the derivation.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal
 
-#: A gateway role: the key of one endpoint a connector block derives. The two
-#: :data:`SelectedRole` words key the ``gateways`` table; ``pva`` is the
-#: ``pva_gateway`` a block routing PVAccess channels configures beside it.
-GatewayRole = Literal["read_only", "write_access", "pva"]
-
-#: The gateway roles a connector can select: the keys of the ``gateways`` table.
-#: EPICS keeps one process-wide context, so exactly one of them is used; ``pva``
-#: is never the selected role.
-SelectedRole = Literal["read_only", "write_access"]
-
-#: How a gateway reaches EPICS: ``name_server`` (``use_name_server: true``:
-#: EPICS_CA_NAME_SERVERS / EPICS_PVA_NAME_SERVERS) or ``addr_list``
-#: (``use_name_server: false``: EPICS_CA_ADDR_LIST / EPICS_PVA_ADDR_LIST).
-GatewayMode = Literal["name_server", "addr_list"]
-
-#: How a connector block spells its ``gateways`` table, as
-#: :func:`osprey_connectors.gateways.declared_gateways` reads it: an explicit
-#: ``gateways: []`` (nothing to probe), no table anybody filled in, or rows.
-GatewaysDeclared = Literal["none_declared", "missing", "rows"]
+from osprey_connectors.config_sections import SelectedRole
 
 
 def _selected_role(
-    gateways: Mapping[str, object], *, writes_enabled: bool, readonly_run: bool
+    gateways: Mapping[str, object] | Mapping[SelectedRole, object],
+    *,
+    writes_enabled: bool,
+    readonly_run: bool,
 ) -> SelectedRole:
     """The gateway role a connector for this gateways table selects — the one place the rule lives.
 

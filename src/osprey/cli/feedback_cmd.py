@@ -33,7 +33,7 @@ from osprey.cli.record_access import Deployment as _Deployment
 from osprey.cli.record_access import find_build, operator_login
 from osprey.cli.repo_resolver import repo_option
 from osprey.cli.styles import Styles, data_table
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import rendered_config_path
 
@@ -95,7 +95,7 @@ def _feedback_session(repo: Path | None, *, announce: bool = True) -> Iterator[_
         report(f"Web-terminal feedback: {action} in {repo_root}")
 
     try:
-        yield _Deployment(root=repo_root, config=load_project_config(str(config_path)))
+        yield _Deployment(root=repo_root, config=load_config(str(config_path)).raw_tree())
     except (click.Abort, click.ClickException):
         raise
     except KeyboardInterrupt:

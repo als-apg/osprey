@@ -19,16 +19,11 @@ from osprey_connectors.logger import ComponentLogger
 #: Both halves are pinned here: a level remap would be as much a regression as a
 #: missing marker.
 INTENT_LEVELS: dict[str, int] = {
-    "status": logging.INFO,
     "key_info": logging.INFO,
     "info": logging.INFO,
     "debug": logging.DEBUG,
     "warning": logging.WARNING,
     "error": logging.ERROR,
-    "success": logging.INFO,
-    "timing": logging.INFO,
-    "approval": logging.INFO,
-    "resume": logging.INFO,
     "critical": logging.CRITICAL,
     "exception": logging.ERROR,
 }
@@ -138,22 +133,15 @@ class TestCallerExtra:
 
 
 class TestPreservedBehaviour:
-    def test_event_system_kwargs_are_still_stripped(self, captured):
-        """Legacy callers pass these; they must not reach ``Logger.log``."""
+    @pytest.mark.parametrize("keyword", ["error", "error_type", "recoverable", "stack_trace"])
+    def test_retired_event_keywords_are_refused(self, captured, keyword):
+        """The retired event-system keywords are no longer swallowed."""
         logger, collector = captured
 
-        logger.error(
-            "boom",
-            error="ValueError",
-            error_type="ValueError",
-            recoverable=True,
-            stack_trace="...",
-            warning="w",
-        )
+        with pytest.raises(TypeError, match=keyword):
+            logger.error("boom", **{keyword: "x"})
 
-        (record,) = collector.records
-        assert record.osprey_intent == "error"
-        assert not hasattr(record, "error_type")
+        assert collector.records == []
 
     def test_exception_still_attaches_traceback(self, captured):
         logger, collector = captured

@@ -1,13 +1,12 @@
 """Tests for pattern detection module."""
 
-from unittest.mock import patch
-
 import pytest
 
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
     get_framework_standard_patterns,
 )
+from osprey_connectors_tests._config_trees import control_system_config, installed
 
 
 class TestPatternDetection:
@@ -94,19 +93,7 @@ class TestPatternDetection:
             "read": [],
         }
 
-        def mock_config(key, default=None):
-            if key == "control_system.patterns":
-                return custom_patterns
-            if key == "control_system.type":
-                return "custom"
-            return default
-
-        with (
-            patch(
-                "osprey_connectors.config.get_config_value",
-                side_effect=mock_config,
-            ),
-        ):
+        with installed(control_system_config({"type": "custom", "patterns": custom_patterns})):
             # Custom pattern detected
             result_custom = detect_control_system_operations(
                 code_custom, control_system_type="custom"
@@ -187,19 +174,7 @@ class TestPatternDetection:
             "read": [],
         }
 
-        def mock_config(key, default=None):
-            if key == "control_system.patterns":
-                return custom_patterns
-            if key == "control_system.type":
-                return "custom"
-            return default
-
-        with (
-            patch(
-                "osprey_connectors.config.get_config_value",
-                side_effect=mock_config,
-            ),
-        ):
+        with installed(control_system_config({"type": "custom", "patterns": custom_patterns})):
             # Custom pattern detected
             result = detect_control_system_operations(
                 "my_facility_write('CH1', 10)", control_system_type="custom"

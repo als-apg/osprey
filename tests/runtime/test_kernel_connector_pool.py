@@ -30,16 +30,19 @@ import osprey.runtime as runtime
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ConnectorContext,
+    ControlSystemSettings,
     WriteOutcome,
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.ipc import HostKey
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.targets import baseline_target, configured_targets, resolve_target
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch, turn_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
@@ -68,15 +71,6 @@ IN_PROCESS = {
     "type": "virtual_accelerator",
     "connector": {"virtual_accelerator": {"serving": "in_process", "server": "va-server"}},
 }
-
-
-def _serve(monkeypatch, section: dict[str, Any]) -> None:
-    """Serve *section* as ``control_system`` to every reader in this process."""
-
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
 
 
 @pytest.fixture(autouse=True)
@@ -132,10 +126,11 @@ class _FirstContextConnector:
     """A connector whose client keeps the first context the process created."""
 
     disconnected: list["_FirstContextConnector"] = []
+    settings_model = ControlSystemSettings
 
     async def connect(self, context: ConnectorContext) -> None:
         self._control_target = context.control_target
-        self.server = context.settings["server"]
+        self.server = (context.settings.model_extra or {})["server"]
         _FIRST_SERVER.setdefault("server", self.server)
 
     async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
@@ -231,8 +226,10 @@ class _FakePool:
     async def connector(self, target: str, *, execution_mode: str | None = None) -> _FakeHandle:
         self.record_loop()
         self.asked.append((target, execution_mode))
-        connector_type = resolve_target(self.section, target)
-        allowed = write_switch.write_verdict(self.section, target).allowed
+        connector_type = resolve_target(ControlSystemSection.read(self.section), target)
+        allowed = write_switch.write_verdict(
+            ControlSystemSection.read(self.section), target
+        ).allowed
         handle = _FakeHandle(
             self,
             target,
@@ -273,7 +270,7 @@ class TestTheFirstContextRule:
 
     @pytest.mark.usefixtures("in_process_registry")
     def test_a_rebuilt_connector_still_reads_the_first_server(self, monkeypatch):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
 
         stamp_env(monkeypatch, target="standin", generation="0")
         assert runtime.read_channel("SR:X") == "standin-server/SR:X"
@@ -290,7 +287,7 @@ class TestTheKernelPool:
     """Opted in, each stamp is served by a child of its own."""
 
     def test_a_switch_reads_the_new_targets_server(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
 
         stamp_env(monkeypatch, target="standin", generation="0")
@@ -311,7 +308,7 @@ class TestTheKernelPool:
         assert pool.loops[0] is runtime._pool_loop
 
     def test_both_loop_contexts_reach_the_same_pool_loop(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         stamp_env(monkeypatch, target="va", generation="0")
 
@@ -325,7 +322,7 @@ class TestTheKernelPool:
     def test_the_pool_reads_the_kernels_own_config_file(self, monkeypatch, tmp_path, fake_pool):
         config = tmp_path / "config.yml"
         monkeypatch.setenv("OSPREY_CONFIG", str(config))
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
 
         runtime.read_channel("SR:X")
@@ -334,10 +331,8 @@ class TestTheKernelPool:
         assert pool.config_file == str(config)
         assert pool.section == SWITCHABLE
 
-    def test_the_pool_keeps_its_own_start_bound_when_the_runtime_names_none(
-        self, monkeypatch, fake_pool
-    ):
-        _serve(monkeypatch, SWITCHABLE)
+    def test_the_pool_keeps_its_own_start_bound_when_the_runtime_names_none(self, fake_pool):
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
 
         runtime.read_channel("SR:X")
@@ -348,7 +343,7 @@ class TestTheKernelPool:
     def test_the_pool_takes_the_runtimes_start_bound_read_when_it_is_built(
         self, monkeypatch, fake_pool
     ):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         monkeypatch.setattr(runtime, "_pool_start_timeout_s", 7.5)
 
@@ -358,7 +353,7 @@ class TestTheKernelPool:
         assert pool.options == {"start_timeout_s": 7.5}
 
     def test_a_generation_move_on_the_same_target_respawns(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
 
         stamp_env(monkeypatch, target="va", generation="0")
@@ -373,7 +368,7 @@ class TestTheKernelPool:
 
     @pytest.mark.usefixtures("fake_pool")
     def test_a_launch_pin_move_alone_respawns(self, monkeypatch):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         stamp_env(monkeypatch, target="va", generation="0")
 
@@ -388,7 +383,7 @@ class TestTheKernelPool:
         assert runtime._connector_launch_pin == "va=writes"
 
     def test_the_same_stamp_and_pin_reuse_the_handle(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         stamp_env(monkeypatch, target="va", generation="0")
         monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=writes")
@@ -401,16 +396,18 @@ class TestTheKernelPool:
         assert not first.disconnected
         assert len(fake_pool[0].asked) == 1
 
-    def test_an_unstamped_cell_reads_the_baseline_target(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+    def test_an_unstamped_cell_reads_the_baseline_target(self, fake_pool):
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
 
         assert runtime.read_channel("SR:X") == "va-server/SR:X"
 
-        assert fake_pool[0].asked == [(baseline_target(SWITCHABLE), None)]
+        assert fake_pool[0].asked == [
+            (baseline_target(ControlSystemSection.read(SWITCHABLE)), None)
+        ]
 
     def test_a_switch_in_flight_refuses_before_the_pool_is_built(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         monkeypatch.setenv(runtime.ENV_CONTROL_TARGET_REFUSAL, "switch_in_progress:4242")
 
@@ -432,26 +429,22 @@ class TestTheKernelPool:
         ],
         ids=["epics", "va-served", "standin", "in-process"],
     )
-    def test_a_single_target_deployment_is_served_by_the_pool(
-        self, monkeypatch, fake_pool, section
-    ):
-        _serve(monkeypatch, section)
+    def test_a_single_target_deployment_is_served_by_the_pool(self, fake_pool, section):
+        serve_control_system(section)
         runtime._route_connector_through_pool()
 
         runtime.read_channel("SR:X")
 
         (pool,) = fake_pool
-        assert pool.asked == [(baseline_target(section), None)]
+        assert pool.asked == [(baseline_target(ControlSystemSection.read(section)), None)]
         assert runtime._runtime_connector is pool.handles[0]
 
-    def test_an_in_process_deployment_beside_a_real_block_asks_for_va_never_live(
-        self, monkeypatch, fake_pool
-    ):
+    def test_an_in_process_deployment_beside_a_real_block_asks_for_va_never_live(self, fake_pool):
         section = {
             **IN_PROCESS,
             "connector": {**IN_PROCESS["connector"], "epics": {"server": "epics-server"}},
         }
-        _serve(monkeypatch, section)
+        serve_control_system(section)
         runtime._route_connector_through_pool()
 
         assert runtime.read_channel("SR:X") == "va-server/SR:X"
@@ -467,13 +460,13 @@ class TestTheKernelPool:
         class InProcessBuild(Exception):
             pass
 
-        def get_config_value(path, _default=None, _config_path=None):
-            raise SectionUnreadable(path)
+        def unreadable_config():
+            raise SectionUnreadable("control_system")
 
         async def in_process_build(*args, **kwargs):
             raise InProcessBuild
 
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.current_config", unreadable_config)
         monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", in_process_build)
         runtime._route_connector_through_pool()
 
@@ -490,7 +483,7 @@ class TestPooledWrites:
     def test_a_moved_record_refuses_before_the_pool_is_touched(
         self, monkeypatch, state_root, fake_pool
     ):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         write_record(state_root, target="va", generation=2)
         stamp_env(monkeypatch, target="va", generation="1")
@@ -505,7 +498,7 @@ class TestPooledWrites:
     def test_a_permitted_write_reaches_write_channel_checked(
         self, monkeypatch, state_root, fake_pool
     ):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         write_record(state_root, target="va", generation=1)
         stamp_env(monkeypatch, target="va", generation="1")
@@ -520,7 +513,7 @@ class TestPooledWrites:
     def test_a_multi_channel_write_reaches_write_multiple_channels(
         self, monkeypatch, state_root, fake_pool
     ):
-        _serve(monkeypatch, SWITCHABLE)
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         write_record(state_root, target="va", generation=1)
         stamp_env(monkeypatch, target="va", generation="1")
@@ -552,8 +545,8 @@ class TestTheSwitchRespawns:
     """A turn-on or turn-off lands on a fresh child, through the existing respawn check."""
 
     @pytest.mark.usefixtures("switch_record")
-    def test_the_first_write_after_a_turn_on_uses_the_write_gateway(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE_ALLOWED)
+    def test_the_first_write_after_a_turn_on_uses_the_write_gateway(self, fake_pool):
+        serve_control_system(SWITCHABLE_ALLOWED)
         runtime._route_connector_through_pool()
 
         runtime.read_channel("SR:X")
@@ -576,7 +569,7 @@ class TestTheSwitchRespawns:
 
     @pytest.mark.usefixtures("switch_record")
     def test_an_unchanged_switch_reuses_the_child_and_reads_no_record(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE_ALLOWED)
+        serve_control_system(SWITCHABLE_ALLOWED)
         runtime._route_connector_through_pool()
         turn_switch("va", "asked")
         runtime.read_channel("SR:X")
@@ -599,8 +592,8 @@ class TestTheSwitchRespawns:
         assert parses == []
 
     @pytest.mark.usefixtures("switch_record", "fake_pool")
-    def test_a_tier_that_never_writes_does_not_respawn_on_a_turn_on(self, monkeypatch):
-        _serve(monkeypatch, {**SWITCHABLE, "writes": "never"})
+    def test_a_tier_that_never_writes_does_not_respawn_on_a_turn_on(self):
+        serve_control_system({**SWITCHABLE, "writes": "never"})
         runtime._route_connector_through_pool()
 
         runtime.read_channel("SR:X")
@@ -613,7 +606,7 @@ class TestTheSwitchRespawns:
 
     @pytest.mark.usefixtures("switch_record", "fake_pool")
     def test_a_launch_pin_holds_the_child_on_read_only_after_a_turn_on(self, monkeypatch):
-        _serve(monkeypatch, SWITCHABLE_ALLOWED)
+        serve_control_system(SWITCHABLE_ALLOWED)
         monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=sandbox")
         runtime._route_connector_through_pool()
 
@@ -629,8 +622,8 @@ class TestTheSwitchRespawns:
 class TestPoolCleanup:
     """``cleanup_runtime`` closes the pool on its own loop, from anywhere."""
 
-    def test_cleanup_from_a_foreign_loop_closes_the_pool_on_its_loop(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+    def test_cleanup_from_a_foreign_loop_closes_the_pool_on_its_loop(self, fake_pool):
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         runtime.read_channel("SR:X")
         handle = runtime._runtime_connector
@@ -647,8 +640,8 @@ class TestPoolCleanup:
 
         assert len(fake_pool) == 2
 
-    def test_cleanup_on_the_pool_loop_closes_it_there(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+    def test_cleanup_on_the_pool_loop_closes_it_there(self, fake_pool):
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         runtime.read_channel("SR:X")
 
@@ -659,8 +652,8 @@ class TestPoolCleanup:
         assert fake_pool[0].closed_on is runtime._pool_loop
         assert runtime._connector_pool is None
 
-    def test_the_exit_hook_closes_a_pool_holding_no_handle(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+    def test_the_exit_hook_closes_a_pool_holding_no_handle(self, fake_pool):
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         runtime.read_channel("SR:X")
         runtime._run_on_pool_loop(runtime._runtime_connector.disconnect())
@@ -673,8 +666,8 @@ class TestPoolCleanup:
         assert fake_pool[0].closed_on is loop
         assert runtime._connector_pool is None
 
-    def test_the_exit_hook_closes_the_pool_on_its_loop_then_the_loop(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+    def test_the_exit_hook_closes_the_pool_on_its_loop_then_the_loop(self, fake_pool):
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         runtime.read_channel("SR:X")
         loop = runtime._pool_loop
@@ -686,8 +679,8 @@ class TestPoolCleanup:
         assert runtime._pool_loop is None
 
     @pytest.mark.filterwarnings("ignore:.*multi-threaded.*fork:DeprecationWarning")
-    def test_a_forked_child_exits_without_touching_the_parents_pool(self, monkeypatch, fake_pool):
-        _serve(monkeypatch, SWITCHABLE)
+    def test_a_forked_child_exits_without_touching_the_parents_pool(self, fake_pool):
+        serve_control_system(SWITCHABLE)
         runtime._route_connector_through_pool()
         runtime.read_channel("SR:X")
 
@@ -790,14 +783,14 @@ class TestRealChildren:
                 "live_standin": {"timeout_s": 1.0},
             },
         }
-        assert configured_targets(section) == ["live", "standin"]
+        assert configured_targets(ControlSystemSection.read(section)) == ["live", "standin"]
         config = tmp_path / "config.yml"
         config.write_text(yaml.safe_dump({"control_system": section}))
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("CONFIG_FILE", raising=False)
         monkeypatch.setenv("OSPREY_CONFIG", str(config))
         monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
-        _serve(monkeypatch, section)
+        serve_control_system(section)
         runtime._route_connector_through_pool()
 
         stamp_env(monkeypatch, target="live", generation="0")
@@ -836,7 +829,7 @@ class TestRealChildren:
         monkeypatch.delenv("CONFIG_FILE", raising=False)
         monkeypatch.setenv("OSPREY_CONFIG", str(config))
         monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
-        _serve(monkeypatch, section)
+        serve_control_system(section)
         runtime._route_connector_through_pool()
 
         try:
@@ -875,7 +868,7 @@ class TestRealChildrenFollowTheSwitch:
         monkeypatch.setenv("OSPREY_CONFIG", str(config))
         monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
         monkeypatch.setenv(WRITE_LOG_ENV, str(log))
-        _serve(monkeypatch, section)
+        serve_control_system(section)
         runtime._route_connector_through_pool()
 
         try:

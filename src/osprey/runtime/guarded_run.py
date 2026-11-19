@@ -328,6 +328,7 @@ def guarded_run_target(target: str | None) -> str:
         GuardedRunDirError: If the name is not one of the control targets,
             which would otherwise become a directory of its own.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import CONTROL_TARGETS
     from osprey_connectors.targets import baseline_target
 
@@ -336,10 +337,12 @@ def guarded_run_target(target: str | None) -> str:
 
         target = os.environ.get(ENV_CONTROL_TARGET, "").strip() or None
     if target is None or target == _BASELINE_STAND_IN:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        section = load_osprey_config().get("control_system")
-        target = baseline_target(section if isinstance(section, dict) else {})
+        section = loaded_or_empty().get("control_system")
+        target = baseline_target(
+            ControlSystemSection.read(section if isinstance(section, dict) else {})
+        )
     if target not in CONTROL_TARGETS:
         raise GuardedRunDirError(
             f"Unknown control target {target!r} for a guarded run. "
@@ -352,20 +355,17 @@ def _repo_root() -> Path:
     """The deployment repo root this process belongs to.
 
     Resolved the way every runtime path is anchored
-    (:func:`osprey_connectors.workspace.resolve_project_root`), and accepted
+    (:func:`osprey.utils.config_paths.process_repo_root`), and accepted
     only when it holds the repo's ``profile.yml`` or a rendered config: that
     resolver ends in the working directory when nothing else answers, and a
     guarded-run directory planted wherever a process was started would be one
     no other process of the deployment finds.
     """
+    from osprey.utils.config_paths import process_repo_root
     from osprey.utils.workspace import PROFILE_FILENAME
-    from osprey_connectors.workspace import (
-        load_osprey_config,
-        rendered_config_path,
-        resolve_project_root,
-    )
+    from osprey_connectors.workspace import rendered_config_path
 
-    root = resolve_project_root(load_osprey_config())
+    root = process_repo_root()
     markers = (root / PROFILE_FILENAME, rendered_config_path(root), root / "config.yml")
     if not any(marker.is_file() for marker in markers):
         raise GuardedRunDirError(
@@ -507,11 +507,14 @@ def target_limits_off(target: str) -> bool:
     Returns:
         ``True`` only for a complete posture with ``enabled`` ``False``.
     """
+    from osprey.utils.config_paths import loaded_or_empty
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.limits_posture import target_limits_posture
-    from osprey_connectors.workspace import load_osprey_config
 
-    section = load_osprey_config().get("control_system")
-    posture = target_limits_posture(section if isinstance(section, dict) else {}, target)
+    section = loaded_or_empty().get("control_system")
+    posture = target_limits_posture(
+        ControlSystemSection.read(section if isinstance(section, dict) else {}), target
+    )
     return not posture.incomplete and posture.enabled is False
 
 
@@ -781,9 +784,9 @@ def _facility_commands() -> frozenset[str]:
             cannot be read.
     """
     from osprey.channel_roster.sources import facility_file_path
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    path = facility_file_path(load_osprey_config())
+    path = facility_file_path(loaded_or_empty())
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

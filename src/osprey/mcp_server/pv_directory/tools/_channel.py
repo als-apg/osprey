@@ -18,7 +18,7 @@ from osprey.mcp_server.pv_directory.server import (
 )
 from osprey.services.pv_directory.facts import Facts
 from osprey.services.pv_directory.origin import normalise_address
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 
 logger = logging.getLogger("osprey.mcp_server.pv_directory.tools")
 
@@ -45,7 +45,7 @@ def since_of(tool: str, since: str | None) -> datetime | None:
             f"{tool}: since {since!r} is not an ISO-8601 time.",
             ["Spell since as ISO-8601, for example 2026-04-03T14:00 or 2026-04-03T14:00+00:00."],
         )
-    return moment if moment.tzinfo else moment.replace(tzinfo=get_facility_timezone())
+    return moment if moment.tzinfo else moment.replace(tzinfo=facility_timezone())
 
 
 def check_limit(tool: str, limit: int) -> None:

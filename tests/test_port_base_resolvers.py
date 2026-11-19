@@ -39,6 +39,8 @@ from osprey.port_layout import (
     resolve_port_base,
 )
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 
 #: The base every case resolves against. Deliberately not the layout default:
 #: a resolver that ignored the config would produce a 10xxx port and every
@@ -93,18 +95,14 @@ def no_ambient_port_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def _pin_loaded_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make ``load_osprey_config()`` return :data:`CONFIG`.
+def _pin_loaded_config() -> None:
+    """Serve :data:`CONFIG` as the process config.
 
     The resolvers that load the project config themselves (rather than being
-    handed one) import :func:`osprey_connectors.workspace.load_osprey_config` inside
-    the function body, so patching it at its source reaches all of them.
+    handed one) read it through :func:`osprey.utils.config_paths.loaded_or_empty`,
+    which reads the process config, so serving it reaches all of them.
     """
-    import osprey_connectors.workspace
-
-    monkeypatch.setattr(
-        osprey_connectors.workspace, "load_osprey_config", lambda *a, **k: dict(CONFIG)
-    )
+    serve_config(config_of(CONFIG))
 
 
 # ---------------------------------------------------------------------------
@@ -155,47 +153,32 @@ def _derived_dsn(base: int) -> str:
     return f"postgresql://ariel:ariel@localhost:{default_port('postgres', base=base)}/ariel"
 
 
-def _config_value_reader(**extra: Any) -> Any:
-    """A ``get_config_value`` stand-in serving :data:`CONFIG`'s deployment block.
+def _serve_config_values(**extra: Any) -> None:
+    """Serve :data:`CONFIG`'s deployment block as the process config.
 
     Every ARIEL call site below reads the same two keys — the deployment block
     the base comes from, and an empty Postgres block so the port can only come
-    from the layout. ``extra`` adds whatever else one site reads.
+    from the layout. ``extra`` adds whatever else one site reads (dotted keys).
     """
-    values: dict[str, Any] = {
-        "deployment": dict(CONFIG["deployment"]),
-        "services.postgresql": {},
-        **extra,
-    }
-
-    def fake(key: str, default: Any = None) -> Any:
-        return values.get(key, default)
-
-    return fake
+    serve_config(
+        config_of(
+            config_tree(
+                {"deployment": dict(CONFIG["deployment"]), "services.postgresql": {}, **extra}
+            )
+        )
+    )
 
 
-def _pin_config_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make ``get_config_value`` serve :data:`CONFIG`'s deployment block.
-
-    The ARIEL CLI operations read the project config through
-    :func:`osprey_connectors.config.get_config_value` inside the function body, so
-    patching it at its source reaches both the Postgres block and the base.
-    """
-    import osprey_connectors.config
-
-    monkeypatch.setattr(osprey_connectors.config, "get_config_value", _config_value_reader())
-
-
-def _ariel_cli_config(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _ariel_cli_config(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``cli_operations._ariel_config`` — the shared builder behind most commands."""
     from osprey.services.ariel_search import cli_operations
 
-    _pin_config_values(monkeypatch)
+    _serve_config_values()
     config = cli_operations._ariel_config(dict(_ARIEL_SECTION))
     return config.database.uri, _derived_dsn(PORT_BASE)
 
 
-def _ariel_cli_vocabulary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _ariel_cli_vocabulary(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``cli_operations._status_config`` — the one status parse that builds its own config.
 
     It cannot go through ``_ariel_config`` (it needs ``config_dir=``), so it is
@@ -203,7 +186,7 @@ def _ariel_cli_vocabulary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tu
     """
     from osprey.services.ariel_search import cli_operations
 
-    _pin_config_values(monkeypatch)
+    _serve_config_values()
     config, _vocabulary = cli_operations._status_config(dict(_ARIEL_SECTION), tmp_path)
     return config.database.uri, _derived_dsn(PORT_BASE)
 
@@ -219,15 +202,12 @@ def _ariel_store_config(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tup
 
 def _ariel_mcp_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``mcp_server.ariel.server_context`` — the config every ARIEL MCP tool holds."""
-    import osprey_connectors.workspace
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
     raw = {**CONFIG, "ariel": dict(_ARIEL_SECTION)}
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **k: dict(raw))
     monkeypatch.setattr(
-        osprey_connectors.workspace, "load_osprey_config", lambda *a, **k: dict(raw)
-    )
-    monkeypatch.setattr(
-        osprey_connectors.workspace, "resolve_config_path", lambda *a, **k: tmp_path / "config.yml"
+        "osprey_connectors.config.locate_config", lambda *a, **k: tmp_path / "config.yml"
     )
     context = ARIELContext()
     context.initialize()
@@ -239,11 +219,7 @@ def _ariel_capability_service(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     import osprey.services.ariel_search.service as ariel_service
     from osprey.services.ariel_search import capability
 
-    # Patched on the capability module: it imports the reader at module import
-    # time, so the source-module patch the CLI cases use would not reach it.
-    monkeypatch.setattr(
-        capability, "get_config_value", _config_value_reader(ariel=dict(_ARIEL_SECTION))
-    )
+    _serve_config_values(ariel=dict(_ARIEL_SECTION))
 
     built: list[Any] = []
 
@@ -380,11 +356,11 @@ def _base_ports(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any,
     return actual, expected
 
 
-def _mcp_web_terminal_url(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _mcp_web_terminal_url(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``mcp_server.http.web_terminal_url`` with no ``web_terminal.port``."""
     from osprey.mcp_server.http import web_terminal_url
 
-    _pin_loaded_config(monkeypatch)
+    _pin_loaded_config()
     return web_terminal_url(), f"http://127.0.0.1:{default_port('web', 0, base=PORT_BASE)}"
 
 
@@ -478,11 +454,11 @@ def _auth_sidecar_port(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tup
     return context["auth_port"], default_port("auth", base=PORT_BASE)
 
 
-def _dispatcher_worker_target(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _dispatcher_worker_target(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """The dispatcher's fallback ``DISPATCH_TARGET`` is worker 1 in its own block."""
     from osprey.dispatch.server import _default_worker_port
 
-    _pin_loaded_config(monkeypatch)
+    _pin_loaded_config()
     return _default_worker_port(), default_port("worker", 1, base=PORT_BASE)
 
 
@@ -490,7 +466,7 @@ def _worker_entrypoint_port(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     """A hand-started worker binds worker 1 of its own block, not the default one."""
     import osprey.mcp_server.dispatch_worker.__main__ as worker_main
 
-    _pin_loaded_config(monkeypatch)
+    _pin_loaded_config()
     bound: dict[str, Any] = {}
     monkeypatch.setattr(
         worker_main.uvicorn, "run", lambda *a, **kwargs: bound.update(kwargs), raising=True
@@ -551,7 +527,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "ariel_search.capability.get_ariel_search_service",
-        "base= keyword, re-wrapped from get_config_value('deployment')",
+        "base= keyword, re-wrapped from current_config().get('deployment')",
         _ariel_capability_service,
         ("postgres",),
     ),

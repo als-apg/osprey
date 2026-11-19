@@ -277,10 +277,10 @@ class Subscription:
 
 def _control_system_section() -> dict[str, Any]:
     """The deployment's ``control_system:`` section, or an empty one."""
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except Exception:
         logger.warning("The control_system config could not be read", exc_info=True)
         return {}
@@ -336,8 +336,9 @@ def _fallback_target(section: dict[str, Any]) -> ControlTarget:
     otherwise.
     """
     from osprey_connectors import connector_types, targets
+    from osprey_connectors.config_sections import ControlSystemSection
 
-    target = targets.baseline_target(section)
+    target = targets.baseline_target(ControlSystemSection.read(section))
     if target != connector_types.TARGET_STANDIN:
         return target
     connectors = section.get("connector")
@@ -370,19 +371,20 @@ def _verdict(target: str, session_keys: SessionKeys = None) -> WriteVerdict:
     environment's when ``None``). A config or a key list that cannot be read
     refuses as ``record_unavailable``. Never raises.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.refusals import VerdictReason
     from osprey_connectors.write_switch import Refused, execution_verdict
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
         keys = _keys_now(session_keys)
     except Exception:
         logger.warning(
             "The control_system config or the session keys could not be read", exc_info=True
         )
         return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=target, kind=None)
-    return execution_verdict(section, target, session_keys=keys)
+    return execution_verdict(ControlSystemSection.read(section), target, session_keys=keys)
 
 
 def _record_signature() -> Any:
@@ -575,6 +577,7 @@ class ControlSession:
                 ``unservable`` one.
         """
         from osprey_connectors import targets
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.factory import ConnectorFactory
 
         check_environment(os.environ)
@@ -595,12 +598,14 @@ class ControlSession:
         connector: ControlSystemConnector | None = None
         connector_type: str | None = None
         try:
-            connector_type = targets.resolve_target(section, target)
+            connector_type = targets.resolve_target(ControlSystemSection.read(section), target)
             config, call_bound_s, write_bound_s = _bounded_config(section, connector_type, budget)
             # A long-lived session runs no script: a readonly refusal on its
             # connector is the deployment's, worded as in an MCP server.
             connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=target, readonly_wording="deployment"
+                config=ControlSystemSection.read(config),
+                control_target=target,
+                readonly_wording="deployment",
             )
         except Exception as exc:
             logger.warning(
@@ -1259,6 +1264,7 @@ class ControlSession:
         selected = getattr(connector, "_selected_role", None)
         if selected is None or not getattr(connector, "_write_gateway_configured", False):
             return False
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.write_switch import write_verdict
 
         section = _control_system_section()
@@ -1267,7 +1273,7 @@ class ControlSession:
         gateways = block.get("gateways") if isinstance(block, Mapping) else None
         if not isinstance(gateways, Mapping) or not gateways.get("read_only"):
             return False
-        allowed = write_verdict(section, self._binding.target).allowed
+        allowed = write_verdict(ControlSystemSection.read(section), self._binding.target).allowed
         return bool(allowed != (selected == "write_access"))
 
     def _record_moved(self) -> bool:

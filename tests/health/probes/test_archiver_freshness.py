@@ -29,6 +29,7 @@ from osprey.health.probes.archiver_freshness import run
 from osprey.health.runtime import HealthRuntime
 from osprey_connectors.connector_types import TARGET_LIVE, TARGET_VA
 from osprey_connectors.service_answers import BackendSpec, Unavailable
+from osprey_connectors.testing import config_of
 
 
 class _SpyArchiver:
@@ -333,17 +334,17 @@ async def test_none_config_falls_back_to_global_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """CLI/standalone: with no per-run config the config comes from the global
-    singleton via ``load_config()`` and the run proceeds."""
+    config via ``current_config()`` and the run proceeds."""
     import osprey_connectors.config as config_module
 
-    loaded = {"archiver": {"type": "mock_archiver", "settings": {"sample_rate_hz": 2}}}
+    loaded = config_of({"archiver": {"type": "mock_archiver", "settings": {"sample_rate_hz": 2}}})
     loads: list[None] = []
 
-    def fake_load_config(_config_path: str | None = None) -> Any:
+    def fake_current_config() -> Any:
         loads.append(None)
         return loaded
 
-    monkeypatch.setattr(config_module, "load_config", fake_load_config)
+    monkeypatch.setattr(config_module, "current_config", fake_current_config)
     archiver = _SpyArchiver(_frame(newest_age_s=10))
     runtime = _SpyRuntime(archiver)
     ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
@@ -357,25 +358,25 @@ async def test_none_config_falls_back_to_global_config(
     assert (spec.type, dict(spec.settings)) == ("mock_archiver", {"sample_rate_hz": 2})
 
 
-def _raising_load_config(_config_path: str | None = None) -> Any:
+def _raising_current_config() -> Any:
     raise RuntimeError("config file not found")
 
 
 @pytest.mark.parametrize(
-    "load_config",
+    "current_config",
     [
-        pytest.param(_raising_load_config, id="config-load-raises"),
-        pytest.param(lambda _config_path=None: {"archiver": "epics"}, id="scalar-archiver-value"),
+        pytest.param(_raising_current_config, id="config-load-raises"),
+        pytest.param(lambda: config_of({"archiver": "epics"}), id="scalar-archiver-value"),
     ],
 )
 async def test_none_config_with_unusable_global_config_is_error(
-    monkeypatch: pytest.MonkeyPatch, load_config: Any
+    monkeypatch: pytest.MonkeyPatch, current_config: Any
 ) -> None:
     """Config unavailability -- a raising loader or a scalar ``archiver:`` value
     -- degrades to the misconfiguration error, not a crash."""
     import osprey_connectors.config as config_module
 
-    monkeypatch.setattr(config_module, "load_config", load_config)
+    monkeypatch.setattr(config_module, "current_config", current_config)
     runtime = _SpyRuntime(_SpyArchiver())
     ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
 

@@ -51,6 +51,7 @@ from osprey.services.auth_sidecar.app import create_app as create_sidecar_app
 from osprey.services.auth_sidecar.passwords import hash_password
 from osprey.services.auth_sidecar.revocation import STATE_DIR_ENV
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors_tests._config_trees import serve_config, with_values
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.test_identities import _config
 
@@ -342,12 +343,9 @@ def _feedback(spool_zone, tmp_path) -> None:
     writer.seal_all()
 
 
-def _api_call(spool_zone, monkeypatch) -> None:
+def _api_call(spool_zone) -> None:
     spool_zone.spool_for(TERMINAL)
-    monkeypatch.setattr(
-        "osprey.models.logging.get_config_value",
-        lambda *args, **kwargs: {"api_calls": {"save_all": True}},
-    )
+    serve_config(with_values({"development.api_calls.save_all": True}))
     log_api_call(
         message="test input message",
         result="test output",
@@ -377,7 +375,7 @@ async def test_every_writer_spools_while_the_record_is_stopped_and_each_entry_la
     run_id = await _dispatch(spool_zone, monkeypatch, tmp_path)
     _bridge_turns(spool_zone, run_id)
     _feedback(spool_zone, tmp_path)
-    _api_call(spool_zone, monkeypatch)
+    _api_call(spool_zone)
     writer.seal_all()
 
     assert _writer_errors(root) == [], "a writer failed while the record was stopped"

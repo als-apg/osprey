@@ -1047,9 +1047,9 @@ def load_as_built_config(repo_root: Path) -> dict | None:
     if not config_path.is_file():
         return None
     try:
-        from osprey_connectors.config import load_project_config
+        from osprey_connectors.config import load_config
 
-        return load_project_config(str(config_path), wrap_errors=True) or None
+        return load_config(str(config_path)).raw_tree() or None
     except Exception:  # an unreadable build must not block a reset
         return None
 
@@ -1178,9 +1178,9 @@ def _as_built_config(repo_root: Path) -> dict:
     if not config_path.is_file():
         return {}
     try:
-        from osprey_connectors.config import ConfigBuilder
+        from osprey_connectors.config import load_config
 
-        return ConfigBuilder(str(config_path)).raw_config or {}
+        return load_config(str(config_path)).raw_tree() or {}
     except Exception as exc:  # an unreadable build must not block a reset
         logger.warning(
             "Could not read this deployment's rendered config from %s (%s). Reset will "
@@ -1886,9 +1886,9 @@ def runtime_selection_config(repo_root: Path) -> dict | None:
     if not config_path.is_file():
         return None
     try:
-        from osprey_connectors.config import load_project_config
+        from osprey_connectors.config import load_config
 
-        return load_project_config(str(config_path), wrap_errors=True)
+        return load_config(str(config_path)).raw_tree()
     except Exception:  # runtime selection falls back to detection
         return None
 

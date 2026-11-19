@@ -20,8 +20,8 @@ def main() -> None:
     the other one's port.
     """
     from osprey.mcp_server.dispatch_worker.credentials import worker_credentials
+    from osprey.utils.config_paths import loaded_or_empty
     from osprey_connectors.logger import configure_logging
-    from osprey_connectors.workspace import load_osprey_config
 
     configure_logging()
 
@@ -31,7 +31,7 @@ def main() -> None:
     worker_credentials()
 
     port = os.environ.get("DISPATCH_WORKER_PORT") or default_port(
-        "worker", 1, base=resolve_port_base(load_osprey_config())
+        "worker", 1, base=resolve_port_base(loaded_or_empty())
     )
 
     uvicorn.run(

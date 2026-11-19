@@ -49,10 +49,11 @@ import json
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
+from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, ClassVar, TypeAlias
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
@@ -62,7 +63,9 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
+    _settings_as,
     values_match,
 )
 from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError, ConnectorUnavailableError
@@ -137,16 +140,16 @@ NOT_CONNECTED = "the in-process simulator is not connected"
 
 def _loaded_config_path() -> str | None:
     """The config this process's unqualified lookups read, loading it when none is."""
-    from osprey_connectors.config import default_config_path, get_config_builder
+    from osprey_connectors.config import active_config, current_config
+    from osprey_connectors.errors import ConfigLoadError, ConfigurationError
 
-    path = default_config_path()
-    if path is not None:
-        return path
+    loaded = active_config()
+    if loaded is not None:
+        return str(loaded.path)
     try:
-        get_config_builder()
-    except (FileNotFoundError, IsADirectoryError, KeyError, RuntimeError, ValueError):
+        return str(current_config().path)
+    except (ConfigLoadError, ConfigurationError):
         return None
-    return default_config_path()
 
 
 def simulator_view_dir(setting: str | Path | None = None) -> SimulatorView:
@@ -181,13 +184,13 @@ def simulator_view_dir(setting: str | Path | None = None) -> SimulatorView:
 
 def _rendered_config(view: Path) -> tuple[Path, Mapping[str, object]]:
     """The rendered config beside a view, and its contents; empty when there is none."""
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
     path = view.parent.parent / _RENDERED_CONFIG
     if not path.is_file():
         return path, {}
     try:
-        return path, load_project_config(path)
+        return path, load_config(path).raw_tree()
     except Exception as exc:
         logger.warning(f"cannot read {path} beside the simulator view: {exc}")
         return path, {}
@@ -302,6 +305,23 @@ def _mark(document: _JournalDocument | None, text: str) -> int | str:
     return (text or 0) if document is None else document.seq
 
 
+class VAInProcessSettings(ControlSystemSettings):
+    """The ``virtual_accelerator`` block, as the simulator in process reads it."""
+
+    #: Simulated response delay, in milliseconds.
+    response_delay_ms: float = 10
+    #: The view directory to serve; ``None`` serves ``data/simulator/`` beside
+    #: the loaded config.
+    simulator_view: Path | None = None
+
+    @field_validator(SIMULATOR_VIEW_SETTING, mode="before")
+    @classmethod
+    def _view_path(cls, value: object) -> object:
+        if not value:
+            return None
+        return Path(value) if isinstance(value, str | PathLike) else value
+
+
 class VAInProcessConnector(ControlSystemConnector):
     """Serve the built facility's simulator view in process.
 
@@ -310,6 +330,8 @@ class VAInProcessConnector(ControlSystemConnector):
         >>> await connector.connect(ConnectorContext(settings={"response_delay_ms": 10}))
         >>> value = await connector.read_channel("SR:DIAG:BPM:01:POSITION:X")
     """
+
+    settings_model: ClassVar[type[ControlSystemSettings]] = VAInProcessSettings
 
     def __init__(self) -> None:
         self._connected = False
@@ -331,7 +353,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._holds_writes = False
 
     @override
-    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """Build the composite of the simulator view and start the tick.
 
         Args:
@@ -349,10 +371,10 @@ class VAInProcessConnector(ControlSystemConnector):
         from osprey_connectors.simulation import resolve_tick_s
         from osprey_connectors.simulation.composite import Composite
 
-        delay_ms: float = settings.get("response_delay_ms", 10)
-        self._response_delay = delay_ms / 1000.0
+        read = _settings_as(settings, VAInProcessSettings)
+        self._response_delay = read.response_delay_ms / 1000.0
 
-        view = simulator_view_dir(settings.get(SIMULATOR_VIEW_SETTING))
+        view = simulator_view_dir(read.simulator_view)
         _config_path, rendered = _rendered_config(view.path)
         self._tick_s = resolve_tick_s(rendered)
         state_dir = simulation_state_dir(view.path)

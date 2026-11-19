@@ -104,7 +104,7 @@ from osprey.services.auth_sidecar.identity_headers import same_domain, same_valu
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import CALLER_HEADER, OWNER_HEADER, SESSION_HEADER, owner_from_header
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import VerdictReason, refusal_text
 from osprey_connectors.session_hold import is_held, is_safe_session_key
@@ -2558,7 +2558,7 @@ async def _forward_to_panel(
         )
         # Resolved per request, like the storage scope, by the call the hub's own pages use.
         if base_type == "text/html":
-            text = _stamp_facility_timezone(text, base_type, get_facility_timezone().key)
+            text = _stamp_facility_timezone(text, base_type, facility_timezone().key)
         return Response(
             content=text,
             status_code=resp.status_code,

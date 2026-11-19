@@ -48,7 +48,7 @@ def build_system_prompt(
     so Claude Code's built-in prompt remains loaded.
 
     Args:
-        tz: Facility timezone (use ``get_facility_timezone()`` at call sites).
+        tz: Facility timezone (use ``facility_timezone()`` at call sites).
         extra: Optional second line appended after the timestamp.
     """
     stamp = datetime.now(tz).strftime("%Y-%m-%d %H:%M %Z")

@@ -29,7 +29,7 @@ LOGBOOK_SHAPED = {
 
 
 def _auto_launch(config: dict, monkeypatch) -> bool:
-    monkeypatch.setattr("osprey.infrastructure.server_launcher.load_osprey_config", lambda: config)
+    monkeypatch.setattr("osprey.infrastructure.server_launcher.loaded_or_empty", lambda: config)
     return server_launcher._make_auto_launch_checker(FRAMEWORK_WEB_SERVERS["ariel"])()
 
 

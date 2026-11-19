@@ -32,6 +32,7 @@ from typing import Any
 # the path-tree builder below is.
 from osprey.deployment.reach import dotted_get
 from osprey.port_layout import VA_PVA_PORT_CONFIG_KEY
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     EPICS,
     LIVE_STANDIN,
@@ -228,6 +229,6 @@ def _baseline_type(config: Any) -> str:
     same answer here as the factory gives it at runtime.
     """
     baseline: str = resolve_control_system_type(
-        dotted_get(_expand_dotted(config), _CONTROL_SYSTEM_KEY)
+        ControlSystemSection.read(dotted_get(_expand_dotted(config), _CONTROL_SYSTEM_KEY))
     )
     return baseline

@@ -62,7 +62,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
-    resolve_agent_data_root,
+    shared_data_root,
 )
 from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
@@ -99,8 +99,8 @@ def shared_root(tmp_path, monkeypatch):
     Rebinding the resolver, not stamping the variable, for two reasons — the
     first of which makes the choice mandatory rather than merely preferable:
 
-    * ``resolve_agent_data_root`` (``operator_session.py``) imports
-      ``resolve_shared_data_root`` at call time and never reads
+    * ``shared_data_root`` (``operator_session.py``) imports
+      ``process_agent_data_root`` at call time and never reads
       ``OSPREY_AGENT_DATA_ROOT`` at all. A stamp would not reach it, so the
       root these spawn seams report would still be the real repo's.
     * the stamp is also what this file pins as *absent* from a keyless spawn.
@@ -131,10 +131,10 @@ def shared_root(tmp_path, monkeypatch):
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
     with (
         patch(
-            "osprey_connectors.workspace.resolve_shared_data_root",
+            "osprey.utils.config_paths.process_agent_data_root",
             return_value=root,
         ),
-        patch.object(_control_state, "resolve_shared_data_root", return_value=root),
+        patch.object(_control_state, "_config_agent_data_root", return_value=root),
     ):
         testing.invalidate_cache()
         yield root
@@ -297,12 +297,12 @@ class TestTheStampTravelsWithTheSessionKey:
             )
 
     def test_the_root_is_the_shared_one_not_the_session_scoped_one(self, client, shared_root):
-        """``resolve_agent_data_root`` answers the SHARED root on purpose: the
+        """``shared_data_root`` answers the SHARED root on purpose: the
         state file and the posture store span sessions, and a path carrying
         ``sessions/<OSPREY_SESSION_ID>`` could not be reproduced by a reader
         outside the session's own environment.
         """
-        assert resolve_agent_data_root(client.app) == str(shared_root)
+        assert shared_data_root(client.app) == str(shared_root)
         assert "sessions" not in Path(_pty_env(client, SESSION_A)[OSPREY_AGENT_DATA_ROOT]).parts
 
     def test_an_unresolvable_root_still_stamps_the_pair(self, client, workspace_dir):
@@ -311,7 +311,7 @@ class TestTheStampTravelsWithTheSessionKey:
         so the stamp does too and writer and readers stay on ONE directory.
         """
         with patch(
-            "osprey_connectors.workspace.resolve_shared_data_root",
+            "osprey.utils.config_paths.process_agent_data_root",
             side_effect=RuntimeError("no config"),
         ):
             env = _pty_env(client, SESSION_A)

@@ -26,6 +26,7 @@ import osprey
 from osprey.cli.templates.preset_data import FACILITIES_DIRNAME, FACILITY_DATA_DIRNAME
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.profiles.web_panels import panel_spec_enabled
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_writes
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
@@ -119,7 +120,7 @@ def _panels(repo: Path, login: str | None) -> set[str]:
 
 
 def _writes(repo: Path, login: str | None) -> str:
-    return tier_writes(_config(repo, login)["control_system"])
+    return tier_writes(ControlSystemSection.read(_config(repo, login)["control_system"]))
 
 
 # --- the application builds end to end ----------------------------------------

@@ -337,7 +337,7 @@ def module_environment(tmp_path_factory, endpoints):
     the store's writer and both its readers resolve by, it is what
     ``target_state.state_dir()`` prefers, and — being an environment variable —
     it is inherited by every child this module spawns without any of them being
-    told about it. Patching ``resolve_shared_data_root`` instead would redirect
+    told about it. Patching ``process_agent_data_root`` instead would redirect
     one reader and leave the rest writing into the repository's own
     ``var/agent_data``; it is patched here *as well*, so that a resolver reached
     on a path the stamp does not cover still lands in the same place.
@@ -397,7 +397,7 @@ def module_environment(tmp_path_factory, endpoints):
         patch_env.setenv("OSPREY_CONFIG", str(written))
         patch_env.delenv("OSPREY_EXECUTION_MODE", raising=False)
         patch_env.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
-        patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
+        patch_env.setattr(target_state, "process_agent_data_root", lambda: root)
         testing.invalidate_cache()
         write_control_context(
             root,

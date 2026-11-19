@@ -55,7 +55,7 @@ from osprey.utils.workspace import (
     LAYER_DIRNAMES,
     TIERS_DIRNAME,
 )
-from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.config import load_config
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -118,7 +118,7 @@ def _resolve_render_claude_cli_version(project_path: str) -> str | None:
         return None
     try:
         with quiet_logger(["registry", "CONFIG"]):
-            render_config = ConfigBuilder(str(config_path)).raw_config
+            render_config = load_config(str(config_path)).raw_tree()
     except Exception as exc:
         logger.warning("Could not read %s for CLAUDE_CLI_VERSION: %s", config_path, exc)
         return None

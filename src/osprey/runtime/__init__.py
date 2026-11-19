@@ -253,9 +253,9 @@ def _stamped_generation() -> int | None:
 
 def _control_system_section() -> dict[str, Any]:
     """The deployment's ``control_system`` section, as loaded; empty when absent."""
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     return section if isinstance(section, dict) else {}
 
 
@@ -353,26 +353,25 @@ async def _pooled_connector_locked(target: str | None) -> "ControlSystem":
     """
     global _connector_pool
 
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import CONTROL_TARGETS, is_control_target
     from osprey_connectors.targets import baseline_target
 
     section = _control_system_section()
-    key = target if target is not None else baseline_target(section)
+    key = target if target is not None else baseline_target(ControlSystemSection.read(section))
     if not is_control_target(key):
         raise ValueError(
             f"Unknown control target {key!r}. Valid targets are "
             f"{', '.join(repr(name) for name in CONTROL_TARGETS)}, spelled exactly."
         )
     if _connector_pool is None:
+        from osprey_connectors.config import locate_config
         from osprey_connectors.ipc import ConnectorHostPool
-        from osprey_connectors.workspace import resolve_config_path
 
         options: dict[str, Any] = (
             {} if _pool_start_timeout_s is None else {"start_timeout_s": _pool_start_timeout_s}
         )
-        _connector_pool = ConnectorHostPool(
-            section, config_file=str(resolve_config_path()), **options
-        )
+        _connector_pool = ConnectorHostPool(section, config_file=str(locate_config()), **options)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)
 
@@ -385,20 +384,22 @@ def _pooled_writes_allowed(target: str | None) -> bool:
     its signature cache: one stat when it has not changed. Never raises.
     """
     from osprey_connectors import write_switch
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import baseline_target
 
     try:
         section = _control_system_section()
-        key = target if target is not None else baseline_target(section)
+        key = target if target is not None else baseline_target(ControlSystemSection.read(section))
     except Exception:
         logger.debug("No write verdict for the pooled connector", exc_info=True)
         return False
-    return write_switch.write_verdict(section, key).allowed
+    return write_switch.write_verdict(ControlSystemSection.read(section), key).allowed
 
 
 def _launch_pin() -> str | None:
     """The launch posture pin in this process's environment, or ``None``."""
     from osprey_connectors import write_switch
+    from osprey_connectors.config_sections import ControlSystemSection
 
     return os.environ.get(write_switch.LAUNCH_PIN_ENV_VAR)
 
@@ -426,14 +427,15 @@ def _target_connector_config() -> dict[str, Any] | None:
     if target is None:
         return None
 
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import resolve_target
 
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     if not isinstance(section, dict):
         section = {}
     config = dict(section)
-    config["type"] = resolve_target(section, target)
+    config["type"] = resolve_target(ControlSystemSection.read(section), target)
     return config
 
 
@@ -485,6 +487,7 @@ def _claim_cell() -> None:
         from osprey.audit import posture
         from osprey.mcp_server.control_system import target_state
         from osprey_connectors import write_switch
+        from osprey_connectors.config_sections import ControlSystemSection
 
         session = posture.posture_session() or ""
         kernel_id = (
@@ -583,6 +586,7 @@ async def _get_connector():
             return _runtime_connector
 
         if _runtime_connector is None:
+            from osprey_connectors.config_sections import ControlSystemSection
             from osprey_connectors.factory import ConnectorFactory
             from osprey_connectors.targets import baseline_target
 
@@ -599,10 +603,14 @@ async def _get_connector():
             # pooled path serves it: the monitor then decides its writes by that
             # machine's switch rather than refusing a machine it cannot name.
             target = (
-                stamp[0] if stamp[0] is not None else baseline_target(_control_system_section())
+                stamp[0]
+                if stamp[0] is not None
+                else baseline_target(ControlSystemSection.read(_control_system_section()))
             )
+            # No stamped target's section: the factory reads the global one.
             _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=target
+                config=None if config is None else ControlSystemSection.read(config),
+                control_target=target,
             )
             _connector_stamp = stamp
 
@@ -1109,6 +1117,7 @@ async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
 
 def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
     """One landing per setpoint that has a bound, as the render's facility file states it."""
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import is_simulated, resolve_control_system_type
     from osprey_connectors.settle import Landing, settle_bound
     from osprey_connectors.simulation.envelope import motion_envelope
@@ -1124,7 +1133,9 @@ def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
         readback = str(channel.get("pair") or address)
         if simulated is None:
             section = _target_connector_config() or _control_system_section()
-            simulated = is_simulated(resolve_control_system_type(section))
+            simulated = is_simulated(
+                resolve_control_system_type(ControlSystemSection.read(section))
+            )
         seed = channels.get(readback, {}).get("simulation")
         motion = (
             motion_envelope(None if seed is None else SeedRecord.model_validate(seed))
@@ -1153,9 +1164,9 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
     global _facility_parsed
 
     from osprey.channel_roster.sources import facility_file_path
-    from osprey_connectors.config import get_full_configuration
+    from osprey_connectors.config import current_config
 
-    config = get_full_configuration()
+    config = current_config().raw_tree()
     path = facility_file_path(config)
     try:
         mtime_ns = path.stat().st_mtime_ns

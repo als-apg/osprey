@@ -1,18 +1,16 @@
-"""Where a process finds its config and its agent data.
+"""The path rules of a deployment repo: where the render, the repo root and the agent data are.
 
 The rendered ``config.yml``, the repo root it belongs to, and the agent-data
-root under it — resolved once here, for the connectors and for every framework
-layer that loads the same config. The rest of the deployment repo's layout
-(layer directories, the image staging area, the audit and archive zones) is the
-framework's, in ``osprey.utils.workspace``.
+root under it, spelled once here for the connectors and for every framework
+layer that reads the same config. A loaded config answers them for itself
+(:attr:`osprey_connectors.config.LoadedConfig.repo_root` and the paths beside
+it); :func:`locate_repo_root` answers for a process with no config. The rest of
+the deployment repo's layout (layer directories, the image staging area, the
+audit and archive zones) is the framework's, in ``osprey.utils.workspace``.
 """
 
-import logging
-import os
 from collections.abc import Mapping
 from pathlib import Path
-
-from osprey_connectors._contract_types import ContractAny
 
 __all__ = [
     "BUILD_DIR_NAME",
@@ -22,20 +20,11 @@ __all__ = [
     "SIMULATOR_LOG_DIR_RELPATH",
     "agent_data_base_dir",
     "anchored_path",
-    "dotted_config_str",
-    "load_osprey_config",
+    "locate_repo_root",
     "rendered_config_path",
     "repo_root_for_config",
-    "reset_config_cache",
-    "resolve_agent_data_root",
-    "resolve_config_path",
-    "resolve_path",
-    "resolve_project_root",
-    "resolve_shared_data_root",
     "resolve_simulation_state_dir",
 ]
-
-logger = logging.getLogger("osprey_connectors.workspace")
 
 #: The render zone inside a deployment repo, re-created wholesale by every
 #: ``osprey build``. The rendered config lives in it
@@ -50,7 +39,7 @@ BUILD_DIR_NAME = "build"
 _STATE_DIR_NAME = "var"
 
 #: The file that makes a directory a deployment repo root, the marker
-#: :func:`resolve_project_root` walks up to. Private: the framework owns it
+#: :func:`locate_repo_root` walks up to. Private: the framework owns it
 #: (``osprey.utils.workspace.PROFILE_FILENAME``, held equal to this by test).
 _PROFILE_FILENAME = "profile.yml"
 
@@ -77,29 +66,17 @@ _SIMULATION_STATE_DIR_NAME = "simulation"
 
 #: Config key naming that directory explicitly (relative paths resolve against
 #: the project root). Unset — the normal case — puts it under the agent-data
-#: root. :class:`osprey_connectors.config.ConfigBuilder`'s runtime-write
+#: root. :func:`osprey_connectors.config.load_config`'s runtime-write
 #: advisory and :func:`resolve_simulation_state_dir` read this one spelling.
 SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
 
 
-def dotted_config_str(config: Mapping[str, object] | None, key: str) -> str | None:
-    """Read a dotted config key, or ``None`` if it does not name a real string.
+def _configured_str(config: Mapping[str, object] | None, key: str) -> str | None:
+    """The dotted *key* of *config* when it names a non-empty string, else ``None``.
 
-    ``None`` is returned for every way the key can fail to answer — a missing
-    segment, a segment that is not a mapping, a non-string value, or an empty
-    one — because each of those means the same thing to every caller: the key
-    is unset, use the default. A mistyped key therefore falls through to the
-    default rather than raising.
-
-    The single reader for the path-shaped config keys, so the checks that
-    *reject* a value and the resolvers that *use* it cannot disagree about what
-    the config says — including on ``dict`` versus ``Mapping``, a difference
-    that stays invisible only while every config arrives straight from the YAML
-    loader.
-
-    Args:
-        config: Loaded config mapping, or ``None``.
-        key: Dotted path, e.g. ``simulation.state_dir``.
+    Every way the key can fail to answer (a missing segment, a segment that is
+    not a mapping, a non-string or empty value) means the same to the path
+    readers: the key is unset, use the default.
     """
     value: object = config or {}
     for part in key.split("."):
@@ -112,9 +89,10 @@ def dotted_config_str(config: Mapping[str, object] | None, key: str) -> str | No
 def anchored_path(value: str, project_root: Path) -> Path:
     """Expand ``~`` in a configured path and anchor a relative one at the project.
 
-    The other half of :func:`dotted_config_str`: a configured path is absolute,
-    home-relative, or project-relative, and every consumer has to make the same
-    three-way choice before comparing paths or creating directories.
+    A configured path is absolute, home-relative, or project-relative, and every
+    consumer has to make the same three-way choice before comparing paths or
+    creating directories (:meth:`osprey_connectors.config.LoadedConfig.repo_path`
+    makes it for the loaded config).
     """
     path = Path(value).expanduser()
     return path if path.is_absolute() else Path(project_root) / path
@@ -135,8 +113,8 @@ def agent_data_base_dir(config: Mapping[str, object] | None) -> str:
     ``agent_data.base_dir`` is the only key that names this directory. Callers
     holding a config dict read it through here and anchor the result themselves
     (the health checks and the compose generator anchor on ``project_root``);
-    callers with no config in hand use :func:`resolve_agent_data_root`, which
-    loads the config and anchors on the same ``project_root``.
+    a loaded config answers it anchored
+    (:attr:`osprey_connectors.config.LoadedConfig.agent_data_root`).
 
     Args:
         config: Loaded ``config.yml`` mapping, or ``None``.
@@ -165,7 +143,7 @@ def resolve_simulation_state_dir(config: Mapping[str, object] | None, project_ro
 
     A mistyped :data:`SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty
     string) falls through to the default rather than raising, matching how
-    :class:`osprey_connectors.config.ConfigBuilder`'s runtime-write advisory
+    :func:`osprey_connectors.config.load_config`'s runtime-write advisory
     reads the same key.
 
     Args:
@@ -176,93 +154,9 @@ def resolve_simulation_state_dir(config: Mapping[str, object] | None, project_ro
         Absolute path to the state directory (not created here).
     """
     config = config or {}
-    configured = dotted_config_str(config, SIMULATION_STATE_DIR_CONFIG_KEY)
+    configured = _configured_str(config, SIMULATION_STATE_DIR_CONFIG_KEY)
     relative = configured or f"{agent_data_base_dir(config)}/{_SIMULATION_STATE_DIR_NAME}"
     return anchored_path(relative, project_root)
-
-
-def resolve_config_path() -> Path:
-    """Resolve the path to the rendered ``config.yml``.
-
-    Resolution order:
-      1. ``OSPREY_CONFIG`` environment variable (with shell variable expansion).
-         The CLI sets it on the host, every framework MCP server definition
-         sets it, and so does the compose service of every container whose
-         working directory does not hold the render: the Bluesky bridge, its
-         queueserver and the Bluesky sidecar run from ``/app`` with the config
-         mounted at ``/app/project/config.yml``.
-      2. ``build/config.yml`` under the current working directory — standing in
-         a repo root with a render in it.
-      3. ``config.yml`` under the current working directory — a container
-         project directory, whose root *is* the render, and the path reported
-         when nothing exists at all.
-
-    This is also where a lookup that names no config reads from
-    (:func:`osprey_connectors.config.get_config_value` and the connector
-    factory's no-argument forms), once ``CONFIG_FILE`` is ruled out, so a
-    process has one answer however it asks.
-
-    ``CONFIG_FILE`` is deliberately NOT read here, even though
-    :func:`osprey.agent_runner.artifact_resolve.deployed_config_path` reads it
-    ahead of ``OSPREY_CONFIG``. That helper answers for one deployed process
-    whose compose service sets the variable; this one answers for the framework
-    everywhere, and ``CONFIG_FILE`` is a name generic enough that honoring it
-    globally would let an unrelated export redirect every OSPREY process on the
-    host. Where a container is handed both, they agree by construction rather
-    than by precedence. The Bluesky compose services set both to the one
-    mounted path. The dispatch worker's sets ``CONFIG_FILE`` to
-    ``/app/<project>/build/config.yml``, and the image's ``WORKDIR`` is
-    ``/app/<project>``, so step 2 above finds that same file.
-    """
-    import os
-
-    configured = os.environ.get("OSPREY_CONFIG")
-    if configured:
-        return Path(os.path.expandvars(configured))
-
-    cwd = Path.cwd()
-    rendered = rendered_config_path(cwd)
-    return rendered if rendered.is_file() else cwd / "config.yml"
-
-
-# The values are the YAML parse's, which every consumer reads by the shape its
-# own config has.
-def load_osprey_config() -> dict[str, ContractAny]:
-    """Load OSPREY configuration (delegates to ConfigBuilder singleton).
-
-    Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
-    environment-variable placeholders are resolved consistently.
-
-    The file is the one :func:`resolve_config_path` names.
-
-    Returns:
-        Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.
-    """
-    config_path = resolve_config_path()
-    try:
-        from osprey_connectors.config import get_config_builder
-
-        builder = get_config_builder(config_path=str(config_path), set_as_default=True)
-        return builder.raw_config
-    except (FileNotFoundError, Exception):
-        return {}
-
-
-def reset_config_cache() -> None:
-    """Clear all config caches — used between tests.
-
-    The warn-once latch on the facility-timezone fallback is cleared with them.
-    It is process state in exactly the way a cache is: left set, whichever test
-    happened to run first would consume the single warning and every later test
-    asserting on it would see none — an order-dependent pass that says nothing
-    about the code.
-    """
-    from osprey_connectors import config as config_module
-
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-    config_module._tz_fallback_warned = False
 
 
 def repo_root_for_config(config_path: Path | str) -> Path:
@@ -283,125 +177,31 @@ def repo_root_for_config(config_path: Path | str) -> Path:
     return parent.parent if parent.name == BUILD_DIR_NAME else parent
 
 
-def resolve_project_root(config: Mapping[str, object] | None = None) -> Path:
-    """Resolve the repo root that relative configured paths anchor against.
+def locate_repo_root(cwd: Path | None = None) -> Path:
+    """The deployment repo a process stands in when it has no loaded config.
 
-    ``project_root`` names the deployment repo — the directory holding
-    ``profile.yml`` — and not the directory holding ``config.yml``: the render
-    lives one level down, in ``build/``, so anchoring on the config file's own
-    parent would put every relative path inside the disposable zone.
-
-    Resolution order:
-      1. The config's own ``project_root`` key, when it names a directory that
-         exists here. That qualifier is what makes it right inside a container,
-         where the repo was built at one path and runs at another: a deployed
-         service reads a config STAGED on the host — the compose generator
-         flattens the host render into ``build/services/<svc>/config.yml``, and
-         the service's compose file bind-mounts that over the one in the image —
-         so its ``project_root`` is a host path that names nothing in here.
-         Anchoring on it would put the
-         agent-data root, and every other relative path, outside the mounted
-         volume. Same rule and same reason as
-         :func:`osprey.deployment.compose_generator.resolve_repo_root`.
-      2. The repo the resolved config path sits in — its parent, or that
-         parent's parent when the config is in the ``build/`` zone. Filesystem
-         truth, and correct in every container layout: the mount target names
-         the render, so unwrapping it names the repo.
-      3. The nearest ancestor of the working directory holding ``profile.yml``,
-         the marker every OSPREY verb walks up to. Reached only when no config
-         file exists, so it can never out-vote one; without it a process started
-         in an unbuilt render would anchor every relative path inside
-         ``build/``.
-      4. The configured value after all, when there is no config file and no
-         marker to derive from — a build rendered with ``--runtime-root``
-         records a path that exists only on the machine it will run on, and has
-         nothing better.
-      5. The current working directory, when there is neither.
-         ``CLAUDE_PROJECT_DIR`` is not an input: this resolver serves processes
-         outside any agent session as well, and a harness variable must not
-         redirect them.
+    The ladder :attr:`osprey_connectors.config.LoadedConfig.repo_root` cannot
+    climb, because there is no config to read a ``project_root`` from:
+      1. The repo of the file :func:`osprey_connectors.config.locate_config`
+         names, when one is there (a file that exists but does not load still
+         says which repo the process belongs to).
+      2. The nearest ancestor of *cwd* holding ``profile.yml``, the marker every
+         OSPREY verb walks up to; without it a process started in an unbuilt
+         render would anchor every relative path inside ``build/``.
+      3. *cwd* itself. ``CLAUDE_PROJECT_DIR`` is not an input: this serves
+         processes outside any agent session as well, and a harness variable
+         must not redirect them.
 
     Args:
-        config: Loaded ``config.yml`` mapping, or ``None`` to consult only the
-            config *path* (callers that have not loaded one).
+        cwd: The directory to start from; the working directory by default.
     """
-    configured = dotted_config_str(config, "project_root")
-    candidate = Path(configured).expanduser() if configured else None
-    if candidate is not None and candidate.is_dir():
-        return candidate
+    from osprey_connectors.config import locate_config
 
-    config_path = resolve_config_path()
-    if config_path.exists():
-        return repo_root_for_config(config_path)
-    cwd = Path.cwd()
-    for ancestor in (cwd, *cwd.parents):
+    here = Path.cwd() if cwd is None else Path(cwd)
+    located = locate_config(cwd=here)
+    if located.exists():
+        return repo_root_for_config(located)
+    for ancestor in (here, *here.parents):
         if (ancestor / _PROFILE_FILENAME).is_file():
             return ancestor
-    return candidate if candidate is not None else cwd
-
-
-def resolve_agent_data_root() -> Path:
-    """Resolve the agent data root directory from config.
-
-    Uses ``agent_data.base_dir`` from config.yml, anchored on the repo root that
-    :func:`resolve_project_root` resolves. Falls back to
-    :data:`DEFAULT_AGENT_DATA_BASE_DIR` relative to that root when the config
-    declares no base directory.
-    """
-    config = load_osprey_config()
-    resolved = anchored_path(agent_data_base_dir(config), resolve_project_root(config)).resolve()
-
-    import os
-
-    session_id = os.environ.get("OSPREY_SESSION_ID")
-    if session_id:
-        resolved = resolved / "sessions" / session_id
-
-    logger.debug("Agent data root resolved to %s", resolved)
-    return resolved
-
-
-def resolve_shared_data_root(config: Mapping[str, object] | None = None) -> Path:
-    """Resolve the agent data root WITHOUT session-path isolation.
-
-    Use for stores whose data must be visible to long-lived daemons
-    (gallery, ARIEL) that run outside any specific session.  Logical
-    session isolation is handled at the index level via entry metadata
-    (e.g. ``ArtifactEntry.session_id``).
-
-    Args:
-        config: An already-loaded config mapping; ``None`` loads the config.
-            One derivation serves both a store's writer and a reader that
-            already holds a config.
-    """
-    if config is None:
-        config = load_osprey_config()
-    resolved = anchored_path(agent_data_base_dir(config), resolve_project_root(config)).resolve()
-    logger.debug("Shared data root resolved to %s", resolved)
-    return resolved
-
-
-def resolve_path(path_str: str) -> Path:
-    """Resolve a path relative to the project root from config.
-
-    Absolute paths are returned as-is. Relative paths are resolved
-    against ``project_root`` from the active configuration.
-
-    Args:
-        path_str: Path string (absolute or relative to project root)
-
-    Returns:
-        Resolved absolute Path object
-    """
-    from osprey_connectors.config import get_config_builder
-
-    config_builder = get_config_builder()
-    configured = config_builder.get("project_root")
-    if not isinstance(configured, str | os.PathLike):
-        # The TypeError ``Path(configured)`` raised, named.
-        raise TypeError(f"'project_root' must be a path, got {type(configured).__name__}")
-    project_root = Path(configured)
-    path = Path(path_str)
-    if path.is_absolute():
-        return path
-    return project_root / path
+    return here

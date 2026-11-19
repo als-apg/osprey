@@ -40,6 +40,7 @@ import pytest
 
 from osprey.registry.builtins import FrameworkRegistryProvider
 from osprey_connectors import connector_types, factory
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
@@ -167,7 +168,7 @@ class TestRegistryInitializationRegistersTheStandIn:
 
         config_file = tmp_path / "config.yml"
         config_file.write_text(f"project_root: {tmp_path}\n", encoding="utf-8")
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
 
         manager.reset_registry()
         try:
@@ -210,10 +211,12 @@ class TestRegistryInitializationRegistersTheStandIn:
         # No gateways: connect() then touches no EPICS_* environment variable
         # and opens no CA context, so nothing here reaches a network.
         connector = await ConnectorFactory.create_control_system_connector(
-            {
-                "type": connector_types.LIVE_STANDIN,
-                "connector": {connector_types.LIVE_STANDIN: {"timeout_s": 1.0}},
-            },
+            ControlSystemSection.read(
+                {
+                    "type": connector_types.LIVE_STANDIN,
+                    "connector": {connector_types.LIVE_STANDIN: {"timeout_s": 1.0}},
+                }
+            ),
             control_target=connector_types.TARGET_STANDIN,
         )
 

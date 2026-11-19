@@ -37,6 +37,7 @@ from osprey.services.channel_finder.tools.preview_database import (
     preview_in_context,
     preview_middle_layer,
 )
+from osprey_connectors.testing import config_of
 
 
 def _capture_console() -> Console:
@@ -139,20 +140,15 @@ class TestResolvePath:
         abs_path = tmp_path / "db.json"
         assert _resolve_path(str(abs_path)) == abs_path
 
-    def test_relative_path_uses_workspace_resolver(self, monkeypatch, tmp_path):
-        import osprey_connectors.workspace as ws
+    def test_relative_path_anchors_on_the_config_repo_root(self, tmp_path):
+        from osprey_connectors.config import install_config
+        from osprey_connectors.testing import config_of
 
-        target = tmp_path / "resolved.json"
-        monkeypatch.setattr(ws, "resolve_path", lambda s: target)
-        assert _resolve_path("relative/db.json") == target
+        install_config(config_of({}, path=tmp_path / "build" / "config.yml"))
+        assert _resolve_path("relative/db.json") == tmp_path / "relative" / "db.json"
 
-    def test_relative_path_falls_back_to_cwd_on_error(self, monkeypatch):
-        import osprey_connectors.workspace as ws
-
-        def boom(_s):
-            raise RuntimeError("no workspace")
-
-        monkeypatch.setattr(ws, "resolve_path", boom)
+    def test_relative_path_falls_back_to_cwd_without_a_config(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing" / "config.yml"))
         result = _resolve_path("relative/db.json")
         assert result == Path.cwd() / "relative/db.json"
 
@@ -533,7 +529,7 @@ class TestPreviewDatabaseDispatch:
     def test_no_config_reports_error(self, monkeypatch):
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         monkeypatch.setattr(mod, "detect_pipeline_config", lambda config: (None, None))
         console = _capture_console()
         preview_database(console=console)
@@ -542,7 +538,7 @@ class TestPreviewDatabaseDispatch:
     def test_config_path_dispatches(self, monkeypatch, in_context_file: Path):
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         monkeypatch.setattr(
             mod,
             "detect_pipeline_config",
@@ -571,7 +567,7 @@ class TestPreviewGraphParadigm:
         """Detection resolves ``graph`` from the mode alone; preview says so."""
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of(GRAPH_CONFIG))
         console = _capture_console()
         preview_database(console=console)
         out = " ".join(_text(console).split())
@@ -585,7 +581,7 @@ class TestPreviewGraphParadigm:
         """Nothing on disk is opened --- there is no path to open."""
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of(GRAPH_CONFIG))
 
         def _no_files(*args, **kwargs):
             raise AssertionError("the graph paradigm must not resolve a database path")
@@ -599,7 +595,7 @@ class TestPreviewGraphParadigm:
         """The 'configure a database path' panel is the wrong advice here."""
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of(GRAPH_CONFIG))
         console = _capture_console()
         preview_database(console=console)
         out = _text(console)

@@ -156,8 +156,7 @@ def _overlay_repo_env(repo_root: Path) -> None:
     :func:`_restore_managed_env`). What survives either way is the non-managed
     remainder that ``.mcp.json`` expansion needs.
     """
-    from osprey_connectors.config import apply_env_chain
-    from osprey_connectors.dotenv import chain_files
+    from osprey_connectors.dotenv import apply_env_chain, chain_files
 
     apply_env_chain(os.environ, chain_files(repo_root))
 
@@ -267,12 +266,15 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     from osprey.interfaces.web_auth import close_env_carriers, mint_and_announce
     from osprey.port_layout import resolve_port_base
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
-    from osprey_connectors.workspace import load_osprey_config, reset_config_cache
+    from osprey.utils.config_paths import loaded_or_empty
+    from osprey_connectors.config import install_config
 
     config_file = project_dir / "config.yml"
     if config_file.exists():
         os.environ["OSPREY_CONFIG"] = str(config_file)
-    reset_config_cache()
+    # Forget a default installed before OSPREY_CONFIG named this project, so
+    # the next lookup locates the file it names.
+    install_config(None)
 
     # Name this process's session cookie before the first app is built. The port
     # comes from the same resolver ``osprey web`` binds by — and from the same
@@ -281,7 +283,7 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     # counts as absent: an unset compose variable interpolates to the empty
     # string.
     if not (os.environ.get(WEB_PORT_ENV) or "").strip():
-        chat_config = load_osprey_config()
+        chat_config = loaded_or_empty()
         web_terminal = chat_config.get("web_terminal") or {}
         os.environ[WEB_PORT_ENV] = str(
             resolve_web_port(None, web_terminal.get("port"), base=resolve_port_base(chat_config))

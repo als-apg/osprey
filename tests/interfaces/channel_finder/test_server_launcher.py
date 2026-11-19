@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from osprey_connectors_tests._harness._ports import bound_socket
 
 
@@ -49,7 +51,7 @@ class TestLauncherConfigReader:
         from osprey.infrastructure import server_launcher
 
         reader = server_launcher._launchers[key]._config_reader
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
+        with installed(config_of(config)):
             return reader()
 
     def test_defaults_when_section_empty(self):
@@ -103,10 +105,7 @@ class TestMakeAutoLaunchChecker:
         from osprey.infrastructure.server_launcher import _make_auto_launch_checker
 
         checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS[server])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value=config,
-        ):
+        with installed(config_of(config)):
             assert checker() is launches
 
 

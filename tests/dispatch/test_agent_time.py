@@ -31,6 +31,6 @@ def test_a_registry_instant_renders_in_the_facility_zone():
 
 
 def test_the_zone_is_utc_without_a_config(tmp_path, monkeypatch):
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(tmp_path)
     assert json.loads(agent_json({"t": STAMP})) == {"t": "2026-01-15T20:00:00+00:00"}

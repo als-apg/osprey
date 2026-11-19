@@ -725,10 +725,10 @@ def test_the_startable_repo_dials_no_service_this_host_runs(startable_repo: Path
     from osprey.agent_record.credentials import RECORD_SERVICE
     from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
     from osprey.deployment.host_ports import parse_host_port_bindings
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
     from tests.pty.conftest import configured_port
 
-    config = load_project_config(str(as_built_config_path(startable_repo)), wrap_errors=True)
+    config = load_config(as_built_config_path(startable_repo)).raw_tree()
     compose_files = [
         str(path) if os.path.isabs(str(path)) else str(startable_repo / str(path))
         for path in as_built_compose_files(config, startable_repo)

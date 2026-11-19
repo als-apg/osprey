@@ -18,14 +18,15 @@ from osprey.mcp_server.control_system.error_handling import (
 )
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
+from osprey.services.pv_directory._connectors import service_table
 from osprey_connectors.archiver import PROCESSING_MODES, ProcessingMode
 from osprey_connectors.archiver_selection import resolve_archiver_type
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
+from osprey_connectors.config_sections import ArchiverSection
 from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.errors import ArchiveQueryError
 from osprey_connectors.refusals import KIND_WORDS
 from osprey_connectors.service_answers import Unavailable
-from osprey_connectors.service_targets import service_targets
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 
 if TYPE_CHECKING:
@@ -117,7 +118,7 @@ def _parse_time(time_str: str) -> datetime:
     Raises:
         ValueError: If *time_str* is not one of the accepted spellings.
     """
-    tz = get_facility_timezone()
+    tz = facility_timezone()
     if not time_str or time_str.strip().lower() == "now":
         return datetime.now(tz)
 
@@ -304,7 +305,7 @@ def _provenance(
     return {
         "target": situation.control_target,
         "target_source": TARGET_SOURCE_SESSION if situation.switched else TARGET_SOURCE_BASELINE,
-        "archiver_type": resolve_archiver_type(archiver_section),
+        "archiver_type": resolve_archiver_type(ArchiverSection.read(archiver_section)),
         "archiver_backend": type(archive).__name__,
     }
 
@@ -539,7 +540,7 @@ async def archiver_read(
         # deployment's own store for the virtual accelerator. A session on any
         # other target is told it has no archive, never shown another machine's past.
         situation = target_banner.resolve_target_situation()
-        table = service_targets(registry.config.raw)
+        table = service_table(registry.config.raw)
         # A target the table does not name has no archive, as one it withholds.
         spec = next((s for t, s in table.archive.items() if t == situation.control_target), None)
         if spec is None:
@@ -548,7 +549,8 @@ async def archiver_read(
             return make_error(
                 "no_archive",
                 f"No archive for {_machine_words(situation.control_target)} here: this "
-                f"deployment's archiver ({resolve_archiver_type(registry.config.archiver)}) "
+                f"deployment's archiver "
+                f"({resolve_archiver_type(ArchiverSection.read(registry.config.archiver))}) "
                 f"holds the past of {holds}, and a session is never shown another "
                 "machine's past.",
                 [

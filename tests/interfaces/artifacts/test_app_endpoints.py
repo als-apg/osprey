@@ -638,7 +638,7 @@ class TestGalleryFacilityTimezone:
         from zoneinfo import ZoneInfo
 
         with patch(
-            "osprey.interfaces.artifacts.app.get_facility_timezone",
+            "osprey.interfaces.artifacts.app.facility_timezone",
             return_value=ZoneInfo("Asia/Tokyo"),
         ):
             client = TestClient(create_app(workspace_root=tmp_path))
@@ -650,7 +650,7 @@ class TestGalleryFacilityTimezone:
         this deployment's config."""
         import osprey_connectors.config as config_module
 
-        for name in ("_default_config", "_default_configurable", "_tz_drift_warned"):
+        for name in ("_installed", "_last_lazy", "_loads"):
             monkeypatch.setattr(config_module, name, getattr(config_module, name))
 
         cfg = tmp_path / "cfg"
@@ -699,10 +699,8 @@ class TestAppLifecycle:
 
         # Snapshot the config singletons; monkeypatch restores them at teardown
         # so priming the default config cannot leak into other tests.
-        monkeypatch.setattr(config_module, "_default_config", config_module._default_config)
-        monkeypatch.setattr(
-            config_module, "_default_configurable", config_module._default_configurable
-        )
+        monkeypatch.setattr(config_module, "_installed", config_module._installed)
+        monkeypatch.setattr(config_module, "_last_lazy", config_module._last_lazy)
 
         good = tmp_path / "good"
         good.mkdir()
@@ -717,10 +715,9 @@ class TestAppLifecycle:
     def test_create_app_without_a_root_serves_the_shared_data_root(self, tmp_path, monkeypatch):
         """With no root passed, the gallery, its store and the focus file all use
         the deployment's shared agent-data root."""
-        import osprey_connectors.workspace as workspace_module
 
         shared = tmp_path / "shared"
-        monkeypatch.setattr(workspace_module, "resolve_shared_data_root", lambda: shared)
+        monkeypatch.setattr("osprey.utils.config_paths.process_agent_data_root", lambda: shared)
 
         client = TestClient(create_app())
         entry = _save_text_artifact(client.app.state.artifact_store)

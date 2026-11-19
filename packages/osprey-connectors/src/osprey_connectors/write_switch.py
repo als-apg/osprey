@@ -29,7 +29,8 @@ ladder, used by every writer and every reader:
   the identity hop inside it would name a directory nobody binds;
 * otherwise the ``OSPREY_AGENT_DATA_ROOT`` stamp when it names a non-blank path —
   the stamp a session child carries — else
-  :func:`~osprey_connectors.workspace.resolve_shared_data_root`, the config
+  the process config's shared agent-data root
+  (:attr:`~osprey_connectors.config.LoadedConfig.agent_data_root`), the config
   derivation the state file has always used; and then the two fixed hops,
   :data:`CONTROL_STATE_DIR_NAME` and the acting identity.
 
@@ -155,6 +156,7 @@ from osprey_connectors._control_state import (
     stamped_agent_data_root,
     state_dir,
 )
+from osprey_connectors.config_sections import ControlSystemSection, TierWord, Unreadable
 from osprey_connectors.connector_types import ControlTarget, MachineKind, is_control_target
 from osprey_connectors.control_context import ArmedPosition, ControlContext
 from osprey_connectors.execution_mode import is_readonly_run
@@ -162,7 +164,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import FrozenModel, FrozenTuple, Instant, evolve
 from osprey_connectors.refusals import VerdictReason, VerdictReasonField
 from osprey_connectors.targets import machine_kind, resolve_target
-from osprey_connectors.write_tier import TIER_WORDS, TierWord, tier_allows, tier_writes
+from osprey_connectors.write_tier import TIER_WORDS, tier_allows, tier_writes
 
 logger = logging.getLogger("osprey_connectors.write_switch")
 
@@ -410,7 +412,9 @@ def bind_owner(kwargs: Mapping[str, object]) -> Iterator[dict[str, object]]:
 #: ``{<login>: "never" | "asked" | "allowed"}``, each value the resolved
 #: render's ``tier_writes`` for that login. A process that reads other logins'
 #: records (a shared container) cannot use its own section's tier for the
-#: record's owner, so it reads the owner's entry here.
+#: record's owner, so it reads the owner's entry here, as
+#: :attr:`~osprey_connectors.config_sections.ControlSystemSection.login_tiers`
+#: read it.
 _LOGIN_TIERS_LEAF: Final = "login_tiers"
 
 #: The three values a map entry may carry — the same three :func:`tier_writes` answers.
@@ -425,18 +429,7 @@ OwnerTierTerm = Literal["skip", TierWord, "unknown"]
 WriteCeiling = Literal[TierWord, "unknown"]
 
 
-def _tier_word(value: object) -> TierWord | None:
-    """*value* as a tier word, matched exactly, or ``None``."""
-    if value == "never":
-        return "never"
-    if value == "asked":
-        return "asked"
-    if value == "allowed":
-        return "allowed"
-    return None
-
-
-def owner_tier_term(section: object, owner: str | NoOwner | None) -> OwnerTierTerm:
+def owner_tier_term(section: ControlSystemSection, owner: str | NoOwner | None) -> OwnerTierTerm:
     """The owner's tier out of ``control_system.login_tiers`` — the verdict's owner rung.
 
     *section* is the ``control_system`` section; *owner* the login whose record
@@ -456,24 +449,21 @@ def owner_tier_term(section: object, owner: str | NoOwner | None) -> OwnerTierTe
     Logins match exactly: no case folding, no trimming. Never raises.
     """
     try:
-        if not (isinstance(section, dict) and _LOGIN_TIERS_LEAF in section):
+        login_tiers = section.login_tiers
+        if login_tiers is None:
             return "unknown" if _control_state.tree_is_bound() else "skip"
-        login_tiers = section[_LOGIN_TIERS_LEAF]
-        if not isinstance(login_tiers, dict) or not all(
-            isinstance(login, str) and login and isinstance(tier, str) and tier in _LOGIN_TIERS
-            for login, tier in login_tiers.items()
-        ):
+        if isinstance(login_tiers, Unreadable):
             return "unknown"
         if not isinstance(owner, str) or not owner:
             return "unknown"
         tier = login_tiers.get(owner)
     except Exception:  # a rung that cannot read the map refuses; it never raises
         return "unknown"
-    return _tier_word(tier) or "unknown"
+    return tier or "unknown"
 
 
 def write_ceiling(
-    section: object, owner: str | NoOwner | None, *, tree_bound: bool | None = None
+    section: ControlSystemSection, owner: str | NoOwner | None, *, tree_bound: bool | None = None
 ) -> WriteCeiling:
     """The highest position a write by *owner* runs at: the verdict's ceiling.
 
@@ -746,7 +736,7 @@ WriteVerdict: TypeAlias = Allowed | Refused
 
 
 def write_verdict(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     *,
     owner: str | NoOwner | None = None,
@@ -839,7 +829,7 @@ class _Armed(NamedTuple):
 
 
 def _write_verdict(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     owner: str | NoOwner | None,
     ignore_launch_pin: bool,
@@ -861,7 +851,7 @@ def _write_verdict(
     return Refused(reason=judged, target=named, kind=kind)
 
 
-def _verdict_kind(section: object, target: object) -> MachineKind | None:
+def _verdict_kind(section: ControlSystemSection, target: object) -> MachineKind | None:
     """The machine kind a verdict on *target* names, or ``None``. Never raises.
 
     The name decides whether the target resolves at all; the published report
@@ -879,7 +869,7 @@ def _verdict_kind(section: object, target: object) -> MachineKind | None:
         return None
 
 
-def backstop_verdict(section: object) -> WriteVerdict:
+def backstop_verdict(section: ControlSystemSection) -> WriteVerdict:
     """The verdict for a write no target or owner can be named for.
 
     The floor under every write path that cannot be traced to one machine: it
@@ -970,7 +960,7 @@ def _hold_refusal(key: str, root: Path | str | None) -> Refused | None:
 
 
 def execution_verdict(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     *,
     owner: str | NoOwner | None = None,
@@ -1002,7 +992,7 @@ def execution_verdict(
 
 
 def _with_hold(
-    section: object, verdict: WriteVerdict, session_keys: Sequence[str] | None
+    section: ControlSystemSection, verdict: WriteVerdict, session_keys: Sequence[str] | None
 ) -> WriteVerdict:
     """*verdict* as :func:`execution_verdict` answers it: the hold after the backstop."""
     if not backstop_verdict(section).allowed:
@@ -1014,7 +1004,7 @@ def _with_hold(
 
 
 def _switch_basis(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     owner: str | NoOwner | None,
     session_keys: Sequence[str] | None,
@@ -1038,7 +1028,7 @@ def _switch_basis(
 
 
 def _write_refusal(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     owner: str | NoOwner | None,
     ignore_launch_pin: bool,

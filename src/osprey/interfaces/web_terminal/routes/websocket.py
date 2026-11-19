@@ -53,14 +53,15 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
-    resolve_agent_data_root,
     session_hold_root_of,
+    shared_data_root,
     stamp_session_hold,
 )
 from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_context import SwitchPosition, published_machine_kind
 from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.identity import acting_identity
@@ -238,7 +239,7 @@ def _record_available() -> bool:
     """Whether the control-context record has a location at all.
 
     :func:`~osprey_connectors.control_context.record_path` is the ONE path rule
-    (env ``OSPREY_AGENT_DATA_ROOT``, else ``resolve_shared_data_root()``), and
+    (env ``OSPREY_AGENT_DATA_ROOT``, else ``process_agent_data_root()``), and
     it answers ``None`` rather than raising when neither resolves. A deployment
     with no location for its record is ``store_available: false`` on the GET
     and the 503 on a gesture: there is nowhere to record a context the agent
@@ -410,7 +411,7 @@ def _build_extra_env(
     ``claude_session_id or telemetry_session_id`` the handler keys the pool on
     — so it is set on every spawn this function serves, the brand-new session
     included. It scopes the child's execution root
-    (:func:`osprey_connectors.workspace.resolve_agent_data_root` appends
+    (:func:`osprey.utils.config_paths.session_agent_data_root` appends
     ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
     conversation is one session whichever surface is showing it, so the chat
     child spawned under that key
@@ -494,7 +495,7 @@ def _build_extra_env(
     if session_key:
         extra_env[POSTURE_SOURCE_ENV] = POSTURE_SOURCE_LIVE
         extra_env[POSTURE_SESSION_ENV] = session_key
-        extra_env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(websocket.app)
+        extra_env[OSPREY_AGENT_DATA_ROOT] = shared_data_root(websocket.app)
         extra_env.update(terminal_session_env(session_key, os.environ))
     return extra_env
 
@@ -1395,9 +1396,10 @@ def _configured_target_names(section: Any) -> tuple[str, ...]:
     if section is UNREADABLE:
         return ()
     try:
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import configured_targets
 
-        return tuple(configured_targets(section))
+        return tuple(configured_targets(ControlSystemSection.read(section)))
     except Exception:  # an unreadable render configures no targets
         logger.warning("Could not read the configured control targets")
         return ()
@@ -1414,9 +1416,10 @@ def _baseline_target(section: Any) -> str:
     if section is UNREADABLE:
         return "live"
     try:
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import baseline_target
 
-        return str(baseline_target(section))
+        return str(baseline_target(ControlSystemSection.read(section)))
     except Exception:  # a render we cannot classify is `live`
         logger.warning("Could not resolve the deployment's baseline control target")
         return "live"
@@ -2009,7 +2012,9 @@ def _posture_post_facts(
     ceiling = None
     if target in configured and _widens(state, before):
         ceiling = login_tier(section, login)
-        verdict = write_switch.write_verdict(section, target, owner=login, ignore_launch_pin=True)
+        verdict = write_switch.write_verdict(
+            ControlSystemSection.read(section), target, owner=login, ignore_launch_pin=True
+        )
         if isinstance(verdict, write_switch.Refused) and verdict.reason in _TURN_ON_LOCKS:
             lock = verdict
     return _PostureRequestFacts(
@@ -2842,7 +2847,7 @@ def _row_verdict(section: Any, target: str, login: str) -> write_switch.WriteVer
     turn-on lock reads.
     """
     return write_switch.write_verdict(
-        None if section is UNREADABLE else section,
+        ControlSystemSection.read(None if section is UNREADABLE else section),
         target,
         owner=login,
         ignore_launch_pin=True,

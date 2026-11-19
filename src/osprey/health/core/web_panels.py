@@ -66,7 +66,8 @@ from osprey.registry.web import (
     WebServerConfigDepthError,
     resolve_web_server_address,
 )
-from osprey_connectors.workspace import resolve_shared_data_root
+from osprey.utils.config_paths import repo_root_of
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -229,7 +230,7 @@ def _recorded_root(cfg: Mapping[str, Any]) -> Path | None:
     holds. Any failure reads as "no record": the row degrades, never the suite.
     """
     try:
-        return resolve_shared_data_root(cfg)
+        return anchored_path(agent_data_base_dir(cfg), repo_root_of(cfg)).resolve()
     except Exception:  # an unresolvable root means no record, not a broken category
         return None
 

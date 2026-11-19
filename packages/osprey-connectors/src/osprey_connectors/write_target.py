@@ -29,6 +29,7 @@ from pathlib import Path
 from typing_extensions import override
 
 from osprey_connectors import _control_state, control_context
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     TARGET_LIVE,
     ControlTarget,
@@ -204,8 +205,10 @@ def _is_facility_tool(tool_name: str, hook_config: Mapping[str, object]) -> bool
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
 
 
-def _section(config: object) -> object:
-    return config.get("control_system") if isinstance(config, Mapping) else None
+def _section(config: object) -> ControlSystemSection:
+    return ControlSystemSection.read(
+        config.get("control_system") if isinstance(config, Mapping) else None
+    )
 
 
 def _lane_block(config: object, lane_key: str) -> Mapping[str, object]:

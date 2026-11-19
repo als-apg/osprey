@@ -1981,7 +1981,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     seen: list[dict[str, Any]] = []
 
     async def create(config, control_target):
-        seen.append({"config": config, "target": control_target})
+        seen.append({"config": dict(config.raw), "target": control_target})
         return SimpleNamespace()
 
     monkeypatch.setattr(backend, "_ca_target", None)  # a fresh process: no Channel Access yet

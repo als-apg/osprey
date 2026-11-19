@@ -965,7 +965,9 @@ name = "The connector package's top-level modules, in layers"
 # The exception vocabulary sits just above the bottom: every config reader and
 # every write-path writer raises its classes, so it imports only `model` and
 # the refusal vocabulary (`refusals`), whose reasons its blocked-write error
-# carries. `refusals` imports nothing from the package.
+# carries. `refusals` imports nothing from the package. `_config_read`, the
+# readers of single config values, sits just above it: `config_flag` refuses a
+# value it cannot read with a `ConfigurationError` naming the key.
 #
 # The factory builds the read-only service backends, one namespace per kind.
 # They reach the control system through neither connector family, so they sit
@@ -977,7 +979,10 @@ name = "The connector package's top-level modules, in layers"
 # A layer written with ":" holds two modules that still import each other,
 # each in one direction from inside a function: `workspace` loads config
 # through `config`'s singleton, and `config` resolves paths through
-# `workspace`.
+# `workspace`. `config_sections` parses the config in the vocabulary
+# `connector_types` defines (the serving words, the built-in rows), and the
+# resolvers `connector_types` keeps take the section it parses, naming it for
+# the type checker and reading a block by class inside one function.
 type = "layers"
 layers = [
     "osprey_connectors.testing",
@@ -1004,9 +1009,10 @@ layers = [
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.session_hold",
     "osprey_connectors.archiver_selection | osprey_connectors.limits_posture",
     "osprey_connectors.targets | osprey_connectors.write_tier",
-    "osprey_connectors.archive_store | osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.epics_env | osprey_connectors.execution_mode | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.process | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
+    "osprey_connectors.config_sections : osprey_connectors.connector_types",
+    "osprey_connectors._config_read | osprey_connectors.archive_store | osprey_connectors.connection | osprey_connectors.epics_env | osprey_connectors.execution_mode | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.process | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
     "osprey_connectors.errors",
-    "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model | osprey_connectors.refusals",
+    "osprey_connectors._contract_types | osprey_connectors.model | osprey_connectors.refusals",
 ]
 ignore_imports = [
     # Edges that point up, each named so that no other can join them. The

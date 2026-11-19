@@ -21,7 +21,6 @@ while the config file appeared to say otherwise.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -30,28 +29,19 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.mcp_server.control_system.tools import channel_read
 from osprey.services.bluesky_bridge.figure import DEFAULT_MAX_POINTS
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, installed
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
-CONFIG_TARGET = "osprey_connectors.config.get_config_value"
-
 INLINE_KEY = "control_system.read_inline_max_elements"
 
 
 def _fake_config(values: dict):
-    """A get_config_value side_effect answering *values*, else the caller default."""
-
-    def _side_effect(path, default=None, _config_path=None):
-        return values.get(path, default)
-
-    return _side_effect
-
-
-def _boom(_path, _default=None, _config_path=None):
-    """Config that cannot be resolved at all (no config.yml, broken builder)."""
-    raise RuntimeError("no configuration loaded")
+    """Serve a config holding *values* (dotted keys); every other key is absent."""
+    return installed(config_of(config_tree(values), environ={}))
 
 
 #: The bundled presets that ship a control system, and so size channel_read.
@@ -86,20 +76,22 @@ def test_documented_defaults_are_the_module_constants():
 
 def test_accessors_return_defaults_when_keys_absent():
     """An unconfigured deployment gets the documented defaults."""
-    with patch(CONFIG_TARGET, _fake_config({})):
+    with _fake_config({}):
         assert channel_read.get_read_inline_max_elements() == 2000
         assert channel_read.get_read_aggregate_max_elements() == 8000
 
 
-def test_accessors_return_defaults_when_config_unavailable():
+def test_accessors_return_defaults_when_config_unavailable(tmp_path, monkeypatch):
     """No config.yml at all degrades to the defaults, it does not raise.
 
     These accessors run on the read path; a missing config must never turn a
     successful hardware read into an error.
     """
-    with patch(CONFIG_TARGET, _boom):
-        assert channel_read.get_read_inline_max_elements() == 2000
-        assert channel_read.get_read_aggregate_max_elements() == 8000
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+
+    assert channel_read.get_read_inline_max_elements() == 2000
+    assert channel_read.get_read_aggregate_max_elements() == 8000
 
 
 # ---------------------------------------------------------------------------
@@ -109,26 +101,26 @@ def test_accessors_return_defaults_when_config_unavailable():
 
 def test_accessors_honor_configured_values():
     """config.yml overrides the knob."""
-    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: 500})):
+    with _fake_config({INLINE_KEY: 500}):
         assert channel_read.get_read_inline_max_elements() == 500
 
 
 def test_aggregate_budget_follows_the_configured_threshold():
     """The per-call budget is 4x whatever the per-value threshold is set to."""
-    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: 500})):
+    with _fake_config({INLINE_KEY: 500}):
         assert channel_read.get_read_aggregate_max_elements() == 2000
 
 
 def test_string_values_are_coerced():
     """YAML/env round-trips can hand these through as strings."""
-    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: "128"})):
+    with _fake_config({INLINE_KEY: "128"}):
         assert channel_read.get_read_inline_max_elements() == 128
 
 
 @pytest.mark.parametrize("bad", ["not-a-number", None, -1, [2000], True, False])
 def test_unusable_values_degrade_to_defaults(bad):
     """A mistyped knob is ignored, not fatal, and not silently negative."""
-    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: bad})):
+    with _fake_config({INLINE_KEY: bad}):
         assert channel_read.get_read_inline_max_elements() == 2000
 
 

@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.audit import posture
 from osprey_connectors import testing
 from osprey_connectors.refusals import refusal_phrase, refusal_text
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST, write_control_context
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
@@ -66,7 +66,7 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
     """
 
     monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
-    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    serve_control_system(ARMED_SECTION)
     arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield control_context_root
     testing.invalidate_cache()
@@ -559,15 +559,9 @@ MIXED_POSTURE_SECTION = {
 
 
 @pytest.fixture
-def mixed_posture(monkeypatch):
+def mixed_posture():
     """A deployment whose simulator is switched on and whose real machine is not."""
-    monkeypatch.setattr(posture, "control_system_section", lambda: dict(MIXED_POSTURE_SECTION))
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda path, default=None, config_path=None: (
-            MIXED_POSTURE_SECTION if path == "control_system" else default
-        ),
-    )
+    serve_control_system(MIXED_POSTURE_SECTION)
 
 
 @pytest.fixture

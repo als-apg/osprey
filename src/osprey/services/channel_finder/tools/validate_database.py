@@ -333,8 +333,7 @@ def run_validation(
         validate, so the graph guidance is printed and 0 returned.
     """
     console = console or _default_console
-    from osprey_connectors.config import load_config as get_config
-    from osprey_connectors.workspace import resolve_path
+    from osprey_connectors.config import current_config
 
     pipeline_type: str
 
@@ -344,7 +343,7 @@ def run_validation(
             pipeline_type = pipeline
         else:
             try:
-                config = get_config()
+                config = current_config().raw_tree()
                 detected_type, _ = detect_pipeline_config(config)
                 # An explicit file is the request; the graph paradigm says
                 # nothing about how to read one, so it falls back with the
@@ -357,7 +356,7 @@ def run_validation(
                 pipeline_type = "in_context"
     else:
         try:
-            config = get_config()
+            config = current_config().raw_tree()
             # A named paradigm reads its own database key; the configured mode
             # and the graph paradigm do not choose among files here.
             if pipeline:
@@ -410,7 +409,7 @@ def run_validation(
                         )
                     )
                     return 1
-            db_path = resolve_path(db_path_str)
+            db_path = current_config().repo_path(db_path_str)
         except PipelineModeError as e:
             # A mode nobody implements is a config typo, not an unreadable
             # config: say which value was rejected instead of folding it into

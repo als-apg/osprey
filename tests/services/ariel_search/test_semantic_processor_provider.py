@@ -25,6 +25,7 @@ from osprey.services.ariel_search.enhancement.semantic_processor import (
 from osprey.services.ariel_search.enhancement.semantic_processor.processor import (
     SemanticProcessorModule,
 )
+from osprey_connectors.testing import config_of
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def provider_models(monkeypatch) -> None:
             }
         },
     }
-    monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: config)
+    monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of(config))
 
 
 def _config(**overrides: Any) -> dict[str, Any]:

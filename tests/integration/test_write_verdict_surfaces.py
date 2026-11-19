@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import isolate_verdict_environment, reset_verdict_state
 from osprey_connectors_tests._harness._write_verdict_cases import CASES, Case, host_root, stage
 from tests.integration._write_verdict_surfaces_registry import (
@@ -87,13 +87,13 @@ def _project(surface: Surface, case: Case, tmp_path: Path) -> Any:
         monkeypatch.setenv("CONFIG_FILE", str(config_path))
         monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
         monkeypatch.chdir(row_dir)
-        reset_config_cache()
+        clear_config_state()
         try:
             stage(case, monkeypatch, row_dir)
             return surface.project(Staged(case, row_dir, monkeypatch, config_path))
         finally:
             reset_verdict_state()
-            reset_config_cache()
+            clear_config_state()
 
 
 def _rows_for(surface: Surface) -> list[Case]:
@@ -247,6 +247,7 @@ POSITION_SURFACES = (
 
 def _sides(staged: Staged) -> Any:
     """The package's and the twin's ``(allowed, reason, position)`` for one row."""
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import write_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
     from tests.integration._write_verdict_surfaces_registry import _import_hook
@@ -254,7 +255,10 @@ def _sides(staged: Staged) -> Any:
     case = staged.case
     twin = _import_hook("osprey_target_state")
     package = write_verdict(
-        case.section, case.target, ignore_launch_pin=case.ignore_launch_pin, **owner_argument(case)
+        ControlSystemSection.read(case.section),
+        case.target,
+        ignore_launch_pin=case.ignore_launch_pin,
+        **owner_argument(case),
     )
     hook = twin.write_verdict(
         case.section,
@@ -355,7 +359,7 @@ def deployment(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     yield _Deployment(tmp_path, root, state, repo, monkeypatch)
     reset_verdict_state()
-    reset_config_cache()
+    clear_config_state()
 
 
 class _Deployment:
@@ -380,7 +384,7 @@ class _Deployment:
         self.monkeypatch.setenv("OSPREY_CONFIG", str(config))
         self.monkeypatch.setenv("CONFIG_FILE", str(config))
         reset_verdict_state()
-        reset_config_cache()
+        clear_config_state()
 
     def hook(self, tool: str, call: dict[str, Any], tool_use_id: str) -> dict[str, Any] | None:
         """Run the approval hook on one call as Claude Code does; its JSON answer or ``None``."""
@@ -423,7 +427,7 @@ def _server_channel_write(tool_use_id: str) -> None:
     from osprey.audit.call import call_scope
     from osprey.mcp_server.control_system.tools import channel_write
 
-    config = channel_write.load_osprey_config()
+    config = channel_write.loaded_or_empty()
     with call_scope(tool_use_id, None):
         record = channel_write._read_record()
         channel_write._check_write_verdict(record, config)

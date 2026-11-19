@@ -228,7 +228,7 @@ def test_the_projected_block_is_a_first_party_panel_of_the_terminal(
 
     block = _block(project_login([_manifest(read_timeout_s=30)], CONFIG, _login()))
     rendered = {"web": {"panels": {"dial-demo": {**block, "enabled": True}}}}
-    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda *a, **k: rendered)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **k: rendered)
 
     _, custom, _ = terminal._load_panel_config()
     (panel,) = custom

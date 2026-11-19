@@ -527,9 +527,12 @@ def _target_configured(config: Mapping[str, Any], target: str) -> bool:
     deployment saying it has no virtual accelerator while its VA block, its VA
     service and its VA lane are all right there.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import target_configured
 
-    return target_configured(as_dict(config).get("control_system"), target)
+    return target_configured(
+        ControlSystemSection.read(as_dict(config).get("control_system")), target
+    )
 
 
 def _va_connector_on(config: Mapping[str, Any]) -> bool:
@@ -547,6 +550,7 @@ def _va_connector_on(config: Mapping[str, Any]) -> bool:
     process lives inside the process that asks, so there is no container port
     for a session to dial and none is projected.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import TARGET_VA, talks_to_network
     from osprey_connectors.targets import resolve_target
 
@@ -554,7 +558,10 @@ def _va_connector_on(config: Mapping[str, Any]) -> bool:
         return False
     section = as_dict(config).get("control_system")
     try:
-        return talks_to_network(section, resolve_target(section, TARGET_VA))
+        return talks_to_network(
+            ControlSystemSection.read(section),
+            resolve_target(ControlSystemSection.read(section), TARGET_VA),
+        )
     except ValueError:
         return False
 

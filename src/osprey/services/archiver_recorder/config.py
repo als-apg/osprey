@@ -106,10 +106,10 @@ class RecorderSettings:
     username: str
     password_env: str
     timeout_s: int
-    cadence_sec: int
-    tail_cadence_sec: int
-    poll_sec: int
-    hot_span_hours: int
+    cadence_s: int
+    tail_cadence_s: int
+    poll_s: int
+    hot_span_h: int
     retention_days: int
     #: A CA file to trust for the store (``tls.ca_bundle``); ``None`` keeps TLS off.
     ca_bundle: str | None = None
@@ -163,10 +163,10 @@ def load_settings(config_path: Path) -> RecorderSettings:
         password_env=str(_require(auth, "password_env", _AUTH_PREFIX, config_path)),
         timeout_s=_int_key(connection, "timeout_s", _CONNECTION_PREFIX, config_path),
         ca_bundle=ca_bundle,
-        cadence_sec=_int_key(knobs, "recorder_cadence_sec", _KNOBS_PREFIX, config_path),
-        tail_cadence_sec=_int_key(knobs, "recorder_tail_cadence_sec", _KNOBS_PREFIX, config_path),
-        poll_sec=_int_key(knobs, "recorder_poll_sec", _KNOBS_PREFIX, config_path),
-        hot_span_hours=_int_key(knobs, "hot_span_hours", _KNOBS_PREFIX, config_path),
+        cadence_s=_int_key(knobs, "recorder_cadence_s", _KNOBS_PREFIX, config_path),
+        tail_cadence_s=_int_key(knobs, "recorder_tail_cadence_s", _KNOBS_PREFIX, config_path),
+        poll_s=_int_key(knobs, "recorder_poll_s", _KNOBS_PREFIX, config_path),
+        hot_span_h=_int_key(knobs, "hot_span_h", _KNOBS_PREFIX, config_path),
         retention_days=_int_key(knobs, "retention_days", _KNOBS_PREFIX, config_path),
     )
 

@@ -118,13 +118,14 @@ def _rendered_ceiling(repo_root: Path) -> str:
     block holds dotted keys applied in order, so neither the file nor a plain key
     lookup answers this.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     from .build_profile_merge import _rendered_control_system
     from .build_profile_resolve import resolve_build_profile
 
     profile, _ = resolve_build_profile(repo_root / PROFILE_FILENAME, None)
-    return tier_writes(_rendered_control_system(profile.config))
+    return tier_writes(ControlSystemSection.read(_rendered_control_system(profile.config)))
 
 
 def _read_ceiling(repo_root: Path) -> tuple[str | None, Exception | None]:

@@ -97,7 +97,7 @@ class TestHandlerInstallation:
         def boom(*args, **kwargs):
             raise RuntimeError("config unavailable")
 
-        monkeypatch.setattr("osprey_connectors.logger.get_config_value", boom)
+        monkeypatch.setattr("osprey_connectors.logger.current_config", boom)
 
         configure_logging()
 
@@ -182,7 +182,7 @@ class TestLoggingSettingsFollowTheConfig:
         def boom(*args, **kwargs):
             raise RuntimeError("config unavailable")
 
-        monkeypatch.setattr("osprey_connectors.logger.get_config_value", boom)
+        monkeypatch.setattr("osprey_connectors.logger.current_config", boom)
 
         configure_logging()
         configure_logging()
@@ -210,6 +210,16 @@ class TestLoggingSettingsFollowTheConfig:
 
         assert collected.records == []
         assert _rich_handlers()[0].rich_tracebacks is True
+
+    def test_config_file_names_no_config(self, tmp_path, monkeypatch, collected):
+        """Only OSPREY_CONFIG names the config the package reads: CONFIG_FILE is
+        not read, so a CONFIG_FILE naming a missing file is a directory with none."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "missing.yml"))
+
+        configure_logging()
+
+        assert collected.records == []
 
 
 class TestAdditiveSemantics:
@@ -248,7 +258,6 @@ class TestGetLoggerPurity:
         root.setLevel(logging.CRITICAL)
 
         get_logger("purity_check")
-        get_logger(name="purity_check_explicit", color="blue")
 
         assert root.level == logging.CRITICAL
 

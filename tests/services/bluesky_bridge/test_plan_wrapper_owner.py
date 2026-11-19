@@ -65,6 +65,7 @@ from osprey_connectors import write_switch
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_switch import NO_OWNER, RESERVED_OWNER_KWARG, Refused, current_owner
+from osprey_connectors_tests._config_trees import serve_control_system
 from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
 _OWNER = "alice"
@@ -239,10 +240,7 @@ def monitor_refusal_inputs(monkeypatch: pytest.MonkeyPatch):
     here rather than left to the machine the suite runs on.
     """
 
-    def armed(key: str, default: Any = None) -> Any:
-        return {"writes_enabled": True} if key == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", armed)
+    serve_control_system({"writes_enabled": True})
     monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
     monkeypatch.delenv(POSTURE_ENV_VAR, raising=False)
 

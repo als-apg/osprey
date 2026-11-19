@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from osprey_connectors.limits_posture import LimitsMode
+    from osprey_connectors.config_sections import LimitsMode
 
 __all__ = ["WriteVerdictView", "prewrite_verdict"]
 

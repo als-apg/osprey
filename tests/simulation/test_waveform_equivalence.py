@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 from osprey_connectors.archive_store import DATE_FIELD, field_name
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.service_answers import Unavailable
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
@@ -68,7 +68,7 @@ NOMINAL_DRIVE = 3000.0
 T = datetime(2026, 10, 14, 12, 0, 0, tzinfo=UTC)
 
 #: The smallest archive the knobs allow: a day of minute traces, an hour dense.
-SMALL = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
+SMALL = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=10, tail_cadence_s=60)
 
 #: How many seeded minutes the ``archiver_read`` comparison samples.
 SAMPLED_MINUTES = 8
@@ -107,7 +107,7 @@ def live_trace(texture: TextureModel) -> np.ndarray:
 @pytest.fixture(scope="module")
 def seeded(demo_view: Path):
     """The archive composite of the example facility, nominal active, anchored at T."""
-    return build(demo_view, ActiveState(names=[], anchor_at=T), tz=get_facility_timezone())
+    return build(demo_view, ActiveState(names=[], anchor_at=T), tz=facility_timezone())
 
 
 # ---------------------------------------------------------------------------
@@ -420,10 +420,10 @@ async def test_a_live_hour_records_sixty_traces_each_the_pulse_of_its_minute(
         username=mongo_login["username"],
         password_env="UNUSED",
         timeout_s=10,
-        cadence_sec=10,
-        tail_cadence_sec=60,
-        poll_sec=30,
-        hot_span_hours=1,
+        cadence_s=10,
+        tail_cadence_s=60,
+        poll_s=30,
+        hot_span_h=1,
         retention_days=1,
     )
     config_path = tmp_path / "config.yml"

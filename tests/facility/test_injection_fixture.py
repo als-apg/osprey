@@ -49,7 +49,7 @@ def view(tmp_path_factory: pytest.TempPathFactory) -> SimulatorView:
 @pytest.fixture(autouse=True)
 def _no_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """No stray config resolves a model log directory for the composite."""
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
 
 
 def test_the_fixture_builds_and_serves_exactly_the_chains_channels(view: SimulatorView) -> None:

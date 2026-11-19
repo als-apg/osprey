@@ -22,6 +22,7 @@ from osprey.services.channel_finder.tools.validate_database import (
     validate_database_loading,
     validate_json_structure,
 )
+from osprey_connectors.testing import config_of
 
 
 def _write(path: Path, data) -> Path:
@@ -295,7 +296,7 @@ class TestRunValidation:
         import osprey_connectors.config as config_mod
 
         # Config with no pipelines configured -> detect returns (None, None).
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         console = _capture_console()
         rc = run_validation(console=console)
         assert rc == 1
@@ -307,7 +308,7 @@ class TestRunValidation:
         def boom(*a, **k):
             raise RuntimeError("config broken")
 
-        monkeypatch.setattr(config_mod, "load_config", boom)
+        monkeypatch.setattr(config_mod, "current_config", boom)
         console = _capture_console()
         rc = run_validation(console=console)
         assert rc == 1
@@ -319,8 +320,8 @@ class TestRunValidation:
 
         monkeypatch.setattr(
             config_mod,
-            "load_config",
-            lambda *a, **k: {"channel_finder": {"pipeline_mode": "graf"}},
+            "current_config",
+            lambda *a, **k: config_of({"channel_finder": {"pipeline_mode": "graf"}}),
         )
         console = _capture_console()
 
@@ -334,7 +335,7 @@ class TestRunValidation:
     def test_no_database_detected_but_missing_path(self, monkeypatch):
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         # detect returns a type but with no path.
         monkeypatch.setattr(mod, "detect_pipeline_config", lambda config: ("in_context", {}))
         console = _capture_console()
@@ -352,7 +353,7 @@ class TestRunValidation:
                 "channels": [{"channel": "A:B", "address": "A:B", "description": "d"}],
             },
         )
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         monkeypatch.setattr(
             mod, "detect_pipeline_config", lambda config: ("in_context", {"path": "x"})
         )
@@ -370,7 +371,7 @@ class TestRunValidation:
                 "channels": [{"channel": "A:B", "address": "A:B", "description": "d"}],
             },
         )
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         monkeypatch.setattr(mod, "detect_pipeline_config", lambda config: ("graph", None))
         console = _capture_console()
         rc = run_validation(database=str(p), console=console)
@@ -400,12 +401,10 @@ class TestRunValidationPipelineOverride:
 
     def _config(self, monkeypatch, tmp_path: Path, cf_config: dict) -> None:
         import osprey_connectors.config as config_mod
-        import osprey_connectors.workspace as workspace_mod
 
-        monkeypatch.setattr(
-            config_mod, "load_config", lambda *a, **k: {"channel_finder": cf_config}
-        )
-        monkeypatch.setattr(workspace_mod, "resolve_path", lambda s: tmp_path / s)
+        # A relative database path anchors on the config's repo root: tmp_path.
+        loaded = config_of({"channel_finder": cf_config}, path=tmp_path / "config.yml")
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: loaded)
 
     def test_override_validates_the_named_pipelines_database(self, tmp_path, monkeypatch):
         _write(tmp_path / "ctx.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": []})

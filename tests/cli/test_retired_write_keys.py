@@ -36,6 +36,7 @@ from osprey.cli.build_profile_merge import _deep_merge, _resolve_extends
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import config_update_fields
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_writes
 
 _LOGGER_NAME = doc.__name__
@@ -244,7 +245,7 @@ def test_every_retired_document_reads_as_its_tier(config, expected, tmp_path):
     assert rendered["writes"] == expected
     assert _retired_leaves_in(rendered) == []
     # The rewrite is what a new-style author writes: the render agrees with itself.
-    assert tier_writes(rendered) == expected
+    assert tier_writes(ControlSystemSection.read(rendered)) == expected
 
 
 def test_retired_write_answer_is_pure_and_none_for_a_silent_mapping():
@@ -328,7 +329,9 @@ def test_every_bundled_preset_agrees_with_tier_writes_of_its_raw_render(tmp_path
         rendered = _section(_read_profile_document(path)["config"], tmp_path)
         if path.parent.name == "apps":
             assert rendered["writes"] == "never", path
-        assert rendered["writes"] == tier_writes(_expanded_section(raw["config"])), path
+        assert rendered["writes"] == tier_writes(
+            ControlSystemSection.read(_expanded_section(raw["config"]))
+        ), path
         assert _retired_leaves_in(rendered) == [], path
         checked += 1
     assert checked > 0

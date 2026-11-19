@@ -64,7 +64,7 @@ from osprey.simulation.apply import (
     event_window,
 )
 from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation.archive import (
     MANIFEST_ID,
     KnobChange,
@@ -99,7 +99,7 @@ T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 
 #: A day of coarse history with an hour of dense, so a container test seeds in
 #: about a second. The tier arithmetic does not know how big the numbers are.
-KNOBS = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
+KNOBS = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=10, tail_cadence_s=60)
 
 #: The block compressor the profile's ``va_archiver`` block defaults to, which
 #: the build renders into ``services.mongodb.compression``.
@@ -387,7 +387,7 @@ class World:
         archive = build(
             self.root / "data" / "simulator",
             ActiveState(names=[], anchor_at=T0),
-            tz=get_facility_timezone(),
+            tz=facility_timezone(),
         )
         documents = _synthesize_documents(archive, epochs)
         return {pv: [document[pv] for document in documents] for pv in channels}
@@ -430,9 +430,9 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
         "services": {"mongodb": {"compression": COMPRESSION}},
         "va_archiver": {
             "retention_days": KNOBS.retention_days,
-            "hot_span_hours": KNOBS.hot_span_hours,
-            "hot_cadence_sec": KNOBS.hot_cadence_sec,
-            "tail_cadence_sec": KNOBS.tail_cadence_sec,
+            "hot_span_h": KNOBS.hot_span_h,
+            "hot_cadence_s": KNOBS.hot_cadence_s,
+            "tail_cadence_s": KNOBS.tail_cadence_s,
         },
     }
     (root / "config.yml").write_text(yaml.safe_dump(config))
@@ -441,7 +441,7 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     # Applying a scenario resolves the machine model, and its scenario state, out
     # of the ambient project config; the MongoDB connector reads its password from the
     # environment by name. Both are set the way a deployment sets them.
-    monkeypatch.setenv("CONFIG_FILE", str(root / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(root / "config.yml"))
     monkeypatch.setenv(password_env, mongo["password"])
 
     collection = mongo_client[mongo["database"]][mongo["collection"]]
@@ -524,7 +524,7 @@ class TestEventWindowRewrite:
 
         horizon = oldest_sample(world.collection).timestamp()
         start_s, end_s = event_window(
-            _script(_rf_thermal(), CAVITY_TEMP), T0.timestamp(), horizon, tz=get_facility_timezone()
+            _script(_rf_thermal(), CAVITY_TEMP), T0.timestamp(), horizon, tz=facility_timezone()
         )
         start = datetime.fromtimestamp(start_s, UTC)
         end = datetime.fromtimestamp(end_s, UTC)
@@ -595,7 +595,7 @@ class TestSeededStore:
 
 def _tier(stamp: datetime, knobs: SeedKnobs) -> str:
     """Which tier a stored timestamp belongs to, read off the timestamp."""
-    return "coarse" if int(stamp.timestamp()) % knobs.tail_cadence_sec == 0 else "dense"
+    return "coarse" if int(stamp.timestamp()) % knobs.tail_cadence_s == 0 else "dense"
 
 
 class TestRetention:
@@ -789,10 +789,10 @@ class TestScenarioSwitchHonesty:
         horizon = oldest_sample(collection).timestamp()
 
         old_window = event_window(
-            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=facility_timezone()
         )
         new_window = event_window(
-            _script(_cavity_trip(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+            _script(_cavity_trip(), CAVITY_TEMP), anchor_s, horizon, tz=facility_timezone()
         )
         assert old_window[1] < new_window[0], "the two windows must leave a gap between them"
         span = (old_window[0], new_window[1])
@@ -805,7 +805,7 @@ class TestScenarioSwitchHonesty:
 
         live = {
             pv: event_subwindows(
-                _script(_cavity_trip(), pv), anchor_s, horizon, tz=get_facility_timezone()
+                _script(_cavity_trip(), pv), anchor_s, horizon, tz=facility_timezone()
             )
             for pv in (CAVITY_TEMP,)
         }
@@ -847,7 +847,7 @@ class TestScenarioSwitchHonesty:
         anchor_s = T0.timestamp()
         horizon = oldest_sample(world.collection).timestamp()
         old_window = event_window(
-            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=facility_timezone()
         )
         start = datetime.fromtimestamp(old_window[0], UTC)
         end = datetime.fromtimestamp(old_window[1], UTC)
@@ -884,10 +884,10 @@ class TestOverlappingWindows:
         anchor_s = T0.timestamp()
         horizon = oldest_sample(world.collection).timestamp()
         temp = event_subwindows(
-            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=facility_timezone()
         )
         power = event_subwindows(
-            _script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon, tz=get_facility_timezone()
+            _script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon, tz=facility_timezone()
         )
         assert len(temp) == len(power) == 1
         assert temp[0][0] < power[0][0] < temp[0][1] < power[0][1], (
@@ -933,7 +933,7 @@ class TestOverlappingWindows:
         anchor_s = T0.timestamp()
         horizon = oldest_sample(world.collection).timestamp()
         power = event_subwindows(
-            _script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon, tz=get_facility_timezone()
+            _script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon, tz=facility_timezone()
         )
 
         world.apply(["rf-thermal"])

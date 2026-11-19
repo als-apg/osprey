@@ -578,11 +578,11 @@ def vocabulary_mcp_context(vocabulary_project_dir: Path, monkeypatch):
         reset_ariel_context,
     )
     from osprey.registry import initialize_registry, reset_registry
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(vocabulary_project_dir)
-    reset_config_cache()
+    clear_config_state()
 
     reset_registry()
     initialize_registry(auto_export=False)
@@ -591,7 +591,7 @@ def vocabulary_mcp_context(vocabulary_project_dir: Path, monkeypatch):
     yield context
 
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
 
 
 async def _keyword_search_envelope(expand_query):
@@ -661,7 +661,7 @@ async def test_vocabulary_mcp_server_refuses_to_start_without_vocabulary_file(
         initialize_ariel_context,
         reset_ariel_context,
     )
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     _write_vocabulary_project(
         tmp_path,
@@ -671,7 +671,7 @@ async def test_vocabulary_mcp_server_refuses_to_start_without_vocabulary_file(
 
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(tmp_path)
-    reset_config_cache()
+    clear_config_state()
 
     from osprey.services.ariel_search.exceptions import ConfigurationError
 
@@ -681,7 +681,7 @@ async def test_vocabulary_mcp_server_refuses_to_start_without_vocabulary_file(
         assert "ariel.vocabulary.path" in str(excinfo.value), str(excinfo.value)
     finally:
         reset_ariel_context()
-        reset_config_cache()
+        clear_config_state()
 
 
 # =============================================================================

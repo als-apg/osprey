@@ -67,7 +67,7 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
     # The server-side stores live under the shared data root; pinning it to
     # this test's workspace keeps one suite's state out of the next.
     shared_root = patch(
-        "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace_dir
+        "osprey.utils.config_paths.process_agent_data_root", return_value=workspace_dir
     )
     with hub_server(workspace_dir, shared_root) as (base_url, _app):
         yield base_url

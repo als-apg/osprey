@@ -38,6 +38,7 @@ from typing import Any
 from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, invents_history, pairing_in_profile
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.connector_types import MONGODB_ARCHIVER, resolve_control_system_type
 
@@ -86,7 +87,7 @@ FRESHNESS_CONFIG_KEY = f"health.categories.{FRESHNESS_CATEGORY}.checks"
 #: How many recorder intervals may pass before the archive is called stale.
 #:
 #: The writer is the recorder, and its hot cadence is what governs: every sample
-#: it takes is written, and ``recorder_tail_cadence_sec`` only decides which of
+#: it takes is written, and ``recorder_tail_cadence_s`` only decides which of
 #: those *survive* ageing out of the hot span (see the recorder's store module —
 #: a sample landing on the tail grid gets the longer expiry, it is not a
 #: separate, slower write). So the newest sample is always one hot interval old
@@ -110,13 +111,26 @@ FRESHNESS_FLOOR_SEC = 60
 #: ``services.mongodb`` by the injector, where the compose template reads them.
 _KNOB_CONFIG_KEYS: tuple[str, ...] = (
     "retention_days",
-    "hot_span_hours",
-    "hot_cadence_sec",
-    "tail_cadence_sec",
-    "recorder_cadence_sec",
-    "recorder_tail_cadence_sec",
-    "recorder_poll_sec",
+    "hot_span_h",
+    "hot_cadence_s",
+    "tail_cadence_s",
+    "recorder_cadence_s",
+    "recorder_tail_cadence_s",
+    "recorder_poll_s",
 )
+
+#: The block's keys as they were spelled before each carried its unit as ``_h``
+#: or ``_s``. A profile still writing one is refused, naming the key that
+#: replaced it: the value and its unit are unchanged, only the spelling moved.
+_RENAMED_KEYS: dict[str, str] = {
+    "hot_span_hours": "hot_span_h",
+    "hot_cadence_sec": "hot_cadence_s",
+    "tail_cadence_sec": "tail_cadence_s",
+    "recorder_cadence_sec": "recorder_cadence_s",
+    "recorder_tail_cadence_sec": "recorder_tail_cadence_s",
+    "recorder_poll_sec": "recorder_poll_s",
+    "timeout_sec": "timeout_s",
+}
 
 #: Mongo database names may not contain these, and a name that does is refused
 #: at connect time with a pymongo error nobody reads as "fix your profile".
@@ -144,33 +158,33 @@ class VAArchiverConfig:
     was taken, so the number is both "how much history a fresh deployment has"
     and "how much a running one keeps"."""
 
-    hot_span_hours: int = 48
+    hot_span_h: int = 48
     """How much of the most recent history is kept at the dense cadence. Sized
     to cover an operator's plausible lookback ("what happened on the last
     shift") without paying dense storage for a month."""
 
-    hot_cadence_sec: int = 10
+    hot_cadence_s: int = 10
     """Seconds between samples inside the hot span."""
 
-    tail_cadence_sec: int = 60
+    tail_cadence_s: int = 60
     """Seconds between samples outside it. Must be a whole multiple of
-    :attr:`hot_cadence_sec`: the tail grid is the sparse subset of the hot grid,
+    :attr:`hot_cadence_s`: the tail grid is the sparse subset of the hot grid,
     and a cadence that does not divide it would put the two tiers on timestamps
     that never coincide."""
 
-    recorder_cadence_sec: int = 10
+    recorder_cadence_s: int = 10
     """How often the recorder samples the live machine. Its samples carry the
     hot-span expiry, so this is the cadence recent recorded history has."""
 
-    recorder_tail_cadence_sec: int = 60
+    recorder_tail_cadence_s: int = 60
     """How often one of those samples is additionally kept for the full
     retention span. Recorded reality survives at the tail cadence as the dense
     copy ages out, which is what keeps steady-state storage bounded while
     leaving no hole where the seeded history ended. Must equal
-    :attr:`tail_cadence_sec`: the seed and the recorder write one history, and
+    :attr:`tail_cadence_s`: the seed and the recorder write one history, and
     two tail cadences would put its seeded and live parts on different grids."""
 
-    recorder_poll_sec: int = 30
+    recorder_poll_s: int = 30
     """How often the recorder re-reads the deployment's config to decide whether
     it should be recording at all. It records only for a simulated control
     system, and that setting is a documented post-build flip — polling is what
@@ -207,7 +221,7 @@ class VAArchiverConfig:
     into the deployment's ``.env`` and read at connect time; it is never a
     profile field, and naming a different variable here does not create one."""
 
-    timeout_sec: int = 5
+    timeout_s: int = 5
     """Seconds the connector waits to reach the store. Deliberately short: the
     common failure is a project that was built but never deployed, and the
     honest answer there is a fast, explanatory error rather than a minute of
@@ -241,13 +255,13 @@ _KNOWN_VA_ARCHIVER_KEYS = frozenset(f.name for f in fields(VAArchiverConfig))
 # meaningless rather than merely unusual.
 _POSITIVE_INT_KEYS: tuple[str, ...] = (
     "retention_days",
-    "hot_span_hours",
-    "hot_cadence_sec",
-    "tail_cadence_sec",
-    "recorder_cadence_sec",
-    "recorder_tail_cadence_sec",
-    "recorder_poll_sec",
-    "timeout_sec",
+    "hot_span_h",
+    "hot_cadence_s",
+    "tail_cadence_s",
+    "recorder_cadence_s",
+    "recorder_tail_cadence_s",
+    "recorder_poll_s",
+    "timeout_s",
 )
 
 _STRING_KEYS: tuple[str, ...] = (
@@ -340,12 +354,14 @@ def va_archiver_errors(
         deploy_services: Whether this project deploys its own service stack.
 
     Returns:
-        The problems found, empty when the block is absent or clean.
+        The problems found, empty when the block is absent or clean. A
+        ``config:`` block writing a retired knob spelling is refused whether
+        the block is present or not.
     """
+    errors = _renamed_config_key_errors(config)
     if va_archiver is None:
-        return []
+        return errors
 
-    errors: list[str] = []
     cfg = va_archiver
 
     for key in _POSITIVE_INT_KEYS:
@@ -359,9 +375,9 @@ def va_archiver_errors(
     # The hot tier is the recent end of the same timeline the tail covers, so a
     # hot span reaching past retention would describe dense history older than
     # the oldest history there is.
-    if cfg.hot_span_hours > cfg.retention_days * 24:
+    if cfg.hot_span_h > cfg.retention_days * 24:
         errors.append(
-            f"va_archiver.hot_span_hours ({cfg.hot_span_hours}) exceeds retention_days "
+            f"va_archiver.hot_span_h ({cfg.hot_span_h}) exceeds retention_days "
             f"({cfg.retention_days} days = {cfg.retention_days * 24} hours) — the dense "
             f"tier is the recent part of the retained window, not a longer one"
         )
@@ -371,8 +387,8 @@ def va_archiver_errors(
     # same way. A cadence that does not divide leaves the tiers on timestamps
     # that never line up, which shows up as a seam rather than as an error.
     for dense, sparse in (
-        ("hot_cadence_sec", "tail_cadence_sec"),
-        ("recorder_cadence_sec", "recorder_tail_cadence_sec"),
+        ("hot_cadence_s", "tail_cadence_s"),
+        ("recorder_cadence_s", "recorder_tail_cadence_s"),
     ):
         fine, coarse = getattr(cfg, dense), getattr(cfg, sparse)
         if fine < 1 or coarse < 1:
@@ -394,13 +410,13 @@ def va_archiver_errors(
     # seeded history on two grids that disagree where they meet, and the build
     # is the earliest place a profile author can see that.
     if (
-        cfg.tail_cadence_sec >= 1
-        and cfg.recorder_tail_cadence_sec >= 1
-        and cfg.recorder_tail_cadence_sec != cfg.tail_cadence_sec
+        cfg.tail_cadence_s >= 1
+        and cfg.recorder_tail_cadence_s >= 1
+        and cfg.recorder_tail_cadence_s != cfg.tail_cadence_s
     ):
         errors.append(
-            f"va_archiver.recorder_tail_cadence_sec ({cfg.recorder_tail_cadence_sec}) "
-            f"differs from va_archiver.tail_cadence_sec ({cfg.tail_cadence_sec}) — the "
+            f"va_archiver.recorder_tail_cadence_s ({cfg.recorder_tail_cadence_s}) "
+            f"differs from va_archiver.tail_cadence_s ({cfg.tail_cadence_s}) — the "
             f"live recorder and the seed write the same history and must keep it on "
             f"one cadence; set them equal"
         )
@@ -528,12 +544,16 @@ def _invented_history_type(config: Any) -> str:
     section = rendered if isinstance(rendered, dict) else {}
     for value in stated:
         if invents_history({**section, _TYPE_LEAF: value}):
-            resolved: str = resolve_control_system_type({_TYPE_LEAF: value})
+            resolved: str = resolve_control_system_type(
+                ControlSystemSection.read({_TYPE_LEAF: value})
+            )
             return resolved
 
     # Unreachable behind the verdict this names, and still resolver-derived so
     # that no branch of this function can name a type the profile never selected.
-    merged: str = resolve_control_system_type(_expand_dotted(config).get(_CONTROL_SYSTEM_SECTION))
+    merged: str = resolve_control_system_type(
+        ControlSystemSection.read(_expand_dotted(config).get(_CONTROL_SYSTEM_SECTION))
+    )
     return merged
 
 
@@ -581,7 +601,7 @@ def va_archiver_config_overrides(va_archiver: VAArchiverConfig | None) -> dict[s
         f"{CONNECTION_CONFIG_PREFIX}.auth.source": cfg.auth_database,
         f"{CONNECTION_CONFIG_PREFIX}.auth.username": cfg.username,
         f"{CONNECTION_CONFIG_PREFIX}.auth.password_env": cfg.password_env,
-        f"{CONNECTION_CONFIG_PREFIX}.timeout_s": cfg.timeout_sec,
+        f"{CONNECTION_CONFIG_PREFIX}.timeout_s": cfg.timeout_s,
     }
     overrides.update(
         {f"{KNOBS_CONFIG_PREFIX}.{knob}": getattr(cfg, knob) for knob in _KNOB_CONFIG_KEYS}
@@ -594,7 +614,7 @@ def freshness_max_age_s(va_archiver: VAArchiverConfig) -> int:
 
     Derived rather than configured, because the number that matters is not a
     preference — it is a fact about the recorder this same block configures. A
-    facility that halves ``recorder_cadence_sec`` has halved how long a healthy
+    facility that halves ``recorder_cadence_s`` has halved how long a healthy
     archive can go without a sample, and the check should follow that edit
     without anyone remembering to re-tune a second number.
 
@@ -603,7 +623,7 @@ def freshness_max_age_s(va_archiver: VAArchiverConfig) -> int:
     tail one is the writer that governs.
     """
     return max(
-        FRESHNESS_SAFETY_MULTIPLE * va_archiver.recorder_cadence_sec,
+        FRESHNESS_SAFETY_MULTIPLE * va_archiver.recorder_cadence_s,
         FRESHNESS_FLOOR_SEC,
     )
 
@@ -757,7 +777,7 @@ def _duplicate_freshness_check_errors(config: Any, cfg: VAArchiverConfig) -> lis
 
     Refused rather than merged or silently overridden: a facility that wants a
     different threshold has a knob for the number it is really changing
-    (``recorder_cadence_sec``), and one that wants a different *check* should
+    (``recorder_cadence_s``), and one that wants a different *check* should
     say so by dropping ``freshness_channel`` and declaring the category itself.
     """
     if not cfg.freshness_channel or not _addresses_freshness_category(config):
@@ -766,20 +786,47 @@ def _duplicate_freshness_check_errors(config: Any, cfg: VAArchiverConfig) -> lis
         f"the profile's `config:` block declares `health.categories."
         f"{FRESHNESS_CATEGORY}` while `va_archiver.freshness_channel` is set — the "
         f"build derives that category from the block (the canary channel, and a "
-        f"staleness threshold from `recorder_cadence_sec`), so the two would be one "
+        f"staleness threshold from `recorder_cadence_s`), so the two would be one "
         f"fact in two homes, merged in whichever order the keys happen to be read. "
         f"Drop the `config:` entry to keep the derived check, or drop "
         f"`va_archiver.freshness_channel` to own the category yourself."
     ]
 
 
+def _renamed_config_key_errors(config: Any) -> list[str]:
+    """Refuse a ``config:`` block that writes a knob under its retired spelling.
+
+    The rendered ``va_archiver.*`` knobs are this block's, so the fix is a key
+    in the block, spelled the new way, never a second ``config:`` entry.
+    """
+    stated = _expand_dotted(config).get(KNOBS_CONFIG_PREFIX)
+    if not isinstance(stated, dict):
+        return []
+    return [
+        f"the profile's `config:` block sets '{KNOBS_CONFIG_PREFIX}.{old}', a key that was "
+        f"renamed to '{KNOBS_CONFIG_PREFIX}.{new}' (same value, same unit). Delete the "
+        f"`config:` entry and set `{new}` in the `va_archiver:` block, which writes it."
+        for old, new in _RENAMED_KEYS.items()
+        if old in stated
+    ]
+
+
 def _reject_unknown_keys(block: dict[str, Any], problems: list[str]) -> None:
-    """Reject anything the block does not define, naming the closest spelling."""
+    """Reject anything the block does not define, naming the closest spelling.
+
+    A retired spelling names the key that replaced it.
+    """
     unknown = sorted(set(block) - _KNOWN_VA_ARCHIVER_KEYS)
     if not unknown:
         return
     known = sorted(_KNOWN_VA_ARCHIVER_KEYS)
     for key in unknown:
+        if key in _RENAMED_KEYS:
+            problems.append(
+                f"'{key}' was renamed to '{_RENAMED_KEYS[key]}' (same value, same unit); "
+                f"write 'va_archiver.{_RENAMED_KEYS[key]}' instead."
+            )
+            continue
         close = difflib.get_close_matches(str(key), known, n=1)
         suggestion = f" (did you mean '{close[0]}'?)" if close else ""
         problems.append(

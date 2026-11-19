@@ -32,7 +32,8 @@ from osprey.apps.sdk import (
     owner_target,
     verify_launch_token,
 )
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.errors import (
     ChannelError,
@@ -79,7 +80,7 @@ def configured_channel(config: Mapping[str, Any]) -> str | None:
 
 
 def _section() -> dict[str, Any]:
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     return section if isinstance(section, dict) else {}
 
 
@@ -96,15 +97,16 @@ async def build_connector(target: str) -> Any:
     """
     global _ca_target
     section = _section()
-    kind = resolve_target(section, target)
+    read = ControlSystemSection.read(section)
+    kind = resolve_target(read, target)
     config = {**section, "type": kind}
-    channel_access = speaks_channel_access(section, kind)
+    channel_access = speaks_channel_access(read, kind)
     if channel_access and _ca_target not in (None, target):
         raise ValueError(
             f"this backend's Channel Access serves {_ca_target}, and a process has one "
             f"Channel Access context: restart the application to serve {target}"
         )
-    if os.environ.get("EPICS_CA_NAME_SERVERS") and target == baseline_target(section):
+    if os.environ.get("EPICS_CA_NAME_SERVERS") and target == baseline_target(read):
         # In its container: compose names the baseline's name server. The config's
         # gateways are the host's view, and connecting through them would replace it.
         # Any other target is reached through its own gateways.
@@ -115,7 +117,9 @@ async def build_connector(target: str) -> Any:
     if claimed:
         _ca_target = target  # before the connect, which is what points the context
     try:
-        return await ConnectorFactory.create_control_system_connector(config, control_target=target)
+        return await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config), control_target=target
+        )
     except BaseException:
         if claimed:
             _ca_target = None

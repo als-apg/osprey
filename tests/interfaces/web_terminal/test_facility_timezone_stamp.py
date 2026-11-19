@@ -47,7 +47,7 @@ def _serve(workspace_dir, zone: str) -> dict[str, str]:
     with terminal_client(
         workspace_dir,
         patch(
-            "osprey.interfaces.web_terminal.app.get_facility_timezone",
+            "osprey.interfaces.web_terminal.app.facility_timezone",
             return_value=ZoneInfo(zone),
         ),
     ) as client:
@@ -88,4 +88,4 @@ def test_pages_and_operator_chat_share_one_resolver():
     from osprey.interfaces.web_terminal import app as web_app
     from osprey.interfaces.web_terminal import operator_session
 
-    assert web_app.get_facility_timezone is operator_session.get_facility_timezone
+    assert web_app.facility_timezone is operator_session.facility_timezone

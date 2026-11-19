@@ -201,7 +201,7 @@ def session_posture_leak_guard(monkeypatch):
         A developer running the suite from inside a narrowed session would
         otherwise hand every record-touching test a session id and an
         agent-data root no test asked for — and, worse, a test that
-        redirects the record by patching ``resolve_shared_data_root`` would be
+        redirects the record by patching ``process_agent_data_root`` would be
         silently inert, because the posture store's root resolution reads the
         variable FIRST and only falls back to the resolver.
 
@@ -216,10 +216,10 @@ def session_posture_leak_guard(monkeypatch):
 
     All five are CLEARED, not pointed elsewhere. Stamping a throwaway root here
         would look tidier — clearing the variable does not stop a write, it aims it
-        at ``<repo>/var/agent_data`` via ``resolve_shared_data_root()`` — but the
+        at ``<repo>/var/agent_data`` via ``process_agent_data_root()`` — but the
         stamp is preferred over the resolver by both readers, so a suite-wide stamp
         silently overrides every test that redirects the root by patching
-        ``resolve_shared_data_root``, which is most of them: measured, it turns 90
+        ``process_agent_data_root``, which is most of them: measured, it turns 90
         tests across ``tests/mcp_server`` red and the whole hooks tree with it.
         The leak is therefore closed where it is caused — a test whose code writes
         under that root stamps its own — and kept closed by
@@ -395,15 +395,14 @@ _GUARD_KNOWN_LIMIT = (
 def agent_data_never_the_checkout(tmp_path_factory):
     """Divert a resolution that lands on THIS checkout to a throwaway root.
 
-    Every path to the agent-data root funnels through
-    ``osprey_connectors.workspace.resolve_project_root`` — ``resolve_shared_data_root``
-    and ``resolve_agent_data_root`` both anchor ``agent_data.base_dir`` on
-    whatever it answers, and the record writer anchors its host spool on it too.
-    It is also the only seam in that chain that is looked up by module global at
-    call time, so binding it here reaches every caller regardless of how it
-    imported its own resolver: the modules that did ``from ... import
-    resolve_shared_data_root`` at import time still run the original function
-    body, and that body reads this name.
+    A process with no config anchors its agent-data root, and the record
+    writer its host spool, on ``osprey_connectors.workspace.locate_repo_root``:
+    the framework's ``process_repo_root``/``process_agent_data_root`` and the
+    control state's own fallback all call it when no config loads, and in a
+    unit test run from the checkout it answers the checkout. It is looked up
+    by module global at call time, so binding it here reaches every caller
+    regardless of how it imported its own resolver. (A loaded config anchors on
+    its own path, which a test writes under its temporary directory.)
 
     Session-scoped because the leak it closes is won by a RACE, not by a test.
     The directory is created inside a uvicorn daemon thread — the artifacts
@@ -440,11 +439,11 @@ def agent_data_never_the_checkout(tmp_path_factory):
     """
     from osprey_connectors import workspace as connector_workspace
 
-    real_resolve_project_root = connector_workspace.resolve_project_root
+    real_locate_repo_root = connector_workspace.locate_repo_root
     diverted = tmp_path_factory.mktemp("project-root-not-the-checkout")
 
-    def _never_the_checkout(config=None):
-        root = real_resolve_project_root(config)
+    def _never_the_checkout(cwd=None):
+        root = real_locate_repo_root(cwd)
         if _REAL_DEPLOYMENT_ITEM_RUNNING:
             return root
         try:
@@ -459,7 +458,7 @@ def agent_data_never_the_checkout(tmp_path_factory):
     # checkout for as long as the interpreter is still up -- the same unsoundness
     # a function-scoped redirect has, one scope later. Nothing runs after a
     # session fixture's teardown that needs the original back.
-    connector_workspace.resolve_project_root = _never_the_checkout
+    connector_workspace.locate_repo_root = _never_the_checkout
     yield
 
 
@@ -505,7 +504,7 @@ def no_agent_data_in_the_repo():
             f"the test run {clause} — something resolved the agent-data root "
             "to the repository. A test that writes the posture store or a control-target "
             "state file must stamp OSPREY_AGENT_DATA_ROOT at a tmp path (see "
-            "session_posture_leak_guard) rather than leave it to resolve_shared_data_root()."
+            "session_posture_leak_guard) rather than leave it to process_agent_data_root()."
             f"{_first_seen_clause(_AGENT_DATA_FIRST_SEEN)}"
             f"{_GUARD_KNOWN_LIMIT}"
         )
@@ -939,11 +938,11 @@ def reset_connector_config_cache():
     which also resets the framework registry and so cannot be imported here. Not
     imported by that conftest: its own fixture already clears this cache.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
-    reset_config_cache()
+    clear_config_state()
     yield
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture

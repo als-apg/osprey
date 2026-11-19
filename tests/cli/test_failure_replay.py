@@ -35,6 +35,7 @@ import click
 import pytest
 
 from osprey.cli.main import cli
+from osprey_connectors.testing import config_of
 
 #: Written by the child into its spool. Deliberately absent from the argv that
 #: produces it — the error message quotes the command, and a marker that also
@@ -94,7 +95,7 @@ def stubs(monkeypatch, repo: Path):
     monkeypatch.setattr(repo_resolver, "find_repo_root", lambda start=None: repo)
     monkeypatch.setattr(deploy_cmd, "gate_start_from_build", lambda *a, **k: None)
     monkeypatch.setattr(deploy_cmd, "ensure_repo_env", lambda *a, **k: None)
-    monkeypatch.setattr(deploy_cmd, "load_project_config", lambda *a, **k: {})
+    monkeypatch.setattr(deploy_cmd, "load_config", lambda *a, **k: config_of({}))
     monkeypatch.setattr(
         container_lifecycle, "as_built_config_path", lambda root: repo / "build" / "config.yml"
     )

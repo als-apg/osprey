@@ -521,14 +521,14 @@ class TestFirstRunHomeStillRenders:
 
         with (
             patch(
-                "osprey_connectors.workspace.resolve_agent_data_root",
+                "osprey.utils.config_paths.session_agent_data_root",
                 return_value=sandbox.workspace_root,
             ),
             patch(
-                "osprey_connectors.workspace.resolve_project_root",
+                "osprey.utils.config_paths.process_repo_root",
                 return_value=sandbox.project_root,
             ),
-            patch("osprey_connectors.workspace.load_osprey_config", return_value={}),
+            patch("osprey.utils.config_paths.loaded_or_empty", return_value={}),
         ):
             result = await execute_sandbox_code(
                 code=code,

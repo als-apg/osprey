@@ -15,6 +15,7 @@ from tests._preset_data import create_project_as_built
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import connector_transport
 
 #: The section words whose connector speaks Channel Access.
@@ -127,7 +128,9 @@ def test_test_ioc_rule_renders_wherever_channel_access_is_spoken(cs_type):
     """The rule is decided by the wire alone: present on every Channel Access
     connector, empty on every other one."""
     content = _render_test_ioc_rule(
-        control_system_transport=connector_transport(section_for(cs_type))
+        control_system_transport=connector_transport(
+            ControlSystemSection.read(section_for(cs_type))
+        )
     )
 
     if cs_type in CA_TYPES:

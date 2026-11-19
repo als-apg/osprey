@@ -18,10 +18,10 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.errors import BuildProfileError
 from osprey.facility.views.facts import zero_source_facts
 from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
+from osprey_connectors.config import load_config
 from osprey_connectors.workspace import (
     RENDERED_CONFIG_RELPATH,
     agent_data_base_dir,
-    resolve_shared_data_root,
 )
 from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 from tests._preset_data import bundle_data_root
@@ -223,7 +223,7 @@ class TestClaudeCodeFileContents:
         # file-editing tools (a NotebookEdit(path) rule is ignored and warned on).
         assert "NotebookEdit" not in deny
         allow = data["permissions"]["allow"]
-        root = resolve_shared_data_root(yaml.safe_load((project_dir / "config.yml").read_text()))
+        root = load_config(project_dir / "config.yml").agent_data_root
         assert f"Edit(/{root}/artifacts/**)" in allow
         assert f"Edit(/{root}/notebooks/**)" in allow
         assert not any(a.startswith("NotebookEdit(") for a in allow)
@@ -269,7 +269,10 @@ class TestClaudeCodeFileContents:
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
-        assert f"Edit(/{resolve_shared_data_root(config)}/artifacts/**)" in allow
+        assert (
+            f"Edit(/{load_config(project_dir / 'config.yml').agent_data_root}/artifacts/**)"
+            in allow
+        )
 
     def test_agent_output_is_reachable_by_absolute_path_and_nothing_wider(self, project_dir):
         """The agent reads what it wrote, and edits its own trees, named absolutely.
@@ -284,7 +287,7 @@ class TestClaudeCodeFileContents:
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
-        root = resolve_shared_data_root(config)
+        root = load_config(project_dir / "config.yml").agent_data_root
         assert root.is_absolute()
 
         reads = [e for e in allow if e.startswith("Read(")]
@@ -315,14 +318,13 @@ class TestClaudeCodeFileContents:
         their rule names that directory absolutely (``//`` opens an absolute path in
         a Claude Code rule) and nothing wider: Read only, the one directory.
         """
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
 
-        uploads = resolve_shared_data_root(config) / CHAT_UPLOADS_SUBDIR
+        uploads = load_config(project_dir / "config.yml").agent_data_root / CHAT_UPLOADS_SUBDIR
         assert uploads.is_absolute()
         assert f"Read(/{uploads}/**)" in allow
-        root = resolve_shared_data_root(config)
+        root = load_config(project_dir / "config.yml").agent_data_root
         # Matched on the directory, not the word: the absolute Edit rules carry the
         # project's own path, which may contain "uploads" anywhere above the root.
         assert not any(

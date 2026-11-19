@@ -71,7 +71,13 @@ from osprey.mcp_server.control_system.tools.channel_write import _limits_violati
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, testing, write_switch
-from osprey_connectors.control_system._base import ChannelValue, ConnectorContext
+from osprey_connectors.config_sections import GatewayRow
+from osprey_connectors.control_system._base import (
+    ChannelValue,
+    ConnectorContext,
+    ControlSystemSettings,
+)
+from osprey_connectors.control_system._epics_connector import EpicsSettings
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
 from osprey_connectors.errors import ChannelNotFoundError, ChannelUnreachableError, LimitsViolation
 from osprey_connectors.factory import ConnectorFactory
@@ -79,6 +85,8 @@ from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.refusals import RefusalReason
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     isolated_connector_registries,
@@ -175,7 +183,7 @@ def fixture_dir(tmp_path_factory):
 def child_environment(fixture_dir, monkeypatch):
     """Children see the repo, the fixture registration, and no project config."""
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(fixture_dir), *REPO_PATHS]))
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -194,7 +202,7 @@ def state_root(tmp_path, monkeypatch):
     writes, and the limits violation below is raised one layer under the
     write guard, which only an allowed write reaches.
     """
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
     isolate_verdict_environment(monkeypatch, tmp_path)
     harness_write_control_context(tmp_path, owned_by=None, switch={"live": "on", "va": "on"})
     testing.invalidate_cache()
@@ -615,38 +623,17 @@ SANDBOX_CONFIG: dict[str, Any] = {
 }
 
 
-def _config_reader(section: dict[str, Any], va_port: int):
-    """A ``get_config_value`` stand-in serving the two keys this half reads."""
-
-    def get_config_value(path, default=None, _config_path=None):
-        if path == "control_system":
-            return section
-        if path == "services.virtual_accelerator.port":
-            return va_port
-        return default
-
-    return get_config_value
-
-
 class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
     last_config: Mapping[str, Any] | None = None
+    settings_model = ControlSystemSettings
 
     async def connect(self, context: ConnectorContext) -> None:
-        type(self).last_config = context.settings
+        type(self).last_config = context.settings.model_extra
 
     async def disconnect(self) -> None:  # pragma: no cover - cleanup path
         return None
-
-
-def _endpoint_of(gateway: dict[str, Any]) -> tuple[str, Any, str]:
-    """``(host, port, mode)`` for one gateway block, as the child will install it."""
-    return (
-        str(gateway.get("address", "")),
-        gateway.get("port"),
-        "name_server" if gateway.get("use_name_server", False) else "addr_list",
-    )
 
 
 class TestSandboxEndpointMatchesTheDerivation:
@@ -657,10 +644,7 @@ class TestSandboxEndpointMatchesTheDerivation:
         """A stamped sandbox with the fake registry the factory will build from."""
         import osprey.runtime as runtime
 
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _config_reader(SANDBOX_SECTION, SANDBOX_VA_PORT),
-        )
+        serve_config(config_of(SANDBOX_CONFIG, environ={}))
         runtime._runtime_connector = None
         runtime._limits_validator = None
         with isolated_connector_registries():
@@ -721,12 +705,20 @@ class TestSandboxEndpointMatchesTheDerivation:
         # The port is unset in config and filled from the deployed service, so
         # the block is put through the connector's own filler — the same helper
         # the derivation used — before the two endpoints are compared.
-        gateway = fill_gateway_ports(block)["gateways"][derivation.selected_role]
-        assert _endpoint_of(gateway) == (expected.host, expected.port, expected.mode)
+        rows = EpicsSettings.from_block(
+            block, key="control_system.connector.virtual_accelerator"
+        ).gateways
+        gateway = fill_gateway_ports(rows)[derivation.selected_role]
+        assert isinstance(gateway, GatewayRow)
+        assert (gateway.address, gateway.port, gateway.mode) == (
+            expected.host,
+            expected.port,
+            expected.mode,
+        )
         assert (expected.host, expected.port) == (SANDBOX_VA_HOST, SANDBOX_VA_PORT)
         # The live gateway is what a sandbox reading the wrong block would have
         # reached, so its absence is part of the claim.
-        assert gateway["address"] != SANDBOX_LIVE_HOST
+        assert gateway.address != SANDBOX_LIVE_HOST
 
         # The stamp, the record and the pin agree, which is what lets this
         # sandbox write at all.
@@ -753,7 +745,7 @@ class TestTheSimulatorInProcessIsTheBaseline:
     def child_environment(self, monkeypatch):
         """Children see the repo and no project config, and no fixture registration."""
         monkeypatch.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
     @pytest.fixture
     def section(self, tmp_path) -> dict[str, Any]:

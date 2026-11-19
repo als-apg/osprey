@@ -53,7 +53,7 @@ def test_default_anchor_seeds_logbook_in_facility_zone(tmp_path, monkeypatch):
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _fake_seed)
     # Pin the facility zone regardless of host config-loading quirks.
-    monkeypatch.setattr("osprey.simulation.apply.get_facility_timezone", lambda: LA)
+    monkeypatch.setattr("osprey.simulation.apply.facility_timezone", lambda: LA)
 
     # now=None -> exercise the DEFAULT anchor (the path the bug lives on).
     apply_scenarios(project, ["rf-thermal"], now=None)
@@ -100,7 +100,7 @@ def test_deploy_time_entries_and_calendar_events_name_one_instant(tmp_path, monk
         return len(entries), True
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
-    monkeypatch.setattr("osprey.simulation.apply.get_facility_timezone", lambda: LA, raising=False)
+    monkeypatch.setattr("osprey.simulation.apply.facility_timezone", lambda: LA, raising=False)
     anchor = datetime(2026, 6, 13, 2, 0, tzinfo=UTC)  # June 12, 19:00 in LA
     apply_scenarios(project, ["rf-thermal"], now=anchor, seed_archive=False)
 

@@ -154,7 +154,7 @@ def _capture(app) -> list[tuple[str, str]]:
 
 def _load(panels: dict) -> list[dict]:
     with patch(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         return_value={"web": {"panels": panels}},
     ):
         _enabled, custom, _default = _load_panel_config()

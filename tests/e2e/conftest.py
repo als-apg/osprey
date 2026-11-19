@@ -393,9 +393,9 @@ def reset_registry_between_tests():
     # The config module has global caches that persist across registry resets
     from osprey_connectors import config as config_module
 
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
+    config_module._installed = None
+    config_module._last_lazy = None
+    config_module._loads.clear()
 
     yield
 
@@ -403,9 +403,9 @@ def reset_registry_between_tests():
     reset_registry()
 
     # Clear config cache again after test
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
+    config_module._installed = None
+    config_module._last_lazy = None
+    config_module._loads.clear()
 
 
 def pytest_addoption(parser):

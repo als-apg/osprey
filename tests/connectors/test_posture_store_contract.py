@@ -95,14 +95,14 @@ def test_root_prefers_the_env_stamp(data_root):
 
 def test_root_falls_back_to_the_shared_data_root(tmp_path, monkeypatch):
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
-    monkeypatch.setattr(_control_state, "resolve_shared_data_root", lambda: tmp_path / "var")
+    monkeypatch.setattr(_control_state, "_config_agent_data_root", lambda: tmp_path / "var")
     testing.invalidate_cache()
     assert write_switch.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
 
 def test_blank_env_stamp_is_not_a_stamp(tmp_path, monkeypatch):
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "   ")
-    monkeypatch.setattr(_control_state, "resolve_shared_data_root", lambda: tmp_path / "var")
+    monkeypatch.setattr(_control_state, "_config_agent_data_root", lambda: tmp_path / "var")
     testing.invalidate_cache()
     assert write_switch.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
@@ -113,7 +113,7 @@ def test_unresolvable_root_answers_none(monkeypatch):
     def _boom():
         raise OSError("no project root")
 
-    monkeypatch.setattr(_control_state, "resolve_shared_data_root", _boom)
+    monkeypatch.setattr(_control_state, "_config_agent_data_root", _boom)
     testing.invalidate_cache()
     assert write_switch.state_dir() is None
     # A caller that cannot resolve the root reads no record, not a crash.
@@ -131,7 +131,7 @@ def test_the_next_read_answers_once_the_root_is_back(tmp_path, monkeypatch):
     def _boom():
         raise RuntimeError("no project root")
 
-    monkeypatch.setattr(_control_state, "resolve_shared_data_root", _boom)
+    monkeypatch.setattr(_control_state, "_config_agent_data_root", _boom)
     testing.invalidate_cache()
     assert _mirror() == {}
 

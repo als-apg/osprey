@@ -14,8 +14,9 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import ClassVar, Protocol
 
+from pydantic import model_validator
 from typing_extensions import override
 
 from osprey_connectors.alarm_state._contract import (
@@ -33,7 +34,9 @@ from osprey_connectors.alarm_state._fold import (
     state_record,
     state_rows,
 )
+from osprey_connectors.config_sections import ConnectorSettings
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenTuple
 from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
 
 logger = get_logger("phoebus_alarm_state")
@@ -84,10 +87,48 @@ class _Consumer(Protocol):
     async def getmany(self, *, timeout_ms: int) -> Mapping[object, Sequence[_Record]]: ...
 
 
+def _servers(value: object) -> str | tuple[str, ...] | None:
+    """``bootstrap_servers`` as aiokafka takes it: a string or a list of them, else ``None``."""
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, list | tuple) and value and all(isinstance(v, str) for v in value):
+        return tuple(value)
+    return None
+
+
+class PhoebusKafkaSettings(ConnectorSettings):
+    """The Phoebus alarm server's block, ``pv_directory.alarm_state.settings``, read.
+
+    Reading it refuses nothing: a feed that names no broker or no topic answers
+    ``misconfigured`` when it is first asked.
+
+    Attributes:
+        bootstrap_servers: The Kafka brokers: a ``host:port`` string or a list
+            of them; ``None`` when unset or written as anything else.
+        topic: The alarm configuration's topic; ``None`` when unset, empty or
+            not a string.
+    """
+
+    bootstrap_servers: str | FrozenTuple[str] | None = None
+    topic: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        topic = data.get("topic")
+        return {
+            **data,
+            "bootstrap_servers": _servers(data.get("bootstrap_servers")),
+            "topic": topic if isinstance(topic, str) and topic else None,
+        }
+
+
 class PhoebusAlarmState(AlarmState):
     """Follow one alarm configuration's topic and answer from the folded snapshot.
 
-    ``consumer_factory(settings)`` returns an unstarted consumer with aiokafka's
+    ``consumer_factory(settings)``, given the :class:`PhoebusKafkaSettings`, returns an unstarted consumer with aiokafka's
     surface (``start``, ``stop``, ``assignment``, ``end_offsets``,
     ``seek_to_beginning``, ``position``, ``getmany``), already subscribed to the
     topic. A topic re-read after a lost consumer folds into a new snapshot, so the
@@ -96,15 +137,19 @@ class PhoebusAlarmState(AlarmState):
     unreachable.
     """
 
+    settings_model: ClassVar[type[ConnectorSettings]] = PhoebusKafkaSettings
+    SETTINGS_KEY: ClassVar[str] = "pv_directory.alarm_state.settings"
+
     def __init__(
         self,
         spec: BackendSpec,
         *,
         project_dir: Path | None = None,
-        consumer_factory: Callable[[Mapping[str, object]], _Consumer] | None = None,
+        consumer_factory: Callable[[PhoebusKafkaSettings], _Consumer] | None = None,
         **seams: object,
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
+        self._kafka = self._settings(PhoebusKafkaSettings)
         self._consumer_factory = consumer_factory
         self._task: asyncio.Task[None] | None = None
         self._snapshot = FeedSnapshot()
@@ -200,8 +245,8 @@ class PhoebusAlarmState(AlarmState):
     def _blocked(self) -> Unavailable | None:
         """Why no consumer can be built; decided once, on first need, not in the constructor."""
         if self._cannot_start is None and self._consumer_factory is None:
-            settings = self.spec.settings
-            if not (settings.get("bootstrap_servers") and settings.get("topic")):
+            settings = self._kafka
+            if not (settings.bootstrap_servers and settings.topic):
                 self._cannot_start = Unavailable(cause="misconfigured", reason=SETTINGS_MISSING)
             else:
                 try:
@@ -233,7 +278,7 @@ class PhoebusAlarmState(AlarmState):
             await asyncio.sleep(_RETRY_S)
 
     async def _follow(self) -> None:
-        consumer = (self._consumer_factory or _aiokafka_consumer)(self.spec.settings)
+        consumer = (self._consumer_factory or _aiokafka_consumer)(self._kafka)
         try:
             await consumer.start()
             partitions = consumer.assignment()
@@ -288,11 +333,12 @@ async def _reached(consumer: _Consumer, targets: Mapping[object, int]) -> bool:
     return True
 
 
-def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
+def _aiokafka_consumer(settings: PhoebusKafkaSettings) -> _Consumer:
     aiokafka = importlib.import_module("aiokafka")
+    servers = settings.bootstrap_servers
     consumer: _Consumer = aiokafka.AIOKafkaConsumer(
-        settings["topic"],
-        bootstrap_servers=settings["bootstrap_servers"],
+        settings.topic,
+        bootstrap_servers=list(servers) if isinstance(servers, tuple) else servers,
         group_id=None,
         enable_auto_commit=False,
         auto_offset_reset="earliest",

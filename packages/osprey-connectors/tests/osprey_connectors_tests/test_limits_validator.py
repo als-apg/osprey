@@ -25,6 +25,8 @@ from osprey_connectors.control_system._limits_validator import (
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.limits_posture import LimitsPosture
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 
 
 def _make_validator(tmp_path, db: dict, policy: dict | None = None) -> LimitsValidator:
@@ -136,34 +138,43 @@ def test_violation_always_raises_regardless_of_policy(tmp_path, on_violation_val
 
 class TestResolveDatabasePath:
     def test_absolute_path_is_returned_unchanged(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         abs_path = str(Path("/etc/osprey/limits.json"))
 
         assert LimitsValidator.resolve_database_path(abs_path, "/some/root") == abs_path
 
     def test_config_file_directory_wins(self, monkeypatch):
-        """A relative path resolves against CONFIG_FILE's directory when set."""
-        monkeypatch.setenv("CONFIG_FILE", "/app/project/config.yml")
+        """A relative path resolves against OSPREY_CONFIG's directory when set."""
+        monkeypatch.setenv("OSPREY_CONFIG", "/app/project/config.yml")
 
         resolved = LimitsValidator.resolve_database_path("limits.json", "/host/build/path")
 
         assert resolved == str(Path("/app/project/limits.json"))
 
+    def test_config_file_names_no_anchor(self, monkeypatch):
+        """``CONFIG_FILE`` is not a name the package reads: only ``OSPREY_CONFIG`` anchors."""
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        monkeypatch.setenv("CONFIG_FILE", "/app/project/config.yml")
+
+        resolved = LimitsValidator.resolve_database_path("limits.json", "/proj/root")
+
+        assert resolved == str(Path("/proj/root/limits.json"))
+
     def test_project_root_fallback_when_no_config_file(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         resolved = LimitsValidator.resolve_database_path("limits.json", "/proj/root")
 
         assert resolved == str(Path("/proj/root/limits.json"))
 
     def test_relative_path_unchanged_when_no_bases(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         assert LimitsValidator.resolve_database_path("limits.json", None) == "limits.json"
 
     def test_loaded_config_directory_beats_env_and_project_root(self, monkeypatch):
-        """The config actually loaded is the anchor, ahead of CONFIG_FILE and project_root."""
-        monkeypatch.setenv("CONFIG_FILE", "/somewhere/else/config.yml")
+        """The config actually loaded is the anchor, ahead of OSPREY_CONFIG and project_root."""
+        monkeypatch.setenv("OSPREY_CONFIG", "/somewhere/else/config.yml")
 
         resolved = LimitsValidator.resolve_database_path(
             "data/limits.json", "/repo", config_path="/repo/build/config.yml"
@@ -172,7 +183,7 @@ class TestResolveDatabasePath:
         assert resolved == str(Path("/repo/build/data/limits.json"))
 
     def test_loaded_config_anchor_ignores_absolute_paths(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         abs_path = str(Path("/etc/osprey/limits.json"))
 
         resolved = LimitsValidator.resolve_database_path(
@@ -187,88 +198,52 @@ class TestResolveDatabasePath:
 # ---------------------------------------------------------------------------
 
 
-def _nested_control_system(values: dict) -> dict:
-    """The nested ``control_system:`` mapping the dotted keys in *values* spell.
+def _patch_config(values: dict, config_path: str | None = None) -> None:
+    """Serve the one deployment *values* describes as the process config.
 
-    The real config singleton answers both spellings of one line: a dotted
-    ``get_config_value("control_system.limits_checking.enabled")`` and the
-    nested section ``get_config_value("control_system")`` read the same YAML.
-    ``from_config`` now asks for the section — the posture resolvers walk it —
-    while the database path is still read dotted, so a shim that only answered
-    the dotted keys would hand the resolvers an empty deployment. Deriving the
-    section from the same map keeps the two spellings describing one config
-    instead of two, which is what the tests below are written against.
+    Dotted keys are set into the tree (``config_tree``); a ``control_system``
+    entry is the section as written, with the dotted ``control_system.*`` keys
+    merged into it. A test that needs a section the dotted spelling cannot
+    reach — a per-type connector block, or a section that is present but
+    empty — passes ``control_system`` itself.
 
-    Nesting on every dot is only correct because these keys name built-in
+    Nesting on every dot is only correct because the dotted keys name built-in
     leaves. A ``control_system.connector.*`` key would be nested on the dots of
     the connector type too — ``mypackage.SiteConnector`` becoming two levels —
-    which is exactly the mistake the resolvers refuse to make, so a test that
-    needs a per-type block passes ``control_system`` itself rather than adding
-    one here.
+    which is exactly the mistake the resolvers refuse to make, so it is refused
+    here.
+
+    ``config_path`` is the path the served config claims to come from, the
+    anchor a relative ``database_path`` resolves against
+    (:func:`osprey_connectors.config.active_config`).
     """
-    section: dict = {}
-    for key, value in values.items():
-        if not key.startswith("control_system."):
-            continue
+    for key in values:
         if key.startswith("control_system.connector."):
             pytest.fail(
-                f"{key!r} cannot be spelled dotted in this shim: a connector type may "
+                f"{key!r} cannot be spelled dotted here: a connector type may "
                 "itself contain dots, and nesting on every dot would build a section no "
                 "config ever has. Pass an explicit 'control_system' entry instead."
             )
-        node = section
-        parts = key.split(".")[1:]
-        for part in parts[:-1]:
-            node = node.setdefault(part, {})
-        node[parts[-1]] = value
-    return section
+    base = {"control_system": values["control_system"]} if "control_system" in values else {}
+    dotted = {key: value for key, value in values.items() if key != "control_system"}
+    tree = config_tree(dotted, base=base)
+    serve_config(config_of(tree, path=config_path or "config.yml", environ={}))
 
 
-def _patch_config(
-    monkeypatch,
-    values: dict,
-    raise_exc: Exception | None = None,
-    config_path: str | None = None,
-):
-    """Patch get_config_value with a key->value map (default fallback otherwise).
-
-    Dotted ``control_system.*`` entries also answer the nested
-    ``control_system`` section, so one map describes one deployment. A test that
-    needs a section the dotted spelling cannot reach — a per-type connector
-    block, or a section that is present but empty — passes ``control_system``
-    itself as an entry, and that value is returned verbatim.
-
-    ``config_path`` stands in for ``default_config_path()`` — the path of the
-    config the singleton actually loaded. ``None`` (the default) models a
-    process whose config came from somewhere the singleton can't name, which
-    keeps the env-var/project_root fallback branches testable in isolation.
-    """
-    if "control_system" in values:
-        section = values["control_system"]
-    else:
-        section = _nested_control_system(values) or None
-
-    def fake_get_config_value(key, default=None):
-        if raise_exc is not None:
-            raise raise_exc
-        if key == "control_system" and section is not None:
-            return section
-        return values.get(key, default)
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: config_path)
+def _no_config(monkeypatch, tmp_path) -> None:
+    """No config can be found: ``OSPREY_CONFIG`` names a file that is not there."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
 
 
 class TestFromConfig:
-    def test_returns_none_when_disabled(self, monkeypatch):
-        _patch_config(monkeypatch, {"control_system.limits_checking.enabled": False})
+    def test_returns_none_when_disabled(self):
+        _patch_config({"control_system.limits_checking.enabled": False})
 
         assert LimitsValidator.from_config() is None
 
     @pytest.mark.parametrize("value", ["true", 1, "${OSPREY_LIMITS_ENABLED}"])
-    def test_unreadable_enabled_blocks_rather_than_switching_checking_off(
-        self, monkeypatch, tmp_path, value
-    ):
+    def test_unreadable_enabled_blocks_rather_than_switching_checking_off(self, tmp_path, value):
         """A deployment-wide ``enabled`` nobody can read blocks every write.
 
         The dangerous reading is the quiet one. ``enabled`` unset means "this
@@ -283,7 +258,6 @@ class TestFromConfig:
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {
                 "control_system.limits_checking.enabled": value,
                 "control_system.limits_checking.database_path": str(db_file),
@@ -301,18 +275,18 @@ class TestFromConfig:
             validator.validate("FOO", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
 
-    def test_a_leaf_the_deployment_wide_block_never_carried_still_disables(self, monkeypatch):
+    def test_a_leaf_the_deployment_wide_block_never_carried_still_disables(self):
         """Absent is not unreadable: a deployment that said nothing gets no validator.
 
         The compatibility half of the same rule — every deployment that never
         wrote a limits block must keep behaving as it did, or the fail-closed
         reading above would block the fleet instead of the typo.
         """
-        _patch_config(monkeypatch, {"control_system.limits_checking.database_path": "/x.json"})
+        _patch_config({"control_system.limits_checking.database_path": "/x.json"})
 
         assert LimitsValidator.from_config() is None
 
-    def test_missing_db_path_yields_blocking_failsafe_validator(self, monkeypatch):
+    def test_missing_db_path_yields_blocking_failsafe_validator(self):
         """Enabled but no database path -> an empty validator that blocks all writes.
 
         The refusal must say the database is unavailable, not that the channel
@@ -320,7 +294,6 @@ class TestFromConfig:
         problem when the actual failure is configuration (#636).
         """
         _patch_config(
-            monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": None,
@@ -335,14 +308,11 @@ class TestFromConfig:
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
         assert "failsafe" in exc.value.violation_reason
 
-    def test_unreadable_db_failsafe_is_distinguishable_from_unlisted_channel(
-        self, monkeypatch, tmp_path
-    ):
+    def test_unreadable_db_failsafe_is_distinguishable_from_unlisted_channel(self, tmp_path):
         """A database that fails to load blocks with a load-failure refusal (#636)."""
         db_file = tmp_path / "limits.json"
         db_file.write_text("{not valid json")
         _patch_config(
-            monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": str(db_file),
@@ -357,14 +327,13 @@ class TestFromConfig:
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
         assert "not in limits database" not in exc.value.violation_reason
 
-    def test_genuinely_unlisted_channel_keeps_the_unlisted_refusal(self, monkeypatch, tmp_path):
+    def test_genuinely_unlisted_channel_keeps_the_unlisted_refusal(self, tmp_path):
         """A loaded database still refuses unlisted channels with the unlisted message."""
         db_file = tmp_path / "limits.json"
         db_file.write_text(
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": str(db_file),
@@ -377,13 +346,12 @@ class TestFromConfig:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
-    def test_loads_absolute_database(self, monkeypatch, tmp_path):
+    def test_loads_absolute_database(self, tmp_path):
         db_file = tmp_path / "limits.json"
         db_file.write_text(
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": str(db_file),
@@ -398,47 +366,58 @@ class TestFromConfig:
         assert "FOO" in validator.limits
 
     def test_resolves_relative_path_against_project_root(self, monkeypatch, tmp_path):
-        """A relative database_path is resolved via project_root (debug branch)."""
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        """A relative database_path is resolved via project_root (debug branch).
+
+        The last-resort branch of a caller that names no config file as the
+        anchor and runs with no ``OSPREY_CONFIG``: a lookup over a config held
+        as a dict. (``from_config`` itself always has the loaded config as its
+        anchor: it reads the section before the path.)
+        """
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         (tmp_path / "limits.json").write_text(
             json.dumps({"BAR": {"writable": True, "max_value": 5.0}})
         )
-        _patch_config(
-            monkeypatch,
-            {
-                "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.database_path": "limits.json",
-                "project_root": str(tmp_path),
-                "control_system.limits_checking.mode": "exclusive",
-            },
+        lookup = mapping_config_lookup(
+            config_tree(
+                {
+                    "control_system.limits_checking.database_path": "limits.json",
+                    "project_root": str(tmp_path),
+                }
+            )
         )
 
-        validator = LimitsValidator.from_config()
+        loaded, reason = LimitsValidator.load_configured_database(config_lookup=lookup)
 
-        assert "BAR" in validator.limits
+        assert reason is None
+        assert loaded is not None
+        assert "BAR" in loaded[0]
 
-    def test_resolves_relative_path_against_config_file(self, monkeypatch, tmp_path):
-        """CONFIG_FILE's directory takes priority for relative paths (debug branch)."""
+    def test_resolves_relative_path_against_osprey_config(self, monkeypatch, tmp_path):
+        """OSPREY_CONFIG's directory takes priority over project_root (debug branch).
+
+        For a caller that names no config file as the anchor, as above.
+        """
         (tmp_path / "limits.json").write_text(
             json.dumps({"BAZ": {"writable": True, "max_value": 5.0}})
         )
-        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
-        _patch_config(
-            monkeypatch,
-            {
-                "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.database_path": "limits.json",
-                "project_root": "/nonexistent/host/path",
-                "control_system.limits_checking.mode": "exclusive",
-            },
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+        lookup = mapping_config_lookup(
+            config_tree(
+                {
+                    "control_system.limits_checking.database_path": "limits.json",
+                    "project_root": "/nonexistent/host/path",
+                }
+            )
         )
 
-        validator = LimitsValidator.from_config()
+        loaded, reason = LimitsValidator.load_configured_database(config_lookup=lookup)
 
-        assert "BAZ" in validator.limits
+        assert reason is None
+        assert loaded is not None
+        assert "BAZ" in loaded[0]
 
-    def test_returns_none_when_config_unavailable(self, monkeypatch):
-        _patch_config(monkeypatch, {}, raise_exc=RuntimeError("no config"))
+    def test_returns_none_when_config_unavailable(self, monkeypatch, tmp_path):
+        _no_config(monkeypatch, tmp_path)
 
         assert LimitsValidator.from_config() is None
 
@@ -447,18 +426,17 @@ class TestFromConfig:
 
         The four-zone hook scenario: the render lives at <repo>/build (config +
         data/ side by side), the config's ``project_root`` names <repo>, and the
-        hook process has no CONFIG_FILE in its environment. The database must be
+        hook process has no OSPREY_CONFIG in its environment. The database must be
         found next to the loaded config — not resolved against project_root,
         where it does not exist and every write would hit the empty-DB failsafe.
         """
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         build = tmp_path / "build"
         (build / "data").mkdir(parents=True)
         (build / "data" / "channel_limits.json").write_text(
             json.dumps({"SR:C1:HCM:SP": {"writable": True, "min_value": -1.0, "max_value": 1.0}})
         )
         _patch_config(
-            monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": "data/channel_limits.json",
@@ -515,22 +493,21 @@ class TestFromConfigCallShapes:
     posture.
     """
 
-    def test_no_arg_returns_none_when_the_section_is_absent(self, monkeypatch):
+    def test_no_arg_returns_none_when_the_section_is_absent(self):
         """No ``control_system:`` at all is a deployment that stated no posture."""
-        _patch_config(monkeypatch, {"project_root": None})
+        _patch_config({"project_root": None})
 
         assert LimitsValidator.from_config() is None
 
-    def test_no_arg_returns_none_when_the_section_is_empty(self, monkeypatch):
+    def test_no_arg_returns_none_when_the_section_is_empty(self):
         """An empty section states no ``enabled``, which is not a ``true``."""
-        _patch_config(monkeypatch, {"control_system": {}})
+        _patch_config({"control_system": {}})
 
         assert LimitsValidator.from_config() is None
 
-    def test_no_arg_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
+    def test_no_arg_reads_the_deployment_wide_block(self, tmp_path):
         """A deployment with only the deployment-wide block behaves as it always has."""
         _patch_config(
-            monkeypatch,
             {
                 "control_system": {"limits_checking": {"enabled": True, "mode": "optional"}},
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
@@ -553,9 +530,7 @@ class TestFromConfigCallShapes:
         ],
         ids=["no-arg", "type-va", "type-epics", "target-va", "target-live"],
     )
-    def test_call_shape_resolves_the_answering_block(
-        self, monkeypatch, tmp_path, kwargs, mode, key
-    ):
+    def test_call_shape_resolves_the_answering_block(self, tmp_path, kwargs, mode, key):
         """Each call shape reads the block that answers for it, and names that key.
 
         - ``no-arg``: the targetless question is deployment-wide and resolves no
@@ -573,7 +548,6 @@ class TestFromConfigCallShapes:
           reach the machine.
         """
         _patch_config(
-            monkeypatch,
             {
                 "control_system": _va_permissive_section(),
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
@@ -589,26 +563,26 @@ class TestFromConfigCallShapes:
                 validator.validate("NOT:LISTED", 1.0)
             assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
-    def test_both_arguments_is_a_type_error(self, monkeypatch):
+    def test_both_arguments_is_a_type_error(self):
         """A target already names a type; stating both leaves the caller's intent unclear."""
-        _patch_config(monkeypatch, {"control_system": _va_permissive_section()})
+        _patch_config({"control_system": _va_permissive_section()})
 
         with pytest.raises(TypeError):
             LimitsValidator.from_config(connector_type=VIRTUAL_ACCELERATOR, target="va")
 
-    def test_both_arguments_raise_even_when_the_config_is_unreadable(self, monkeypatch):
+    def test_both_arguments_raise_even_when_the_config_is_unreadable(self, monkeypatch, tmp_path):
         """The caller bug is not swallowed by the config-unavailable envelope.
 
         The executor wraps its load in a blanket ``except``; a ``TypeError`` that
         the missing-config branch turned into ``None`` would leave that call site
         silently unchecked instead of failing loudly in its own tests.
         """
-        _patch_config(monkeypatch, {}, raise_exc=RuntimeError("no config"))
+        _no_config(monkeypatch, tmp_path)
 
         with pytest.raises(TypeError):
             LimitsValidator.from_config(connector_type=EPICS, target="live")
 
-    def test_incomplete_per_type_block_yields_the_blocking_failsafe(self, monkeypatch, tmp_path):
+    def test_incomplete_per_type_block_yields_the_blocking_failsafe(self, tmp_path):
         """A half-written block answers nothing, so the write path blocks.
 
         The build refuses such a config, but a hand-edited or older render can
@@ -617,7 +591,6 @@ class TestFromConfigCallShapes:
         section = _va_permissive_section()
         section["connector"][VIRTUAL_ACCELERATOR]["limits_checking"] = {"enabled": True}
         _patch_config(
-            monkeypatch,
             {
                 "control_system": section,
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
@@ -641,10 +614,9 @@ class TestFromConfigMostRestrictive:
     line decides a union.
     """
 
-    def test_one_strict_target_makes_the_answer_strict(self, monkeypatch, tmp_path):
+    def test_one_strict_target_makes_the_answer_strict(self, tmp_path):
         """The relaxed simulator does not relax what a targetless caller may assume."""
         _patch_config(
-            monkeypatch,
             {
                 "control_system": _va_permissive_section(),
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
@@ -658,12 +630,11 @@ class TestFromConfigMostRestrictive:
             "mode_key": DEPLOYMENT_WIDE_MODE_KEY,
         }
 
-    def test_all_permissive_targets_answer_permissive(self, monkeypatch, tmp_path):
+    def test_all_permissive_targets_answer_permissive(self, tmp_path):
         """Not a fail-closed constant: it reports what every reachable target wrote."""
         section = _va_permissive_section()
         section["limits_checking"] = {"enabled": True, "mode": "optional"}
         _patch_config(
-            monkeypatch,
             {
                 "control_system": section,
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
@@ -676,9 +647,7 @@ class TestFromConfigMostRestrictive:
         assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
 
     @pytest.mark.parametrize("value", ["true", 1, "${OSPREY_LIMITS_ENABLED}"])
-    def test_an_unreadable_reachable_leaf_yields_the_failsafe_and_not_none(
-        self, monkeypatch, tmp_path, value
-    ):
+    def test_an_unreadable_reachable_leaf_yields_the_failsafe_and_not_none(self, tmp_path, value):
         """One reachable machine with an unreadable block blocks the whole fold.
 
         This is the branch that must not fail open. Both leaf folds send an
@@ -690,7 +659,6 @@ class TestFromConfigMostRestrictive:
         section = _va_permissive_section()
         section["limits_checking"] = {"enabled": value, "mode": "exclusive"}
         _patch_config(
-            monkeypatch,
             {
                 "control_system": section,
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
@@ -708,7 +676,7 @@ class TestFromConfigMostRestrictive:
             validator.validate("ANY:CHANNEL", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
 
-    def test_limits_disabled_everywhere_is_no_validator(self, monkeypatch, tmp_path):
+    def test_limits_disabled_everywhere_is_no_validator(self, tmp_path):
         """No reachable target checks limits, so there is nothing to enforce."""
         section = _va_permissive_section()
         section["limits_checking"] = {"enabled": False, "mode": "exclusive"}
@@ -717,7 +685,6 @@ class TestFromConfigMostRestrictive:
             "mode": "optional",
         }
         _patch_config(
-            monkeypatch,
             {
                 "control_system": section,
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
@@ -726,9 +693,9 @@ class TestFromConfigMostRestrictive:
 
         assert LimitsValidator.from_config_most_restrictive() is None
 
-    def test_returns_none_when_config_unavailable(self, monkeypatch):
+    def test_returns_none_when_config_unavailable(self, monkeypatch, tmp_path):
         """Same envelope as ``from_config``: no config, no checking."""
-        _patch_config(monkeypatch, {}, raise_exc=RuntimeError("no config"))
+        _no_config(monkeypatch, tmp_path)
 
         assert LimitsValidator.from_config_most_restrictive() is None
 
@@ -753,28 +720,27 @@ class TestFromPosture:
     policy.
     """
 
-    def test_returns_none_when_posture_says_disabled(self, monkeypatch):
+    def test_returns_none_when_posture_says_disabled(self):
         """``enabled: false`` is limits checking off — no validator at all."""
-        _patch_config(monkeypatch, {})
+        _patch_config({})
         posture = LimitsPosture(enabled=False, mode="optional", connector_type=EPICS)
 
         assert LimitsValidator._from_posture(posture) is None
 
-    def test_returns_none_when_posture_is_unstated(self, monkeypatch):
+    def test_returns_none_when_posture_is_unstated(self):
         """An unstated ``enabled`` is not a ``true`` — same answer as ``false``."""
-        _patch_config(monkeypatch, {})
+        _patch_config({})
         posture = LimitsPosture(enabled=None, mode=None, connector_type=None)
 
         assert LimitsValidator._from_posture(posture) is None
 
-    def test_deployment_wide_posture_names_the_deployment_wide_key(self, monkeypatch, tmp_path):
+    def test_deployment_wide_posture_names_the_deployment_wide_key(self, tmp_path):
         """No connector type in the posture -> the deployment-wide key answers."""
         db_file = tmp_path / "limits.json"
         db_file.write_text(
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
@@ -787,7 +753,7 @@ class TestFromPosture:
         }
         assert "FOO" in validator.limits
 
-    def test_per_type_posture_names_the_per_type_key(self, monkeypatch, tmp_path):
+    def test_per_type_posture_names_the_per_type_key(self, tmp_path):
         """A per-type block answered, so the per-type key is what a refusal quotes.
 
         Naming the deployment-wide key here would send an operator to flip a
@@ -798,7 +764,6 @@ class TestFromPosture:
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(enabled=True, mode="optional", connector_type=VIRTUAL_ACCELERATOR)
@@ -811,14 +776,13 @@ class TestFromPosture:
         )
         validator.validate("NOT:LISTED", 1.0)  # permissive posture allows unlisted
 
-    def test_strict_posture_still_refuses_unlisted_channels(self, monkeypatch, tmp_path):
+    def test_strict_posture_still_refuses_unlisted_channels(self, tmp_path):
         """The permissive answer belongs to one type; another type stays strict."""
         db_file = tmp_path / "limits.json"
         db_file.write_text(
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
@@ -829,7 +793,7 @@ class TestFromPosture:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
-    def test_unstated_mode_refuses_unlisted_channels(self, monkeypatch, tmp_path):
+    def test_unstated_mode_refuses_unlisted_channels(self, tmp_path):
         """``None`` is nobody's permission, so unlisted stays refused.
 
         The value is carried into the policy verbatim (``channel_limits``
@@ -841,7 +805,6 @@ class TestFromPosture:
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(enabled=True, mode=None, connector_type=None)
@@ -853,7 +816,7 @@ class TestFromPosture:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
-    def test_incomplete_block_yields_failsafe_naming_block_and_leaf(self, monkeypatch, tmp_path):
+    def test_incomplete_block_yields_failsafe_naming_block_and_leaf(self, tmp_path):
         """A half-written per-type block blocks every write and says which line is missing.
 
         The build refuses such a block, but a hand-edited deployed config, an
@@ -866,7 +829,6 @@ class TestFromPosture:
             json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
         )
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(
@@ -888,9 +850,9 @@ class TestFromPosture:
             validator.validate("FOO", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
 
-    def test_incomplete_block_names_every_missing_leaf(self, monkeypatch):
+    def test_incomplete_block_names_every_missing_leaf(self):
         """Both leaves missing under a present block: both are named."""
-        _patch_config(monkeypatch, {})
+        _patch_config({})
         posture = LimitsPosture(
             enabled=None,
             mode=None,
@@ -905,14 +867,13 @@ class TestFromPosture:
             "does not state enabled, mode as a readable value"
         )
 
-    def test_missing_database_path_yields_blocking_failsafe(self, monkeypatch):
+    def test_missing_database_path_yields_blocking_failsafe(self):
         """Enabled with nowhere to read limits from -> block, don't wave writes through.
 
         Exclusive mode needs the database to know what is writable at all; the
         optional/no-path case below legitimately needs none (q-0001/1, q-0002).
         """
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": None},
         )
         posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
@@ -925,10 +886,9 @@ class TestFromPosture:
             validator.validate("ANY:CHANNEL", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
 
-    def test_optional_with_no_database_path_enforces_over_an_empty_database(self, monkeypatch):
+    def test_optional_with_no_database_path_enforces_over_an_empty_database(self):
         """Optional + no path is legal: unlisted channels are written with no limits (q-0002)."""
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": None},
         )
         posture = LimitsPosture(enabled=True, mode="optional", connector_type=EPICS)
@@ -941,12 +901,11 @@ class TestFromPosture:
         assert validator.policy["mode"] == "optional"
         validator.validate("ANY:CHANNEL", 1.0)
 
-    def test_unreadable_database_yields_blocking_failsafe(self, monkeypatch, tmp_path):
+    def test_unreadable_database_yields_blocking_failsafe(self, tmp_path):
         """An unparseable database blocks even a permissive posture."""
         db_file = tmp_path / "limits.json"
         db_file.write_text("{not valid json")
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(enabled=True, mode="optional", connector_type=VIRTUAL_ACCELERATOR)
@@ -957,7 +916,7 @@ class TestFromPosture:
             validator.validate("ANY:CHANNEL", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
 
-    def test_database_path_is_read_deployment_wide(self, monkeypatch, tmp_path):
+    def test_database_path_is_read_deployment_wide(self, tmp_path):
         """A per-type posture reads the one deployment-wide database path.
 
         There is no per-type ``database_path``: the deployment mounts a single
@@ -966,13 +925,9 @@ class TestFromPosture:
         (tmp_path / "limits.json").write_text(
             json.dumps({"BAR": {"writable": True, "max_value": 5.0}})
         )
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
         _patch_config(
-            monkeypatch,
-            {
-                "control_system.limits_checking.database_path": "limits.json",
-                "project_root": str(tmp_path),
-            },
+            {"control_system.limits_checking.database_path": "limits.json"},
+            config_path=str(tmp_path / "config.yml"),
         )
         posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=VIRTUAL_ACCELERATOR)
 
@@ -980,7 +935,7 @@ class TestFromPosture:
 
         assert "BAR" in validator.limits
 
-    def test_policy_is_json_serialisable(self, monkeypatch, tmp_path):
+    def test_policy_is_json_serialisable(self, tmp_path):
         """The executor embeds ``policy`` into the sandbox as JSON verbatim.
 
         A posture value that does not survive ``json.dumps`` would break the
@@ -990,7 +945,6 @@ class TestFromPosture:
         db_file = tmp_path / "limits.json"
         db_file.write_text(json.dumps({"FOO": {"writable": True, "max_value": 10.0}}))
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(enabled=True, mode=None, connector_type=VIRTUAL_ACCELERATOR)
@@ -1000,9 +954,9 @@ class TestFromPosture:
         assert json.loads(json.dumps(validator.policy)) == validator.policy
         assert json.loads(json.dumps(validator.policy))["mode"] is None
 
-    def test_returns_none_when_config_unavailable(self, monkeypatch):
+    def test_returns_none_when_config_unavailable(self, monkeypatch, tmp_path):
         """The config-unavailable envelope is unchanged: no config, no checking."""
-        _patch_config(monkeypatch, {}, raise_exc=RuntimeError("no config"))
+        _no_config(monkeypatch, tmp_path)
         posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
 
         assert LimitsValidator._from_posture(posture) is None
@@ -1756,9 +1710,8 @@ class TestConfiguredDatabasePath:
         assert resolved is not None
         assert not Path(resolved).exists()
 
-    def test_the_live_lookup_is_the_default(self, monkeypatch, tmp_path):
+    def test_the_live_lookup_is_the_default(self, tmp_path):
         _patch_config(
-            monkeypatch,
             {"control_system.limits_checking.database_path": str(tmp_path / "limits.json")},
         )
 
@@ -1821,10 +1774,9 @@ class TestLoadConfiguredDatabase:
         assert set(limits_db) == {"FOO"}
         assert raw_db["FOO"] == {"writable": True, "max_value": 1.0}
 
-    def test_from_config_blocks_every_write_on_the_loaders_reason(self, monkeypatch, tmp_path):
+    def test_from_config_blocks_every_write_on_the_loaders_reason(self, tmp_path):
         """The connector's failsafe quotes the same sentence every other caller gets."""
         _patch_config(
-            monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.mode": "exclusive",

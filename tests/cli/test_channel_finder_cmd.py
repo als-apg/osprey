@@ -18,6 +18,7 @@ import pytest
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.facility.records import FacilityRecords
+from osprey_connectors.testing import config_of
 from tests.cli._unrecorded import (
     a_host_local_record_is_up,
     act_as_a_recording_child,
@@ -281,11 +282,12 @@ class TestValidateSubcommand:
 
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
-                with patch("osprey_connectors.config.load_config", return_value=config):
-                    with patch("osprey_connectors.workspace.resolve_path", side_effect=Path):
-                        result = runner.invoke(
-                            channel_finder, ["validate", "--pipeline", "hierarchical"]
-                        )
+                with patch(
+                    "osprey_connectors.config.current_config", return_value=config_of(config)
+                ):
+                    result = runner.invoke(
+                        channel_finder, ["validate", "--pipeline", "hierarchical"]
+                    )
 
         printed = " ".join(result.output.split())
         assert result.exit_code == 0
@@ -302,7 +304,9 @@ class TestValidateSubcommand:
 
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
-                with patch("osprey_connectors.config.load_config", return_value=config):
+                with patch(
+                    "osprey_connectors.config.current_config", return_value=config_of(config)
+                ):
                     result = runner.invoke(
                         channel_finder, ["validate", "--pipeline", "middle_layer"]
                     )
@@ -332,7 +336,9 @@ class TestGraphParadigmGuidance:
     def _invoke(self, runner, args):
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
-                with patch("osprey_connectors.config.load_config", return_value=GRAPH_CONFIG):
+                with patch(
+                    "osprey_connectors.config.current_config", return_value=config_of(GRAPH_CONFIG)
+                ):
                     return runner.invoke(channel_finder, args)
 
     @pytest.mark.parametrize("verb", ["validate", "preview"])

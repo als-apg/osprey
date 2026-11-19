@@ -128,17 +128,16 @@ def test_without_config_dir_a_build_zone_config_still_anchors_on_the_repo(tmp_pa
 
 
 def test_relative_value_falls_back_to_the_cwd_when_config_lookup_raises(foreign_cwd, monkeypatch):
-    """A raising ``resolve_config_path()`` degrades to a CWD-relative path.
+    """A raising ``locate_config()`` degrades to a CWD-relative path.
 
     The fallback exists because callers include a launcher that swallows
     errors: a resolution failure must not take down ingestion or a UI.
     """
-    import osprey_connectors.workspace as workspace
 
     def _boom() -> Path:
         raise RuntimeError("no workspace")
 
-    monkeypatch.setattr(workspace, "resolve_config_path", _boom)
+    monkeypatch.setattr("osprey_connectors.config.locate_config", _boom)
 
     resolved = resolve_config_relative_path("data/vocab.yml", None)
 

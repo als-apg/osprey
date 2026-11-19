@@ -38,7 +38,7 @@ from osprey.simulation.apply import (
 from osprey.simulation.session_artifacts import PLOT_DIV_ID, render_session_artifacts
 from osprey.simulation.sessions import parse_sessions, resolve
 from osprey_connectors.archive_store import field_name
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation.series import _instant
 from tests._archiver_events import event as view_event
 
@@ -112,11 +112,11 @@ def _event_instant() -> float:
             "width": 1.0,
         }
     )
-    return _instant(event.placement, anchor_s=ANCHOR.timestamp(), tz=get_facility_timezone())
+    return _instant(event.placement, anchor_s=ANCHOR.timestamp(), tz=facility_timezone())
 
 
 def _axis_seconds(axis: list[str]) -> list[float]:
-    tz = get_facility_timezone()
+    tz = facility_timezone()
     return [datetime.fromisoformat(stamp).replace(tzinfo=tz).timestamp() for stamp in axis]
 
 
@@ -134,11 +134,11 @@ def _seeded(
     persisted = persisted_scenario_anchor(config, project)
     assert persisted is not None
     events = {pv: script for pv, script in active_archiver_events(project, NAMES).items() if script}
-    tz = get_facility_timezone()
+    tz = facility_timezone()
     archive = build(
         SimulatorView.of_project(project),
         ActiveState(names=NAMES, anchor_at=persisted),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
     spans = {
         pv: event_window(
@@ -164,7 +164,7 @@ def _base(project: Path, epochs: list[float]) -> dict[str, list[Any]]:
     archive = build(
         SimulatorView.of_project(project),
         ActiveState(names=["rf-thermal"], anchor_at=ANCHOR),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
     return archive.samples([DCCT, SR07], epochs)
 
@@ -179,9 +179,9 @@ def test_the_seed_reads_the_anchor_the_set_was_applied_at(project: Path, config:
 
 
 def test_the_burst_is_at_1432_yesterday_in_the_facility_zone() -> None:
-    local = datetime.fromtimestamp(_event_instant(), get_facility_timezone())
+    local = datetime.fromtimestamp(_event_instant(), facility_timezone())
     assert local.strftime("%H:%M:%S") == "14:32:08"
-    assert local.date() < ANCHOR.astimezone(get_facility_timezone()).date()
+    assert local.date() < ANCHOR.astimezone(facility_timezone()).date()
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ def test_the_dense_sample_at_the_burst_is_the_plotted_peak(project: Path, plot) 
     archive = build(
         SimulatorView.of_project(project),
         ActiveState(names=NAMES, anchor_at=ANCHOR),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
     (document,) = _dense_documents(archive, {}, {event: (DCCT, SR07)})
 

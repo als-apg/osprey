@@ -136,19 +136,31 @@ class FixtureConnector(VAInProcessConnector):
     #: gateway at all.
     _gateway_role = None
 
+    def _gateway_rows(self, config):
+        """The block's gateways, by role, read as the EPICS connector reads them."""
+        from osprey_connectors.config_sections import GatewayRow
+
+        table = (config.model_extra or {}).get("gateways") or {}
+        rows = {}
+        for role in ("read_only", "write_access"):
+            row = GatewayRow.read(table.get(role), role)
+            if row is not None:
+                rows[role] = row
+        return rows
+
     async def _open(self, config):
         await super()._open(config)
-        gateways = config.get("gateways") or {}
+        gateways = self._gateway_rows(config)
         try:
             armed = self._writes_enabled
         except Exception:  # a child with no project config is simply unarmed
             armed = False
         role = _selected_role(gateways, writes_enabled=armed, readonly_run=is_readonly_run())
-        selected = gateways.get(role) or {}
-        self._gateway_role = role if selected else None
-        if selected:
-            os.environ["EPICS_CA_ADDR_LIST"] = str(selected.get("address", ""))
-            os.environ["EPICS_CA_SERVER_PORT"] = str(selected.get("port", 5064))
+        selected = gateways.get(role)
+        self._gateway_role = role if selected is not None else None
+        if selected is not None:
+            os.environ["EPICS_CA_ADDR_LIST"] = selected.address
+            os.environ["EPICS_CA_SERVER_PORT"] = str(5064 if selected.port is None else selected.port)
             os.environ.pop("EPICS_CA_NAME_SERVERS", None)
             self._epics_configured = True
 
@@ -182,10 +194,10 @@ class VirtualAcceleratorFixtureConnector(FixtureConnector):
     the port the parent's derivation expects.
     """
 
-    async def _open(self, config):
+    def _gateway_rows(self, config):
         from osprey_connectors.control_system._va_connector import fill_gateway_ports
 
-        await super()._open(fill_gateway_ports(config))
+        return fill_gateway_ports(super()._gateway_rows(config))
 '''
 
 SITECUSTOMIZE = '''\
@@ -335,7 +347,7 @@ def fixture_dir(tmp_path_factory):
 def child_environment(fixture_dir, monkeypatch):
     """Children see the repo, the fixture connector, and no project config."""
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(fixture_dir), *REPO_PATHS]))
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
 
 @pytest.fixture
@@ -355,7 +367,7 @@ def state_root(tmp_path, monkeypatch):
     inherit the same owner the parent derives under. Every switch starts off;
     :func:`arm` turns machines on.
     """
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
     isolate_verdict_environment(monkeypatch, tmp_path)
     testing.invalidate_cache()
     yield tmp_path

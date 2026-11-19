@@ -15,9 +15,15 @@ nothing. Such a posture answers neither leaf, and a caller that must act blocks
 every write instead of waving them through unchecked.
 """
 
-from collections.abc import Callable, Mapping
-from typing import Final, Literal, get_args
+from typing import Final, get_args
 
+from osprey_connectors.config_sections import (
+    ConnectorBlock,
+    ControlSystemSection,
+    LimitsBlock,
+    LimitsMode,
+    Unreadable,
+)
 from osprey_connectors.connector_types import resolve_control_system_type
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.targets import configured_targets, resolve_target, switch_capable
@@ -29,7 +35,6 @@ __all__ = [
     "LIMITS_MODES",
     "LIMITS_MODE_EXCLUSIVE",
     "LIMITS_MODE_OPTIONAL",
-    "LimitsMode",
     "LimitsPosture",
     "incomplete_limits_blocks",
     "limits_database_required",
@@ -60,11 +65,8 @@ _MODE_LEAF = "mode"
 #: per-type block that omits the path is complete rather than incomplete.
 LIMITS_LEAVES = (_ENABLED_LEAF, _MODE_LEAF)
 
-#: The two limits modes. ``exclusive``: the limits database is the complete
-#: list of writable channels, and a channel with no record is refused.
-#: ``optional``: a channel with a record is checked against it, and a channel
-#: with no record is written with no limits.
-LimitsMode = Literal["exclusive", "optional"]
+#: The two limits modes
+#: (:data:`~osprey_connectors.config_sections.LimitsMode`), by name.
 LIMITS_MODE_EXCLUSIVE: Final = "exclusive"
 LIMITS_MODE_OPTIONAL: Final = "optional"
 #: Every :data:`LimitsMode` word, ``exclusive`` first.
@@ -138,7 +140,7 @@ class LimitsPosture(FrozenModel):
             leaf: One of :data:`LIMITS_LEAVES`.
 
         Returns:
-            The dotted key, as a caller spells it for ``get_config_value`` and
+            The dotted key, as a caller spells it for ``LoadedConfig.get`` and
             as a refusal names it to an operator.
         """
         if not self.connector_type:
@@ -173,7 +175,7 @@ class LimitsPosture(FrozenModel):
         return self.enabled is True and self.mode == LIMITS_MODE_EXCLUSIVE
 
 
-def type_limits_posture(section: object, connector_type: str | None) -> LimitsPosture:
+def type_limits_posture(section: ControlSystemSection, connector_type: str | None) -> LimitsPosture:
     """The limits posture one connector *type* runs under.
 
     ``control_system.connector.<type>.limits_checking`` when that block is
@@ -247,11 +249,10 @@ def type_limits_posture(section: object, connector_type: str | None) -> LimitsPo
         an unreadable block, incomplete on both leaves.
     """
     if connector_type:
-        connector = section.get("connector") if isinstance(section, dict) else None
-        block = connector.get(connector_type) if isinstance(connector, dict) else None
-        if isinstance(block, dict) and LIMITS_CHECKING_LEAF in block:
-            limits = block[LIMITS_CHECKING_LEAF]
-            if not isinstance(limits, dict):
+        block = section.block(connector_type)
+        if isinstance(block, ConnectorBlock) and block.limits_checking is not None:
+            limits = block.limits_checking
+            if isinstance(limits, Unreadable):
                 return LimitsPosture(
                     enabled=None,
                     mode=None,
@@ -262,7 +263,7 @@ def type_limits_posture(section: object, connector_type: str | None) -> LimitsPo
     return _global_limits_posture(section)
 
 
-def target_limits_posture(section: object, target: object) -> LimitsPosture:
+def target_limits_posture(section: ControlSystemSection, target: object) -> LimitsPosture:
     """The limits posture one session *target* runs under.
 
     :func:`type_limits_posture` for the type that target resolves to, so a
@@ -304,7 +305,7 @@ def target_limits_posture(section: object, target: object) -> LimitsPosture:
     return type_limits_posture(section, connector_type)
 
 
-def most_restrictive_limits_posture(section: object) -> LimitsPosture:
+def most_restrictive_limits_posture(section: ControlSystemSection) -> LimitsPosture:
     """The limits posture that holds across every target a session here can select.
 
     What a caller with no target of its own has to assume. The stdlib hook is
@@ -414,7 +415,9 @@ def limits_database_required(posture: LimitsPosture, *, path_configured: bool) -
     return posture.enabled is True and (posture.mode != LIMITS_MODE_OPTIONAL or path_configured)
 
 
-def tier_limits_database_targets(section: object, *, path_configured: bool) -> list[str]:
+def tier_limits_database_targets(
+    section: ControlSystemSection, *, path_configured: bool
+) -> list[str]:
     """The targets the login tier lets write whose limits posture needs a database.
 
     The tier is a ceiling, not a selection: a render whose
@@ -456,7 +459,7 @@ def tier_limits_database_targets(section: object, *, path_configured: bool) -> l
     ]
 
 
-def incomplete_limits_blocks(section: object) -> list[str]:
+def incomplete_limits_blocks(section: ControlSystemSection) -> list[str]:
     """Every half-written per-type limits block in a rendered section, named.
 
     A per-type ``limits_checking`` block overrides whole, so a block that states
@@ -508,12 +511,13 @@ def incomplete_limits_blocks(section: object) -> list[str]:
         not blocks at all. Never raises: a lint that crashed on a malformed
         config would fail a build without saying what is wrong with it.
     """
-    if not isinstance(section, dict):
-        return []
-    connector = section.get("connector")
+    # A lint quotes what was written, so it walks the section as written: a
+    # connector key that is not a string is still a block an operator wrote.
+    raw = section.raw
+    connector = raw.get("connector")
     blocks: list[tuple[str | None, object, bool]] = []
-    if LIMITS_CHECKING_LEAF in section:
-        blocks.append((None, section[LIMITS_CHECKING_LEAF], False))
+    if LIMITS_CHECKING_LEAF in raw:
+        blocks.append((None, raw[LIMITS_CHECKING_LEAF], False))
     if isinstance(connector, dict):
         # A YAML key need not be a string. One that is not is spelled as text,
         # as the key names it; an empty one names the deployment-wide block.
@@ -534,7 +538,8 @@ def incomplete_limits_blocks(section: object) -> list[str]:
                 f"block is a mapping stating {_ENABLED_LEAF} and {_MODE_LEAF}"
             )
             continue
-        for leaf, written in _unstated_limits_leaves(block, whole=whole):
+        parsed = LimitsBlock.read(block, posture.block_key)
+        for leaf, written in _unstated_limits_leaves(parsed, whole=whole):
             if written:
                 errors.append(
                     f"{posture.key(leaf)} is {block[leaf]!r}, not {_LEAF_VALUES[leaf]}; "
@@ -556,7 +561,7 @@ def incomplete_limits_blocks(section: object) -> list[str]:
     return errors
 
 
-def _global_limits_posture(section: object) -> LimitsPosture:
+def _global_limits_posture(section: ControlSystemSection) -> LimitsPosture:
     """The deployment-wide posture, ``control_system.limits_checking``.
 
     A leaf this block does not carry is the tri-state and not a malformed
@@ -568,15 +573,15 @@ def _global_limits_posture(section: object) -> LimitsPosture:
     ``limits_checking`` is present but is not a mapping, which is incomplete on
     both leaves rather than the silence of a deployment that wrote none.
     """
-    if not isinstance(section, dict) or LIMITS_CHECKING_LEAF not in section:
-        return _block_limits_posture({}, None, whole=False)
-    block = section[LIMITS_CHECKING_LEAF]
-    if not isinstance(block, dict):
+    block = section.limits_checking
+    if block is None:
+        return _block_limits_posture(LimitsBlock(), None, whole=False)
+    if isinstance(block, Unreadable):
         return LimitsPosture(enabled=None, mode=None, connector_type=None, incomplete=LIMITS_LEAVES)
     return _block_limits_posture(block, None, whole=False)
 
 
-def _unstated_limits_leaves(block: Mapping[str, object], *, whole: bool) -> list[tuple[str, bool]]:
+def _unstated_limits_leaves(block: LimitsBlock, *, whole: bool) -> list[tuple[str, bool]]:
     """The leaves a limits block fails to state, and whether each was written.
 
     One classifier for both scopes and both readers — the posture resolvers and
@@ -604,7 +609,8 @@ def _unstated_limits_leaves(block: Mapping[str, object], *, whole: bool) -> list
       believed was guarded.
 
     Args:
-        block: A ``limits_checking`` mapping, deployment-wide or per type.
+        block: A ``limits_checking`` block, deployment-wide or per type, as
+            :class:`~osprey_connectors.config_sections.LimitsBlock` read it.
         whole: Whether an absent leaf is a failure, which it is exactly when
             the block overrides another one entire.
 
@@ -613,17 +619,17 @@ def _unstated_limits_leaves(block: Mapping[str, object], *, whole: bool) -> list
         block that states everything it has to.
     """
     unstated: list[tuple[str, bool]] = []
-    for leaf in LIMITS_LEAVES:
-        if leaf not in block:
+    for leaf, value in ((_ENABLED_LEAF, block.enabled), (_MODE_LEAF, block.mode)):
+        if value is None:
             if whole:
                 unstated.append((leaf, False))
-        elif _LEAF_READERS[leaf](block[leaf]) is None:
+        elif isinstance(value, Unreadable):
             unstated.append((leaf, True))
     return unstated
 
 
 def _block_limits_posture(
-    block: Mapping[str, object], connector_type: str | None, *, whole: bool
+    block: LimitsBlock, connector_type: str | None, *, whole: bool
 ) -> LimitsPosture:
     """One ``limits_checking`` mapping read into a posture.
 
@@ -642,56 +648,17 @@ def _block_limits_posture(
             connector_type=connector_type,
             incomplete=tuple(leaf for leaf, _ in unstated),
         )
+    # Neither leaf is unreadable here: each is its value or unstated.
     return LimitsPosture(
-        enabled=_limits_leaf(block.get(_ENABLED_LEAF)),
-        mode=_limits_mode(block.get(_MODE_LEAF)),
+        enabled=None if isinstance(block.enabled, Unreadable) else block.enabled,
+        mode=None if isinstance(block.mode, Unreadable) else block.mode,
         connector_type=connector_type,
     )
 
 
-def _limits_leaf(value: object) -> bool | None:
-    """One limits leaf as a literal boolean, or ``None`` for anything else.
-
-    The literal booleans and nothing else are readable. A quoted ``'true'``, a
-    ``1``, a bare ``enabled:`` — values no write tier reads as an arming
-    either — are not.
-
-    Unlike write posture, ``None`` here is not itself the safe answer, which is
-    why no caller reads this directly: an unset ``enabled`` means "this
-    deployment configured no limits checking", so a leaf written unreadably and
-    reported as merely unset would turn an attempt to switch checking *on* into
-    writes that are never checked at all. :func:`_unstated_limits_leaves` is
-    what the resolvers use, and it separates a leaf nobody wrote from a leaf
-    nobody can read.
-    """
-    if value is True:
-        return True
-    if value is False:
-        return False
-    return None
-
-
-def _limits_mode(value: object) -> LimitsMode | None:
-    """The ``mode`` leaf as one of :data:`LIMITS_MODES`, or ``None`` for anything else.
-
-    The two spellings and nothing else are readable: a boolean, a different
-    case, a bare ``mode:`` each state no mode, and a block that states no mode
-    is one :func:`_unstated_limits_leaves` reports rather than one a reader
-    guesses at.
-    """
-    if value == LIMITS_MODE_EXCLUSIVE:
-        return LIMITS_MODE_EXCLUSIVE
-    if value == LIMITS_MODE_OPTIONAL:
-        return LIMITS_MODE_OPTIONAL
-    return None
-
-
-#: How each of :data:`LIMITS_LEAVES` is read, and what a refusal says a
-#: readable value looks like.
-_LEAF_READERS: dict[str, Callable[[object], bool | str | None]] = {
-    _ENABLED_LEAF: _limits_leaf,
-    _MODE_LEAF: _limits_mode,
-}
+#: What a refusal says a readable value of each of :data:`LIMITS_LEAVES` looks
+#: like. Which values are readable is
+#: :class:`~osprey_connectors.config_sections.LimitsBlock`'s rule.
 _LEAF_VALUES = {
     _ENABLED_LEAF: "a literal true or false",
     _MODE_LEAF: " or ".join(LIMITS_MODES),

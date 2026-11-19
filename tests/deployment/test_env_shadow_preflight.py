@@ -206,7 +206,7 @@ def test_the_entry_time_dotenv_override_does_not_hide_the_divergence(tmp_path, c
     warn, exactly when the operator most needs to hear otherwise. The recorded
     shell overrides are what keep the comparison honest.
     """
-    import osprey_connectors.config as config
+    import osprey_connectors.dotenv as dotenv_module
 
     repo = _repo(
         tmp_path,
@@ -216,7 +216,7 @@ def test_the_entry_time_dotenv_override_does_not_hide_the_divergence(tmp_path, c
     # The post-entry-load state: the process env holds the pinned value, and
     # the shell's own differing value survives only in the recorded overrides.
     monkeypatch.setenv("ARIEL_DB_PASSWORD", _PINNED)
-    monkeypatch.setattr(config, "_dotenv_shell_overrides", {"ARIEL_DB_PASSWORD": _EXPORTED})
+    monkeypatch.setattr(dotenv_module, "_shell_overrides", {"ARIEL_DB_PASSWORD": _EXPORTED})
 
     with caplog.at_level(logging.WARNING):
         shadowed = _preflight_env_shadowing(_files(), repo)

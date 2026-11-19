@@ -40,8 +40,8 @@ LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
 #: The config key the last-resort path anchor is read from.
 _PROJECT_ROOT_CONFIG_KEY = "project_root"
 
-#: The signature every ``config_lookup`` here has: that of
-#: :func:`osprey_connectors.config.get_config_value`.
+#: The signature every ``config_lookup`` here has: ``(dotted_key, default) -> value``,
+#: as :meth:`osprey_connectors.config.LoadedConfig.get` answers.
 ConfigLookup = Callable[[str, object], object]
 
 #: The signature of the fresh-read primitive :meth:`LimitsValidator.validate`
@@ -191,10 +191,10 @@ def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
 
 
 def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
-    """A ``get_config_value``-shaped lookup over an already-loaded config.
+    """A ``(dotted_key, default) -> value`` lookup over an already-loaded config.
 
-    For the callers that hold the config as a dict rather than through the
-    live configurable -- the build reading a render's ``config.yml``, the
+    For the callers that hold the config as a dict rather than as the
+    process's loaded config -- the build reading a render's ``config.yml``, the
     roster reading the project config it was handed -- so they resolve the
     limits database through the same path as the runtime instead of walking
     the segments themselves.
@@ -310,14 +310,14 @@ class LimitsValidator:
         A relative ``database_path`` is written alongside the config it appears
         in, so the anchor is the directory of the config that is actually in
         use: *config_path*, when the caller can name the file it loaded (see
-        :func:`osprey_connectors.config.default_config_path`). This is what
+        :func:`osprey_connectors.config.active_config`). This is what
         makes the resolution independent of how the process was launched — a
-        Claude Code hook, an MCP server, and a host verb anchored via
-        ``config_anchored_at`` all load the render's config and find the
+        Claude Code hook, an MCP server, and a host verb that installed its
+        deployment's config all load the render's config and find the
         ``data/`` tree the build copied next to it.
 
         Fallbacks, for callers that cannot name the loaded config:
-        ``Path(CONFIG_FILE).parent`` when that variable is set (a container
+        ``Path(OSPREY_CONFIG).parent`` when that variable is set (a container
         deploy names the config mounted inside the container while
         ``project_root`` may record a host path the container does not have),
         else the config's own ``project_root`` key. Note that under the
@@ -333,7 +333,7 @@ class LimitsValidator:
             return db_path
         if config_path:
             return str(Path(config_path).parent / db_path)
-        config_file = os.environ.get("CONFIG_FILE")
+        config_file = os.environ.get("OSPREY_CONFIG")
         if config_file:
             return str(Path(config_file).parent / db_path)
         if project_root:
@@ -359,28 +359,33 @@ class LimitsValidator:
         is the loader's finding, with the loader's message.
 
         Args:
-            config_lookup: Where the key is read from, with the signature of
-                :func:`osprey_connectors.config.get_config_value`. Defaults to
-                that function, which reads the live configurable; pass
+            config_lookup: Where the key is read from, as
+                ``(dotted_key, default) -> value``. Defaults to the process
+                config's :meth:`~osprey_connectors.config.LoadedConfig.get`
+                (:func:`osprey_connectors.config.current_config`); pass
                 :func:`mapping_config_lookup` for a config held as a dict.
             config_path: The config file the lookup answers from, which is the
                 anchor a relative path resolves against (see
-                :meth:`resolve_database_path`). Defaults to
-                :func:`osprey_connectors.config.default_config_path` when the
-                lookup is the live one; a caller supplying its own lookup
-                names its own anchor, or leaves it to the fallbacks.
+                :meth:`resolve_database_path`). Defaults to the path of
+                :func:`osprey_connectors.config.active_config` when the lookup
+                is the live one; a caller supplying its own lookup names its
+                own anchor, or leaves it to the fallbacks.
 
         Returns:
             The resolved path as a string, or ``None``.
         """
         if config_lookup is None:
-            from osprey_connectors.config import default_config_path, get_config_value
+            from osprey_connectors.config import active_config, current_config
 
-            # Bound through a ConfigLookup, so the lookup answers ``object``.
-            live_lookup: ConfigLookup = get_config_value
-            config_lookup = live_lookup
             if config_path is None:
-                config_path = default_config_path()
+                # Read before the lookup below loads anything, as the anchor
+                # always was: a process that has loaded no config yet falls
+                # back on OSPREY_CONFIG and project_root.
+                active = active_config()
+                config_path = str(active.path) if active is not None else None
+            # Bound through a ConfigLookup, so the lookup answers ``object``.
+            live_lookup: ConfigLookup = current_config().get
+            config_lookup = live_lookup
 
         raw = config_lookup(LIMITS_DATABASE_CONFIG_KEY, None)
         if not isinstance(raw, str) or not raw.strip():
@@ -524,9 +529,9 @@ class LimitsValidator:
                 "posture twice"
             )
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            section: object = get_config_value("control_system", {})
+            section = current_config().control_system
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
@@ -561,9 +566,9 @@ class LimitsValidator:
             envelope :meth:`from_config` returns, for the same reasons.
         """
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            section: object = get_config_value("control_system", {})
+            section = current_config().control_system
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")

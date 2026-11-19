@@ -1011,12 +1011,12 @@ def _as_built_config(root: Path) -> dict | None:
     answers out of two different renders.
     """
     from osprey.deployment.container_lifecycle import as_built_config_path
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
     config_path = as_built_config_path(root)
     if not config_path.is_file():
         return None
-    return load_project_config(str(config_path), wrap_errors=True)
+    return load_config(str(config_path)).raw_tree()
 
 
 def as_built_dangerously_allows_bash(repo_root: Path | str) -> bool:

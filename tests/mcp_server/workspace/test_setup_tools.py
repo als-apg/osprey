@@ -43,7 +43,7 @@ def project_dir(tmp_path):
     the wrong zone still passed.
 
     Returns the RENDER directory — which is what ``setup_inspect`` computes as
-    its ``project_root`` (``resolve_config_path().parent``), so the fixture's
+    its ``project_root`` (``locate_config().parent``), so the fixture's
     return value and the tool's own notion of the project agree. The repo root
     is its parent.
 
@@ -116,17 +116,17 @@ def project_dir(tmp_path):
 
 
 def _patch_config_path(project_dir: Path):
-    """Return a context manager that patches resolve_config_path to return project_dir."""
+    """Return a context manager that patches locate_config to return project_dir."""
     return patch(
-        "osprey.mcp_server.workspace.tools.setup.resolve_config_path",
+        "osprey.mcp_server.workspace.tools.setup.locate_config",
         return_value=project_dir / "config.yml",
     )
 
 
 def _patch_load_config(config: dict):
-    """Return a context manager that patches load_osprey_config."""
+    """Return a context manager that patches loaded_or_empty."""
     return patch(
-        "osprey.mcp_server.workspace.tools.setup.load_osprey_config",
+        "osprey.mcp_server.workspace.tools.setup.loaded_or_empty",
         return_value=config,
     )
 
@@ -237,7 +237,7 @@ async def test_inspect_workspace_is_the_repos_agent_data_root(tmp_path):
     fn = _get_setup_inspect()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.setup.resolve_config_path",
+            "osprey.mcp_server.workspace.tools.setup.locate_config",
             return_value=tmp_path / "build" / "config.yml",
         ),
         _patch_load_config(config),
@@ -492,7 +492,7 @@ async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
     )
     monkeypatch.setenv("ARIEL_DB_PASSWORD", "hunter2-from-the-env")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-the-env")
-    # What ``load_osprey_config`` hands back, and what used to be reported
+    # What ``loaded_or_empty`` hands back, and what used to be reported
     # verbatim: every placeholder already replaced by its environment value.
     expanded = {
         "control_system": {

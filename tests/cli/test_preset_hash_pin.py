@@ -37,7 +37,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # A digest moves whenever its preset's resolved content does, and the commit
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
-    "demo": ("sha256:e322c477cd42221e9649b3f3b2ab4177701be22142e6fb6b984ac1cc1c31fe02"),
+    "demo": ("sha256:250e497a7c66c82307c68f1dba1c4686ffbb3ad007074b2e8285c22f16404e33"),
     "hello-world": ("sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"),
     "tiers/admin": ("sha256:197ef2a65251887b0af8a2a03dac1494b366d2bb3fdabe42c5f8227fdc729736"),
     "tiers/readonly": ("sha256:8d24dbff3b01876824e3fc10ac61595d9e841feddf632064894ceef7e5031a81"),
@@ -54,7 +54,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
 # application's ``.provenance``. An application is deploy-visible source as a
 # preset is: moving its digest reports every copy in a deployment as drifted.
 PINNED_APP_TREE_DIGESTS: dict[str, str] = {
-    "orbit-bump": ("sha256:b470d041183cb641d25fb02e885276e47bf6f5a2cbf47bfdcb98c92c38c5228d"),
+    "orbit-bump": ("sha256:1d139bc257240d58adc93507364268c17ea2f45556ae2e1bff5de0436274f16b"),
 }
 
 

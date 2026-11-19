@@ -51,7 +51,7 @@ def _page(browser: Browser, workspace_dir: Path, stored: dict | None = None) -> 
     is ready: the rail's groups are drawn during the panel manager's start-up,
     and a heading can show before the last of them is."""
     shared_root = patch(
-        "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace_dir
+        "osprey.utils.config_paths.process_agent_data_root", return_value=workspace_dir
     )
     with hub_server(workspace_dir, shared_root) as (base_url, _app):
         ctx = browser.new_context(viewport={"width": 1280, "height": 800})

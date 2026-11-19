@@ -68,7 +68,7 @@ class TestUtcWindow:
     def test_naive_is_refused_whatever_the_facility_zone(self, monkeypatch, bound):
         """A bare wall clock is no longer read in the facility zone: it is refused."""
         monkeypatch.setattr(
-            "osprey_connectors.config.get_facility_timezone",
+            "osprey_connectors.config.facility_timezone",
             lambda: ZoneInfo("America/Los_Angeles"),
         )
         window = {

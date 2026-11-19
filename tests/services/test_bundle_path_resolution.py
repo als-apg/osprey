@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey_connectors_tests._config_trees import installed, with_values
+
 CONFIG_KEY = "facility_knowledge.bundle_path"
 
 #: The relative value shipped in demo/config.yml.j2.
@@ -67,17 +69,16 @@ def _mcp_server_resolution(raw: str, config_dir: Path) -> Path:
     return _resolve_bundle_path({"facility_knowledge": {"bundle_path": raw}}, config_dir)
 
 
-def _cli_resolution(raw: str, monkeypatch) -> Path:
-    """Resolve *raw* the way ``osprey knowledge <cmd>`` does with no BUNDLE arg."""
+def _cli_resolution(raw: str) -> Path:
+    """Resolve *raw* the way ``osprey knowledge <cmd>`` does with no BUNDLE arg.
+
+    The project's config, with *raw* as its bundle path, is the process config
+    for the call.
+    """
     from osprey.cli import knowledge_cmd
 
-    monkeypatch.setattr(
-        knowledge_cmd,
-        "get_config_value",
-        lambda key, default=None: raw if key == CONFIG_KEY else default,
-    )
-    _resolve_bundle = knowledge_cmd._resolve_bundle
-    return _resolve_bundle(None)
+    with installed(with_values({CONFIG_KEY: raw})):
+        return knowledge_cmd._resolve_bundle(None)
 
 
 def _panel_resolution(raw: str) -> Path:
@@ -98,19 +99,19 @@ def _panel_resolution(raw: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_shipped_relative_path_agrees_across_all_three_sites(project, monkeypatch):
+def test_shipped_relative_path_agrees_across_all_three_sites(project):
     """The shipped relative value resolves to the project bundle everywhere."""
     project_dir, bundle_dir = project
 
     mcp = _mcp_server_resolution(SHIPPED_RELATIVE, project_dir)
-    cli = _cli_resolution(SHIPPED_RELATIVE, monkeypatch)
+    cli = _cli_resolution(SHIPPED_RELATIVE)
     panel = _panel_resolution(SHIPPED_RELATIVE)
 
     assert mcp == cli == panel == bundle_dir.resolve()
     assert Path.cwd() not in bundle_dir.parents, "fixture must place the CWD outside the project"
 
 
-def test_cli_does_not_resolve_relative_to_the_cwd(project, monkeypatch):
+def test_cli_does_not_resolve_relative_to_the_cwd(project):
     """Regression: the CLI must not be a CWD-relative outlier.
 
     A bundle sitting at ``<cwd>/data/facility/knowledge`` must NOT win over the
@@ -122,7 +123,7 @@ def test_cli_does_not_resolve_relative_to_the_cwd(project, monkeypatch):
     decoy = Path.cwd() / SHIPPED_RELATIVE
     _write_concept(decoy, "devices/decoy")
 
-    resolved = _cli_resolution(SHIPPED_RELATIVE, monkeypatch)
+    resolved = _cli_resolution(SHIPPED_RELATIVE)
 
     assert resolved == bundle_dir.resolve()
     assert resolved != decoy.resolve()
@@ -138,13 +139,13 @@ def test_tilde_path_is_expanded_at_all_three_sites(project, monkeypatch, tmp_pat
 
     raw = "~/kb"
     mcp = _mcp_server_resolution(raw, project_dir)
-    cli = _cli_resolution(raw, monkeypatch)
+    cli = _cli_resolution(raw)
     panel = _panel_resolution(raw)
 
     assert mcp == cli == panel == home / "kb"
 
 
-def test_absolute_path_passes_through_at_all_three_sites(project, monkeypatch, tmp_path):
+def test_absolute_path_passes_through_at_all_three_sites(project, tmp_path):
     """An absolute value is used as given, ignoring both CWD and config dir."""
     project_dir, _bundle_dir = project
 
@@ -153,7 +154,7 @@ def test_absolute_path_passes_through_at_all_three_sites(project, monkeypatch, t
 
     raw = str(elsewhere)
     mcp = _mcp_server_resolution(raw, project_dir)
-    cli = _cli_resolution(raw, monkeypatch)
+    cli = _cli_resolution(raw)
     panel = _panel_resolution(raw)
 
     assert mcp == cli == panel == elsewhere

@@ -550,16 +550,16 @@ def reset_state_between_tests():
     """
     # Reset before test
     from osprey.registry import reset_registry
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     reset_registry()
-    reset_config_cache()
+    clear_config_state()
 
     yield
 
     # Reset after test
     reset_registry()
-    reset_config_cache()
+    clear_config_state()
 
 
 # ===================================================================
@@ -1279,7 +1279,7 @@ def test_config(tmp_path):
                 # Config file exists at test_config
                 assert test_config.exists()
                 # Set environment to use it
-                monkeypatch.setenv("CONFIG_FILE", str(test_config))
+                monkeypatch.setenv("OSPREY_CONFIG", str(test_config))
 
         With custom modifications::
 

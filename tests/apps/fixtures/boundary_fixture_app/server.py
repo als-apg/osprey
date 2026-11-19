@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.apps import sdk
 from osprey.apps.sdk import serve_tools
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_writes
 
 from . import helpers
@@ -19,7 +20,14 @@ def describe(section: dict[str, Any], verdict: WriteVerdict) -> str:
     """Report what the fixture reached, so every import above is used."""
     from .helpers import label
 
-    return json.dumps([label(tier_writes(section)), label(verdict), helpers.__name__, sdk.__name__])
+    return json.dumps(
+        [
+            label(tier_writes(ControlSystemSection.read(section))),
+            label(verdict),
+            helpers.__name__,
+            sdk.__name__,
+        ]
+    )
 
 
 def door_name() -> str:

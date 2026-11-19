@@ -7,7 +7,7 @@ comments, formatting, or ordering.
 This module consolidates the former ``yaml_config.py`` and ``config_updater.py``
 into a single source of truth for config file modifications.
 
-For read-only config access, use ``utils/config.py`` (ConfigBuilder, get_config_value).
+For read-only config access, use :mod:`osprey_connectors.config` (``load_config``, ``current_config``).
 
 Typical usage:
     from osprey.utils.config_writer import config_add_to_list, config_update_fields
@@ -413,7 +413,7 @@ def config_backup_path(config_path: Path) -> Path:
     repo ROOT — the directory holding ``profile.yml`` and ``var/`` — never
     relative to the render that ``config.yml`` sits in. So the anchor is derived
     from the config itself, applying the same precedence
-    :func:`~osprey_connectors.workspace.resolve_project_root` applies at runtime: the
+    :func:`~osprey.utils.config_paths.process_repo_root` applies at runtime: the
     config's own ``project_root`` key when it names a directory that exists
     here, and :func:`repo_root_for_config` otherwise. That is the helper every
     other state-zone consumer resolves the root with:
@@ -455,10 +455,10 @@ def config_backup_path(config_path: Path) -> Path:
         # reader would look for that copy anyway.
         config = None
 
-    # The SAME precedence workspace.resolve_project_root applies, in the same
+    # The SAME precedence LoadedConfig.repo_root applies, in the same
     # order: the config's own ``project_root`` when it names a directory that
     # exists here, and filesystem truth otherwise. Mirrored rather than
-    # delegated because resolve_project_root() re-reads the ambient config
+    # delegated because process_repo_root() re-reads the ambient config
     # (OSPREY_CONFIG / the process-global cache), which would anchor a panel
     # driving another project on whichever project this PROCESS was started in.
     # The config is already loaded above, so the key can be read from it

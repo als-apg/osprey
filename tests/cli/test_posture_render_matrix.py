@@ -42,6 +42,7 @@ from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.build_profile_resolve import resolve_build_document, resolve_build_profile
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import config_update_fields
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_writes
 from tests.cli.test_killswitch_on_tier import _DUMB, _FACILITY, _build, _settings
 
@@ -263,10 +264,10 @@ def test_the_oracle_answers_each_retired_spelling_as_the_build_rewrites_it():
     """
     flat = {"writes_enabled": True}
     assert document_answer(SPELLINGS["flat-nested-true"]) == _ALLOWED
-    assert tier_writes(flat) == _NEVER
+    assert tier_writes(ControlSystemSection.read(flat)) == _NEVER
     custom = {"connector": {"mypkg.Mod": {"writes_enabled": True}}}
     assert document_answer({"control_system": custom}) == _ALLOWED
-    assert tier_writes(custom) == _NEVER
+    assert tier_writes(ControlSystemSection.read(custom)) == _NEVER
     assert document_answer(SPELLINGS["flat-false-custom-type-true"]) == _ALLOWED
     assert document_answer(SPELLINGS["flat-true-per-type-false"]) == _ALLOWED
     assert document_answer(SPELLINGS["custom-type-false"]) == _NEVER
@@ -278,7 +279,7 @@ def test_the_oracle_answers_asked_only_for_the_tier_key_spelling_it():
     """``asked`` is a word only the tier key states; a retired leaf cannot reach it."""
     assert document_answer(SPELLINGS["new-nested-asked"]) == _ASKED
     assert document_answer(SPELLINGS["new-dotted-asked"]) == _ASKED
-    assert tier_writes({"writes": _ASKED}) == _ASKED
+    assert tier_writes(ControlSystemSection.read({"writes": _ASKED})) == _ASKED
     assert render_answer(SPELLINGS["new-dotted-allowed"], SPELLINGS["new-dotted-asked"]) == _ASKED
     assert render_answer(SPELLINGS["new-dotted-asked"], SPELLINGS["new-dotted-allowed"]) == _ALLOWED
     retired = [name for name in SPELLINGS if not name.startswith("new-")]
@@ -372,7 +373,7 @@ def _retired_leaves_in(node: Any, path: str = _CS) -> list[str]:
 
 def _assert_render(section: dict, expected: str) -> None:
     assert section.get("writes", _NEVER) == expected, section
-    assert tier_writes(section) == expected
+    assert tier_writes(ControlSystemSection.read(section)) == expected
     assert _retired_leaves_in(section) == []
 
 

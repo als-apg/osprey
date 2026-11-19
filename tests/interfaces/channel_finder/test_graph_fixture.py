@@ -496,7 +496,7 @@ class TestServeIndexRead:
         """Point the config seam at a project that has a corpus."""
 
         def install(config: dict[str, Any]) -> None:
-            monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
+            monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
 
         install({"services": {"graphdb": {"ttl_path": "./data/facility.ttl"}}})
         return install

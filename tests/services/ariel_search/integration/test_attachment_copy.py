@@ -20,6 +20,8 @@ from osprey.services.ariel_search.attachments.copy import record_and_compose, re
 from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.scheduler import COPY_LOCK_KEY
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter, StubAdapter
 from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA, fake_prepare
 
@@ -1306,16 +1308,11 @@ async def _seed_content_skip(repository, entry_id: str, name: str, code: str, cf
 
 
 def _invoke_backfill_cli(config_dict: dict, args: list[str]):
-    from unittest.mock import patch
-
     from click.testing import CliRunner
 
     from osprey.cli.ariel import ariel_group
 
-    def _get(key, default=None, *_a, **_k):
-        return config_dict if key == "ariel" else default
-
-    with patch("osprey.cli.ariel.get_config_value", side_effect=_get):
+    with installed(config_of({"ariel": config_dict})):
         return CliRunner().invoke(
             ariel_group, ["attachments", "backfill", *args], catch_exceptions=False
         )

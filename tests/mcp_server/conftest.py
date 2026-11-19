@@ -25,7 +25,7 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_backend
 from osprey.stores.artifact_store import reset_artifact_store
 from osprey_connectors import testing
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests._config_lookup import reset_config_caches  # noqa: F401 - fixture, used by name
 
 # The two-target child harness, re-exported so pytest resolves its fixtures for
@@ -223,18 +223,18 @@ def _reset_singletons(monkeypatch):
         reset_artifact_store()
         reset_backend()
         _reset_facility_knowledge_bundle()
-        reset_config_cache()
-        _cfg._config_cache.clear()
+        clear_config_state()
+        _cfg._loads.clear()
 
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
+    monkeypatch.setattr(_cfg, "_installed", None)
+    monkeypatch.setattr(_cfg, "_last_lazy", None)
+    saved_cache = _cfg._loads.copy()
     _reset_all()
 
     yield
 
     _reset_all()
-    _cfg._config_cache.update(saved_cache)
+    _cfg._loads.update(saved_cache)
 
 
 @pytest.fixture(autouse=True)

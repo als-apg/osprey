@@ -32,11 +32,11 @@ pytestmark = pytest.mark.real_http_posters
 
 @pytest.fixture
 def patch_config():
-    """Patch load_osprey_config as referenced inside osprey.mcp_server.http."""
+    """Patch loaded_or_empty as osprey.mcp_server.http reads it."""
 
     def _apply(config: dict):
         return patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value=config,
         )
 
@@ -760,7 +760,7 @@ def test_panel_auth_headers_survive_a_refused_credential_population(monkeypatch)
 
 
 def _project_at(monkeypatch, root):
-    monkeypatch.setattr("osprey_connectors.workspace.resolve_shared_data_root", lambda: root)
+    monkeypatch.setattr("osprey.utils.config_paths.process_agent_data_root", lambda: root)
 
 
 def test_panel_auth_headers_fall_back_to_the_token_the_project_shares(monkeypatch, tmp_path):
@@ -808,6 +808,6 @@ def test_panel_auth_headers_send_nothing_when_the_project_does_not_resolve(monke
         raise RuntimeError("no project here")
 
     monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
-    monkeypatch.setattr("osprey_connectors.workspace.resolve_shared_data_root", _unresolvable)
+    monkeypatch.setattr("osprey.utils.config_paths.process_agent_data_root", _unresolvable)
 
     assert http._panel_auth_headers() == {}

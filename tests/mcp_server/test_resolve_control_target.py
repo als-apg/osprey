@@ -18,7 +18,7 @@ is how it tells "nothing recorded" apart from "recorded as live".
 
 Every case takes ``control_context_root``, which stamps
 ``OSPREY_AGENT_DATA_ROOT`` and drops the reader's cache on the way in and out.
-Without it the reader falls back to ``resolve_shared_data_root()`` and would
+Without it the reader falls back to ``process_agent_data_root()`` and would
 answer from whatever record the developer's own deployment left in the checkout.
 """
 

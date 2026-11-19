@@ -196,7 +196,7 @@ from osprey.services.auth_sidecar.identity_headers import (
 from osprey.services.auth_sidecar.revocation import REVOCATION_FILE_NAME
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.config import load_config
 from tests.e2e._deploy_support import (
     RUNTIME,
     container_id,
@@ -1765,7 +1765,7 @@ def test_a_logged_out_cookie_stays_refused_after_the_login_service_is_recreated(
 
     before = container_id(AUTH_C)
     monkeypatch.setenv("CONTAINER_RUNTIME", RUNTIME)
-    config = ConfigBuilder(str(repo / "build" / "config.yml")).raw_config
+    config = load_config(str(repo / "build" / "config.yml")).raw_tree()
     force_recreate_auth_sidecar(config, repo_root=repo)
     after = container_id(AUTH_C)
     assert before and after and before != after, (

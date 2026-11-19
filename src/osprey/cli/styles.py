@@ -153,14 +153,15 @@ def load_theme_from_config(config_path: str | None = None) -> ColorTheme:
         >>> # Load theme from specific config
         >>> theme = load_theme_from_config("/path/to/config.yml")
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config, load_config
 
+    config = current_config() if config_path is None else load_config(config_path)
     # Get theme name from config (default to "default")
-    theme_name = get_config_value("cli.theme", "default", config_path)
+    theme_name = config.get("cli.theme", "default")
 
     # Handle custom theme
     if theme_name == "custom":
-        custom_colors = get_config_value("cli.custom_theme", {}, config_path)
+        custom_colors = config.get("cli.custom_theme", {})
         if custom_colors:
             if not isinstance(custom_colors, dict):
                 logger.warning(

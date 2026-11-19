@@ -210,7 +210,7 @@ def cli(ctx, verbose):
     """
     import logging
 
-    from osprey_connectors.config import load_project_dotenv
+    from osprey_connectors.dotenv import load_project_dotenv
     from osprey_connectors.logger import configure_logging, set_handler_console
 
     from .altitude import install_gate

@@ -174,12 +174,12 @@ def render_session_artifacts(
         return {}
 
     from osprey.simulation.apply import active_archiver_events
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.config import facility_timezone
     from osprey_connectors.simulation.archive import build
     from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
-    tz = get_facility_timezone()
+    tz = facility_timezone()
     events = active_archiver_events(project_dir, names)
     payloads: dict[tuple[str, str], ArtifactPayload] = {}
     archive: ArchiveComposite | None = None

@@ -20,7 +20,7 @@ import click
 from osprey.cli import output
 from osprey.cli.styles import Styles, console
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.logger import get_logger
 
 from .repo_resolver import repo_option
@@ -126,7 +126,7 @@ def _failure_cause(exc: BaseException, repo_root: Path) -> str:
     config_path = as_built_config_path(repo_root)
     if config_path.is_file():
         try:
-            config = load_project_config(str(config_path), wrap_errors=True)
+            config = load_config(str(config_path)).raw_tree()
         except Exception:  # runtime selection only; the failure stands
             config = None
     detail = captured_failure_detail(exc, config=config)
@@ -550,7 +550,7 @@ def _preflight(repo_root: Path, reporter: PhaseReporter, *, nothing_done: str) -
                 "run `osprey build` to render it",
                 mark=False,
             )
-        config = load_project_config(str(config_path), wrap_errors=True)
+        config = load_config(str(config_path)).raw_tree()
         ensure_repo_env(repo_root, config, mark=False)
         # Last, so a refusal above still leaves through the phase rather than
         # being preceded by a warning about a deployment that is not going to

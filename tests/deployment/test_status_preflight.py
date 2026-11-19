@@ -28,15 +28,16 @@ from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+from osprey_connectors.testing import config_of
 
 _CONFIGS: dict[str, dict] = {}
 
 _STARTED_AT = datetime(2026, 8, 30, 12, 0, 0, tzinfo=UTC)
 
 
-def _fake_load_project_config(config_path, **kwargs):
+def _fake_load_config(config_path):
     """Stand-in for the shared project-config loader keyed by the path passed in."""
-    return _CONFIGS[config_path]
+    return config_of(_CONFIGS[str(config_path)], path=config_path)
 
 
 def _base_config(users):
@@ -75,7 +76,7 @@ def _write_marker(repo_root, user, written, findings):
 
 @pytest.fixture(autouse=True)
 def _patch_config_loader(monkeypatch):
-    monkeypatch.setattr(status_display, "load_project_config", _fake_load_project_config)
+    monkeypatch.setattr(status_display, "load_config", _fake_load_config)
     yield
     _CONFIGS.clear()
 

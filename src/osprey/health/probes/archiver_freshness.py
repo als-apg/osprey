@@ -54,8 +54,8 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from osprey.health.models import CheckResult, Status
+from osprey.services.pv_directory._connectors import service_table
 from osprey_connectors.service_answers import Unavailable
-from osprey_connectors.service_targets import service_targets
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -119,9 +119,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     start = now - timedelta(seconds=window_s)
 
     # The first target's archive: a health run has no session to pick one.
-    archive_spec = next(
-        (s for s in service_targets(config).archive.values() if s is not None), None
-    )
+    archive_spec = next((s for s in service_table(config).archive.values() if s is not None), None)
     if archive_spec is None:
         return CheckResult(
             name,
@@ -194,8 +192,8 @@ def _config(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     Resolution precedence mirrors :mod:`~osprey.health.probes.provider_canary`:
     an explicit per-run *config* (from ``ctx.config``, e.g. the web surface) is
     authoritative when present — the global singleton is never consulted in that
-    case — otherwise the config falls back to the global singleton via
-    :func:`~osprey_connectors.config.load_config`. The whole config, not the
+    case — otherwise the config falls back to the one this process reads
+    (:func:`~osprey_connectors.config.current_config`). The whole config, not the
     ``archiver:`` block: which target the archive serves turns on whether the
     deployment built a simulator. Any failure to load config is swallowed to an
     empty config, which the caller grades as a misconfiguration.
@@ -203,9 +201,9 @@ def _config(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     if config is not None:
         return config
     try:
-        from osprey_connectors.config import load_config
+        from osprey_connectors.config import current_config
 
-        return load_config()
+        return current_config().raw_tree()
     except Exception:  # config unavailability degrades to no config
         return {}
 

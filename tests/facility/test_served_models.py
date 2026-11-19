@@ -70,7 +70,7 @@ def test_a_texture_only_list_leaves_the_facility_file_and_the_graph_alone(
 async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_wiring_default(
     tmp_path: Path, built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     render_dir = _texture_only(tmp_path, built_demo)
     defaults = _sr_magnet_defaults(render_dir)
     connector = VAInProcessConnector()

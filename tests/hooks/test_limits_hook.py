@@ -19,6 +19,7 @@ import types
 import pytest
 import yaml
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.limits_posture import most_restrictive_limits_posture, target_limits_posture
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 
@@ -592,9 +593,9 @@ def test_hook_decision_matches_the_framework_resolver(tmp_path, hook_runner, sec
         _write_session_state(tmp_path, target)
 
     if target is None:
-        posture = most_restrictive_limits_posture(section)
+        posture = most_restrictive_limits_posture(ControlSystemSection.read(section))
     else:
-        posture = target_limits_posture(section, target)
+        posture = target_limits_posture(ControlSystemSection.read(section), target)
 
     # Act
     result = _unlisted_write(tmp_path, hook_runner, config)

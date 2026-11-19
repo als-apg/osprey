@@ -388,7 +388,10 @@ class TestResolvePrivilegeGates:
         def refuse_to_read(*args, **kwargs):
             pytest.fail("no config file was resolved, so nothing may be read")
 
-        with patch("osprey_connectors.config.get_config_value", refuse_to_read):
+        with (
+            patch("osprey.interfaces.web_terminal.config_view.load_config", refuse_to_read),
+            patch("osprey_connectors.config.current_config", refuse_to_read),
+        ):
             gates = resolve_privilege_gates(None)
 
         assert gates == PrivilegeGates(True, True)

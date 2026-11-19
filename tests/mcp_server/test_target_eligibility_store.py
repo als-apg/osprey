@@ -304,7 +304,7 @@ async def make_manager(store_root, child_environment, monkeypatch):  # noqa: ARG
     """
     from osprey.mcp_server.control_system import target_state
 
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: store_root)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: store_root)
     created = []
 
     def factory(raw, config_path):

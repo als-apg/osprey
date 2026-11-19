@@ -178,9 +178,9 @@ def _scope(repo: Path | None, config_option: Path | None) -> _Scope:
             requests=root / write_requests_relpath(),
             ledger=root / write_ledger_relpath(),
         )
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
-    config_path = config_option or resolve_config_path()
+    config_path = config_option or locate_config()
     return _Scope(
         repo_root=None,
         config=_load(config_path) if config_path.is_file() else None,
@@ -200,11 +200,12 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
     this host, the rendered config, as the web terminal's card reads it.
     """
     from osprey_connectors import write_switch
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     section = (scope.config or {}).get("control_system")
     try:
-        if tier_writes(section) == "never":
+        if tier_writes(ControlSystemSection.read(section)) == "never":
             return "never"
         if in_container and scope.repo_root is not None:
             from osprey.deployment.status_display import _mapped_tier, _staged_login_tiers
@@ -212,20 +213,25 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
             staged = _staged_login_tiers(scope.repo_root)
             if staged is not None:
                 return str(_mapped_tier(staged, owner))
-        rung = write_switch.owner_tier_term(section, owner)
+        rung = write_switch.owner_tier_term(ControlSystemSection.read(section), owner)
         if rung in ("never", "unknown"):
             return rung
-        return write_switch.write_ceiling(section, owner)
+        return write_switch.write_ceiling(ControlSystemSection.read(section), owner)
     except Exception:  # an unreadable tier is not an allowed one
         return "unknown"
 
 
 def _configured_targets(scope: _Scope) -> tuple[str, ...]:
     """The control targets the config describes, as the chip's approval checks them; ``()`` for none."""
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import configured_targets
 
     try:
-        return tuple(configured_targets((scope.config or {}).get("control_system")))
+        return tuple(
+            configured_targets(
+                ControlSystemSection.read((scope.config or {}).get("control_system"))
+            )
+        )
     except Exception:  # an unreadable config configures no targets
         return ()
 

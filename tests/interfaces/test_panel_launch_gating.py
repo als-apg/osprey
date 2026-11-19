@@ -13,6 +13,7 @@ cannot be fixed for one panel and missed on the next.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -25,7 +26,8 @@ from osprey.registry.web import (
     framework_web_port_default,
     panel_url_state_attr,
 )
-from osprey_connectors import workspace
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 ALL_KEYS = sorted(FRAMEWORK_WEB_SERVERS)
 
@@ -71,43 +73,48 @@ def launched(monkeypatch) -> list[str]:
 
 
 @pytest.fixture
-def config(monkeypatch) -> dict:
-    """A mutable config seen by both the launcher and the address resolver."""
-    cfg: dict = {}
-    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: cfg)
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: cfg)
+def serve_tree(monkeypatch) -> Callable[[dict], None]:
+    """Serve a config tree as the process config, read by the launcher and the address resolver.
+
+    An empty config is served until the test serves its own.
+    """
     # An inherited port override would decide the port out from under the
     # config these tests set.
     for definition in FRAMEWORK_WEB_SERVERS.values():
         monkeypatch.delenv(definition.port_env_var, raising=False)
-    return cfg
+
+    def serve(tree: dict) -> None:
+        serve_config(config_of(tree))
+
+    serve({})
+    return serve
 
 
 @pytest.mark.parametrize("key", ALL_KEYS)
 class TestAutoLaunchGating:
-    def test_auto_launch_false_publishes_no_url(self, key, config, stub_app, launched):
+    def test_auto_launch_false_publishes_no_url(self, key, serve_tree, stub_app, launched):
         """The defect: a suppressed server advertised as a live panel."""
         definition = FRAMEWORK_WEB_SERVERS[key]
-        config.update(_address_config(definition, auto_launch=False, port=8099))
+        serve_tree(_address_config(definition, auto_launch=False, port=8099))
 
         _launch(stub_app, key)
 
         assert _url(stub_app, key) is None
         assert launched == []
 
-    def test_auto_launch_true_publishes_the_resolved_url(self, key, config, stub_app, launched):
+    def test_auto_launch_true_publishes_the_resolved_url(self, key, serve_tree, stub_app, launched):
         definition = FRAMEWORK_WEB_SERVERS[key]
-        config.update(_address_config(definition, auto_launch=True, host="127.0.0.1", port=8099))
+        serve_tree(_address_config(definition, auto_launch=True, host="127.0.0.1", port=8099))
 
         _launch(stub_app, key)
 
         assert _url(stub_app, key) == "http://127.0.0.1:8099"
         assert launched == [key]
 
-    def test_launch_failure_retracts_the_url(self, key, config, stub_app, monkeypatch):
+    def test_launch_failure_retracts_the_url(self, key, serve_tree, stub_app, monkeypatch):
         """A URL assigned before the launch blew up must not survive it."""
         definition = FRAMEWORK_WEB_SERVERS[key]
-        config.update(_address_config(definition, auto_launch=True, port=8099))
+        serve_tree(_address_config(definition, auto_launch=True, port=8099))
 
         def _boom(_key: str) -> None:
             raise OSError("port unusable")
@@ -118,12 +125,18 @@ class TestAutoLaunchGating:
 
         assert _url(stub_app, key) is None
 
-    def test_unreadable_config_publishes_no_url(self, key, stub_app, launched, monkeypatch):
-        def _boom() -> dict:
-            raise RuntimeError("config.yml is unreadable")
+    def test_a_gate_that_raises_publishes_no_url(self, key, stub_app, launched, monkeypatch):
+        """A launch whose auto-launch gate blows up publishes nothing.
 
-        monkeypatch.setattr(server_launcher, "load_osprey_config", _boom)
-        monkeypatch.setattr(workspace, "load_osprey_config", _boom)
+        An unreadable config.yml does not get here: the framework readers
+        degrade it to an empty tree. What is pinned is the launcher's own guard
+        around the gate, so a reader that raises can never leave a dead tab.
+        """
+
+        def _boom(_key: str) -> bool:
+            raise RuntimeError("the gate could not be read")
+
+        monkeypatch.setattr(server_launcher, "is_auto_launch_enabled", _boom)
 
         _launch(stub_app, key)
 
@@ -143,7 +156,7 @@ class TestAutoLaunchGating:
     ids=["unset", "override", "set-but-empty"],
 )
 def test_published_port_equals_the_port_the_launcher_binds(
-    key, env_value, config_port, expected_port, config, stub_app, monkeypatch
+    key, env_value, config_port, expected_port, serve_tree, stub_app, monkeypatch
 ):
     """The advertised port and the bound port are compared, not assumed equal.
 
@@ -159,7 +172,7 @@ def test_published_port_equals_the_port_the_launcher_binds(
     address = {"auto_launch": True}
     if config_port is not None:
         address["port"] = config_port
-    config.update(_address_config(definition, **address))
+    serve_tree(_address_config(definition, **address))
     if env_value is None:
         monkeypatch.delenv(definition.port_env_var, raising=False)
     else:
@@ -220,7 +233,7 @@ class TestEnabledPanelSelection:
         assert sorted(launch_calls) == ALL_KEYS
 
 
-@pytest.mark.usefixtures("config")
+@pytest.mark.usefixtures("serve_tree")
 @pytest.mark.parametrize(
     "key", sorted(k for k, d in FRAMEWORK_WEB_SERVERS.items() if d.require_section)
 )
@@ -232,7 +245,7 @@ def test_missing_section_publishes_no_url(key, stub_app, launched):
     assert launched == []
 
 
-@pytest.mark.usefixtures("config")
+@pytest.mark.usefixtures("serve_tree")
 @pytest.mark.parametrize(
     "key", sorted(k for k, d in FRAMEWORK_WEB_SERVERS.items() if not d.require_section)
 )

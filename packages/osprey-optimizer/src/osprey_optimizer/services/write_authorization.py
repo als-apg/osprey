@@ -253,9 +253,9 @@ def _epoch_ns(moment: datetime) -> int:
 
 
 def _control_system_section() -> object:
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
-    return get_config_value("control_system", None)
+    return current_config().get("control_system", None)
 
 
 class RunAuthorization:
@@ -340,6 +340,7 @@ class RunAuthorization:
                 request is withdrawn.
         """
         from osprey_connectors import write_authorization as wa
+        from osprey_connectors.config_sections import ControlSystemSection
 
         self._target = plan.target
         self._publish(
@@ -364,7 +365,7 @@ class RunAuthorization:
         expires_at = datetime.now(UTC) + timedelta(seconds=expires_s)
         try:
             grant = wa.self_issue(
-                _control_system_section(),
+                ControlSystemSection.read(_control_system_section()),
                 plan.target,
                 plan.ranges(),
                 steps=plan.steps,

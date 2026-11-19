@@ -419,7 +419,7 @@ def setup_llm_test_environment(test_config, monkeypatch):
 
     test_config.write_text(yaml.dump(config))
 
-    monkeypatch.setenv("CONFIG_FILE", str(test_config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(test_config))
 
     # Remove proxy env vars that interfere with direct API calls
     for var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENAI_BASE_URL", "OPENAI_API_BASE"):
@@ -429,17 +429,17 @@ def setup_llm_test_environment(test_config, monkeypatch):
     from osprey_connectors import config as config_module
 
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
+    config_module._installed = None
+    config_module._last_lazy = None
+    config_module._loads.clear()
     initialize_registry(config_path=str(test_config))
 
     yield
 
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
+    config_module._installed = None
+    config_module._last_lazy = None
+    config_module._loads.clear()
 
 
 # =============================================================================

@@ -24,7 +24,7 @@ def _load(spec: dict) -> dict:
     """The custom panel ``_load_panel_config`` derives from one ``slow`` block."""
     block = {"label": "SLOW", "url": "http://127.0.0.1:9300", **spec}
     with patch(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         return_value={"web": {"panels": {"slow": block}}},
     ):
         _enabled, custom, _default = _load_panel_config()

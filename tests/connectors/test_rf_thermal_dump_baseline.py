@@ -18,7 +18,7 @@ import yaml
 
 from osprey.facility.sources import read_yaml
 from osprey_connectors.archive_store import field_name
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.archive import ArchiveComposite, _synthesize_documents, build
 from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
@@ -53,7 +53,7 @@ def archive(built_demo) -> ArchiveComposite:
     return build(
         view,
         ActiveState(names=["rf-thermal"], anchor_at=datetime.fromtimestamp(RF_ANCHOR_S, UTC)),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
 
 
@@ -63,7 +63,7 @@ def dump(facility) -> dict[str, Any]:
     (stated,) = next(
         item["events"] for item in facility["scenario"]["archiver"] if item["channel"] == DCCT
     )
-    tz = get_facility_timezone()
+    tz = facility_timezone()
     step = view_event(stated)
     start = _instant(step.placement, anchor_s=RF_ANCHOR_S, tz=tz)
     end = _step_end(step, anchor_s=RF_ANCHOR_S, tz=tz)

@@ -31,7 +31,7 @@ from click.testing import CliRunner, Result
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.simulation import TEXTURE
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, serve_writes_enabled
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -441,7 +441,7 @@ async def test_als_shaped_namespace_round_trip(
 
     collapsed = "SR04U_GDS1PS_AC00"
     # A write tier that allows, and the simulator's switch on: both halves of the verdict.
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_writes_enabled()
     arm_switch(monkeypatch, tmp_path / "agent-data")
     connector = await _served(project)
     try:

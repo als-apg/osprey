@@ -48,8 +48,8 @@
     VIRTUAL ACCELERATOR's seeded past, so the virtual accelerator is what it
     samples. A live stand-in deployed beside it is never recorded here — the
     stand-in rehearses the facility's real machine and is shown that machine's
-    past (the archiver appliance, when the deployment names one; see
-    `osprey_connectors.deployment.archive_targets`). Both wiring sites below therefore
+    past (the archiver appliance, when the deployment names one; see the archive
+    row of `osprey_connectors.service_targets.service_targets`). Both wiring sites below therefore
     name the `virtual-accelerator` service and its port, whatever else the
     deployment stood up. #}
 
@@ -109,8 +109,10 @@ services:
       # project dir, so the path is named rather than discovered: the
       # recorder's own default is this same mounted path, and CONFIG_FILE
       # states it here rather than supplying it — the same CONFIG_FILE
-      # convention the dispatch worker and bluesky bridge follow.
+      # convention the dispatch worker and bluesky bridge follow. The
+      # connectors package reads OSPREY_CONFIG alone, so it names the same file.
       CONFIG_FILE: /app/project/build/config.yml
+      OSPREY_CONFIG: /app/project/build/config.yml
       # In-network overrides for the archiver connection. The connection block in
       # config.yml is written for the HOST side — `localhost` and the
       # host-published `port_host` — which is unreachable from inside the

@@ -74,7 +74,7 @@ class FakeBackend:
     @property
     def field_properties(self) -> Any:
         """The property map a ChannelFinder directory answers, built with the spec's settings."""
-        description = self.spec.settings.get("description_property") or "recordDesc"
+        description = self.spec.settings.model_dump().get("description_property") or "recordDesc"
         return {
             "status": "pvStatus",
             "channel_type": "recordType",
@@ -959,7 +959,7 @@ async def test_hiding_reads_the_description_property_the_backend_was_built_with(
     backend, source, _reason = await directory.backend("pv_directory")
 
     assert (backend.spec.type, source.target) == ("simulator_view", "va")
-    assert backend.spec.settings["description_property"] == "Comment"
+    assert backend.spec.settings.model_dump()["description_property"] == "Comment"
     assert [row["description"] for row in page["rows"]] == [None]
     assert found["record"]["row"]["description"] is None
     await directory.aclose()
@@ -1068,8 +1068,8 @@ async def test_demo_replay_is_rewritten_to_the_packaged_file(tmp_path: Path) -> 
     backend, _source, _reason = await directory.backend("alarm_state")
 
     expected = resolve_replay_file("demo:example-alarms", tmp_path)
-    assert backend.spec.settings["replay_file"] == str(expected)
-    assert Path(backend.spec.settings["replay_file"]).is_absolute()
+    assert backend.spec.settings.model_dump()["replay_file"] == str(expected)
+    assert Path(backend.spec.settings.model_dump()["replay_file"]).is_absolute()
     await directory.aclose()
 
 

@@ -92,9 +92,9 @@ class BaseStore(Generic[T]):
         # inside the zone every build replaces, while every other reader used
         # the durable one. Shared (not session-isolated) because a store's data
         # must stay visible to the long-lived gallery and ARIEL daemons.
-        from osprey_connectors.workspace import resolve_shared_data_root
+        from osprey.utils.config_paths import process_agent_data_root
 
-        self._workspace = workspace_root or resolve_shared_data_root()
+        self._workspace = workspace_root or process_agent_data_root()
         self._store_dir = self._workspace / self._subdir if self._subdir else self._workspace
         self._index_file = self._store_dir / self._index_filename
         self._entries: list[T] = []
@@ -118,10 +118,11 @@ class BaseStore(Generic[T]):
         an entry records) and the read side (the gallery resolving one) cannot
         answer differently.
         """
+        from osprey.utils.config_paths import loaded_or_empty
         from osprey.utils.workspace import repo_root_for_agent_data
-        from osprey_connectors.workspace import agent_data_base_dir, load_osprey_config
+        from osprey_connectors.workspace import agent_data_base_dir
 
-        return repo_root_for_agent_data(self._workspace, agent_data_base_dir(load_osprey_config()))
+        return repo_root_for_agent_data(self._workspace, agent_data_base_dir(loaded_or_empty()))
 
     def _entry_from_dict(self, d: dict) -> T:
         raise NotImplementedError

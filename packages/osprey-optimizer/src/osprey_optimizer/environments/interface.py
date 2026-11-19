@@ -135,14 +135,14 @@ class _PoolBridge:
     """One event-loop thread and one ``ConnectorHostPool`` for this process."""
 
     def __init__(self) -> None:
-        from osprey_connectors.config import default_config_path, get_config_value
+        from osprey_connectors.config import active_config, current_config
         from osprey_connectors.ipc import ConnectorHostPool
 
-        section = get_config_value("control_system", None)
+        section = current_config().get("control_system", None)
         if not section:
             raise InterfaceError(
                 "The project config has no control_system section, so the optimizer has no "
-                "control target to reach. Set CONFIG_FILE to the deployment's config.yml."
+                "control target to reach. Set OSPREY_CONFIG to the deployment's config.yml."
             )
         if not isinstance(section, dict):
             raise InterfaceError(
@@ -156,8 +156,12 @@ class _PoolBridge:
         self._thread.start()
         # The engine re-writes the same setpoints every step and restores them
         # after a run, so a write that timed out must not land after a newer one.
+        # The file the lookup above loaded, so the children read the same one.
+        loaded = active_config()
         self._pool = ConnectorHostPool(
-            pool_section(section), config_file=default_config_path(), kill_on_write_timeout=True
+            pool_section(section),
+            config_file=loaded.path if loaded is not None else None,
+            kill_on_write_timeout=True,
         )
         self._connectors: dict[_ConnectorKey, ControlSystem] = {}
 

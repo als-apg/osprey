@@ -126,6 +126,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix_collisions,
 )
 from osprey.utils.workspace import LAYER_DIR_KINDS
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import TARGET_LIVE, speaks_channel_access
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.targets import baseline_target, configured_targets, resolve_target
@@ -2648,7 +2649,7 @@ def _layers_allow_writes(*layers: Any) -> bool:
     Read through :func:`~osprey_connectors.write_tier.tier_allows`, so silence and any
     value a raw layer carries that is not an arming word read ``never``.
     """
-    return tier_allows({"writes": _resolved_writes(*layers)})
+    return tier_allows(ControlSystemSection.read({"writes": _resolved_writes(*layers)}))
 
 
 def _live_writes_type(section: Any, *, tier_allows_writes: bool) -> str | None:
@@ -2672,17 +2673,21 @@ def _live_writes_type(section: Any, *, tier_allows_writes: bool) -> str | None:
     acknowledgment is not required here: it is the last step before the first
     switch, and the card should be named before that.
     """
-    if not tier_allows_writes or TARGET_LIVE not in configured_targets(section):
+    if not tier_allows_writes or TARGET_LIVE not in configured_targets(
+        ControlSystemSection.read(section)
+    ):
         return None
     try:
-        live_type = resolve_target(section, TARGET_LIVE)
+        live_type = resolve_target(ControlSystemSection.read(section), TARGET_LIVE)
     except ValueError:
         return None
-    if baseline_target(section) == TARGET_LIVE:
+    if baseline_target(ControlSystemSection.read(section)) == TARGET_LIVE:
         return live_type
     connector = section.get("connector") if isinstance(section, dict) else None
     block = connector.get(live_type) if isinstance(connector, dict) else None
-    if not isinstance(block, dict) or not speaks_channel_access(section, live_type):
+    if not isinstance(block, dict) or not speaks_channel_access(
+        ControlSystemSection.read(section), live_type
+    ):
         return None
     probe = block.get("probe_channel")
     if not block.get("gateways") or probe is None or not str(probe).strip():

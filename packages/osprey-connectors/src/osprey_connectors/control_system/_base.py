@@ -18,7 +18,17 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from enum import StrEnum
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, Self, TypeAlias, TypeGuard, final
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    Literal,
+    Protocol,
+    Self,
+    TypeAlias,
+    TypeGuard,
+    TypeVar,
+    final,
+)
 
 from pydantic import (
     AwareDatetime,
@@ -32,12 +42,21 @@ from typing_extensions import override
 
 from osprey_connectors import write_authorization, write_switch
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.call_timeout import call_timeout_s
+from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY, call_timeout_s
+from osprey_connectors.config_sections import (
+    ConnectorSettings,
+    ControlSystemSection,
+    settings_key,
+)
 from osprey_connectors.connector_types import Transport
 from osprey_connectors.control_system.write_door import open_door
-from osprey_connectors.errors import ChannelError, ChannelReadFailedError, LimitsViolation
+from osprey_connectors.errors import (
+    ChannelError,
+    ChannelReadFailedError,
+    LimitsViolation,
+)
 from osprey_connectors.execution_mode import is_readonly_run
-from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping, evolve
 from osprey_connectors.refusals import RefusalReason, VerdictReason, VerdictReasonField
 from osprey_connectors.write_switch import Allowed, Refused, WriteVerdict
 
@@ -669,6 +688,65 @@ _MCP_SERVER_PACKAGE_PARTS = ("osprey", "mcp_server")
 ReadonlyWording: TypeAlias = Literal["script", "deployment"]
 
 
+#: The dotted key of every control-system connector block, ahead of its type.
+_CONNECTOR_BLOCK_PREFIX = "control_system.connector."
+
+
+def connector_block_key(connector_type: str | None) -> str:
+    """The dotted key of *connector_type*'s block; ``<type>`` stands in for no type."""
+    return f"{_CONNECTOR_BLOCK_PREFIX}{connector_type or '<type>'}"
+
+
+class ControlSystemSettings(ConnectorSettings):
+    """A control-system connector's own block, ``control_system.connector.<type>``, read.
+
+    The settings every connector type's
+    :attr:`ControlSystemConnector.settings_model` extends: it reads
+    ``timeout_s``, the call bound every connector has, and keeps every other key
+    as written, so an out-of-tree connector that declares no model of its own
+    reads its keys from :attr:`~pydantic.BaseModel.model_extra`. Keys the
+    package reads elsewhere (``limits_checking``, ``serving``) stay there too.
+
+    Read with :meth:`from_block` under :func:`connector_block_key`, which names
+    the type in a refusal.
+    """
+
+    #: The seconds one call is given when it names no bound of its own
+    #: (:func:`~osprey_connectors.call_timeout.call_timeout_s`'s rule; the
+    #: retired ``timeout`` key is refused).
+    timeout_s: float = DEFAULT_TIMEOUT_S
+
+    @model_validator(mode="before")
+    @classmethod
+    def _bounded(cls, data: object, info: ValidationInfo[object]) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        return {**data, TIMEOUT_KEY: call_timeout_s(data, _settings_type(info))}
+
+
+def _settings_type(info: ValidationInfo[object]) -> str | None:
+    """The connector type a settings validation's block key names, for a refusal's key."""
+    key = settings_key(info)
+    if key is None or not key.startswith(_CONNECTOR_BLOCK_PREFIX):
+        return None
+    connector_type = key.removeprefix(_CONNECTOR_BLOCK_PREFIX)
+    return None if connector_type == "<type>" else connector_type
+
+
+_Settings = TypeVar("_Settings", bound=ControlSystemSettings)
+
+
+def _settings_as(settings: ControlSystemSettings, model: type[_Settings]) -> _Settings:
+    """*settings* as the model its connector declares, which ``connect()`` made it.
+
+    Raises:
+        TypeError: *settings* is another model: ``_open`` was called by hand.
+    """
+    if not isinstance(settings, model):
+        raise TypeError(f"{model.__name__} expected, got {type(settings).__name__}")
+    return settings
+
+
 class ConnectorContext(FrozenModel):
     """What a control-system connector is built for: the one argument of ``connect()``.
 
@@ -691,12 +769,28 @@ class ConnectorContext(FrozenModel):
     control_target: str | None = None
     #: The wire the connector speaks, from the type and the serving leaf.
     transport: Transport | None = None
-    #: The connector's own block, ``control_system.connector.<type>``, handed to
-    #: :meth:`ControlSystemConnector._open`.
-    settings: ReadOnlyMapping[str, ContractAny] = Field(default_factory=empty_mapping)
+    #: The connector's own block, ``control_system.connector.<type>``, read: the
+    #: factory reads it into the type's
+    #: :attr:`ControlSystemConnector.settings_model`. A mapping given here is read
+    #: into the base model, and ``connect()`` reads it into the connector's own
+    #: before :meth:`ControlSystemConnector._open` is handed it.
+    settings: ControlSystemSettings = Field(default_factory=ControlSystemSettings)
     #: How a readonly refusal on this connector is worded. Only the remedy
     #: sentence changes; the refusal is the same either way.
     readonly_wording: ReadonlyWording = "script"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _settings_of_its_type(cls, data: object) -> object:
+        """Settings given as a mapping are read for the context's own type, named in a refusal."""
+        if not isinstance(data, Mapping) or not isinstance(data.get("settings"), Mapping):
+            return data
+        connector_type = data.get("connector_type")
+        settings = ControlSystemSettings.from_block(
+            data["settings"],
+            key=connector_block_key(connector_type if isinstance(connector_type, str) else None),
+        )
+        return {**data, "settings": settings}
 
 
 def _readonly_is_deployment_wide(wording: ReadonlyWording) -> bool:
@@ -773,7 +867,7 @@ _READONLY_SCRIPT_REMEDY = (
 )
 
 
-def _monitor_section() -> object:
+def _monitor_section() -> ControlSystemSection:
     """The ``control_system`` section the reference monitor judges by.
 
     Empty for a read-only run, which is answered before any config is read: it
@@ -781,13 +875,13 @@ def _monitor_section() -> object:
     nothing — the section is then empty, which the tier answers ``never``.
     """
     if is_readonly_run():
-        return {}
+        return ControlSystemSection()
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        return get_config_value("control_system", {})
+        return current_config().control_system
     except (FileNotFoundError, RuntimeError):
-        return {}
+        return ControlSystemSection()
 
 
 def _named_authorization() -> str | None:
@@ -1208,6 +1302,14 @@ class ControlSystemConnector(ABC):
         >>>     await connector.disconnect()
     """
 
+    #: The model this connector's block is read into: the factory reads
+    #: ``control_system.connector.<type>`` into it, and :meth:`connect` reads a
+    #: context's settings into it when they are another model. A connector type
+    #: that reads keys of its own declares a subclass of
+    #: :class:`ControlSystemSettings`; one that declares none reads them from
+    #: :attr:`~pydantic.BaseModel.model_extra`.
+    settings_model: ClassVar[type[ControlSystemSettings]] = ControlSystemSettings
+
     #: What this connector was built for, set by :meth:`connect`. A connector
     #: nobody connected holds the empty context: no type, no target, no wire.
     _context: ConnectorContext = ConnectorContext()
@@ -1247,7 +1349,7 @@ class ControlSystemConnector(ABC):
             ConfigurationError: The block still carries ``timeout``, or its
                 ``timeout_s`` is not a positive, finite number.
         """
-        return call_timeout_s(self._context.settings, self._context.connector_type)
+        return self._context.settings.timeout_s
 
     # The verdict the last :attr:`_writes_enabled` evaluation reached, so the
     # refusal it leads to is worded from the same answer without reading the
@@ -1415,12 +1517,18 @@ class ControlSystemConnector(ABC):
         from osprey_connectors.control_system._limits_validator import LimitsValidator
 
         validator = LimitsValidator.from_config(connector_type=context.connector_type)
+        settings = context.settings
+        if not isinstance(settings, self.settings_model):
+            settings = self.settings_model.read(
+                settings, key=connector_block_key(context.connector_type)
+            )
+            context = evolve(context, settings=settings)
         self._context = context
         self._limits_validator = validator
-        await self._open(context.settings)
+        await self._open(settings)
 
     @abstractmethod
-    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """Establish the connection to the control system.
 
         Called by :meth:`connect` once the context is stored, so
@@ -1428,7 +1536,8 @@ class ControlSystemConnector(ABC):
         connector.
 
         Args:
-            settings: The connector's own block, ``control_system.connector.<type>``.
+            settings: The connector's own block, ``control_system.connector.<type>``,
+                read into :attr:`settings_model`.
 
         Raises:
             ConnectorUnavailableError: If connection cannot be established

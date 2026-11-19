@@ -30,7 +30,8 @@ from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey_connectors.archive_store import field_name, mongo_client_kwargs
 from osprey_connectors.archiver_selection import resolve_archiver_type
-from osprey_connectors.config import get_facility_timezone, load_config
+from osprey_connectors.config import facility_timezone, load_config
+from osprey_connectors.config_sections import ArchiverSection
 from osprey_connectors.connector_types import MONGODB_ARCHIVER
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import resolve_relative_timestamp
@@ -206,7 +207,7 @@ def apply_scenarios(
     from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView, view_path
 
     project_dir = Path(project_dir)
-    config = load_config(str(_config_file(project_dir)))
+    config = load_config(_config_file(project_dir)).raw_tree()
 
     view = SimulatorView.find(project_dir)
     if view is None:
@@ -223,7 +224,7 @@ def apply_scenarios(
     # must match where the simulator places the telemetry it narrates (daily
     # ``at_time`` events are facility-local). A UTC default silently shifts the
     # narrative hours away from its archiver evidence on a non-UTC facility.
-    t0 = now or datetime.now(get_facility_timezone())
+    t0 = now or datetime.now(facility_timezone())
     # The writer validates composition and raises on collisions/unknowns before
     # anything is written. Not announced here. Both callers already say it:
     # `osprey sim apply` echoes `✓ Active scenarios: …`, and the deploy-time
@@ -431,7 +432,7 @@ def _seed_scenario_sessions(config: dict, project_dir: Path, active: Sequence[st
         if anchor_at is None:
             logger.warning("Scenario sessions not seeded: the scenario state records no anchor")
             return
-        anchor = anchor_at.astimezone(get_facility_timezone())
+        anchor = anchor_at.astimezone(facility_timezone())
         write_scenario_sessions(config, project_dir, active, anchor)
     except Exception as e:
         logger.warning(f"Scenario sessions not seeded: {type(e).__name__}: {e}")
@@ -651,7 +652,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
 
     # Read in the facility zone, as the simulator reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
-    zone = get_facility_timezone()
+    zone = facility_timezone()
     persisted = persisted_scenario_anchor(config, project_dir)
     anchor = persisted.astimezone(zone) if persisted is not None else datetime.now(zone)
 
@@ -817,8 +818,7 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         when the project's archiver is not the MongoDB archiver, or when that
         function finds no store to connect to.
     """
-    archiver = config.get("archiver") or {}
-    if resolve_archiver_type(archiver) != MONGODB_ARCHIVER:
+    if resolve_archiver_type(ArchiverSection.read(config.get("archiver"))) != MONGODB_ARCHIVER:
         return None
     return archiver_store_connection(config, project_dir)
 
@@ -1223,7 +1223,7 @@ def seed_archiver(
     events = {
         pv: script for pv, script in active_archiver_events(project_dir, names).items() if script
     }
-    tz = get_facility_timezone()
+    tz = facility_timezone()
 
     with archiver_collection(store) as collection:
         manifest = collection.find_one({"_id": MANIFEST_ID})
@@ -1677,11 +1677,11 @@ def _densify_interval(
     one of them would be the same defect this feature exists to remove, told in
     the opposite direction.
     """
-    reach = float(knobs.tail_cadence_sec)
+    reach = float(knobs.tail_cadence_s)
     grid = [
         moment
-        for moment in _aligned_epochs(start, end, knobs.hot_cadence_sec)
-        if moment % knobs.tail_cadence_sec != 0
+        for moment in _aligned_epochs(start, end, knobs.hot_cadence_s)
+        if moment % knobs.tail_cadence_s != 0
     ]
     if not grid:
         return 0, 0

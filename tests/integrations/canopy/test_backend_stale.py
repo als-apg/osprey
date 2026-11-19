@@ -33,6 +33,7 @@ from osprey.runtime.session import (
 from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -126,10 +127,7 @@ def deployment(tmp_path, monkeypatch):
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
     monkeypatch.chdir(tmp_path)
 
-    def get_config_value(path, default=None, _config_path=None):
-        return VA_SECTION if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+    serve_control_system(VA_SECTION)
 
     exits: list[int] = []
 

@@ -111,13 +111,13 @@ def serve(host: str, port: int | None, lease_dir: Path | None) -> None:
 
 def _deployment(repo: Path | None) -> _Deployment:
     """The deployment repo and its rendered config; refused when there is no build."""
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
     build = find_build(repo, "The agent record is the one the rendered config describes.")
     if build is None:
         raise click.exceptions.Exit(1)
     repo_root, config_path = build
-    return _Deployment(root=repo_root, config=load_project_config(str(config_path)))
+    return _Deployment(root=repo_root, config=load_config(str(config_path)).raw_tree())
 
 
 @contextmanager

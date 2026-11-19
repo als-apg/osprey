@@ -525,7 +525,7 @@ class TestLifespanConcealsItsStores:
         with terminal_client(
             workspace_dir,
             patch(
-                "osprey_connectors.workspace.resolve_shared_data_root",
+                "osprey.utils.config_paths.process_agent_data_root",
                 return_value=workspace_dir,
             ),
             patch(
@@ -996,7 +996,7 @@ class TestFirstEverStartup:
         with terminal_client(
             workspace_dir,
             patch(
-                "osprey_connectors.workspace.resolve_shared_data_root",
+                "osprey.utils.config_paths.process_agent_data_root",
                 return_value=store_root,
             ),
         ) as client:

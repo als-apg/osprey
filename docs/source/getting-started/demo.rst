@@ -377,7 +377,7 @@ See :doc:`../how-to/use-channel-finder` for a comparison of the strategies.
 
 **Tune how much history the archive keeps.** Two settings decide the store's
 size and reach: ``retention_days`` (how far back it goes — 30 by default) and
-``hot_span_hours`` (how much of that is kept at the dense 10-second cadence —
+``hot_span_h`` (how much of that is kept at the dense 10-second cadence —
 48 by default; everything older is kept at 60 seconds). Both live in the
 **profile**, in its ``va_archiver:`` block, which is the one place the archive is
 described:
@@ -387,7 +387,7 @@ described:
    # profile.yml
    va_archiver:
      retention_days: 7        # a week is plenty for a demo, and seeds faster
-     hot_span_hours: 24
+     hot_span_h: 24
 
 Rebuild and deploy after editing. The deploy notices the stored history no
 longer matches what the profile asks for, says what changed, and reseeds it

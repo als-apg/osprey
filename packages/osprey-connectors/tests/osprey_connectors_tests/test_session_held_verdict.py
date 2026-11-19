@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors import _control_state, session_hold, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
@@ -43,7 +44,7 @@ from osprey_connectors_tests._write_fakes import (
     ARMED_SECTION,
     RecordingConnector,
     arm_switch,
-    writes_enabled_config,
+    serve_writes_enabled,
 )
 from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
 
@@ -119,7 +120,7 @@ def _corrupt(root: Path) -> None:
 def _armed(monkeypatch, tmp_path) -> None:
     """The simulator's switch on, and a tier that allows writes."""
     arm_switch(monkeypatch, tmp_path / "data", TARGET_VA)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_writes_enabled()
 
 
 # -- the words ---------------------------------------------------------------------
@@ -245,9 +246,9 @@ def test_no_session_keys_belong_to_no_session():
     _flag()  # the environment's session is held, and is not asked
     assert session_hold_refusal(session_keys=[]) is None
     assert session_hold_refusal(session_keys=[""]) is None
-    assert execution_verdict(ARMED_SECTION, TARGET_VA, session_keys=[]) == write_verdict(
-        ARMED_SECTION, TARGET_VA
-    )
+    assert execution_verdict(
+        ControlSystemSection.read(ARMED_SECTION), TARGET_VA, session_keys=[]
+    ) == write_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA)
 
 
 @pytest.mark.usefixtures("hold_root")
@@ -289,14 +290,21 @@ def test_execution_verdict_asks_the_named_sessions(monkeypatch, tmp_path):
     _armed(monkeypatch, tmp_path)
     _flag()  # the environment's session
     session_hold.ensure_session(OTHER)
-    allowed = execution_verdict(ARMED_SECTION, TARGET_VA, session_keys=[OTHER])
+    allowed = execution_verdict(
+        ControlSystemSection.read(ARMED_SECTION), TARGET_VA, session_keys=[OTHER]
+    )
     assert allowed.allowed is True
-    assert allowed == write_verdict(ARMED_SECTION, TARGET_VA)
+    assert allowed == write_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA)
 
-    held = execution_verdict(ARMED_SECTION, TARGET_VA, session_keys=[OTHER, KEY])
+    held = execution_verdict(
+        ControlSystemSection.read(ARMED_SECTION), TARGET_VA, session_keys=[OTHER, KEY]
+    )
     assert held.reason == "session_held"
     assert (held.target, held.kind) == (TARGET_VA, "simulator")
-    assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "session_held"
+    assert (
+        execution_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA).reason
+        == "session_held"
+    )
 
 
 # -- execution_verdict -------------------------------------------------------------
@@ -305,8 +313,8 @@ def test_execution_verdict_asks_the_named_sessions(monkeypatch, tmp_path):
 @pytest.mark.usefixtures("hold_root")
 def test_held_with_the_switch_off_refuses_session_held():
     _flag()
-    assert write_verdict(ARMED_SECTION, TARGET_VA).reason == "switch_off"
-    verdict = execution_verdict(ARMED_SECTION, TARGET_VA)
+    assert write_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA).reason == "switch_off"
+    verdict = execution_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA)
     assert verdict.reason == "session_held"
     assert verdict.allowed is False
 
@@ -314,8 +322,8 @@ def test_held_with_the_switch_off_refuses_session_held():
 @pytest.mark.usefixtures("hold_root")
 def test_the_held_answer_keeps_the_target_and_kind_of_the_verdict():
     _flag()
-    plain = write_verdict(ARMED_SECTION, TARGET_VA)
-    verdict = execution_verdict(ARMED_SECTION, TARGET_VA)
+    plain = write_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA)
+    verdict = execution_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA)
     assert (verdict.target, verdict.kind) == (plain.target, plain.kind)
     assert "watchdog:scope" in verdict.detail
 
@@ -324,19 +332,28 @@ def test_the_held_answer_keeps_the_target_and_kind_of_the_verdict():
 def test_a_readonly_run_comes_before_the_hold(monkeypatch):
     _flag()
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-    assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "readonly_run"
+    assert (
+        execution_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA).reason
+        == "readonly_run"
+    )
 
 
 @pytest.mark.usefixtures("hold_root")
 def test_the_section_tier_comes_before_the_hold():
     _flag()
-    assert execution_verdict({"writes": "never"}, TARGET_VA).reason == "tier_never"
+    assert (
+        execution_verdict(ControlSystemSection.read({"writes": "never"}), TARGET_VA).reason
+        == "tier_never"
+    )
 
 
 @pytest.mark.usefixtures("hold_root")
 def test_the_hold_comes_before_the_target():
     _flag()
-    assert execution_verdict(ARMED_SECTION, "no-such-machine").reason == "session_held"
+    assert (
+        execution_verdict(ControlSystemSection.read(ARMED_SECTION), "no-such-machine").reason
+        == "session_held"
+    )
 
 
 def test_the_hold_comes_before_the_owner_rung(hold_root, monkeypatch, tmp_path):
@@ -345,26 +362,44 @@ def test_the_hold_comes_before_the_owner_rung(hold_root, monkeypatch, tmp_path):
     monkeypatch.setenv(SESSION_ID, KEY)
     _flag()
     monkeypatch.setattr(write_switch, "owner_tier_term", lambda *a, **k: "never")
-    assert write_verdict(ARMED_SECTION, TARGET_VA).reason == "tier_never"
-    assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "session_held"
+    assert write_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA).reason == "tier_never"
+    assert (
+        execution_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA).reason
+        == "session_held"
+    )
 
 
 @pytest.mark.usefixtures("hold_root")
 def test_a_session_not_held_gets_the_write_verdict_unchanged(monkeypatch, tmp_path):
     for target in (TARGET_VA, "no-such-machine", None):
-        assert execution_verdict(ARMED_SECTION, target) == write_verdict(ARMED_SECTION, target)
+        assert execution_verdict(ControlSystemSection.read(ARMED_SECTION), target) == write_verdict(
+            ControlSystemSection.read(ARMED_SECTION), target
+        )
     _armed(monkeypatch, tmp_path)
-    verdict = execution_verdict(ARMED_SECTION, TARGET_VA)
+    verdict = execution_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA)
     assert verdict.allowed is True
-    assert verdict == write_verdict(ARMED_SECTION, TARGET_VA)
+    assert verdict == write_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA)
 
 
 def test_the_keywords_reach_the_write_verdict(monkeypatch, tmp_path):
     _armed(monkeypatch, tmp_path)
-    assert execution_verdict(ARMED_SECTION, TARGET_VA, owner=NO_OWNER).reason == "owner_unknown"
+    assert (
+        execution_verdict(
+            ControlSystemSection.read(ARMED_SECTION), TARGET_VA, owner=NO_OWNER
+        ).reason
+        == "owner_unknown"
+    )
     monkeypatch.setattr(_control_state, "launch_pin_term", lambda *a, **k: "pinned")
-    assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "launch_pinned"
-    assert execution_verdict(ARMED_SECTION, TARGET_VA, ignore_launch_pin=True).allowed is True
+    assert (
+        execution_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA).reason
+        == "launch_pinned"
+    )
+    assert (
+        execution_verdict(
+            ControlSystemSection.read(ARMED_SECTION), TARGET_VA, ignore_launch_pin=True
+        ).allowed
+        is True
+    )
 
 
 def test_the_gateway_verdicts_stay_blind_to_the_hold(hold_root, monkeypatch, tmp_path):
@@ -372,8 +407,8 @@ def test_the_gateway_verdicts_stay_blind_to_the_hold(hold_root, monkeypatch, tmp
     monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(hold_root))
     monkeypatch.setenv(SESSION_ID, KEY)
     _flag()
-    assert write_verdict(ARMED_SECTION, TARGET_VA).allowed is True
-    assert backstop_verdict(ARMED_SECTION).allowed is True
+    assert write_verdict(ControlSystemSection.read(ARMED_SECTION), TARGET_VA).allowed is True
+    assert backstop_verdict(ControlSystemSection.read(ARMED_SECTION)).allowed is True
 
 
 # -- the connector's write wrappers ------------------------------------------------
@@ -482,7 +517,7 @@ async def test_a_child_spawned_held_connects_for_writes_and_survives_the_release
     pool = None
     try:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.setenv("PYTHONPATH", str(PACKAGE_SRC))
         data = tmp_path / "agent-data"
         arm_switch(monkeypatch, data, None, stamp=False)

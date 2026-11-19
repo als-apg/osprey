@@ -68,10 +68,10 @@ class Store:
             username=USERNAME,
             password_env=PASSWORD_ENV,
             timeout_s=10,
-            cadence_sec=1,
-            tail_cadence_sec=60,
-            poll_sec=1,
-            hot_span_hours=24,
+            cadence_s=1,
+            tail_cadence_s=60,
+            poll_s=1,
+            hot_span_h=24,
             retention_days=30,
         )
         writer = ArchiveWriter(settings, PASSWORD)

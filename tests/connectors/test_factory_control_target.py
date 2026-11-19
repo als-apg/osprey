@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors import factory as factory_module
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
@@ -78,8 +79,9 @@ class _RecordingFactory:
 
     @staticmethod
     def _context(config: Any, control_target: str | None) -> ConnectorContext:
-        connector_type = (config or {}).get("type")
-        settings = (config or {}).get("connector", {}).get(connector_type, {})
+        raw = {} if config is None else config.raw
+        connector_type = raw.get("type")
+        settings = raw.get("connector", {}).get(connector_type, {})
         return ConnectorContext(
             connector_type=connector_type, control_target=control_target, settings=settings
         )
@@ -91,7 +93,7 @@ class _RecordingFactory:
         control_target: str | None = None,
         readonly_wording: str = "script",  # noqa: ARG002 - the factory's signature
     ) -> Any:
-        self.calls.append((config, control_target))
+        self.calls.append((None if config is None else dict(config.raw), control_target))
         return _RecordedConnector(self._context(config, control_target))
 
     def build(
@@ -101,7 +103,7 @@ class _RecordingFactory:
         control_target: str | None = None,
         readonly_wording: str = "script",  # noqa: ARG002 - the factory's signature
     ) -> tuple[Any, ConnectorContext]:
-        self.calls.append((config, control_target))
+        self.calls.append((None if config is None else dict(config.raw), control_target))
         context = self._context(config, control_target)
         return _RecordedConnector(ConnectorContext()), context
 
@@ -135,10 +137,12 @@ class TestFactoryStamp:
     @pytest.mark.usefixtures("registered_in_process")
     async def test_named_target_reaches_the_instance(self, tmp_path):
         connector = await ConnectorFactory.create_control_system_connector(
-            {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": in_process_config(served_tree(tmp_path))},
-            },
+            ControlSystemSection.read(
+                {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": in_process_config(served_tree(tmp_path))},
+                }
+            ),
             control_target="standin",
         )
         try:
@@ -153,10 +157,12 @@ class TestFactoryStamp:
     async def test_target_defaults_to_none(self, tmp_path):
         """Every pre-existing caller keeps working, naming no target."""
         connector = await ConnectorFactory.create_control_system_connector(
-            {
-                "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": in_process_config(served_tree(tmp_path))},
-            }
+            ControlSystemSection.read(
+                {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": in_process_config(served_tree(tmp_path))},
+                }
+            )
         )
         try:
             assert connector._control_target is None
@@ -181,7 +187,7 @@ class TestConnectorHostChild:
         from osprey_connectors.ipc import _host as host
 
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         view = served_tree(tmp_path / "served")
         connector, report = await host._build_connector(
             host._host_init(
@@ -209,7 +215,7 @@ class TestConnectorHostChild:
         from osprey_connectors.ipc import _host as host
 
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         connector, _ = await host._build_connector(
             host._host_init(
                 {

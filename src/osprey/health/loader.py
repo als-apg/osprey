@@ -7,20 +7,20 @@ and without entangling itself with the CLI's process-global config singleton.
 This module owns the *synchronous* half of one refresh cycle:
 resolve the config path, cheaply skip work when nothing on disk changed (an
 mtime/size gate), reload ``.env`` only when it actually changed, load and parse
-``config.yml`` through a private :class:`~osprey_connectors.config.ConfigBuilder`
-(never the shared ``get_config_builder`` singleton), and assemble the merged
+``config.yml`` with :func:`osprey_connectors.config.load_config` (never the
+process default), and assemble the merged
 category records via :mod:`osprey.health.records`.
 
 Divergences from the CLI's one-shot load
 (:func:`osprey.health.records.load_config`), each required by the
 persistent-process setting:
 
-* **No singleton.** Constructs ``ConfigBuilder(..., load_env=False)`` directly so
-  an in-place config edit is observed on the next cycle and the surface neither
-  mutates nor is perturbed by the CLI's cached default config.
-* **Explicit ``.env`` control.** ``load_env=False`` keeps the builder from
-  touching ``os.environ``; this module instead calls
-  :func:`~osprey_connectors.config.apply_env_chain` against the project ``.env`` only on the first cycle or when that file changed, so an
+* **No process default.** Loads with ``load_config`` directly, which installs
+  nothing, so an in-place config edit is observed on the next cycle and the
+  surface neither mutates nor is perturbed by the CLI's default config.
+* **Explicit ``.env`` control.** ``load_config`` never touches ``os.environ``;
+  this module instead calls
+  :func:`~osprey_connectors.dotenv.apply_env_chain` against the project ``.env`` only on the first cycle or when that file changed, so an
   unchanged ``.env`` never re-mutates the process environment.
 * **Always-usable settings.** A missing or broken config degrades to the default
   :class:`~osprey.health.config.HealthSettings` (``suite_timeout_s=30``,
@@ -69,7 +69,7 @@ def _load_project_env(env_paths: list[Path]) -> None:
     missing file is skipped and the shell-only launch variables are never
     applied, matching the CLI's handling.
     """
-    from osprey_connectors.config import apply_env_chain
+    from osprey_connectors.dotenv import apply_env_chain
 
     apply_env_chain(os.environ, env_paths)
 
@@ -77,22 +77,22 @@ def _load_project_env(env_paths: list[Path]) -> None:
 def _load_config(
     config_path: Path,
 ) -> tuple[ConfigState, dict[str, Any] | None, HealthSettings | None, bool]:
-    """Load and parse ``config.yml`` through a private ``ConfigBuilder``.
+    """Load and parse ``config.yml`` with ``load_config``, installing nothing.
 
     Reuses :func:`osprey.health.records._load_config_result` — the single owner
     of the degradation-and-parse contract (a missing file, bad YAML, empty
     document, or invalid ``health:`` section all degrade to ``config_ok=False``
-    and never raise) — but supplies a fresh ``ConfigBuilder(load_env=False)``
-    instead of the shared singleton so the long-lived surface observes edits and
-    performs no ``.env`` side effect here.
+    and never raise) — but loads with ``load_config`` instead of installing the
+    process default, so the long-lived surface observes edits and performs no
+    ``.env`` side effect here.
     """
     from osprey.health.records import _load_config_result
 
     def _load() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        from osprey_connectors.config import ConfigBuilder
+        from osprey_connectors import config as connectors_config
 
-        builder = ConfigBuilder(str(config_path), load_env=False)
-        return builder.raw_config, builder.get_unexpanded_config()
+        loaded = connectors_config.load_config(config_path)
+        return loaded.raw_tree(), loaded.unexpanded_tree()
 
     return _load_config_result(config_path, config_path.parent, _load)
 
@@ -110,7 +110,7 @@ class HealthConfigLoader:
         """
         Args:
             config_path: Explicit ``config.yml`` path. ``None`` (the default)
-                resolves per :func:`osprey_connectors.workspace.resolve_config_path`
+                resolves per :func:`osprey_connectors.config.locate_config`
                 on every cycle (``OSPREY_CONFIG`` env, else ``./config.yml``), so
                 resolution tracks the process cwd/env like the CLI does.
         """
@@ -160,9 +160,9 @@ class HealthConfigLoader:
     def _resolve_path(self) -> Path:
         if self._config_path_override is not None:
             return self._config_path_override
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import locate_config
 
-        return resolve_config_path()
+        return locate_config()
 
     def _build(self, config_path: Path) -> LoadedHealthConfig:
         from osprey.health.config import parse_health_config

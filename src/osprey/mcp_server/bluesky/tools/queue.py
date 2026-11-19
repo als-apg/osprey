@@ -183,6 +183,7 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import baseline_target
 
@@ -384,11 +385,11 @@ def _lane_verdict(lane_target: str | None) -> write_switch.WriteVerdict:
     refuses as ``record_unavailable``.
     """
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        section = get_config_value("control_system", {})
-        target = lane_target or baseline_target(section)
-        return execution_verdict(section, target)
+        section = current_config().get("control_system", {})
+        target = lane_target or baseline_target(ControlSystemSection.read(section))
+        return execution_verdict(ControlSystemSection.read(section), target)
     except Exception:  # unknown posture must not arm hardware
         logger.warning("Write verdict for lane target %r could not be reached", lane_target)
         return write_switch.Refused(
@@ -409,10 +410,10 @@ def _halt_lane_target(halt_lane: str | None) -> str | None:
     Never raises: a config that cannot be read maps nothing.
     """
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        section = get_config_value("control_system", {})
-        lanes = discover_lanes(baseline_target(section))
+        section = current_config().get("control_system", {})
+        lanes = discover_lanes(baseline_target(ControlSystemSection.read(section)))
     except Exception:
         logger.debug("Could not map the halt lane %r to a target", halt_lane, exc_info=True)
         return None
@@ -481,9 +482,9 @@ def _require_approval_record(tool: str, *, lane: str | None) -> None:
     ``approval_config_invalid``) and its message the record's sentence.
     """
     from osprey.mcp_server.approval_record import require_approval_record
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    refusal = require_approval_record(tool, load_osprey_config())
+    refusal = require_approval_record(tool, loaded_or_empty())
     if refusal is None:
         return
     make_error(

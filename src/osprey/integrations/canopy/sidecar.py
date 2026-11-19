@@ -116,9 +116,10 @@ from osprey.runtime.session import (
     EXIT_START_REFUSED,
     EXIT_TRANSPORT_STALE,
 )
+from osprey.services.pv_directory._connectors import service_table
 from osprey_connectors import archiver_selection, connector_types, control_context
+from osprey_connectors.config_sections import ArchiverSection
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.service_targets import service_targets
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
 from osprey_connectors.workspace import repo_root_for_config
 
@@ -329,9 +330,9 @@ def mole_block(config: Mapping[str, Any], target: str | None) -> dict[str, str]:
         target: The control target of the record DATA will read; ``None`` when
             there is no record.
     """
-    if target is None or target not in service_targets(config).history_targets():
+    if target is None or target not in service_table(config).history_targets():
         return {}
-    section = config.get("archiver")
+    section = ArchiverSection.read(config.get("archiver"))
     mole_type = MOLE_TYPES.get(archiver_selection.resolve_archiver_type(section))
     if mole_type is None:
         return {}
@@ -409,9 +410,9 @@ def _read_config(path: str) -> dict[str, Any] | None:
     if not path:
         return None
     try:
-        from osprey_connectors.config import ConfigBuilder
+        from osprey_connectors.config import load_config
 
-        raw = ConfigBuilder(path, load_env=False).raw_config
+        raw = load_config(path).raw_tree()
     except Exception as exc:
         logger.warning("The config at %s could not be read (%s)", path, exc)
         return None

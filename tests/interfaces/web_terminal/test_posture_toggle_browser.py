@@ -96,7 +96,7 @@ stamped root, owned by this process, before ``create_app`` runs.** Without a
 record the roster is read-only (``store_available: false``) and every toggle is
 locked; without ownership this terminal follows another and the write routes
 answer ``409``. Writing it before startup is also what keeps the lifespan's
-claim a merge rather than a mint from ``load_osprey_config``.
+claim a merge rather than a mint from ``loaded_or_empty``.
 ``data-enforceable="true"`` on the chip is the observable proof the arrangement
 landed — the attribute is fed by ``contextWritable(state)``, which is exactly
 "this terminal's changes would be recorded".
@@ -108,7 +108,7 @@ it any more, and pinning it empty keeps that true rather than accidental.
 
 The agent-data root is stamped with ``OSPREY_AGENT_DATA_ROOT``, which is the
 one seam the record reader and ``write_switch`` both prefer — patching
-``resolve_shared_data_root`` would redirect one of them and leave the other
+``process_agent_data_root`` would redirect one of them and leave the other
 writing into the repository's own ``var/agent_data``.
 
 Run:

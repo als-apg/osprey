@@ -585,9 +585,8 @@ and does not stand (revoked, expired, unreadable, another holder's).
 open, and renew the lease from a heartbeat at a fraction of ``lease_s``. A
 handle taken before the lease started selected the read gateway, and its
 writes are refused ``switching`` (nothing spent) like any other refusal. The
-program builds its pool from the deployment's own configuration,
-``ConnectorHostPool(get_config_value("control_system", {}),
-config_file=default_config_path())``:
+program builds its pool from the deployment's own configuration, the section
+and the file it was loaded from, both read off one ``current_config()``:
 
 .. literalinclude:: examples/write_from_a_program.py
    :language: python

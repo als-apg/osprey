@@ -49,6 +49,8 @@ from osprey.services.ariel_search.enhancement.image_caption import module as cap
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import qmd as qmd_module
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter
 from tests.services.ariel_search.integration._support import (
@@ -204,7 +206,7 @@ def _status_json(config: dict[str, Any]) -> dict[str, Any]:
     from osprey.cli.ariel import ariel_group
 
     with (
-        patch("osprey.cli.ariel.get_config_value", return_value=config),
+        installed(config_of({"ariel": config})),
         patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=None)),
     ):
         result = CliRunner().invoke(ariel_group, ["status", "--json"])
@@ -225,12 +227,12 @@ def _listing_items(document: dict[str, Any]) -> list[dict[str, Any]]:
 def _isolated(monkeypatch):
     """Fresh availability, offload, MCP and qmd state; a configured caption provider."""
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     availability.reset_availability()
     _offload.reset_offload_state()
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
     monkeypatch.setattr("osprey.models.config.get_provider_config", lambda name: {"api_key": "k"})
     monkeypatch.setattr(
@@ -238,7 +240,7 @@ def _isolated(monkeypatch):
     )
     yield
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
     availability.reset_availability()
     _offload.reset_offload_state()

@@ -429,7 +429,7 @@ def _load(spec: dict[str, Any]) -> list[dict]:
     from unittest.mock import patch
 
     with patch(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         return_value={"web": {"panels": {PANEL_ID: spec}}},
     ):
         _enabled, custom, _default = _load_panel_config()

@@ -34,7 +34,8 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, testing, write_switch
-from osprey_connectors.control_system import ConnectorContext
+from osprey_connectors.control_system import ConnectorContext, ControlSystemSettings
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -223,26 +224,14 @@ def _in_process_only_section(view: Path) -> dict[str, Any]:
     }
 
 
-def _section_reader(section):
-    """A ``get_config_value`` stand-in serving *section* as ``control_system``."""
-
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    return get_config_value
-
-
 @pytest.fixture
-def deployment_config(monkeypatch, view):
+def deployment_config(view):
     """Serve one control_system section to both halves of the stamp.
 
     Host and sandbox deliberately read the same function, so a target the host
     stamps is a target the sandbox can build.
     """
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        _section_reader(_control_system_section(view)),
-    )
+    serve_control_system(_control_system_section(view))
 
 
 @pytest.fixture
@@ -390,9 +379,7 @@ class TestStampApplication:
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
 
-    def test_live_on_a_deployment_without_a_real_machine_is_not_stamped(
-        self, state_root, monkeypatch, view
-    ):
+    def test_live_on_a_deployment_without_a_real_machine_is_not_stamped(self, state_root, view):
         """A target the sandbox could not build is declined here, not there.
 
         ``resolve_target(section, 'live')`` refuses on an in-process-only checkout by
@@ -400,10 +387,7 @@ class TestStampApplication:
         deployment into a ValueError raised inside the sandbox; declining leaves
         the run on the baseline, which is what it was on before any of this.
         """
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_control_system(_in_process_only_section(view))
         write_record(state_root, target="live", generation=1)
         env: dict[str, str] = {}
 
@@ -411,12 +395,9 @@ class TestStampApplication:
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
 
-    def test_va_is_stamped_on_that_same_deployment(self, state_root, monkeypatch, view):
+    def test_va_is_stamped_on_that_same_deployment(self, state_root, view):
         """Only the unresolvable half is declined: 'va' resolves everywhere."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_control_system(_in_process_only_section(view))
         write_record(state_root, target="va", generation=1)
         env: dict[str, str] = {}
 
@@ -438,24 +419,21 @@ class TestLaunchPostureStamp:
     """
 
     @staticmethod
-    def _tier_allows(monkeypatch, view) -> None:
+    def _tier_allows(view) -> None:
         """The same deployment, with a write tier that allows writes."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader({**_control_system_section(view), "writes": "allowed"}),
-        )
+        serve_control_system({**_control_system_section(view), "writes": "allowed"})
 
-    def test_the_posture_is_stamped_beside_the_target(self, state_root, monkeypatch, view):
+    def test_the_posture_is_stamped_beside_the_target(self, state_root, view):
         """A tier that allows and a switch that is on: the run launches with writes."""
-        self._tier_allows(monkeypatch, view)
+        self._tier_allows(view)
         write_record(state_root, target="va", generation=7, switch={"va": "on"})
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
 
-    def test_a_switched_off_target_is_stamped_sandboxed(self, state_root, monkeypatch, view):
-        self._tier_allows(monkeypatch, view)
+    def test_a_switched_off_target_is_stamped_sandboxed(self, state_root, view):
+        self._tier_allows(view)
         write_record(state_root, target="va", generation=7, switch={"live": "on"})
         env: dict[str, str] = {}
 
@@ -479,16 +457,13 @@ class TestLaunchPostureStamp:
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
 
-    def test_an_unstamped_run_is_still_pinned(self, state_root, monkeypatch, view):
+    def test_an_unstamped_run_is_still_pinned(self, state_root, view):
         """A target the run cannot be placed on: routing names go, the pin stays.
 
         It names every target, because a run that cannot say which machine it is
         about must not be the one run a narrowing fails to reach.
         """
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_control_system(_in_process_only_section(view))
         write_record(state_root, target="live", generation=1, posture={"live": "sandbox"})
         env: dict[str, str] = {}
 
@@ -825,9 +800,10 @@ class _FakeConnector:
     last_config: Mapping[str, Any] | None = None
     #: Every instance that was disconnected, in the order it happened.
     disconnected: list["_FakeConnector"] = []
+    settings_model = ControlSystemSettings
 
     async def connect(self, context: ConnectorContext) -> None:
-        type(self).last_config = context.settings
+        type(self).last_config = context.settings.model_dump()
 
     async def disconnect(self) -> None:
         type(self).disconnected.append(self)
@@ -901,10 +877,7 @@ class TestSandboxRouting:
         stamp that arrives from anywhere else.
         """
         monkeypatch.setenv("OSPREY_CONTROL_TARGET", "live")
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_control_system(_in_process_only_section(view))
 
         import osprey.runtime as runtime
 

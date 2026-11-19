@@ -178,36 +178,28 @@ def test_hello_world_runs_optional() -> None:
 
 @pytest.mark.parametrize("mode", ["exclusive", "optional"])
 class TestHelloWorldRecordsUnderEitherMode:
-    def test_every_write_is_confirmed(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str
-    ) -> None:
-        validator = validator_under(monkeypatch, render_limits(tmp_path, "hello_world"), mode)
+    def test_every_write_is_confirmed(self, tmp_path: Path, mode: str) -> None:
+        validator = validator_under(render_limits(tmp_path, "hello_world"), mode)
 
         assert [validator.resolve_confirm(channel) for channel in (QF, QD, CORR)] == [True] * 3
 
 
 class TestTheCorrectorSetpointHasNoRecord:
-    def test_optional_writes_it_with_no_limits(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        validator = validator_under(monkeypatch, render_limits(tmp_path, "hello_world"), "optional")
+    def test_optional_writes_it_with_no_limits(self, tmp_path: Path) -> None:
+        validator = validator_under(render_limits(tmp_path, "hello_world"), "optional")
 
         for value in (0.0, 4.0, -1.0e9, 1.0e9):
             validator.validate(CORR, value)
 
-    def test_exclusive_refuses_it_until_a_record_is_added(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        validator = validator_under(
-            monkeypatch, render_limits(tmp_path, "hello_world"), "exclusive"
-        )
+    def test_exclusive_refuses_it_until_a_record_is_added(self, tmp_path: Path) -> None:
+        validator = validator_under(render_limits(tmp_path, "hello_world"), "exclusive")
         with pytest.raises(ChannelLimitsViolationError) as refusal:
             validator.validate(CORR, 4.0)
         assert refusal.value.violation_type == "UNLISTED_CHANNEL"
 
         record = {"address": CORR, "min_value": -5.0, "max_value": 5.0}
         recorded = render_limits(tmp_path, "hello_world", added=[record], name="recorded")
-        validator = validator_under(monkeypatch, recorded, "exclusive")
+        validator = validator_under(recorded, "exclusive")
 
         validator.validate(CORR, 4.0)
         with pytest.raises(ChannelLimitsViolationError) as refusal:

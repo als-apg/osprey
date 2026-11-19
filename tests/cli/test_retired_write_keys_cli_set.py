@@ -33,6 +33,7 @@ from osprey.cli.build_profile_resolve import (
 from osprey.cli.set_cmd import set as set_command
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import config_update_fields
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_allows, tier_writes
 
 _LOGGER_NAME = doc.__name__
@@ -111,7 +112,7 @@ def test_a_retired_key_pair_overrides_the_resolved_tier(preset, pair, expected, 
     profile, _ = resolve_build_profile(None, preset, set_pairs=(pair,))
     section = _rendered_section(profile.config, tmp_path)
     assert section["writes"] == expected
-    assert tier_writes(section) == expected
+    assert tier_writes(ControlSystemSection.read(section)) == expected
     assert _no_retired_leaf(section)
     assert len(_cli_warnings(caplog)) == 1
 
@@ -174,7 +175,11 @@ def test_osprey_set_writes_the_tier_key_into_a_materialized_profile(tmp_path):
         emit_standalone_profile_yaml("demo", (), "Demo", project_name="demo"),
         encoding="utf-8",
     )
-    assert tier_allows(_rendered_section(_read_profile_document(path)["config"], tmp_path))
+    assert tier_allows(
+        ControlSystemSection.read(
+            _rendered_section(_read_profile_document(path)["config"], tmp_path)
+        )
+    )
     write_back_cli_overrides(path, ("config.control_system.writes_enabled=false",))
     text = path.read_text(encoding="utf-8")
     assert not [line for line in _emitted_lines(text) if "writes_enabled" in line.split("#")[0]]

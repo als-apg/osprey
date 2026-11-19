@@ -44,7 +44,7 @@ from osprey.deployment.compose_generator import resolve_project_name, resolve_re
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.roster import as_dict, resolve_cards, roster_people
-from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.config import load_config
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -182,7 +182,7 @@ def seed_web_terminals(config_path: str | Path, user: str | None = None) -> None
         ValueError: If ``user`` is given but not present in
             ``modules.web_terminals.users``.
     """
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = load_config(str(config_path)).raw_tree()
     seed_user_containers(config, user=user, config_path=config_path)
 
 
@@ -227,8 +227,8 @@ def seed_user_containers(
     path are the same for every user regardless of render.
 
     Args:
-        config: Parsed facility config (a ``ConfigBuilder``
-            raw-config dict).
+        config: Parsed facility config (a ``LoadedConfig.raw_tree()``
+            dict).
         user: If given, seed only this user's container; a user not present in
             ``modules.web_terminals.users`` raises rather than silently
             no-op'ing. If ``None`` (default), seed every user on the roster.

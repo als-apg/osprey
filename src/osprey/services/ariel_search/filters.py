@@ -267,7 +267,7 @@ def _norm(value: Any) -> str | None:
 
 
 def _entry_timestamp(value: Any) -> datetime | None:
-    from osprey_connectors.config import localize_facility
+    from osprey_connectors.config import facility_timezone, localize_facility
 
     if isinstance(value, str):
         try:
@@ -275,7 +275,7 @@ def _entry_timestamp(value: Any) -> datetime | None:
         except ValueError:
             return None
     if isinstance(value, datetime):
-        return localize_facility(value)
+        return localize_facility(value, facility_timezone())
     return None
 
 

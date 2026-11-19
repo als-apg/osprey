@@ -255,6 +255,7 @@ def _login_selection(
     carries ``None``.
     """
     from osprey.cli.build_profile_merge import _rendered_control_system
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     cards = tuple(shared_cards)
@@ -271,7 +272,7 @@ def _login_selection(
             )
             for name, entry in entries.items()
         },
-        tier=tier_writes(_rendered_control_system(profile.config)),
+        tier=tier_writes(ControlSystemSection.read(_rendered_control_system(profile.config))),
         shared_cards=cards,
     )
 

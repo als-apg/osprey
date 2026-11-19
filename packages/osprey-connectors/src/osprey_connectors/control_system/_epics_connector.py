@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import ModuleType
 from typing import (
+    ClassVar,
     Literal,
     ParamSpec,
     Protocol,
@@ -32,14 +33,27 @@ from typing import (
     TypeGuard,
     TypeVar,
     TypeVarTuple,
+    get_args,
     runtime_checkable,
 )
 
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from typing_extensions import Buffer, override
 
+from osprey_connectors._config_read import config_flag
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.call_timeout import DEFAULT_STEP_READ_TIMEOUT_S, step_read_timeout_s
-from osprey_connectors.config import config_flag
+from osprey_connectors.call_timeout import (
+    DEFAULT_STEP_READ_TIMEOUT_S,
+    STEP_READ_TIMEOUT_KEY,
+    step_read_timeout_s,
+)
+from osprey_connectors.config_sections import (
+    ControlSystemSection,
+    GatewayRow,
+    SelectedRole,
+    Unreadable,
+    _pva_globs,
+)
 from osprey_connectors.connector_types import is_control_target
 from osprey_connectors.control_system._base import (
     Alarm,
@@ -47,24 +61,27 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
     _batch_send_verdict,
+    _settings_as,
+    _settings_type,
     _verdict_refusal,
     normalise_limit_pair,
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
 from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
-from osprey_connectors.control_system._gateway_role import SelectedRole
 from osprey_connectors.control_system._limits_validator import CurrentValueReader, c_numeral
 from osprey_connectors.errors import (
     ChannelUnreachableError,
+    ConfigurationError,
     ConnectorInternalError,
     ConnectorUnavailableError,
     ConnectRefusedError,
 )
 from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import evolve
+from osprey_connectors.model import FrozenTuple, ReadOnlyMapping, empty_mapping, evolve
 from osprey_connectors.refusals import RefusalReason, VerdictReason
 from osprey_connectors.targets import machine_kind
 from osprey_connectors.write_switch import Refused
@@ -684,19 +701,85 @@ def _pva_color_mode(value: object) -> object:
     return None
 
 
-class _GatewayBlock(TypedDict, total=False):
-    """One gateway entry of the connector's config block (see :meth:`EPICSConnector.connect`)."""
-
-    address: str
-    port: int | str
-    use_name_server: object
+def _block_key(info: ValidationInfo[object]) -> str:
+    """The dotted key of the block a settings validation reads."""
+    return f"control_system.connector.{_settings_type(info) or '<type>'}"
 
 
-class _Gateways(TypedDict, total=False):
-    """The connector block's ``gateways`` table, by role."""
+class EpicsSettings(ControlSystemSettings):
+    """The ``epics`` block, and every block an EPICS-family connector reads.
 
-    read_only: _GatewayBlock
-    write_access: _GatewayBlock
+    The gateways are read by
+    :meth:`~osprey_connectors.config_sections.GatewayRow.read`, the parse the
+    derivation reads them by, so a roster and a child name one row. A gateway
+    no connection can be made through is refused when the block is read.
+    """
+
+    #: The CA gateways by role; an empty or absent table configures none.
+    gateways: ReadOnlyMapping[SelectedRole, GatewayRow] = Field(default_factory=empty_mapping)
+    #: The PVA routing globs: addresses matching one are served over PVAccess.
+    pva_channels: FrozenTuple[str] = ()
+    #: Where PVA searches go; read only when :attr:`pva_channels` routes any.
+    pva_gateway: GatewayRow | None = None
+    #: No effect (every read asks the IOC); still read, so a misspelt value refuses.
+    fresh_reads: bool = False
+    #: The ceiling on a ``max_step`` check's fresh read; an unusable value falls
+    #: back with a warning (:func:`~osprey_connectors.call_timeout.step_read_timeout_s`).
+    step_read_timeout_s: float = DEFAULT_STEP_READ_TIMEOUT_S
+
+    @model_validator(mode="before")
+    @classmethod
+    def _step_read(cls, data: object, info: ValidationInfo[object]) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        return {
+            **data,
+            STEP_READ_TIMEOUT_KEY: step_read_timeout_s(data, _settings_type(info)),
+        }
+
+    @field_validator("gateways", mode="before")
+    @classmethod
+    def _gateway_rows(cls, value: object, info: ValidationInfo[object]) -> object:
+        key = f"{_block_key(info)}.gateways"
+        if not value:
+            return {}
+        if not isinstance(value, dict):
+            raise ConfigurationError(
+                f"{key} is {value!r}, not a table of gateways by role", key=key
+            )
+        rows: dict[str, GatewayRow] = {}
+        for role in get_args(SelectedRole):
+            row = GatewayRow.read(value.get(role), f"{key}.{role}")
+            if isinstance(row, Unreadable):
+                raise GatewayRow.refusal(row)
+            if row is not None:
+                rows[role] = row
+        return rows
+
+    @field_validator("pva_channels", mode="before")
+    @classmethod
+    def _globs(cls, value: object, info: ValidationInfo[object]) -> object:
+        globs = _pva_globs(value, f"{_block_key(info)}.pva_channels")
+        if isinstance(globs, Unreadable):
+            raise ConfigurationError(
+                f"{globs.key} is {value!r}; it is a glob or a list of them", key=globs.key
+            )
+        return globs
+
+    @field_validator("pva_gateway", mode="before")
+    @classmethod
+    def _pva_row(cls, value: object, info: ValidationInfo[object]) -> object:
+        if not info.data.get("pva_channels"):
+            return None
+        row = GatewayRow.read(value, f"{_block_key(info)}.pva_gateway")
+        if isinstance(row, Unreadable):
+            raise GatewayRow.refusal(row)
+        return row
+
+    @field_validator("fresh_reads", mode="before")
+    @classmethod
+    def _fresh_reads(cls, value: object, info: ValidationInfo[object]) -> object:
+        return config_flag(value, key=f"{_block_key(info)}.fresh_reads")
 
 
 class _Closable(Protocol):
@@ -875,6 +958,8 @@ class EPICSConnector(ControlSystemConnector):
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
     """
 
+    settings_model: ClassVar[type[ControlSystemSettings]] = EpicsSettings
+
     def __init__(self) -> None:
         self._connected = False
         # The `max_step` fresh-read budget, replaced from the connector's own
@@ -931,7 +1016,7 @@ class EPICSConnector(ControlSystemConnector):
         self._write_executor_lock = threading.Lock()
 
     @override
-    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Configure EPICS environment and test connection.
 
@@ -1010,7 +1095,8 @@ class EPICSConnector(ControlSystemConnector):
             readonly_gateway_refusal,
         )
 
-        gateways: _Gateways = settings.get("gateways") or _Gateways()
+        epics = _settings_as(settings, EpicsSettings)
+        gateways = epics.gateways
         # The whole write verdict, the same one the reference monitor takes.
         try:
             writes_enabled = self._writes_enabled
@@ -1018,11 +1104,11 @@ class EPICSConnector(ControlSystemConnector):
             writes_enabled = False  # Can't tell -> assume the safe (read-only) path
 
         readonly_run = is_readonly_run()
-        write_gateway = gateways.get("write_access") or {}
+        write_gateway = gateways.get("write_access")
         gateway_role = _selected_role(
             gateways, writes_enabled=bool(writes_enabled), readonly_run=readonly_run
         )
-        gateway_config = gateways.get(gateway_role) or {}
+        gateway_config = gateways.get(gateway_role)
         if write_gateway and not gateway_config:
             # Only a readonly run selects no gateway while a write gateway is
             # configured. Connecting with none would leave Channel Access to
@@ -1031,11 +1117,11 @@ class EPICSConnector(ControlSystemConnector):
             # takes it: a readonly run's verdict reads no config, so it would
             # leave the real machine unnamed.
             try:
-                from osprey_connectors.config import get_config_value
+                from osprey_connectors.config import current_config
 
-                section: object = get_config_value("control_system", {})
+                section = current_config().control_system
             except (FileNotFoundError, RuntimeError):
-                section = {}
+                section = ControlSystemSection()
             target = self._control_target
             kind = machine_kind(section, target) if is_control_target(target) else None
             raise ConnectRefusedError(readonly_gateway_refusal(kind))
@@ -1061,15 +1147,11 @@ class EPICSConnector(ControlSystemConnector):
         self._name_server = None
         # ``host:port`` of the gateway pointed at; None when none is configured.
         configured_gateway: str | None = None
-        if gateway_config:
-            address = gateway_config.get("address", "")
-            port = gateway_config.get("port", 5064)
+        if gateway_config is not None:
+            address = gateway_config.address
+            port = 5064 if gateway_config.port is None else gateway_config.port
             configured_gateway = f"{address}:{port}"
-            use_name_server = config_flag(
-                gateway_config.get("use_name_server"),
-                key=f"control_system.connector.{self._connector_type}.gateways."
-                f"{gateway_role}.use_name_server",
-            )
+            use_name_server = gateway_config.use_name_server
 
             # Clear conflicting variables first — having both CA_ADDR_LIST and
             # CA_NAME_SERVERS set causes TCP connection attempts that block
@@ -1099,8 +1181,8 @@ class EPICSConnector(ControlSystemConnector):
         self._ca = ca = get_ca_loop()
         await ca.point_at(ca_env)
         self._ca_bulk()
-        self._selected_role = gateway_role if gateway_config else None
-        self._write_gateway_configured = bool(write_gateway)
+        self._selected_role = gateway_role if gateway_config is not None else None
+        self._write_gateway_configured = write_gateway is not None
         if configured_gateway is not None:
             logger.debug(f"Configured EPICS gateway: {configured_gateway}")
             self._epics_configured = True
@@ -1111,24 +1193,18 @@ class EPICSConnector(ControlSystemConnector):
         # IOC on this host. Running out of budget answers None, which refuses
         # the write — raising it buys a slow channel more room, never a
         # weaker check.
-        self._step_read_timeout = step_read_timeout_s(settings, self._connector_type)
+        self._step_read_timeout = epics.step_read_timeout_s
         # `fresh_reads` once made every read bypass pyepics' monitor cache.
         # Every Channel Access read now asks the IOC, so the key changes
         # nothing; it is still read, so a deployment that sets it keeps
-        # loading, and a misspelt value still refuses to connect.
-        self._fresh_reads = config_flag(
-            settings.get("fresh_reads"),
-            key=f"control_system.connector.{self._connector_type}.fresh_reads",
-        )
+        # loading, and a misspelt value is refused when the block is read.
+        self._fresh_reads = epics.fresh_reads
 
         # Configure PVAccess routing. Addresses matching one of these globs are
         # served by the p4p client; every other address keeps using Channel
         # Access. An absent or empty list is a hard no-op: no p4p import, no PVA
         # environment variable, no client context.
-        pva_channels: str | Iterable[object] = settings.get("pva_channels") or []
-        if isinstance(pva_channels, str):
-            pva_channels = [pva_channels]
-        self._pva_channel_globs = [str(p).strip() for p in pva_channels if str(p).strip()]
+        self._pva_channel_globs = list(epics.pva_channels)
 
         if self._pva_channel_globs:
             # Import p4p here (never at module scope) to give a clear error if
@@ -1144,15 +1220,11 @@ class EPICSConnector(ControlSystemConnector):
                     "epics.pva_channels). Install with: pip install p4p"
                 ) from None
 
-            pva_gateway: _GatewayBlock = settings.get("pva_gateway") or _GatewayBlock()
-            if pva_gateway:
-                pva_address = str(pva_gateway.get("address", ""))
-                pva_port = pva_gateway.get("port")
-                pva_use_name_server = config_flag(
-                    pva_gateway.get("use_name_server"),
-                    key=f"control_system.connector.{self._connector_type}.pva_gateway."
-                    "use_name_server",
-                )
+            pva_gateway = epics.pva_gateway
+            if pva_gateway is not None:
+                pva_address = pva_gateway.address
+                pva_port = pva_gateway.port
+                pva_use_name_server = pva_gateway.use_name_server
                 # PVA carries the port inside the address entry itself — there is
                 # no client-side "server port" variable to set, unlike CA.
                 if pva_use_name_server:

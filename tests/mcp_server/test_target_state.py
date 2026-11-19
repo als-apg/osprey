@@ -112,7 +112,7 @@ class TestPathContract:
         """A session child's stamped root decides, so its reports land beside its record."""
         stamped = tmp_path / "stamped"
         monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path / "config")
 
         assert target_state.state_dir() == (
             stamped / target_state.CONTROL_STATE_DIR_NAME / acting_identity()
@@ -122,7 +122,7 @@ class TestPathContract:
         """Not just the directory: what a reader globs for is under it too."""
         stamped = tmp_path / "stamped"
         monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
+        monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path / "config")
 
         target_state.write_server_record(server_pid=4321)
 
@@ -845,12 +845,15 @@ class TestServerStartClaimsTheRecord:
         self, control_context_root, write_control_context
     ):
         """An unswitched record follows a deployment baselined on the simulator in process."""
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import baseline_target
 
         section = {"connector": {"epics": {"gateways": {"read_only": {"address": "gw"}}}}}
         write_control_context(control_context_root, target="live", generation=0, owned_by=None)
 
-        claimed = server_context.claim_control_context(baseline=baseline_target(section))
+        claimed = server_context.claim_control_context(
+            baseline=baseline_target(ControlSystemSection.read(section))
+        )
 
         assert claimed is not None
         assert (claimed.target, claimed.generation) == ("va", 0)

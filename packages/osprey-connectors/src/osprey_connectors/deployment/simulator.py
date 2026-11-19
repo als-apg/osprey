@@ -39,6 +39,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from osprey_connectors._config_read import coerce_port, is_loopback, nested_value
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.targets import configured_targets
 
@@ -114,5 +115,5 @@ def has_simulator(config: object) -> bool:
     if not isinstance(config, Mapping):
         return False
     return virtual_accelerator_port(config) is not None or TARGET_VA in configured_targets(
-        config.get("control_system")
+        ControlSystemSection.read(config.get("control_system"))
     )

@@ -60,7 +60,6 @@ from typing import Any
 
 import nbformat
 import pytest
-import yaml
 from claude_agent_sdk.types import PermissionRuleValue, PermissionUpdate
 
 from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
@@ -68,8 +67,8 @@ from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.interfaces.web_terminal.operator_session import OperatorSession
 from osprey.stores.artifact_store import ArtifactStore
 from osprey_connectors import control_context
+from osprey_connectors.config import load_config
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.workspace import resolve_shared_data_root
 from tests.e2e import sdk_helpers
 from tests.e2e.claude_code._chat_turn import (
     TASK,
@@ -144,8 +143,8 @@ def _review_notebooks(repo) -> dict[str, tuple[str, str]]:
     The store is the one the approval hook writes, under the root the render's own config
     resolves to.
     """
-    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
-    store = ArtifactStore(workspace_root=resolve_shared_data_root(config), auto_launch=False)
+    root = load_config(render_dir(repo) / "config.yml").agent_data_root
+    store = ArtifactStore(workspace_root=root, auto_launch=False)
     reviews = {}
     for entry in store.list_entries():
         if entry.title != REVIEW_TITLE:
@@ -860,8 +859,8 @@ def scripted_reviewer(message: str) -> str:
 
 def _review_header(repo, before: dict[str, tuple[str, str]]) -> str:
     """The header cell of the one review notebook added since *before*."""
-    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
-    store = ArtifactStore(workspace_root=resolve_shared_data_root(config), auto_launch=False)
+    root = load_config(render_dir(repo) / "config.yml").agent_data_root
+    store = ArtifactStore(workspace_root=root, auto_launch=False)
     (entry,) = [e for e in store.list_entries() if e.title == REVIEW_TITLE and e.id not in before]
     return nbformat.read(store.get_file_path(entry.id), as_version=4).cells[0].source
 

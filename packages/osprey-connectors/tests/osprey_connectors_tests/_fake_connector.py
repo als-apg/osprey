@@ -38,6 +38,7 @@ from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
@@ -71,17 +72,19 @@ class FakeConnector(ControlSystemConnector):
 
     # -- lifecycle -----------------------------------------------------------
 
-    async def _open(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: ControlSystemSettings) -> None:
         """Connect.
 
         Args:
             config: Optional keys ``never_connects`` (channel names that never
                 connect) and ``response_delay_ms`` (a delay before every read
-                and write, default 0). Every other key is accepted and ignored,
-                so the fake can stand in for any connector type's section.
+                and write, default 0), read as an out-of-tree connector reads its
+                own keys, from ``model_extra``. Every other key is accepted and
+                ignored, so the fake can stand in for any connector type's section.
         """
-        self._response_delay = float(config.get("response_delay_ms", 0)) / 1000.0
-        self._never_connects = set(config.get("never_connects") or ())
+        own = config.model_extra or {}
+        self._response_delay = float(own.get("response_delay_ms", 0)) / 1000.0
+        self._never_connects = set(own.get("never_connects") or ())
         self._connected = True
 
     async def disconnect(self) -> None:

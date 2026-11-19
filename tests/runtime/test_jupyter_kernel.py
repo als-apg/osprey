@@ -41,12 +41,14 @@ from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError, raw_put_block
 from osprey.services.python_executor.execution import wrapper
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ClientLibraryRefusedError,
 )
 from osprey_connectors.targets import baseline_target
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import state_dir_under
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 
@@ -382,19 +384,10 @@ WRITABLE_SECTION = {
 }
 
 
-def serve_section(monkeypatch, section) -> None:
-    """Serve *section* as ``control_system`` to every reader in this process."""
-
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
-
-
 @pytest.fixture
-def writable_deployment(monkeypatch):
+def writable_deployment():
     """:data:`WRITABLE_SECTION`, served as the deployment's config."""
-    serve_section(monkeypatch, WRITABLE_SECTION)
+    serve_control_system(WRITABLE_SECTION)
     return WRITABLE_SECTION
 
 
@@ -861,7 +854,7 @@ class TestTheActionLine:
         pin is the one term that refuses — ``launch_pinned``, which the next
         cell's stamp turns around.
         """
-        baseline = baseline_target(writable_deployment)
+        baseline = baseline_target(ControlSystemSection.read(writable_deployment))
         write_control_context(control_context_root, target=baseline, switch={baseline: "on"})
         unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
 
@@ -903,7 +896,7 @@ class TestTheActionLine:
         The switch is on and the cell is pinned sandboxed: the old reading of
         the pin alone would have sent the operator to a chip that cannot help.
         """
-        serve_section(unstamped, {**WRITABLE_SECTION, "writes": "never"})
+        serve_control_system({**WRITABLE_SECTION, "writes": "never"})
         write_control_context(control_context_root, target="va", switch={"va": "on"})
         unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
         unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "va")
@@ -1134,7 +1127,7 @@ class TestTheCellStamp:
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel")
     def test_an_unswitched_in_process_deployment_stamps_va(
-        self, monkeypatch, control_context_root, write_control_context
+        self, control_context_root, write_control_context
     ):
         """A generation-0 record on ``live`` is claimed onto the baseline before a cell reads it.
 
@@ -1150,12 +1143,11 @@ class TestTheCellStamp:
             },
         }
 
-        def get_config_value(path, default=None, _config_path=None):
-            return section if path == "control_system" else default
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+        serve_control_system(section)
         unswitched = control_context.ControlContext(target="live", generation=0)
-        record = control_context.claimed(unswitched, baseline_target(section))
+        record = control_context.claimed(
+            unswitched, baseline_target(ControlSystemSection.read(section))
+        )
         write_control_context(control_context_root, target=record.target, generation=0)
 
         jupyter_kernel.pre_run_cell()
@@ -1179,10 +1171,10 @@ class TestTheCellStamp:
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_tier_that_allows_nothing_pins_the_cell_sandboxed(
-        self, monkeypatch, control_context_root, write_control_context
+        self, control_context_root, write_control_context
     ):
         """A switch that is on is inert under a tier that allows no writes."""
-        serve_section(monkeypatch, {**WRITABLE_SECTION, "writes": "never"})
+        serve_control_system({**WRITABLE_SECTION, "writes": "never"})
         write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
 
         jupyter_kernel.pre_run_cell()
@@ -1220,7 +1212,10 @@ class TestTheCellStamp:
         assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
         # The consequence, not just the string: the cell's writes are allowed
         # by the very verdict the connector asks, launch pin included.
-        assert write_switch.write_verdict(writable_deployment, "va").allowed is True
+        assert (
+            write_switch.write_verdict(ControlSystemSection.read(writable_deployment), "va").allowed
+            is True
+        )
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_switching_off_refuses_the_next_write_of_a_running_cell(
@@ -1235,11 +1230,14 @@ class TestTheCellStamp:
         write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
         jupyter_kernel.pre_run_cell()
         assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
-        assert write_switch.write_verdict(writable_deployment, "va").allowed is True
+        assert (
+            write_switch.write_verdict(ControlSystemSection.read(writable_deployment), "va").allowed
+            is True
+        )
 
         write_control_context(control_context_root, target="va", generation=3, switch={})
 
-        refused = write_switch.write_verdict(writable_deployment, "va")
+        refused = write_switch.write_verdict(ControlSystemSection.read(writable_deployment), "va")
         assert (refused.allowed, refused.reason) == (False, "switch_off")
         assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
         jupyter_kernel._refusal_handler(shell, *raised(REFUSALS["write_blocked"]()))
@@ -1509,7 +1507,7 @@ def stub_factory(monkeypatch):
     )
     # An unstamped cell is built on the deployment baseline, which is read from
     # the section; with no config.yml behind the test, one is served.
-    serve_section(monkeypatch, WRITABLE_SECTION)
+    serve_control_system(WRITABLE_SECTION)
     return built
 
 

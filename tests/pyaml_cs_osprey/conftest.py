@@ -32,7 +32,7 @@ from osprey_connectors.errors import (
     ChannelReadFailedError,
     ChannelWriteFailedError,
 )
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from pyaml_cs_osprey import _run
 
 RUNTIME_FUNCTIONS = (
@@ -310,13 +310,13 @@ def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
         yaml.safe_dump({"control_system": LIVE_CONTROL_SYSTEM}), encoding="utf-8"
     )
     monkeypatch.chdir(root)
-    monkeypatch.setenv("CONFIG_FILE", str(root / "build" / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(root / "build" / "config.yml"))
     monkeypatch.delenv(ENV_CONTROL_TARGET, raising=False)
     monkeypatch.delenv(ENV_CONTROL_TARGET_GENERATION, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    reset_config_cache()
+    clear_config_state()
     yield root
-    reset_config_cache()
+    clear_config_state()
 
 
 class RunRecord:

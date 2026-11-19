@@ -56,9 +56,9 @@ def max_attachment_bytes() -> int:
     """
     default = DEFAULT_MAX_ATTACHMENT_MB * 1024 * 1024
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        section = get_config_value("ariel.attachments", {})
+        section = current_config().get("ariel.attachments", {})
     except Exception:
         logger.debug("No config available for ariel.attachments", exc_info=True)
         return default

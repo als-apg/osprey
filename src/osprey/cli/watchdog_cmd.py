@@ -134,17 +134,18 @@ class _MachineSeed:
 
     async def _connect(self) -> Any:
         if self._connector is None:
+            from osprey_connectors.config_sections import ControlSystemSection
             from osprey_connectors.connector_types import TARGET_VA
             from osprey_connectors.factory import ConnectorFactory
             from osprey_connectors.model import evolve
             from osprey_connectors.simulation.view import VIEW_RELPATH
 
             connector, context = ConnectorFactory.build_control_system_connector(
-                dict(self._config["control_system"]), control_target=TARGET_VA
+                ControlSystemSection.read(self._config["control_system"]), control_target=TARGET_VA
             )
             view = self._build_dir / VIEW_RELPATH
             await connector.connect(
-                evolve(context, settings={**context.settings, "simulator_view": str(view)})
+                evolve(context, settings=evolve(context.settings, simulator_view=view))
             )
             self._connector = connector
         return self._connector

@@ -33,7 +33,7 @@ from osprey.services.virtual_accelerator.serving.model_surface import (
     ModelSurface,
 )
 from osprey.services.virtual_accelerator.serving.runner_config import periodic_addresses
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation import DEFAULT_TICK_S, archive
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
@@ -107,7 +107,7 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         return STUB if name == "stub" else real(name)
 
     monkeypatch.setattr(Composite, "_engine", staticmethod(engine))
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
 
 
 def _view(path: Path, settings: Mapping[str, Any] | None = None) -> Path:
@@ -669,9 +669,7 @@ def test_the_seeded_value_at_t_equals_the_live_value_at_t(tmp_path: Path, paddle
     _, composite, _ = _gate_surface(tmp_path, paddle=paddle)
     live = composite.get(list(GATED))
 
-    seeded_archive = archive.build(
-        tmp_path / "simulator", ActiveState(), tz=get_facility_timezone()
-    )
+    seeded_archive = archive.build(tmp_path / "simulator", ActiveState(), tz=facility_timezone())
     seeded = seeded_archive.samples(list(GATED), [T0])
 
     labels = ["FALSE", "TRUE"]

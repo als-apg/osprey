@@ -31,8 +31,7 @@ from typing import IO, Any
 from rich.text import Text
 
 from osprey.errors import BuildProfileError
-from osprey_connectors.config import apply_env_chain
-from osprey_connectors.dotenv import chain_files
+from osprey_connectors.dotenv import apply_env_chain, chain_files
 from osprey_connectors.logger import get_logger
 
 from .output import fail, report, warn

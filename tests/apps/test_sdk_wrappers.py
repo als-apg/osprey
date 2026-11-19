@@ -22,7 +22,7 @@ from osprey.apps.errors import AppManifestError
 from osprey.mcp_server import approval_record, startup
 from osprey.mcp_server.approval_record import APPROVAL_MISSING, Refusal
 from osprey_connectors import refusals, write_switch
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests.apps import test_sdk_check_approved_call as approved_call
 from tests.apps.test_sdk_check_approved_call import APP, DIGEST, FULL_NAME, TOOL, VALUE, _config
 from tests.hooks.conftest import import_hook
@@ -48,7 +48,7 @@ def _declaring(config: dict[str, Any], *read: str) -> dict[str, Any]:
 def _write_config(path: Path, monkeypatch: pytest.MonkeyPatch, config: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(path))
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def rendered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("OSPREY_APP_NAME", APP)
     _write_config(tmp_path / "config.yml", monkeypatch, _declaring(_config()))
     yield
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture
@@ -321,7 +321,7 @@ def test_agent_panel_headers_names_the_agents_own_session(monkeypatch):
 def test_facility_file_sits_at_the_render_root(tmp_path: Path, monkeypatch):
     (tmp_path / "config.yml").write_text("{}\n", encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-    reset_config_cache()
+    clear_config_state()
     assert sdk.facility_file() == tmp_path / "facility.json"
 
 
@@ -351,7 +351,7 @@ def test_read_facts_finds_a_kinds_view_files_and_own_keys(tmp_path: Path, monkey
     (tmp_path / "data" / "facility_facts.json").write_text(json.dumps(_facts_document()))
     (tmp_path / "config.yml").write_text("{}\n", encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-    reset_config_cache()
+    clear_config_state()
 
     facts = sdk.read_facts()
     assert facts == sdk.read_facts(tmp_path)

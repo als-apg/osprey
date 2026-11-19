@@ -27,7 +27,7 @@ import tempfile
 from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 
 from .models import PlotConfig
 
@@ -112,7 +112,7 @@ def create_plt_from_config(
         Absolute path to the created .plt file.
     """
     os.makedirs(workspace_dir, exist_ok=True)
-    zone = get_facility_timezone()
+    zone = facility_timezone()
 
     timestamp = datetime.now(zone).strftime("%Y%m%d_%H%M%S")
     temp_fd, temp_path = tempfile.mkstemp(

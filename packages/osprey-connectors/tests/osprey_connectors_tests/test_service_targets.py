@@ -23,7 +23,8 @@ from osprey_connectors.connector_types import (
 )
 from osprey_connectors.deployment.simulator import has_simulator
 from osprey_connectors.service_answers import BackendSpec, ServiceKind
-from osprey_connectors.service_targets import APPLIANCE_TARGETS, ServiceTable, service_targets
+from osprey_connectors.service_targets import APPLIANCE_TARGETS, ServiceTable
+from osprey_connectors_tests._service_table import table_of
 
 KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
 SERVED_VA = {"services": {"virtual_accelerator": {"port": 5064}}}
@@ -66,7 +67,7 @@ def _config(section, *, base=SERVED_VA):
 
 
 def _table(section, *, base=SERVED_VA):
-    return service_targets(_config(section, base=base))
+    return table_of(_config(section, base=base))
 
 
 class TestHasSimulator:
@@ -110,7 +111,7 @@ class TestShape:
         ],
     )
     def test_no_section_serves_nothing(self, config):
-        table = service_targets({**SERVED_VA, **config})
+        table = table_of({**SERVED_VA, **config})
         for kind in KINDS:
             assert set(table.row(kind).values()) == {None}
         # The archive is the archiver block's, not this section's: none is the mock.
@@ -119,7 +120,7 @@ class TestShape:
     def test_the_config_is_not_touched(self):
         config = _config(FULL_SECTION)
         before = copy.deepcopy(config)
-        service_targets(config)
+        table_of(config)
         assert config == before
 
 
@@ -151,7 +152,7 @@ class TestDirectorySources:
         assert _table(FULL_SECTION, base=FACILITY_ONLY).row("directory")[TARGET_VA] is None
 
     def test_simulator_spec_carries_no_facility_setting(self):
-        settings = _table(FULL_SECTION).row("directory")[TARGET_VA].settings
+        settings = _table(FULL_SECTION).row("directory")[TARGET_VA].settings.model_dump()
         assert "url" not in settings
         assert "timeout_s" not in settings
 
@@ -187,7 +188,7 @@ class TestAlarmStateSources:
 
     def test_demo_replay_passes_verbatim(self):
         row = _table({"alarm_state": {"replay_file": "demo:example-alarms"}}).row("alarm_state")
-        assert row[TARGET_VA].settings["replay_file"] == "demo:example-alarms"
+        assert row[TARGET_VA].settings.model_dump()["replay_file"] == "demo:example-alarms"
 
     def test_a_facility_alarm_source_never_serves_va(self):
         block = {k: v for k, v in FULL_SECTION["alarm_state"].items() if k != "replay_file"}
@@ -200,10 +201,10 @@ class TestAlarmStateSources:
     def test_type_and_replay_serve_different_targets(self):
         row = _table(FULL_SECTION).row("alarm_state")
         assert row[TARGET_VA].type == "alarm_replay"
-        assert "bootstrap_servers" not in row[TARGET_VA].settings
+        assert "bootstrap_servers" not in row[TARGET_VA].settings.model_dump()
         assert row[TARGET_LIVE].type == "phoebus_alarm_server"
-        assert row[TARGET_LIVE].settings["bootstrap_servers"] == "kafka.example:9092"
-        assert "replay_file" not in row[TARGET_LIVE].settings
+        assert row[TARGET_LIVE].settings.model_dump()["bootstrap_servers"] == "kafka.example:9092"
+        assert "replay_file" not in row[TARGET_LIVE].settings.model_dump()
 
     @pytest.mark.parametrize("replay_file", [None, "", "   ", 3])
     def test_a_replay_file_naming_nothing_serves_nothing(self, replay_file):
@@ -219,7 +220,9 @@ class TestLogsServeTheFacilityOnly:
         assert row[TARGET_LIVE].kind == kind
         assert row[TARGET_LIVE].rehearsal is False
         assert row[TARGET_STANDIN].rehearsal is True
-        assert row[TARGET_LIVE].settings["url"] == FULL_SECTION[kind]["settings"]["url"]
+        assert (
+            row[TARGET_LIVE].settings.model_dump()["url"] == FULL_SECTION[kind]["settings"]["url"]
+        )
 
     @pytest.mark.parametrize("kind", ["alarm_log", "put_log"])
     @pytest.mark.parametrize(
@@ -238,12 +241,12 @@ class TestLogsServeTheFacilityOnly:
 
     def test_settings_not_a_mapping_read_as_none(self):
         row = _table({"put_log": {"type": "caputlog", "settings": "nope"}}).row("put_log")
-        assert row[TARGET_LIVE].settings == {}
+        assert row[TARGET_LIVE].settings.model_dump() == {}
 
 
 class TestFold:
     def test_directory_spec_folds_description_exact_properties_and_caveats(self):
-        settings = _table(FULL_SECTION).row("directory")[TARGET_LIVE].settings
+        settings = _table(FULL_SECTION).row("directory")[TARGET_LIVE].settings.model_dump()
         assert settings == {
             "url": "https://directory.example/ChannelFinder",
             "timeout_s": 4,
@@ -253,7 +256,7 @@ class TestFold:
         }
 
     def test_simulator_spec_folds_the_same_keys(self):
-        settings = _table(FULL_SECTION).row("directory")[TARGET_VA].settings
+        settings = _table(FULL_SECTION).row("directory")[TARGET_VA].settings.model_dump()
         assert settings == {
             "description_property": "recordDesc",
             "exact_properties": ["iocName", "hostName"],
@@ -262,51 +265,57 @@ class TestFold:
 
     @pytest.mark.parametrize("kind", ["alarm_log", "alarm_state", "put_log"])
     def test_each_sub_block_folds_its_own_caveats_only(self, kind):
-        settings = _table(FULL_SECTION).row(kind)[TARGET_LIVE].settings
+        settings = _table(FULL_SECTION).row(kind)[TARGET_LIVE].settings.model_dump()
         assert settings["caveats"] == FULL_SECTION[kind]["caveats"]
         assert "description_property" not in settings
         assert "exact_properties" not in settings
 
     def test_replay_spec_folds_the_sub_blocks_caveats(self):
-        settings = _table(FULL_SECTION).row("alarm_state")[TARGET_VA].settings
+        settings = _table(FULL_SECTION).row("alarm_state")[TARGET_VA].settings.model_dump()
         assert settings == {
             "replay_file": "alarms/rehearsal.jsonl",
             "caveats": ["state caveat"],
         }
 
     def test_a_key_the_section_does_not_set_is_not_folded(self):
-        settings = _table({"type": "channelfinder"}).row("directory")[TARGET_LIVE].settings
+        settings = (
+            _table({"type": "channelfinder"}).row("directory")[TARGET_LIVE].settings.model_dump()
+        )
         assert settings == {}
 
     @pytest.mark.parametrize("value", ["", "  ", 7])
     def test_a_blank_description_property_is_not_folded(self, value):
         table = _table({"type": "channelfinder", "description_property": value})
-        assert "description_property" not in table.row("directory")[TARGET_LIVE].settings
-        assert "description_property" not in table.row("directory")[TARGET_VA].settings
+        assert (
+            "description_property" not in table.row("directory")[TARGET_LIVE].settings.model_dump()
+        )
+        assert "description_property" not in table.row("directory")[TARGET_VA].settings.model_dump()
 
     def test_display_not_a_mapping_folds_nothing(self):
         section = {"type": "channelfinder", "display": "wide"}
-        assert _table(section).row("directory")[TARGET_LIVE].settings == {}
+        assert _table(section).row("directory")[TARGET_LIVE].settings.model_dump() == {}
 
     def test_folded_values_are_copies_of_the_config(self):
         config = _config(FULL_SECTION)
-        table = service_targets(config)
-        table.row("directory")[TARGET_LIVE].settings["exact_properties"].append("mutated")
-        table.row("put_log")[TARGET_LIVE].settings["caveats"].append("mutated")
+        table = table_of(config)
+        table.row("directory")[TARGET_LIVE].settings.model_dump()["exact_properties"].append(
+            "mutated"
+        )
+        table.row("put_log")[TARGET_LIVE].settings.model_dump()["caveats"].append("mutated")
         assert config["pv_directory"]["display"]["exact_properties"] == ["iocName", "hostName"]
         assert config["pv_directory"]["put_log"]["caveats"] == ["put caveat"]
 
     def test_specs_of_two_targets_share_no_settings(self):
         row = _table(FULL_SECTION).row("put_log")
-        assert row[TARGET_LIVE].settings is not row[TARGET_STANDIN].settings
+        assert row[TARGET_LIVE].settings is not row[TARGET_STANDIN].settings.model_dump()
 
 
 def test_facility_targets_agree_with_the_archives():
     config = _config(FULL_SECTION)
     config["archiver"] = {"type": EPICS_ARCHIVER, "epics_archiver": {"url": "https://a.example"}}
-    assert service_targets(config).history_targets() == APPLIANCE_TARGETS
+    assert table_of(config).history_targets() == APPLIANCE_TARGETS
 
-    table = service_targets(config)
+    table = table_of(config)
     for kind in KINDS:
         facility = {
             target

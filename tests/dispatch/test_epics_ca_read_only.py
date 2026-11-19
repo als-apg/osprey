@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from osprey.dispatch.sources import epics_ca
 from osprey.dispatch.sources.epics_ca import EpicsCaSource
 from osprey.dispatch.trigger_config import TriggerConfig
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ControlSystemConnector,
@@ -31,9 +32,9 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_switch import write_verdict
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._epics_fakes import install_fake_aioca
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
-from osprey_connectors_tests._write_fakes import config_reader
 
 #: Every method or property on the connector interface that writes, or decides a write.
 WRITE_NAMES = frozenset(
@@ -112,9 +113,7 @@ async def test_the_sources_connector_carries_no_target_and_refuses_a_write(tmp_p
     root = tmp_path / "agent-data"
     isolate_verdict_environment(monkeypatch, root)
     write_control_context(root, owned_by=None, switch={"live": "on", "va": "on"})
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value", config_reader(dict(WRITES_ALLOWED))
-    )
+    serve_control_system(WRITES_ALLOWED)
 
     connector = await epics_ca._connect()
     result = await connector.write_channel("SR:A", 1.0)
@@ -122,8 +121,11 @@ async def test_the_sources_connector_carries_no_target_and_refuses_a_write(tmp_p
     assert connector._control_target is None
     # Armed for every target the connector could have been stamped with, so the
     # missing stamp is the only thing that refuses.
-    assert write_verdict(dict(WRITES_ALLOWED), "live").allowed
-    assert write_verdict(dict(WRITES_ALLOWED), None).reason == "target_unknown"
+    assert write_verdict(ControlSystemSection.read(dict(WRITES_ALLOWED)), "live").allowed
+    assert (
+        write_verdict(ControlSystemSection.read(dict(WRITES_ALLOWED)), None).reason
+        == "target_unknown"
+    )
     assert result.outcome is WriteOutcome.REFUSED
     assert refusal_phrase("target_unknown") in (result.error_message or "")
     assert aioca.puts == []

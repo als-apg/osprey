@@ -73,12 +73,12 @@ A block the factory would refuse — both settings spellings at once, or a
 settings value that is not a mapping — serves no archive on any target, so it
 claims none; that is the mock's block too.
 
-Pure, and never raises: the answer is a function of the mapping alone. No
+Pure, and never raises: the answer is a function of its arguments alone. No
 environment variable, no file and no control-context record is consulted, which
 is what lets a supervisor call it at every restart and get the deployment's
-answer rather than the calling process's. A block that is not a mapping, or a
-``type`` or ``replay_file`` that is not a non-blank string, names no source;
-refusing such a block at build is ``resolve_section``'s job in the framework.
+answer rather than the calling process's. A ``type`` or ``replay_file`` that is
+not a non-blank string names no source; refusing such a block at build is
+``resolve_section``'s job in the framework.
 """
 
 from __future__ import annotations
@@ -88,6 +88,7 @@ from types import MappingProxyType
 from typing import get_args
 
 from osprey_connectors.archiver_selection import resolve_archiver_settings, resolve_archiver_type
+from osprey_connectors.config_sections import ArchiverSection, ConnectorSettings, PvDirectorySection
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     DOOCS_ARCHIVER,
@@ -100,18 +101,13 @@ from osprey_connectors.connector_types import (
     TARGET_VA,
     ControlTarget,
 )
-from osprey_connectors.deployment.simulator import has_simulator, virtual_accelerator_port
 from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.service_answers import BackendSpec, ServiceKind
 
 __all__ = ["APPLIANCE_TARGETS", "ServiceTable", "service_targets"]
 
-_SECTION_KEY = "pv_directory"
 _SIMULATOR_VIEW = "simulator_view"
 _ALARM_REPLAY = "alarm_replay"
-
-#: The top-level config section selecting and configuring the archiver.
-_ARCHIVER_SECTION_KEY = "archiver"
 
 #: The archiver types that are the deployment's own store. Every other type
 #: except the mock is the facility's archive.
@@ -185,14 +181,25 @@ class ServiceTable(FrozenModel):
         )
 
 
-def service_targets(config: object) -> ServiceTable:
+def service_targets(
+    pv_directory: PvDirectorySection,
+    archiver: ArchiverSection,
+    *,
+    simulator_port: int | None,
+    built_simulator: bool,
+) -> ServiceTable:
     """The source of every service kind on every target, per the module table.
 
     Args:
-        config: The full config mapping, as loaded from ``config.yml``: not the
-            ``pv_directory:`` or ``archiver:`` section, because the ``va`` half
-            turns on whether the deployment built a simulator. Anything that is
-            not a mapping has no section, which for the archive is the mock's.
+        pv_directory: The ``pv_directory:`` section, read.
+        archiver: The ``archiver:`` section, read.
+        simulator_port: The virtual accelerator's Channel Access port the build
+            rendered (:func:`~osprey_connectors.deployment.simulator.virtual_accelerator_port`),
+            ``None`` when it stood none up: the deployment's own store serves
+            ``va`` only beside one.
+        built_simulator: Whether the deployment built a simulator
+            (:func:`~osprey_connectors.deployment.simulator.has_simulator`):
+            the directory row's ``va`` entry is the simulator's view only then.
 
     Returns:
         The table, every target of
@@ -200,26 +207,26 @@ def service_targets(config: object) -> ServiceTable:
         With no ``pv_directory:`` section, every entry of the four directory
         rows is ``None``.
     """
-    archive = _archive_row(config)
-    section = config.get(_SECTION_KEY) if isinstance(config, Mapping) else None
-    if not isinstance(section, Mapping):
+    archive = _archive_row(archiver, simulator_port)
+    if not pv_directory.present:
         none: dict[ControlTarget, BackendSpec | None] = dict.fromkeys(CONTROL_TARGETS)
         return ServiceTable(
             directory=none, alarm_state=none, alarm_log=none, put_log=none, archive=archive
         )
 
+    section = pv_directory.directory
     display = _mapping(section.get("display"))
     directory_fold = {
         **_present(description_property=_text(section.get("description_property"))),
         **_present(exact_properties=display.get("exact_properties")),
         **_caveats(section),
     }
-    alarm_state_block = _mapping(section.get("alarm_state"))
+    alarm_state_block = pv_directory.alarm_state
     replay_file = _text(alarm_state_block.get("replay_file"))
 
     directory = _facility_row("directory", section, directory_fold)
     alarm_state = _facility_row("alarm_state", alarm_state_block)
-    if has_simulator(config):
+    if built_simulator:
         directory[TARGET_VA] = _spec("directory", _SIMULATOR_VIEW, TARGET_VA, directory_fold)
     if replay_file:
         alarm_state[TARGET_VA] = _spec(
@@ -231,18 +238,16 @@ def service_targets(config: object) -> ServiceTable:
     return ServiceTable(
         directory=directory,
         alarm_state=alarm_state,
-        alarm_log=_facility_row("alarm_log", _mapping(section.get("alarm_log"))),
-        put_log=_facility_row("put_log", _mapping(section.get("put_log"))),
+        alarm_log=_facility_row("alarm_log", pv_directory.alarm_log),
+        put_log=_facility_row("put_log", pv_directory.put_log),
         archive=archive,
     )
 
 
-def _archive_row(config: object) -> dict[ControlTarget, BackendSpec | None]:
+def _archive_row(
+    section: ArchiverSection, simulator_port: int | None
+) -> dict[ControlTarget, BackendSpec | None]:
     """The ``archive`` row, per the module's archive table."""
-    if not isinstance(config, Mapping):
-        # No section is the mock's.
-        config = {}
-    section = config.get(_ARCHIVER_SECTION_KEY)
     archiver_type = resolve_archiver_type(section)
     try:
         settings = resolve_archiver_settings(section)
@@ -253,7 +258,7 @@ def _archive_row(config: object) -> dict[ControlTarget, BackendSpec | None]:
     if archiver_type == MOCK_ARCHIVER:
         served: frozenset[ControlTarget] = frozenset(CONTROL_TARGETS)
     elif archiver_type in _STORE_ARCHIVERS:
-        served = _STORE_TARGETS if virtual_accelerator_port(config) is not None else _NO_TARGETS
+        served = _STORE_TARGETS if simulator_port is not None else _NO_TARGETS
     else:
         served = APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else _NO_TARGETS
     return {
@@ -298,7 +303,7 @@ def _spec(
         kind=kind,
         type=service,
         target=target,
-        settings=_copied(settings),
+        settings=ConnectorSettings.model_validate(_copied(settings)),
         rehearsal=target == TARGET_STANDIN,
     )
 

@@ -245,6 +245,6 @@ def test_lifetime_without_a_topoff_source_holds_nothing():
 
 
 def test_the_fingerprint_names_the_shape_version():
-    knobs = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
+    knobs = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=10, tail_cadence_s=60)
     fingerprint = seed_fingerprint(knobs, [CURRENT], compression="zstd")
     assert fingerprint.topoff_shape_version == topoff.SHAPE_VERSION

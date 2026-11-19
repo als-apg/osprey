@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.records import SeedsDocument
 from osprey_connectors.simulation.state import ActiveState
@@ -51,7 +51,7 @@ def test_live_equals_archive_at_the_same_instant(topoff_view):
     archive = build(
         topoff_view,
         ActiveState(names=[], anchor_at=datetime.fromtimestamp(T0 + 3600.0, UTC)),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
     instants = [T0 + offset for offset in (0.0, 1.5, 14.0, 29.999, 30.0, 47.25, 1800.0)]
     stored = archive.series(CURRENT, instants)

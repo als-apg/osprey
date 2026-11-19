@@ -109,9 +109,9 @@ def hybrid_search_enabled() -> bool | None:
     loaded (tests, bare library use): unknown never reads as ``no_reader``.
     """
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        modules = get_config_value("ariel.search_modules", None)
+        modules = current_config().get("ariel.search_modules", None)
     except Exception:  # no config.yml (tests, bare library use)
         return None
     if not isinstance(modules, Mapping):

@@ -259,9 +259,9 @@ def detect_control_system_operations(
     # Load control_system_type for logging/metadata (doesn't affect patterns!)
     if control_system_type is None:
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            configured_type = get_config_value("control_system.type", "unknown")
+            configured_type = current_config().get("control_system.type", "unknown")
             control_system_type = configured_type if isinstance(configured_type, str) else "unknown"
         except Exception:
             control_system_type = "unknown"
@@ -281,9 +281,9 @@ def detect_control_system_operations(
             patterns = _merge_patterns(framework, patterns)
     else:
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            custom_patterns = get_config_value("control_system.patterns", None)
+            custom_patterns = current_config().get("control_system.patterns", None)
 
             if (
                 custom_patterns is not None

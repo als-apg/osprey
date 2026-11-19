@@ -34,7 +34,7 @@ from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
 )
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -842,9 +842,9 @@ def _max_timeseries_file_bytes() -> int:
     """
     megabytes = DEFAULT_MAX_TIMESERIES_FILE_MB
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        configured = get_config_value(
+        configured = current_config().get(
             "artifact_server.max_timeseries_file_mb", DEFAULT_MAX_TIMESERIES_FILE_MB
         )
     except Exception:
@@ -873,9 +873,9 @@ def _page_size() -> int:
     """
     size = DEFAULT_PAGE_SIZE
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        configured = get_config_value("artifact_server.page_size", DEFAULT_PAGE_SIZE)
+        configured = current_config().get("artifact_server.page_size", DEFAULT_PAGE_SIZE)
     except Exception:
         logger.debug("No config available for artifact_server.page_size", exc_info=True)
         configured = None
@@ -1037,9 +1037,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         unregister_artifact_delete_listener,
         unregister_artifact_listener,
     )
-    from osprey_connectors.workspace import resolve_shared_data_root
+    from osprey.utils.config_paths import process_agent_data_root
 
-    data_root: Path = workspace_root if workspace_root is not None else resolve_shared_data_root()
+    data_root: Path = workspace_root if workspace_root is not None else process_agent_data_root()
     store = ArtifactStore(workspace_root=data_root)
 
     # Prime config and load the declared extension types (if available).
@@ -1048,16 +1048,16 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # `config.yml` INSIDE the agent-data root — no layout has ever written one
     # there, so the `exists()` gate below was always false and the gallery
     # silently never loaded a custom declaration. `OSPREY_CONFIG` is set on every
-    # launch path that starts this app, and resolve_config_path falls back to
+    # launch path that starts this app, and locate_config falls back to
     # the render zone beneath the cwd otherwise.
     try:
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import locate_config
 
-        config_path = resolve_config_path()
+        config_path = locate_config()
         if config_path.exists():
-            from osprey_connectors.config import get_config_builder
+            from osprey_connectors.config import install_config, load_config
 
-            get_config_builder(config_path=str(config_path), set_as_default=True)
+            install_config(load_config(config_path))
             from osprey.stores.type_registry import load_extension_types
 
             load_extension_types()
@@ -1071,15 +1071,16 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     # Resolved once, after config priming like the theme pin: the spelling of
     # the artifact directory that the page's artifactPath hands the agent.
-    from osprey_connectors.workspace import agent_data_base_dir, load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
+    from osprey_connectors.workspace import agent_data_base_dir
 
     artifact_dir_for_agent = _agent_artifact_dir(
-        store.artifact_dir, store.repo_root, agent_data_base_dir(load_osprey_config())
+        store.artifact_dir, store.repo_root, agent_data_base_dir(loaded_or_empty())
     )
 
     # Resolved once, after config priming like the theme pin, because the
     # priming above is what points the resolver at this deployment's config.
-    facility_timezone = get_facility_timezone().key
+    zone_name = facility_timezone().key
 
     # Resolved once, after config priming like the theme pin, because the
     # listing route's own ``limit`` default is built from it when the route is
@@ -1230,7 +1231,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             "index.html",
             {
                 "web_theme_pin": web_theme_pin,
-                "facility_timezone": facility_timezone,
+                "facility_timezone": zone_name,
                 "artifact_dir": artifact_dir_for_agent,
             },
         )

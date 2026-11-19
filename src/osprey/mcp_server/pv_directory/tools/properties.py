@@ -48,7 +48,7 @@ async def directory_properties(property: str, prefix: str | None = None) -> str:
         backend, source, reason = await get_tool_context().service.backend("pv_directory")
         if backend is None:
             refuse_unavailable(_TOOL, {"outcome": "unavailable", "reason": reason})
-        deadline = _timeout(backend.spec.settings)
+        deadline = _timeout(backend.spec.settings.model_dump())
         try:
             answer = await asyncio.wait_for(
                 backend.property_values(property, prefix=prefix, timeout_s=deadline), deadline

@@ -9,7 +9,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from osprey_connectors import write_authorization as wa
-from osprey_connectors.config import default_config_path, get_config_value
+from osprey_connectors.config import current_config
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.ipc import ConnectorHostPool
 
@@ -67,9 +67,8 @@ async def write(pool: ConnectorHostPool, grant: wa.Grant) -> None:
 async def main() -> None:
     request = ask()
     grant = await asyncio.to_thread(wait_for_approval, request)
-    pool = ConnectorHostPool(
-        get_config_value("control_system", {}), config_file=default_config_path()
-    )
+    config = current_config()
+    pool = ConnectorHostPool(config.section("control_system"), config_file=config.path)
     try:
         await write(pool, grant)
     finally:

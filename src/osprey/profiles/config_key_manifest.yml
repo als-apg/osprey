@@ -369,9 +369,9 @@ keys:
       environment (not in the scaffolded pipeline, which reads the profile).
     default: ''
   services:
-    evidence: 'get_config_value\("services\.postgresql", \{\}\)'
+    evidence: 'current_config\(\)\.get\("services\.postgresql", \{\}\)'
     default: {}
-  services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)', default: {}}
+  services.postgresql: {evidence: 'current_config\(\)\.get\("services\.postgresql", \{\}\)', default: {}}
   services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql"}
   services.postgresql.database_name: {evidence: 'database_name', default: ariel}
   services.postgresql.username: {covered-by: services.postgresql, default: ariel}
@@ -1274,9 +1274,9 @@ keys:
     default: []
 
   # ── Control system ──────────────────────────────────────────────────
-  control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
+  control_system: {evidence: 'current_config\(\)\.get\("control_system", \{\}\)', default: {}}
   control_system.type:
-    evidence: 'get_config_value\("control_system\.type", None\)'
+    evidence: 'current_config\(\)\.get\("control_system\.type", None\)'
     default: required
     default_note: >-
       The types a project can be built on are `epics`, `virtual_accelerator`,
@@ -1319,16 +1319,17 @@ keys:
     default_note: computed by the build from modules.web_terminals and the renders; never spelled
   control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and limits checking is off"}
   control_system.limits_checking.enabled:
-    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
+    evidence: 'if "enabled" in value:'
     note: >-
       Deployment-wide limits posture, and no longer read by a dotted
       `get_config_value` call: every reader now goes through the per-type
       resolver family in `osprey_connectors.limits_posture`, whose inherit branch falls
       back to this deployment-wide block when the acting connector type wrote
       no block of its own. Both scopes read their leaves through the one
-      shared helper `_block_limits_posture`, so this anchor is shared with the
-      per-type entries below; the per-type branch stays covered by the parent
-      entries' `limits = block[LIMITS_CHECKING_LEAF]` anchor. A leaf
+      parse `LimitsBlock.read` in `osprey_connectors.config_sections`, so this
+      anchor is shared with the per-type entries below; the per-type branch
+      stays covered by the parent entries' `limits = block.limits_checking`
+      anchor. A leaf
       absent here is unset; one PRESENT but not literally `true`/`false` makes
       the block incomplete in either scope, so the posture answers neither
       leaf, `_from_posture` returns the blocking failsafe and `osprey build`
@@ -1354,7 +1355,7 @@ keys:
     default_note: >-
       the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
   control_system.limits_checking.mode:
-    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
+    evidence: 'if "mode" in value:'
     note: >-
       The limits mode, one of `exclusive` or `optional`. `exclusive`: only
       channels in the limits database can be written. `optional`: a channel in
@@ -1431,7 +1432,7 @@ keys:
   # while nothing OSPREY ships writes one.
   control_system.connector.epics.gateways:
     rendered: false
-    evidence: 'gateways: _Gateways = settings\.get\("gateways"\)'
+    evidence: 'gateways: ReadOnlyMapping\[SelectedRole, GatewayRow\]'
     note: >-
       Anchored on the EPICS connector's read of the block: the bare word
       `gateways` is past the vacuity cap (31 files under the evidence roots)
@@ -1459,7 +1460,7 @@ keys:
   control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
   control_system.connector.epics.pva_channels:
     rendered: false
-    evidence: 'settings\.get\("pva_channels"\)'
+    evidence: 'pva_channels: FrozenTuple\[str\] = \(\)'
     note: >-
       Glob patterns of the addresses the EPICS connector reads over PVAccess
       (p4p) instead of Channel Access. Absent or empty is pure Channel Access:
@@ -1468,15 +1469,15 @@ keys:
     default: []
   control_system.connector.epics.pva_gateway:
     rendered: false
-    evidence: 'settings\.get\("pva_gateway"\)'
+    evidence: 'pva_gateway: GatewayRow \| None = None'
     note: >-
       Where PVA searches go, read only when `pva_channels` is non-empty. The one
       route: the connector host scrubs every inherited EPICS_PVA_* variable
       before connect() runs.
     default: {}
-  control_system.connector.epics.pva_gateway.address: {rendered: false, evidence: 'pva_gateway\.get\("address", ""\)', default: ''}
-  control_system.connector.epics.pva_gateway.port: {rendered: false, evidence: 'pva_gateway\.get\("port"\)', default: derived, default_note: "5075 under use_name_server; otherwise no port is appended, and PVA's UDP search port 5076 applies"}
-  control_system.connector.epics.pva_gateway.use_name_server: {rendered: false, evidence: 'pva_gateway\.get\("use_name_server"\)', default: false}
+  control_system.connector.epics.pva_gateway.address: {rendered: false, evidence: 'address = mapping\.get\("address"\)', default: ''}
+  control_system.connector.epics.pva_gateway.port: {rendered: false, evidence: 'written_port = mapping\.get\("port"\)', default: derived, default_note: "5075 under use_name_server; otherwise no port is appended, and PVA's UDP search port 5076 applies"}
+  control_system.connector.epics.pva_gateway.use_name_server: {rendered: false, evidence: 'mapping\.get\("use_name_server"\)', default: false}
   # The DOOCS and TANGO connector blocks. No preset renders either one —
   # `demo` documents both as commented examples — so the parents
   # and every leaf below them are `rendered: false` together.
@@ -1485,7 +1486,7 @@ keys:
   control_system.connector.tango: {rendered: false, covered-by: control_system.connector, default: n/a}
   control_system.connector.tango.tango_host:
     rendered: false
-    evidence: 'settings\.get\("tango_host"\)'
+    evidence: 'tango_host: str \| None = None'
     note: >-
       The TANGO device database this deployment speaks to, written `host:port`.
       It is the ONE coordinate the TANGO connector takes; everything else in
@@ -1514,7 +1515,7 @@ keys:
   # block too; the evidence is that one site.
   control_system.connector.virtual_accelerator.step_read_timeout_s: {rendered: false, covered-by: control_system.connector.virtual_accelerator, default: 2.0}
   control_system.connector.virtual_accelerator.gateways:
-    evidence: 'gateways = config\.get\("gateways"\)'
+    evidence: 'rows = fill_gateway_ports\(epics\.gateways\)'
     note: >-
       Anchored on the VA connector's own read of the block — no default in the
       call, so the pattern is disjoint from the EPICS site above and each dies
@@ -1646,7 +1647,7 @@ keys:
     default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.virtual_accelerator.limits_checking:
     rendered: false
-    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    evidence: 'limits = block\.limits_checking'
     note: >-
       Per-connector-type override of the deployment-wide
       `control_system.limits_checking` block above, and the reason that block
@@ -1661,7 +1662,7 @@ keys:
       The reader is `type_limits_posture` in `osprey_connectors.limits_posture`, and the
       evidence is the line in it that takes this block out of the resolved
       connector block -- disjoint from the deployment-wide read in
-      `_global_limits_posture` (`section[...]`), so each entry dies with exactly
+      `_global_limits_posture` (`section.limits_checking`), so each entry dies with exactly
       its own reader. The epics and live_standin entries below cite the same
       site on purpose: one type-keyed resolver serves every connector type, a
       custom connector's dotted module path included. No `doocs` entry,
@@ -1670,7 +1671,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.virtual_accelerator.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
+    evidence: 'if "enabled" in value:'
     note: >-
       Whether limits checking runs for this connector type. Literal `true` or
       `false` states a posture. A leaf PRESENT but spelled otherwise (a quoted
@@ -1688,7 +1689,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.virtual_accelerator.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
+    evidence: 'if "mode" in value:'
     note: >-
       The limits mode for this connector type alone, with the same two values
       and the same shared reader as the deployment-wide leaf above. A per-type
@@ -1697,7 +1698,7 @@ keys:
     default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.epics.limits_checking:
     rendered: false
-    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    evidence: 'limits = block\.limits_checking'
     note: >-
       Same block, same whole-block override semantics and the same single
       type-keyed reader for the epics block. No shipped preset writes it: a
@@ -1706,7 +1707,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.epics.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
+    evidence: 'if "enabled" in value:'
     note: >-
       Same leaf, same absent/unreadable reading and the same shared reader
       for the epics block.
@@ -1714,7 +1715,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.epics.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
+    evidence: 'if "mode" in value:'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the epics block.
@@ -1722,7 +1723,7 @@ keys:
     default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.doocs.limits_checking:
     rendered: false
-    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    evidence: 'limits = block\.limits_checking'
     note: >-
       The same block reached through the doocs block, overriding whole the way
       every per-type block does. No shipped preset writes it: a DOOCS
@@ -1731,7 +1732,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.doocs.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
+    evidence: 'if "enabled" in value:'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the doocs block.
@@ -1739,7 +1740,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.doocs.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
+    evidence: 'if "mode" in value:'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the doocs block.
@@ -1747,7 +1748,7 @@ keys:
     default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.tango.limits_checking:
     rendered: false
-    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    evidence: 'limits = block\.limits_checking'
     note: >-
       The same block reached through the tango block, with the same
       whole-block override semantics. No shipped preset writes it, for the
@@ -1756,7 +1757,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.tango.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
+    evidence: 'if "enabled" in value:'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the tango block.
@@ -1764,7 +1765,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.tango.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
+    evidence: 'if "mode" in value:'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the tango block.
@@ -1772,7 +1773,7 @@ keys:
     default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.live_standin.limits_checking:
     rendered: false
-    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    evidence: 'limits = block\.limits_checking'
     note: >-
       The live stand-in's own limits block. Never authored in a preset and
       never rendered: the build derives the stand-in's connector block from
@@ -1787,7 +1788,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.live_standin.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
+    evidence: 'if "enabled" in value:'
     note: >-
       One of the two leaves of the derived block a profile is free to write.
       Same absent/unreadable reading and the same shared reader as the other
@@ -1796,7 +1797,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.live_standin.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
+    evidence: 'if "mode" in value:'
     note: >-
       The other leaf of the derived block. Same absent/unreadable reading and
       the same shared reader; a deployment that writes no live_standin block
@@ -1860,7 +1861,7 @@ keys:
   # ── Archiver ────────────────────────────────────────────────────────
   # Evidenced by the archive row's reader of the section, which builds every
   # target's archive spec from it.
-  archiver: {evidence: '_ARCHIVER_SECTION_KEY = "archiver"', default: {}}
+  archiver: {evidence: 'archiver=ArchiverSection\.read\(resolved\.get\("archiver"\)\)', default: {}}
   # Evidenced by the pairing rule's own spelling of the key, not by the name
   # of whichever connector happens to be the default. The literal 'mock_archiver'
   # used to serve here and stopped describing the key the moment the
@@ -1929,7 +1930,7 @@ keys:
     default: {}
   archiver.doocs_archiver.avg_window:
     rendered: false
-    evidence: 'config\.get\("avg_window"\)'
+    evidence: 'avg_window: float \| None = None'
     note: >-
       Centered moving average, in seconds, applied to the samples a read
       returns. Unset returns the raw samples.
@@ -2071,13 +2072,11 @@ keys:
   system.timezone:
     all-templates: true
     same-value: true
-    evidence: '"facility_timezone": self\.get\("system\.timezone", "UTC"\)'
+    evidence: 'written = section\["timezone"\]'
     note: >-
-      Anchored on the read that SUPPLIES the value (the loader's configurable
-      payload, which is where `facility_timezone` comes from), not on the
-      container-TZ drift warning that also names the key. The warning reads it
-      with a `None` default to detect "unstated", so citing that site would have
-      documented a fallback of None beside a column that says UTC.
+      Anchored on the read that SUPPLIES the value (the load's facility zone,
+      `LoadedConfig.system.timezone`, which is UTC when the key is unstated), not
+      on the container-TZ drift warning that also names the key.
     default: UTC
   agent_data:
     evidence: '\(config or \{\}\)\.get\("agent_data"\) or \{\}'
@@ -2094,10 +2093,10 @@ keys:
     evidence: 'config\.get\("file_paths", \{\}\)'
     default: {}
   file_paths.registry_exports_dir:
-    evidence: 'get_agent_dir\("registry_exports_dir"\)'
+    evidence: 'file_paths\.get\("registry_exports_dir", "registry_exports_dir"\)'
     note: >-
       Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
-      (utils/config.get_agent_dir), so a missing entry silently renames the
+      (registry.manager.initialize_registry), so a missing entry silently renames the
       directory rather than failing.
     default: derived
     default_note: >-
@@ -2191,7 +2190,7 @@ keys:
     evidence: 'get_config_value\("claude_code", \{\}\)'
     default: {}
   claude_code.provider:
-    evidence: 'get_config_value\("claude_code\.provider", ""\)'
+    evidence: 'current_config\(\)\.get\("claude_code\.provider", ""\)'
     default: ''
   claude_code.default_model:
     evidence: 'claude_code_config\.get\("default_model"\)'
@@ -2566,12 +2565,12 @@ keys:
   pv_directory.alarm_state.settings: {rendered: false, covered-by: pv_directory.alarm_state, default: {}}
   pv_directory.alarm_state.settings.bootstrap_servers:
     rendered: false
-    evidence: 'settings\.get\("bootstrap_servers"\)'
+    evidence: '_servers\(data\.get\("bootstrap_servers"\)\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
   pv_directory.alarm_state.settings.topic:
     rendered: false
-    evidence: 'settings\.get\("topic"\)'
+    evidence: 'topic = data\.get\("topic"\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
   pv_directory.alarm_state.replay_file:
@@ -2602,7 +2601,7 @@ keys:
   pv_directory.put_log.caveats: {rendered: false, covered-by: pv_directory.put_log, default: []}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
-  ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
+  ariel: {evidence: 'current_config\(\)\.get\("ariel", \{\}\)', default: {}}
   ariel.ingestion:
     rendered: false
     covered-by: ariel
@@ -2674,7 +2673,7 @@ keys:
   ariel.web.auto_launch: {rendered: false, covered-by: ariel.web, default: true}
   ariel.entry_url_template:
     rendered: false
-    evidence: 'get_config_value\("ariel\.entry_url_template"'
+    evidence: 'current_config\(\)\.get\("ariel\.entry_url_template"'
     note: >-
       The logbook's own URL for one entry, with a single `{entry_id}`
       placeholder filled with the URL-encoded id. Commented in the preset
@@ -3178,8 +3177,8 @@ keys:
   ariel.embedding.provider: {covered-by: ariel.embedding, default: ollama}
 
   # ── Logbook / facility knowledge / panels ───────────────────────────
-  logbook: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
-  logbook.composition: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
+  logbook: {evidence: 'current_config\(\)\.get\("logbook\.composition", \{\}\)', default: {}}
+  logbook.composition: {evidence: 'current_config\(\)\.get\("logbook\.composition", \{\}\)', default: {}}
   logbook.composition.provider: {covered-by: logbook.composition, default: derived, default_note: claude_code.provider}
   logbook.composition.model:
     rendered: false
@@ -3200,7 +3199,7 @@ keys:
       appears, and the evidence anchors on it.
     default: null
   facility_knowledge.bundle_path:
-    evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
+    evidence: 'current_config\(\)\.get\("facility_knowledge\.bundle_path", None\)'
     default: required
     default_note: >-
       A path to the bundle, absolute or resolved against the project directory.
@@ -3245,7 +3244,7 @@ keys:
     default: {}
   artifact_server.max_timeseries_file_mb:
     rendered: false
-    evidence: 'get_config_value\(\s*"artifact_server\.max_timeseries_file_mb"'
+    evidence: 'current_config\(\)\.get\(\s*"artifact_server\.max_timeseries_file_mb"'
     note: >-
       Largest timeseries data file the gallery renders as a chart or a table,
       in megabytes. Commented in the presets, because the number that
@@ -3257,7 +3256,7 @@ keys:
     default: 200
   artifact_server.page_size:
     rendered: false
-    evidence: 'get_config_value\(\s*"artifact_server\.page_size"'
+    evidence: 'current_config\(\)\.get\(\s*"artifact_server\.page_size"'
     note: >-
       How many artifacts one listing request answers with, and so how many the
       gallery draws before it fetches the next page. Commented in the
@@ -3485,7 +3484,7 @@ keys:
       on it. No preset states it.
     default: true
   web.theme:
-    evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
+    evidence: 'current_config\(\)\.get\("web\.theme", DEFAULT_WEB_THEME\)'
     note: >-
       Live in project only; commented in demo; absent from the
       three others. The default is "main" whether the key is live or absent,
@@ -3518,7 +3517,7 @@ keys:
     default: true
   web.file_watch_reconcile_interval_s:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'
+    evidence: 'current_config\(\)\.get\(\s*"web\.file_watch_reconcile_interval_s"'
     note: >-
       How often each interface file watcher re-reads the directories it tracks,
       so a change the platform's notification stream never delivers is still
@@ -3665,7 +3664,7 @@ keys:
     default_note: '"artifacts" — the Workspace tab, which every deployment serves'
   web.presets:
     data-map: true
-    evidence: 'load_osprey_config\(\)\.get\("web", \{\}\)\.get\("presets", \{\}\)'
+    evidence: 'loaded_or_empty\(\)\.get\("web", \{\}\)\.get\("presets", \{\}\)'
     note: >-
       Named panel layouts, applied in one click from the workspace's "+"
       popover. Derived from the profile's `panel_presets:` field. The LAYOUT
@@ -3678,7 +3677,7 @@ keys:
     # OSPREY project's own documentation site into every deployment's
     # profile.yml. The default below still applies when nothing spells the key.
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
     note: >-
       Documented as a commented example in every preset that carries a `web:`
       block; hello-world has none.
@@ -3738,7 +3737,7 @@ keys:
     default: true
   web.feedback:
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.'
     note: >-
       The block is never read as a mapping — each leaf below has its own
       dotted lookup in the web terminal's lifespan. The evidence anchors on
@@ -3752,7 +3751,7 @@ keys:
     # OSPREY project's own tracker into every deployment's profile.yml. The
     # default below still applies when nothing spells the key.
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.github_repo", None\)'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.github_repo", None\)'
     note: >-
       Read with a None sentinel rather than its own default, unlike its
       neighbours: `web.feedback.owner` can stand in for this key, and the
@@ -3765,13 +3764,13 @@ keys:
     # never rendered as a live key: the shipped posture is the github_repo
     # shorthand alone, and a facility adds trackers by hand.
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.feedback\.trackers",\s*None\s*\)'
     default: null
   web.feedback.email:
     # Commented rather than rendered, for the reason `web.feedback.github_repo`
     # carries above.
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.email", None\)'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.email", None\)'
     note: >-
       Read with a None sentinel for the same reason as
       `web.feedback.github_repo` — see that entry. Blank ships no Email
@@ -3785,7 +3784,7 @@ keys:
     # by hand. Rendering it live would force `osprey init --revalidate` on every
     # already-deployed profile to clear a drift report.
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.owner", None\)'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.owner", None\)'
     note: >-
       One block naming who owns this deployment: `name`, `email` and a
       forge-agnostic `tracker`. The leaf keys `web.feedback.email` and
@@ -3814,7 +3813,7 @@ keys:
     # a template, so it is not part of the rendered union and carries
     # rendered: false rather than an all-templates disposition.
     rendered: false
-    evidence: 'get_config_value\("provenance\.'
+    evidence: 'current_config\(\)\.get\("provenance\.'
     default: derived
     default_note: >-
       stamped into the resolved config by build_profile_emit from the preset
@@ -3829,12 +3828,12 @@ keys:
       two leaf readers share, so this entry dies with the last of them.
   provenance.preset:
     rendered: false
-    evidence: 'get_config_value\("provenance\.preset", None\)'
+    evidence: 'current_config\(\)\.get\("provenance\.preset", None\)'
     default: derived
     default_note: the preset name build_profile_emit stamps, absent without a preset
   provenance.preset_hash:
     rendered: false
-    evidence: 'get_config_value\("provenance\.preset_hash", None\)'
+    evidence: 'current_config\(\)\.get\("provenance\.preset_hash", None\)'
     default: derived
     default_note: the preset's resolved-content hash build_profile_emit stamps, absent without a preset
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)', default: {}}
@@ -3857,7 +3856,7 @@ keys:
     default: ''
   web.chat_turn_timeout_s:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
     note: >-
       Hidden key, unset in the framework template and the presets.
       First of the three keys that
@@ -3870,7 +3869,7 @@ keys:
     default: 600
   web.chat_idle_timeout_s:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
     note: >-
       Hidden key, unset in the framework template and the presets.
       How long an operator's chat
@@ -3879,7 +3878,7 @@ keys:
     default: 1800
   web.chat_max_sessions:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.chat_max_sessions",\s*5\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.chat_max_sessions",\s*5\s*\)'
     note: >-
       Hidden key, unset in the framework template and the presets.
       Cap on concurrent operator-chat
@@ -3898,14 +3897,14 @@ keys:
       is refused with a warning and the default applies. Documented in
       reference/configuration/config.rst.
     default: 60.0
-  cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: {}}
-  cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: default}
+  cli: {evidence: 'config\.get\("cli\.theme", "default"\)', default: {}}
+  cli.theme: {evidence: 'config\.get\("cli\.theme", "default"\)', default: default}
 
   # ── Bluesky queue ───────────────────────────────────────────────────
   # No app template ever rendered these: the `bluesky:` posture has always been
   # preset-side, and it entered this manifest when the presets became the other
   # half of the rendered config.
-  bluesky: {evidence: 'get_config_value\("bluesky", \{\}\)', default: {}}
+  bluesky: {evidence: 'current_config\(\)\.get\("bluesky", \{\}\)', default: {}}
   bluesky.queue_autostart:
     evidence: 'section\.get\("queue_autostart"\) is True'
     note: >-

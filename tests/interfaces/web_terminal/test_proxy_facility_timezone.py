@@ -28,7 +28,7 @@ from tests.interfaces.web_terminal._proxy_fakes import (
     root_tag,
 )
 
-_RESOLVER = "osprey.interfaces.web_terminal.routes.proxy.get_facility_timezone"
+_RESOLVER = "osprey.interfaces.web_terminal.routes.proxy.facility_timezone"
 
 _FACILITY_TIME_JS = (
     Path(__file__).resolve().parents[3]
@@ -121,4 +121,4 @@ def test_the_proxy_and_the_hub_pages_share_one_resolver():
     from osprey.interfaces.web_terminal import app
     from osprey.interfaces.web_terminal.routes import proxy
 
-    assert proxy.get_facility_timezone is app.get_facility_timezone
+    assert proxy.facility_timezone is app.facility_timezone

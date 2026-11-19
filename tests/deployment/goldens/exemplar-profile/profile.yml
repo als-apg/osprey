@@ -144,7 +144,7 @@ virtual_accelerator:
 va_archiver:
   host: localhost      # where the agent reaches the store this project deploys
   retention_days: 30   # how far back the archive reaches
-  hot_span_hours: 48   # how much of it is kept at the dense cadence
+  hot_span_h: 48       # how much of it is kept at the dense cadence
   # The build derives `freshness_channel`, the channel `osprey health` watches,
   # from the facility file; a stated line is an override checked against it.
 

@@ -41,6 +41,8 @@ from osprey_connectors.gateways import (
 )
 from osprey_connectors.ipc._host import HostReport
 from osprey_connectors.ipc._verification import _verify_child_report
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from osprey_connectors_tests.ipc._host_reports import host_report
 
@@ -875,15 +877,9 @@ def test_an_unset_epics_port_falls_back_to_the_ca_default() -> None:
     assert _derive(config, LIVE).endpoints["read_only"].port == _DEFAULT_CA_PORT
 
 
-def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None:
+def test_unset_va_ports_follow_the_deployed_va_service_port() -> None:
     """The VA is a service this project deploys, so its gateways follow it."""
-    from osprey_connectors import config as config_module
-
-    def fake_get_config_value(path: str, _default: Any = None, _config_path: str | None = None):
-        assert path == "services.virtual_accelerator.port", path
-        return 5077
-
-    monkeypatch.setattr(config_module, "get_config_value", fake_get_config_value)
+    serve_config(config_of({"services": {"virtual_accelerator": {"port": 5077}}}))
 
     config = _config(
         connector={
@@ -905,7 +901,7 @@ def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None
 def test_eligibility_fills_an_unset_va_port_from_the_config_file_it_is_given(
     tmp_path, monkeypatch
 ) -> None:
-    """The file the child reads, not whatever ``CONFIG_FILE`` this process has."""
+    """The file the child reads, not whatever ``OSPREY_CONFIG`` this process has."""
     import yaml
 
     def project(name: str, port: int):
@@ -914,7 +910,7 @@ def test_eligibility_fills_an_unset_va_port_from_the_config_file_it_is_given(
         return str(path)
 
     file_a = project("a.yml", 5071)
-    monkeypatch.setenv("CONFIG_FILE", project("b.yml", 5072))
+    monkeypatch.setenv("OSPREY_CONFIG", project("b.yml", 5072))
     # The live gateway sits on the port file B would fill in, so the verdict
     # turns on which file the derivation read.
     live = _epics_block(
@@ -933,12 +929,11 @@ def test_eligibility_fills_an_unset_va_port_from_the_config_file_it_is_given(
 
 
 def test_an_explicit_va_port_wins_over_the_service_port(monkeypatch) -> None:
-    from osprey_connectors import config as config_module
-
     def unexpected_read(*args: Any, **kwargs: Any):
         raise AssertionError("a fully explicit VA config must not read the config file")
 
-    monkeypatch.setattr(config_module, "get_config_value", unexpected_read)
+    monkeypatch.setattr("osprey_connectors.config.current_config", unexpected_read)
+    monkeypatch.setattr("osprey_connectors.config.load_config", unexpected_read)
 
     assert _derive(_config(), VA).endpoints["read_only"].port == 5074
 
@@ -1870,7 +1865,7 @@ def test_the_deployments_own_simulator_is_judged_on_loopback_and_its_published_p
         _simulator_config(), Endpoint(host="localhost", port=5064, mode="name_server")
     )
     assert te.endpoint_is_virtual_accelerator(
-        _simulator_config(), Endpoint(host="127.0.0.1", port="5064", mode="name_server")
+        _simulator_config(), Endpoint(host="127.0.0.1", port=5064, mode="name_server")
     )
 
 
@@ -1881,9 +1876,9 @@ def test_the_deployments_own_simulator_is_judged_on_loopback_and_its_published_p
             Endpoint(host="va.example.org", port=5064, mode="name_server"), id="off-the-host"
         ),
         pytest.param(Endpoint(host="localhost", port=5074, mode="name_server"), id="another-port"),
-        pytest.param(
-            Endpoint(host="localhost", port="not-a-port", mode="name_server"), id="unreadable-port"
-        ),
+        # A port that is not an integer is refused when it is derived, so the
+        # endpoint that names no port is the one left to judge.
+        pytest.param(Endpoint(host="localhost", port=None, mode="addr_list"), id="no-port"),
         pytest.param(None, id="no-endpoint"),
     ],
 )

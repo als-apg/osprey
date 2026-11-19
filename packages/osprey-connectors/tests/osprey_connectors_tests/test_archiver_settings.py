@@ -2,18 +2,28 @@
 
 import pytest
 
-from osprey_connectors.archiver_selection import (
-    archiver_settings_errors,
-    archiver_settings_key,
-    resolve_archiver_settings,
-)
+from osprey_connectors import archiver_selection
+from osprey_connectors.config_sections import ArchiverSection
 from osprey_connectors.connector_types import TARGET_LIVE
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._mock_dynamic_connector import RecordingArchiver
+from osprey_connectors_tests._service_table import table_of
 
 RECORDING = "osprey_connectors_tests._mock_dynamic_connector.RecordingArchiver"
+
+
+def resolve_archiver_settings(section: object) -> dict[str, object]:
+    return archiver_selection.resolve_archiver_settings(ArchiverSection.read(section))
+
+
+def archiver_settings_key(section: object) -> str:
+    return archiver_selection.archiver_settings_key(ArchiverSection.read(section))
+
+
+def section_problems(section: object) -> list[str]:
+    """The build's lint: the section's problems, as it reads them."""
+    return list(ArchiverSection.read(section).problems)
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +40,7 @@ def clean_factory():
 
 async def _built(section: dict) -> None:
     """Build the live archive a config with this ``archiver:`` *section* names."""
-    spec = service_targets({"archiver": section}).archive[TARGET_LIVE]
+    spec = table_of({"archiver": section}).archive[TARGET_LIVE]
     assert spec is not None
     await ConnectorFactory.create_service(spec)
 
@@ -45,7 +55,7 @@ async def test_a_dotted_path_archiver_is_built_with_its_settings_block():
 @pytest.mark.asyncio
 async def test_a_block_keyed_by_the_dotted_path_is_not_read():
     # Unread, the block names no address, so no target is served at all.
-    table = service_targets(
+    table = table_of(
         {"archiver": {"type": RECORDING, RECORDING: {"url": "https://history.example.org"}}}
     )
     assert table.archive[TARGET_LIVE] is None
@@ -106,32 +116,30 @@ class TestArchiverSettingsErrors:
     """The build's lint over a rendered ``archiver:`` section."""
 
     def test_a_block_keyed_by_the_dotted_path_is_named(self):
-        assert archiver_settings_errors({"type": "a.b.C", "a.b.C": {"s": 1}}) == [
+        assert section_problems({"type": "a.b.C", "a.b.C": {"s": 1}}) == [
             "`a.b.C:` under `archiver:` is a block no archiver reads; the selected "
             "archiver, a.b.C, takes its settings from `archiver.settings`"
         ]
 
     def test_a_block_keyed_by_the_last_path_segment_is_named(self):
-        (error,) = archiver_settings_errors({"type": "a.b.C", "C": {"s": 1}})
+        (error,) = section_problems({"type": "a.b.C", "C": {"s": 1}})
         assert "`C:`" in error
 
     def test_a_misspelled_builtin_block_is_named(self):
-        (error,) = archiver_settings_errors(
-            {"type": "epics_archiver", "epcis_archiver": {"url": "u"}}
-        )
+        (error,) = section_problems({"type": "epics_archiver", "epcis_archiver": {"url": "u"}})
         assert "`epcis_archiver:`" in error
 
     def test_both_spellings_at_once_are_named(self):
         section = {"type": "epics_archiver", "settings": {}, "epics_archiver": {"url": "u"}}
         with pytest.raises(ValueError) as refusal:
             resolve_archiver_settings(section)
-        assert archiver_settings_errors(section) == [str(refusal.value)]
+        assert section_problems(section) == [str(refusal.value)]
 
     def test_a_settings_value_that_is_not_a_block_is_named(self):
         section = {"type": "a.b.C", "settings": "x"}
         with pytest.raises(ValueError) as refusal:
             resolve_archiver_settings(section)
-        assert archiver_settings_errors(section) == [str(refusal.value)]
+        assert section_problems(section) == [str(refusal.value)]
 
     @pytest.mark.parametrize(
         "section",
@@ -146,15 +154,15 @@ class TestArchiverSettingsErrors:
         ],
     )
     def test_what_a_reader_takes_passes(self, section):
-        assert archiver_settings_errors(section) == []
+        assert section_problems(section) == []
 
     def test_a_scalar_is_not_a_block(self):
-        assert archiver_settings_errors({"type": "a.b.C", "url": "x"}) == []
+        assert section_problems({"type": "a.b.C", "url": "x"}) == []
 
 
 def test_the_known_archiver_names_are_the_factory_builtins():
     """A built-in's own name block is read, so every built-in has to be a known name."""
-    from osprey_connectors import archiver_selection
+    from osprey_connectors import config_sections
     from osprey_connectors.factory import _BUILTIN_ARCHIVERS
 
-    assert sorted(archiver_selection._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
+    assert sorted(config_sections._ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)

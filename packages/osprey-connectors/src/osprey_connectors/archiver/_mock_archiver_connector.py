@@ -11,9 +11,10 @@ rows, and its coverage says it is not archived.
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pandas as pd
+from pydantic import model_validator
 from typing_extensions import override
 
 from osprey_connectors.archiver._base import ArchiveCoverage, ChannelArchive
@@ -23,12 +24,14 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
+from osprey_connectors.config_sections import ConnectorSettings
 from osprey_connectors.control_system._va_in_process_connector import (
     SIMULATOR_VIEW_SETTING,
     simulation_state_dir,
     simulator_view_dir,
 )
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 from osprey_connectors.simulation.series import _epoch_seconds_array
@@ -38,6 +41,41 @@ if TYPE_CHECKING:
     from osprey_connectors.simulation.archive import ArchiveComposite
 
 logger = get_logger("mock_archiver_connector")
+
+
+class MockArchiverSettings(ConnectorSettings):
+    """The mock archive's block, ``archiver.settings``, read.
+
+    Attributes:
+        sample_rate_hz: The sampling rate; a number greater than zero, 1.0
+            when unset.
+        simulator_view: The view directory to serve; ``None`` serves
+            ``data/simulator/`` beside the loaded config. A value that is not a
+            path is ``None`` too.
+    """
+
+    sample_rate_hz: float = 1.0
+    simulator_view: str | Path | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        # A zero or negative rate would divide by zero later; reject it at
+        # configuration time, along with a rate that is not a number at all.
+        sample_rate_hz: object = data.get("sample_rate_hz", 1.0)
+        if not isinstance(sample_rate_hz, int | float) or sample_rate_hz <= 0:
+            raise ConfigurationError(
+                f"sample_rate_hz must be > 0 (got {sample_rate_hz})",
+                key="archiver.settings.sample_rate_hz",
+            )
+        view = data.get(SIMULATOR_VIEW_SETTING)
+        return {
+            **data,
+            "sample_rate_hz": float(sample_rate_hz),
+            SIMULATOR_VIEW_SETTING: view if isinstance(view, str | Path) else None,
+        }
 
 
 class MockArchiverConnector(ChannelArchive):
@@ -63,8 +101,10 @@ class MockArchiverConnector(ChannelArchive):
     view that is missing, from an older build, or whose physics model fails to
     build at the start state answers ``Unavailable``.
 
+    The settings are read into :class:`MockArchiverSettings`.
+
     Raises:
-        ValueError: ``sample_rate_hz`` is not a number greater than zero.
+        ConfigurationError: ``sample_rate_hz`` is not a number greater than zero.
 
     Example:
         >>> archive = MockArchiverConnector(BackendSpec(
@@ -78,18 +118,16 @@ class MockArchiverConnector(ChannelArchive):
         >>> )
     """
 
+    settings_model: ClassVar[type[ConnectorSettings]] = MockArchiverSettings
+    SETTINGS_KEY: ClassVar[str] = "archiver.settings"
+
     def __init__(
         self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
-        config: Mapping[str, object] = spec.settings
-        # A zero or negative rate would divide by zero later; reject it at
-        # configuration time, along with a rate that is not a number at all.
-        sample_rate_hz: object = config.get("sample_rate_hz", 1.0)
-        if not isinstance(sample_rate_hz, int | float) or sample_rate_hz <= 0:
-            raise ValueError(f"sample_rate_hz must be > 0 (got {sample_rate_hz})")
-        self._sample_rate_hz: float = sample_rate_hz
-        self._view_setting: object = config.get(SIMULATOR_VIEW_SETTING)
+        config = self._settings(MockArchiverSettings)
+        self._sample_rate_hz: float = config.sample_rate_hz
+        self._view_setting: str | Path | None = config.simulator_view
         self._archive: ArchiveComposite | None = None
         self._view: SimulatorView | None = None
         self._state_file: Path | None = None
@@ -122,7 +160,7 @@ class MockArchiverConnector(ChannelArchive):
                 active = parse_active_state(self._state_file.read_text(encoding="utf-8"))
             except FileNotFoundError:
                 signature = None
-        self._archive = build(self._view, active, tz=get_facility_timezone())
+        self._archive = build(self._view, active, tz=facility_timezone())
         self._state_signature = signature
 
     def _open(self) -> None:
@@ -134,8 +172,7 @@ class MockArchiverConnector(ChannelArchive):
         """
         from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 
-        setting = self._view_setting
-        self._view = simulator_view_dir(setting if isinstance(setting, str | Path) else None)
+        self._view = simulator_view_dir(self._view_setting)
         self._state_file = simulation_state_dir(self._view.path) / ACTIVE_SCENARIOS_FILENAME
         try:
             self._rebuild()

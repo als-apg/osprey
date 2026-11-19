@@ -18,6 +18,7 @@ import stat
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_context import RECORD_FILENAME, parse_record
 from osprey_connectors.targets import baseline_target
 from osprey_connectors.write_switch import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_TREE_MARKER_NAME
@@ -80,7 +81,7 @@ def owner_target(section: Any, owner: str | None) -> str | None:
     """
     bind = _tree_bind()
     if owner is None or not bind:
-        return baseline_target(section)
+        return baseline_target(ControlSystemSection.read(section))
     tree = os.path.expanduser(bind)
     if not os.path.isabs(tree) or not _is_segment(owner):
         logger.warning("No control target for %r: the tree bind or the name is unusable", owner)
@@ -93,4 +94,4 @@ def owner_target(section: Any, owner: str | None) -> str | None:
     if not read:
         logger.warning("No control target for %r: its record is not a record", owner)
         return None
-    return target if target is not None else baseline_target(section)
+    return target if target is not None else baseline_target(ControlSystemSection.read(section))

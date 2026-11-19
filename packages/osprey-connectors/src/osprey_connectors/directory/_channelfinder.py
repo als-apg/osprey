@@ -30,12 +30,18 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated
+from typing import Annotated, ClassVar
 
-from pydantic import ConfigDict, Field, OnErrorOmit, TypeAdapter, ValidationError
+from pydantic import ConfigDict, Field, OnErrorOmit, TypeAdapter, ValidationError, model_validator
 from typing_extensions import override
 
-from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
+from osprey_connectors._service_http import (
+    MALFORMED,
+    HttpServiceSettings,
+    ReadOnlyTransport,
+    Transport,
+)
+from osprey_connectors.config_sections import ConnectorSettings
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
     DirectoryDetail,
@@ -211,6 +217,43 @@ def _properties_of(channel: _Channel) -> dict[str, str]:
     }
 
 
+class ChannelFinderSettings(HttpServiceSettings):
+    """ChannelFinder's block, ``pv_directory.settings``, read, with the section's folded keys.
+
+    Attributes:
+        description_property: The property a row's description is read from:
+            the section's ``description_property`` when it is a non-blank
+            string, else ``recordDesc``.
+        exact_properties: The properties with a known set of values: the
+            string entries of ``display.exact_properties`` when it is a list,
+            else ``pvStatus`` and ``recordType``.
+    """
+
+    description_property: str = _DEFAULT_DESCRIPTION_PROPERTY
+    exact_properties: frozenset[str] = frozenset(_DEFAULT_EXACT_PROPERTIES)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _folded(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        description = data.get("description_property")
+        exact = data.get("exact_properties")
+        return {
+            **data,
+            "description_property": (
+                description
+                if isinstance(description, str) and description.strip()
+                else _DEFAULT_DESCRIPTION_PROPERTY
+            ),
+            "exact_properties": frozenset(
+                (key for key in exact if isinstance(key, str))
+                if isinstance(exact, list | tuple | frozenset | set)
+                else _DEFAULT_EXACT_PROPERTIES
+            ),
+        }
+
+
 class ChannelFinderDirectory(ChannelDirectory):
     """Search a ChannelFinder service over its read routes.
 
@@ -221,6 +264,9 @@ class ChannelFinderDirectory(ChannelDirectory):
         transport: Anything with :meth:`ReadOnlyTransport.request`; defaults to one
             built from ``spec.settings``.
     """
+
+    settings_model: ClassVar[type[ConnectorSettings]] = ChannelFinderSettings
+    SETTINGS_KEY: ClassVar[str] = "pv_directory.settings"
 
     ALLOWED_REQUESTS = (
         ("GET", _CHANNELS),
@@ -238,21 +284,10 @@ class ChannelFinderDirectory(ChannelDirectory):
         **seams: object,
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
-        self._transport = transport or ReadOnlyTransport(
-            spec.settings, self.ALLOWED_REQUESTS, where="pv_directory.settings"
-        )
-        description = spec.settings.get("description_property")
-        self._description_property = (
-            description
-            if isinstance(description, str) and description.strip()
-            else _DEFAULT_DESCRIPTION_PROPERTY
-        )
-        exact = spec.settings.get("exact_properties")
-        self._exact_properties = frozenset(
-            (key for key in exact if isinstance(key, str))
-            if isinstance(exact, list)
-            else _DEFAULT_EXACT_PROPERTIES
-        )
+        settings = self._settings(ChannelFinderSettings)
+        self._transport = transport or ReadOnlyTransport(settings.connection, self.ALLOWED_REQUESTS)
+        self._description_property = settings.description_property
+        self._exact_properties = settings.exact_properties
 
     @property
     @override

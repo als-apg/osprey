@@ -153,6 +153,7 @@ from osprey.mcp_server.approval_record import (
 )
 from osprey.mcp_server.errors import make_error
 from osprey.utils.session_hold_api import refusal_detail, session_hold_refusal
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_text
 from osprey_connectors.write_switch import backstop_verdict
@@ -375,7 +376,7 @@ def hook_config_path() -> Path | None:
 
     ``None`` means :data:`CONFIG_ENV` is unset, blank, or not absolute — the
     caller degrades to the floor. Deliberately not a resolver:
-    ``resolve_project_root`` answers the repo root, one directory above the
+    ``process_repo_root`` answers the repo root, one directory above the
     render zone, and a fallback to it would read a *different* deployment's hook
     config while looking entirely healthy. A *relative* ``OSPREY_CONFIG`` does
     the same thing by a shorter route — it resolves against whatever directory
@@ -811,7 +812,7 @@ def _backstop() -> WriteVerdict:
     tool's verdict and the connector's to decide, about the machine the write
     lands on, and a clamp on every write tool of the server cannot know it.
     """
-    return backstop_verdict(posture.control_system_section())
+    return backstop_verdict(ControlSystemSection.read(posture.control_system_section()))
 
 
 def _clamp_refusal(backstop: WriteVerdict, tool: str) -> Refused | None:

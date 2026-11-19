@@ -39,20 +39,23 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import AfterValidator, Field
 from typing_extensions import override
 
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import Login as LoginName
 
 __all__ = [
     "ConnectionSettings",
     "Credential",
     "ENV_NAME_RE",
-    "Login",
     "LoginKind",
+    "PasswordLogin",
+    "ServiceLogin",
+    "TokenLogin",
     "read_ca_bundle",
     "read_connection_settings",
     "read_credential_env_names",
@@ -89,38 +92,72 @@ _MOVED_KEYS = {
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
-class Login(FrozenModel):
-    """A login named by a connection block. It holds variable names, never a secret."""
+def _env_name(value: str) -> str:
+    """*value* when it names an environment variable (:data:`ENV_NAME_RE`)."""
+    if not ENV_NAME_RE.match(value):
+        raise ValueError(f"{value!r} does not name an environment variable")
+    return value
 
-    kind: LoginKind
-    token_env: str | None = None
-    username: str | None = None
-    password_env: str | None = None
+
+#: The name of the environment variable a secret is read from.
+_EnvName = Annotated[str, AfterValidator(_env_name)]
+
+
+class TokenLogin(FrozenModel):
+    """A bearer-token login: the variable that holds the token. Never the token itself."""
+
+    kind: Literal["token"] = "token"
+    token_env: _EnvName
 
     @property
-    def env_key(self) -> str:
+    def secret_key(self) -> Literal["token_env"]:
         """The ``auth:`` key that names this login's secret variable."""
-        return "token_env" if self.kind == "token" else "password_env"
+        return "token_env"
 
     @property
-    def env_names(self) -> tuple[str, ...]:
+    def secret_env(self) -> str:
         """The environment variable that holds this login's secret."""
-        name = self.token_env if self.kind == "token" else self.password_env
-        return (name,) if name else ()
+        return self.token_env
+
+
+class PasswordLogin(FrozenModel):
+    """A user and the variable that holds the password. Never the password itself.
+
+    ``username`` is validated, never normalised: a name with space around it is
+    refused rather than taken for another name.
+    """
+
+    kind: Literal["password"] = "password"
+    username: LoginName
+    password_env: _EnvName
+
+    @property
+    def secret_key(self) -> Literal["password_env"]:
+        """The ``auth:`` key that names this login's secret variable."""
+        return "password_env"
+
+    @property
+    def secret_env(self) -> str:
+        """The environment variable that holds this login's secret."""
+        return self.password_env
+
+
+#: A login a connection block names: a bearer token or a user and password,
+#: told apart by ``kind``.
+ServiceLogin = Annotated[TokenLogin | PasswordLogin, Field(discriminator="kind")]
 
 
 class Credential(FrozenModel):
     """A login resolved from the environment. Its repr never shows the secret."""
 
-    kind: LoginKind
-    username: str | None
+    login: ServiceLogin
     secret: str = Field(repr=False)
 
     def authorization_header(self) -> str:
         """The ``Authorization`` value: a bearer token, or HTTP Basic sent up front."""
-        if self.kind == "token":
+        if isinstance(self.login, TokenLogin):
             return f"Bearer {self.secret}"
-        pair = f"{self.username}:{self.secret}".encode()
+        pair = f"{self.login.username}:{self.secret}".encode()
         return "Basic " + base64.b64encode(pair).decode("ascii")
 
 
@@ -130,13 +167,13 @@ class ConnectionSettings(FrozenModel):
     where: str
     url: str | None = None
     timeout_s: float | None = None
-    login: Login | None = None
+    login: ServiceLogin | None = None
     ca_bundle: Path | None = None
 
     @property
     def credential_env_names(self) -> tuple[str, ...]:
         """The environment variables the login's secret is read from; ``()`` without one."""
-        return self.login.env_names if self.login else ()
+        return (self.login.secret_env,) if self.login else ()
 
     def timeout_or(self, default: float) -> float:
         """The configured bound, or ``default`` when the block sets none."""
@@ -158,15 +195,14 @@ class ConnectionSettings(FrozenModel):
         if self.login is None:
             return None
         env = os.environ if environ is None else environ
-        key = self.login.env_key
-        (name,) = self.login.env_names
+        name = self.login.secret_env
         secret = env.get(name, "")
         if not secret.strip():
             raise ConnectionError(
-                f"Environment variable '{name}' named by `{self.where}.auth.{key}` is not "
-                "set, so there is no credential to send. Export it where the connector runs."
+                f"Environment variable '{name}' named by `{self.where}.auth.{self.login.secret_key}` "
+                "is not set, so there is no credential to send. Export it where the connector runs."
             )
-        return Credential(kind=self.login.kind, username=self.login.username, secret=secret)
+        return Credential(login=self.login, secret=secret)
 
     def ssl_context(self) -> ssl.SSLContext:
         """The TLS context for this endpoint.
@@ -361,7 +397,7 @@ def _read_auth(
     logins: frozenset[LoginKind],
     unsupported_because: str,
     extra_auth_keys: frozenset[str],
-) -> Login | None:
+) -> ServiceLogin | None:
     if value is None:
         return None
     key = f"`{where}.auth`"
@@ -414,13 +450,19 @@ def _read_auth(
             f"{key} is not accepted here: {unsupported_because}", key=f"{where}.auth"
         )
     if kind == "token":
-        return Login(kind="token", token_env=value["token_env"])
+        return TokenLogin(token_env=value["token_env"])
     username = value["username"]
     if not isinstance(username, str) or not username.strip():
         raise ConfigurationError(
             f"`{where}.auth.username` must be a non-empty string", key=f"{where}.auth.username"
         )
-    return Login(kind="password", username=username, password_env=value["password_env"])
+    if username != username.strip():
+        # A login is validated, never normalised: " bob" is not taken for "bob".
+        raise ConfigurationError(
+            f"`{where}.auth.username` is {username!r}: a login has no space around it",
+            key=f"{where}.auth.username",
+        )
+    return PasswordLogin(username=username, password_env=value["password_env"])
 
 
 def _read_tls(value: object, where: str, tls: bool, unsupported_because: str) -> Path | None:

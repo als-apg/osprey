@@ -570,9 +570,9 @@ def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime, reserve_port)
     """
     from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
     from osprey.deployment.host_ports import parse_host_port_bindings
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
-    config = load_project_config(str(as_built_config_path(exemplar_copy)), wrap_errors=True)
+    config = load_config(as_built_config_path(exemplar_copy)).raw_tree()
     compose_files = [
         str(path) if os.path.isabs(str(path)) else str(exemplar_copy / str(path))
         for path in as_built_compose_files(config, exemplar_copy)

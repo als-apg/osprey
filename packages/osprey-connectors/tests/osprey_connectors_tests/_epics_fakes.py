@@ -23,6 +23,7 @@ import numpy
 import pytest
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors_tests._config_trees import serve_control_system
 
 EPICS_CA_VARS = (
     "EPICS_CA_ADDR_LIST",
@@ -66,14 +67,7 @@ def patch_writes_enabled(monkeypatch, enabled: bool, root: Any = None) -> None:
     simulator target under *root* (required then), stamping connectors built
     off the factory with it — see :func:`osprey_connectors_tests._write_fakes.arm_switch`.
     """
-    section = {"writes": "allowed" if enabled else "never"}
-
-    def fake_get_config_value(key, default=None):
-        if key == "control_system":
-            return dict(section)
-        return default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    serve_control_system({"writes": "allowed" if enabled else "never"})
     if enabled:
         if root is None:
             raise ValueError(

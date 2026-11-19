@@ -67,7 +67,8 @@ from osprey.apps.sdk import (
     write_verdict,
 )
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.control_system import ControlSystem
 from osprey_connectors.errors import ChannelWriteBlockedError
@@ -145,7 +146,7 @@ def panel_dir() -> Path:
 
 
 def _section() -> dict[str, Any]:
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     return section if isinstance(section, dict) else {}
 
 
@@ -169,15 +170,16 @@ async def build_connector(target: str) -> ControlSystem:
     """
     global _ca_target
     section = _section()
-    kind = resolve_target(section, target)
+    read = ControlSystemSection.read(section)
+    kind = resolve_target(read, target)
     config = {**section, "type": kind}
-    channel_access = speaks_channel_access(section, kind)
+    channel_access = speaks_channel_access(read, kind)
     if channel_access and _ca_target not in (None, target):
         raise ValueError(
             f"this backend's Channel Access serves {_ca_target}, and a process has one "
             f"Channel Access context: restart the application to serve {target}"
         )
-    if os.environ.get(NAME_SERVER_ENV) and target == baseline_target(section):
+    if os.environ.get(NAME_SERVER_ENV) and target == baseline_target(read):
         # In its container: compose names the baseline's name server. The config's
         # gateways are the host's view, and connecting through them would replace it.
         # Any other target is reached through its own gateways.
@@ -189,7 +191,9 @@ async def build_connector(target: str) -> ControlSystem:
     if claimed:
         _ca_target = target  # before the connect, which is what points the context
     try:
-        return await ConnectorFactory.create_control_system_connector(config, control_target=target)
+        return await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config), control_target=target
+        )
     except BaseException:
         if claimed:
             _ca_target = None
@@ -203,7 +207,7 @@ _READ_MARGIN_S = 1.0
 def _call_bound(section: Mapping[str, Any], target: str) -> float:
     """The target connector's call bound, in seconds."""
     try:
-        kind = resolve_target(section, target)
+        kind = resolve_target(ControlSystemSection.read(section), target)
         block = (section.get("connector") or {}).get(kind) or {}
         return call_timeout_s(block, kind)
     except (ValueError, TypeError, AttributeError):
@@ -978,7 +982,7 @@ def create_app(
         }
 
     def posture(target: str, owner: str | None) -> dict[str, Any]:
-        verdict = write_verdict(_section(), target, owner=owner)
+        verdict = write_verdict(ControlSystemSection.read(_section()), target, owner=owner)
         phrase = None
         if verdict.reason is not None:
             try:

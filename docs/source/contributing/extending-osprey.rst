@@ -46,9 +46,16 @@ runs the write guard, the limits, the confirming read and the ``values_match``
 comparison, and builds every ``ChannelWriteResult``. That way your connector
 words every outcome exactly as every other one does. ``connect()`` is final
 too: implement ``_open(settings)``, which receives your connector's own block
-(``control_system.connector.<type>``). ``connect()`` takes the
-``ConnectorContext`` the factory builds, and it builds the limits validator from
-the deployment's loaded config before it calls ``_open``. The optional protected
+(``control_system.connector.<type>``) read into the class's ``settings_model``.
+A connector that reads keys of its own declares a subclass of
+``ControlSystemSettings`` with a field for each and names it in ``settings_model``;
+the factory reads the block into it when it builds the connector, so a key
+written as something the model refuses fails the build, naming the key. A
+connector that declares none gets ``ControlSystemSettings`` itself, which reads
+``timeout_s`` and keeps every other key in ``settings.model_extra``.
+``connect()`` takes the ``ConnectorContext`` the factory builds, and it builds
+the limits validator from the deployment's loaded config before it calls
+``_open``. The optional protected
 hooks (``_precheck``, ``_confirming_read``, ``_run_check`` and the rest) are
 listed in :ref:`connectors-api-contracts`. Register it with
 ``ConnectorFactory.register_control_system``, or ship it as an

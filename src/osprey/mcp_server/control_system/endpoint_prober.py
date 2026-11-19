@@ -76,6 +76,7 @@ from typing import Any
 
 from osprey.mcp_server.control_system import target_state
 from osprey.utils.seconds import positive_seconds
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import ControlTarget, is_control_target
 from osprey_connectors.gateways import Endpoint, derive_endpoints
 from osprey_connectors.targets import configured_targets
@@ -220,7 +221,9 @@ class EndpointProber:
         """
         self._config = config
         self._targets = (
-            tuple(targets) if targets is not None else tuple(configured_targets(_section(config)))
+            tuple(targets)
+            if targets is not None
+            else tuple(configured_targets(ControlSystemSection.read(_section(config))))
         )
         self._connect_timeout_s = float(connect_timeout_s)
         self._interval_s = (

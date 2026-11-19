@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
+import osprey_connectors.config as config_module
 from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_SETUP,
     ExecutionResult,
@@ -27,7 +28,6 @@ from osprey.mcp_server.python_executor.executor import (
     resolve_agent_interpreter,
 )
 from osprey.utils.execution_method import DEFAULT_EXECUTION_TIMEOUT_SECONDS
-from osprey_connectors.config import ConfigBuilder
 from tests.mcp_server._zones import zone_away_from_host
 
 
@@ -147,17 +147,12 @@ async def test_an_unbounded_timeout_starts_no_run(tmp_path, monkeypatch):
     assert not list(tmp_path.rglob("python_executions"))
 
 
-def test_config_timeout_default_matches_the_builder_default(tmp_path, monkeypatch):
-    """Both ends of the executor timeout read the same constant."""
+def test_config_timeout_default_is_the_framework_default(tmp_path, monkeypatch):
+    """A config that names no timeout runs with the framework's one default."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(yaml.dump({}))
-    builder = ConfigBuilder(config_path=str(tmp_path / "config.yml"))
 
-    assert (
-        builder._get_python_executor_config()["execution_timeout_seconds"]
-        == _read_config()["timeout"]
-        == DEFAULT_EXECUTION_TIMEOUT_SECONDS
-    )
+    assert _read_config()["timeout"] == DEFAULT_EXECUTION_TIMEOUT_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +236,7 @@ def test_execution_folder_is_stamped_in_the_facility_zone(tmp_path, monkeypatch)
     _write_config(tmp_path)
     zone = zone_away_from_host()
     monkeypatch.setattr(
-        "osprey.mcp_server.python_executor.executor.get_facility_timezone", lambda: zone
+        "osprey.mcp_server.python_executor.executor.facility_timezone", lambda: zone
     )
     folder = _create_execution_folder()
 
@@ -276,10 +271,10 @@ def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
             }
         },
     )
-    # Force ConfigBuilder to use this test's config.yml
-    from osprey_connectors.config import get_config_builder
+    # Make this test's config.yml the process config
+    from osprey_connectors.config import load_config
 
-    get_config_builder(config_path=str(tmp_path / "config.yml"), set_as_default=True)
+    monkeypatch.setattr(config_module, "_installed", load_config(tmp_path / "config.yml"))
 
     validator = _load_limits_validator(target=None)
     assert validator is not None
@@ -326,10 +321,10 @@ def test_wrapper_injects_validator_when_present(tmp_path, monkeypatch):
             }
         },
     )
-    # Force ConfigBuilder to use this test's config.yml
-    from osprey_connectors.config import get_config_builder
+    # Make this test's config.yml the process config
+    from osprey_connectors.config import load_config
 
-    get_config_builder(config_path=str(tmp_path / "config.yml"), set_as_default=True)
+    monkeypatch.setattr(config_module, "_installed", load_config(tmp_path / "config.yml"))
 
     validator = _load_limits_validator(target=None)
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper

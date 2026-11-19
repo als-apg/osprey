@@ -45,10 +45,12 @@ from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import REASONS, refusal_phrase
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import (
     owner,
     pin_identity,
@@ -57,7 +59,7 @@ from osprey_connectors_tests._harness import (
     write_payload,
     write_server_report,
 )
-from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
+from osprey_connectors_tests._write_fakes import RecordingConnector
 from tests.interfaces.web_terminal._control_context import only_alive, read_record
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -745,7 +747,9 @@ class TestWideningLocks:
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(), name="app.yml"
         )
-        verdict = write_switch.write_verdict(control_system_section(), "va")
+        verdict = write_switch.write_verdict(
+            ControlSystemSection.read(control_system_section()), "va"
+        )
         assert verdict.reason == "tier_never"
         assert_envelope(
             post_switch(client, target="va"),
@@ -810,7 +814,10 @@ class TestTheLoginsOwnTierLock:
     def test_the_terminal_render_carries_no_map_and_binds_no_tree(self):
         assert LOGIN_TIERS_KEY not in ALLOWED
         assert "OSPREY_CONTROL_CONTEXT_TREE" not in os.environ
-        assert write_switch.owner_tier_term(ALLOWED, acting_identity()) == "skip"
+        assert (
+            write_switch.owner_tier_term(ControlSystemSection.read(ALLOWED), acting_identity())
+            == "skip"
+        )
 
     def test_an_allowed_render_locks_its_own_login_allowed(self, client):
         assert self._locks(client)["tier"] == "allowed"
@@ -1324,7 +1331,7 @@ class TestRunsAndTheSwitch:
     @staticmethod
     def _next_write(target):
         read_record()
-        return write_switch.write_verdict(ALLOWED, target)
+        return write_switch.write_verdict(ControlSystemSection.read(ALLOWED), target)
 
     def test_a_turn_on_lands_under_a_live_run_which_stays_pinned(
         self, client, agent_data_root, monkeypatch
@@ -1357,10 +1364,8 @@ class TestRunsAndTheSwitch:
         assert verdict.reason == "switch_off"
 
     @pytest.mark.asyncio
-    async def test_a_connector_write_for_this_login_passes_at_its_next_call(
-        self, client, monkeypatch
-    ):
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(ALLOWED))
+    async def test_a_connector_write_for_this_login_passes_at_its_next_call(self, client):
+        serve_control_system(ALLOWED)
         connector = RecordingConnector()
         connector._context = ConnectorContext(connector_type="epics", control_target="va")
 

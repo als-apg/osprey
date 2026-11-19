@@ -29,8 +29,8 @@ from osprey_connectors.archiver import ArchiveCoverage, ChannelArchive
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import Unavailable
-from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
+from osprey_connectors_tests._service_table import table_of
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: Every bundled preset that grants ``archiver_read`` an approval policy, and
@@ -100,7 +100,7 @@ def rendered_view(tmp_path, monkeypatch):
 
 async def _the_mock_on_every_target(config: object) -> None:
     """*config*'s archive row: the mock on every target, built and serving the view."""
-    table = service_targets(config)
+    table = table_of(config)
     for target in connector_types.CONTROL_TARGETS:
         spec = table.archive[target]
         assert spec is not None, target
@@ -150,9 +150,9 @@ class TestArchiverTypeFallback:
 
         await _the_mock_on_every_target(config)
 
-        spec = service_targets(config).archive[connector_types.TARGET_LIVE]
+        spec = table_of(config).archive[connector_types.TARGET_LIVE]
         assert spec is not None
-        assert spec.settings["sample_rate_hz"] == 1.0
+        assert spec.settings.model_dump()["sample_rate_hz"] == 1.0
 
 
 class TestShippedPresetsDeclareAnArchiver:

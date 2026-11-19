@@ -52,7 +52,7 @@ from osprey.deployment.errors import DeploymentError, DeploymentRecordError, NoC
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.naming import web_container_name
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.logger import get_logger
 from osprey_connectors.write_tier import TIER_WORDS
 
@@ -1199,11 +1199,12 @@ def _mapped_tier(section, login):
     malformed map is unreadable as a whole; no staged map (*section* ``None``)
     is ``unknown`` too.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import write_ceiling
 
     if section is None:
         return "unknown"
-    tier = write_ceiling(section, login, tree_bound=True)
+    tier = write_ceiling(ControlSystemSection.read(section), login, tree_bound=True)
     return tier if tier in TIER_WORDS else "unknown"
 
 
@@ -1291,6 +1292,7 @@ def writes_rows(config, repo_root):
     carries :data:`CAPPED_AT_ASKED`.
     """
     from osprey.deployment.compose_generator import control_target_tree_dir
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.control_context import (
         RECORD_FILENAME,
         read_record_status,
@@ -1308,7 +1310,7 @@ def writes_rows(config, repo_root):
     recorded = _recorded_identities(tree)
     logins: list[tuple[str, str]]
     if login_tiers is None:
-        own_tier = tier_writes(config.get("control_system"))
+        own_tier = tier_writes(ControlSystemSection.read(config.get("control_system")))
         logins = [(name, own_tier) for name in recorded]
     else:
         logins = list(login_tiers.items())
@@ -1628,9 +1630,7 @@ def show_repo_status(
     repo_root = Path(repo_root)
     build_dir = repo_root / BUILD_DIRNAME
     config_path = as_built_config_path(repo_root)
-    config = (
-        load_project_config(str(config_path), wrap_errors=True) if config_path.is_file() else None
-    )
+    config = load_config(str(config_path)).raw_tree() if config_path.is_file() else None
 
     output.report("")
     output.report(str(repo_root), style=Styles.BOLD)
@@ -1738,7 +1738,7 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
             ),
         )
 
-    config = load_project_config(str(config_path), wrap_errors=True)
+    config = load_config(str(config_path)).raw_tree()
     compose_files = list(as_built_compose_files(config, repo_root))
     web_compose = web_compose_file(repo_root)
     if web_compose.is_file():

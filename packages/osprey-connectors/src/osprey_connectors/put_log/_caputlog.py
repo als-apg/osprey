@@ -25,11 +25,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import ConfigDict, ValidationError
 from typing_extensions import override
 
-from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
+from osprey_connectors._service_http import (
+    MALFORMED,
+    HttpServiceSettings,
+    ReadOnlyTransport,
+    Transport,
+)
+from osprey_connectors.config_sections import ConnectorSettings
 from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.put_log._contract import PutLog, PutLogEntry
@@ -61,6 +68,10 @@ class _Envelope(FrozenModel):
     totalResults: object = None
 
 
+class CaPutLogSettings(HttpServiceSettings):
+    """caPutLog's block, ``pv_directory.put_log.settings``, read."""
+
+
 class CaPutLog(PutLog):
     """Read one PV's logged writes, its field puts included.
 
@@ -70,6 +81,9 @@ class CaPutLog(PutLog):
         transport: What sends the requests; by default the read-only one built from
             ``spec.settings``.
     """
+
+    settings_model: ClassVar[type[ConnectorSettings]] = CaPutLogSettings
+    SETTINGS_KEY: ClassVar[str] = _WHERE
 
     ALLOWED_REQUESTS = (("POST", _SEARCH_PATH),)
 
@@ -83,7 +97,9 @@ class CaPutLog(PutLog):
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         if transport is None:
-            transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_WHERE)
+            transport = ReadOnlyTransport(
+                self._settings(CaPutLogSettings).connection, self.ALLOWED_REQUESTS
+            )
         self._transport = transport
 
     @override

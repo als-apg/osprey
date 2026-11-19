@@ -62,12 +62,8 @@ from osprey.mcp_server.phoebus.tools.bridge_tools import (
     _bridge_error_message,
     _http_post_open,
 )
-from osprey_connectors.workspace import (
-    agent_data_base_dir,
-    anchored_path,
-    load_osprey_config,
-    resolve_project_root,
-)
+from osprey.utils.config_paths import loaded_or_empty, process_repo_root
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus_databrowser")
 
@@ -101,7 +97,7 @@ def _archiver_url() -> str | None:
     env = os.environ.get("PHOEBUS_ARCHIVER_URL", "").strip()
     if env:
         return env
-    config = load_osprey_config()
+    config = loaded_or_empty()
     value = config.get("phoebus", {}).get("archiver_url")
     return str(value) if value else None
 
@@ -116,10 +112,10 @@ def _plot_dir() -> Path:
     configured value may resolve against the working directory, which for an
     MCP server is whatever launched it.
     """
-    config = load_osprey_config()
+    config = loaded_or_empty()
     configured = (config.get("phoebus", {}) or {}).get("plot_dir")
     relative = str(configured or f"{agent_data_base_dir(config)}/plots")
-    out = anchored_path(relative, resolve_project_root(config))
+    out = anchored_path(relative, process_repo_root())
     out.mkdir(parents=True, exist_ok=True)
     return out
 

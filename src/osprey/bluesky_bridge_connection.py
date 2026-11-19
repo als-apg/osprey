@@ -217,9 +217,9 @@ def resolve_bridge_url(lane: str | None = None) -> str:
     if full:
         return full.rstrip("/")
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     if lane_key == LANE_ONE:
         return bridge_url_from_config(config)
 
@@ -260,9 +260,9 @@ def resolve_launch_token(lane: str | None = None) -> str | None:
     if token:
         return token
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    bluesky = load_osprey_config().get("bluesky", {})
+    bluesky = loaded_or_empty().get("bluesky", {})
     per_lane = bluesky.get("lane_launch_tokens") or {}
     token = per_lane.get(lane_key)
     if not token and lane_key == LANE_ONE:
@@ -281,9 +281,9 @@ def _loaded_config(config: dict | None) -> dict:
     if config is not None:
         return config
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        loaded = load_osprey_config()
+        loaded = loaded_or_empty()
     except Exception:
         return {}
     return loaded if isinstance(loaded, dict) else {}

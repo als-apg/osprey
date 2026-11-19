@@ -189,11 +189,13 @@ class SemanticProcessorModule(BaseEnhancementModule):
             return None
         if not self._model_config.get("model_id"):
             from osprey.models.config import main_model_id
-            from osprey_connectors.config import load_config
+            from osprey_connectors.config import current_config
 
             self._model_config = {
                 **self._model_config,
-                "model_id": main_model_id(load_config(), self._model_config["provider"]),
+                "model_id": main_model_id(
+                    current_config().raw_tree(), self._model_config["provider"]
+                ),
             }
         return self._model_config
 

@@ -9,7 +9,7 @@ Date: 2026-07-01
 
 import asyncio
 import secrets
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -21,6 +21,7 @@ from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
 )
 from osprey_connectors.control_system._limits_validator import (
@@ -78,7 +79,7 @@ class DOOCSConnector(ControlSystemConnector):
         self._doocs4py: _Doocs4py | None = None
 
     @override
-    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Configure DOOCS environment and test connection.
 

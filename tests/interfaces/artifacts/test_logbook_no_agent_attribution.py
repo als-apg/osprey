@@ -70,7 +70,7 @@ class TestSubmitDoesNotBroadcast:
         panel register and panel arrange use to read a status back.
         """
         with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
+            patch(f"{_MODULE}.process_agent_data_root", return_value=tmp_path),
             patch("osprey.mcp_server.http.post_json") as mock_post,
             patch("osprey.mcp_server.http._post_json_with_response") as mock_post_rr,
         ):
@@ -96,7 +96,7 @@ class TestSubmitDoesNotBroadcast:
         their draft — the gallery hands it to its host.
         """
         with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
+            patch(f"{_MODULE}.process_agent_data_root", return_value=tmp_path),
             patch("osprey.mcp_server.http.post_json"),
         ):
             resp = app_client.post(

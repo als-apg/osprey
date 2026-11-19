@@ -135,9 +135,11 @@ from osprey.mcp_server.control_system.error_handling import connector_error_hand
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.utils.config_paths import loaded_or_empty
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system import ControlSystem
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
@@ -146,7 +148,6 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.refusals import RefusalReason, VerdictReason, refusal_text
 from osprey_connectors.targets import baseline_target
-from osprey_connectors.workspace import load_osprey_config
 from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR, Refused
 
 if TYPE_CHECKING:
@@ -357,7 +358,7 @@ async def _note_old_values(connector: ControlSystem, channels: list[str]) -> Non
             # Connectors stamp readings in UTC; the noted stamp stays facility-local.
             old_values[channel] = {
                 "value": _project_observed_value(value.value),
-                "timestamp": value.sampled_at.astimezone(get_facility_timezone()).isoformat(),
+                "timestamp": value.sampled_at.astimezone(facility_timezone()).isoformat(),
             }
     except Exception as exc:
         old_values = {channel: {"error": type(exc).__name__} for channel in channels}
@@ -657,7 +658,7 @@ def _write_target(record: control_context.ControlContext | None, section: Any) -
     if record is not None:
         return record.target
     try:
-        return baseline_target(section)
+        return baseline_target(ControlSystemSection.read(section))
     except Exception:  # an unnameable target is refused by the verdict, never granted
         logger.warning("Could not name the write's control target", exc_info=True)
         return None
@@ -679,7 +680,7 @@ def _check_write_verdict(record: control_context.ControlContext | None, config: 
     section = config.get("control_system") if isinstance(config, dict) else None
     target = _write_target(record, section)
     try:
-        verdict = execution_verdict(section or {}, target)
+        verdict = execution_verdict(ControlSystemSection.read(section or {}), target)
     except Exception:  # unknown posture must not write
         logger.warning("Write verdict for channel_write could not be reached", exc_info=True)
         verdict = Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=target, kind=None)
@@ -946,7 +947,7 @@ async def channel_write(
     # Stage 1, before any other work: the write verdict for the target this
     # call entered on, then the record the approval prompt left for it. A
     # verdict that refuses is the answer even where the prompt left no record.
-    config = load_osprey_config()
+    config = loaded_or_empty()
     _check_write_verdict(entry_record, config)
     approval_applies = _check_approval_record(config)
 

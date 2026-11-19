@@ -31,7 +31,7 @@ from osprey.runtime.guarded_run import (
 )
 from osprey.utils.workspace import STATE_DIR_NAME
 from osprey_connectors.connector_types import CONTROL_TARGETS
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests._guarded_run import (
     PLANTED_REFUSED,
     link_directory,
@@ -237,7 +237,7 @@ def _no_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
     elsewhere = Path.cwd().parent / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
-    reset_config_cache()
+    clear_config_state()
     _enter()
 
 

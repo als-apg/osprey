@@ -327,6 +327,7 @@ def isolation_errors(section: Any) -> list[str]:
     Returns:
         One line per violation; empty when the section is isolated.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import configured_targets, resolve_target
     from osprey_connectors.write_tier import tier_writes
 
@@ -341,9 +342,9 @@ def isolation_errors(section: Any) -> list[str]:
         for name in REAL_BLOCKS
         if name in connector
     ]
-    for target in configured_targets(section):
+    for target in configured_targets(ControlSystemSection.read(section)):
         try:
-            kind = resolve_target(section, target)
+            kind = resolve_target(ControlSystemSection.read(section), target)
         except ValueError as error:
             errors.append(f"target {target} does not resolve: {error}")
             continue
@@ -366,7 +367,7 @@ def isolation_errors(section: Any) -> list[str]:
             for lane, gateway in sorted(gateways.items())
             if not _is_loopback((gateway or {}).get("address"))
         ]
-    if tier_writes(section) == "allowed":
+    if tier_writes(ControlSystemSection.read(section)) == "allowed":
         errors.append("a configured target is armed for writes")
     return errors
 

@@ -378,10 +378,10 @@ def _arm_raw_put_block() -> None:
 
 def _control_system_section() -> dict[str, Any]:
     """The deployment's ``control_system:`` section, or an empty one."""
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except Exception:
         logger.warning("The control_system config could not be read", exc_info=True)
         return {}

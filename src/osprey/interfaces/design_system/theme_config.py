@@ -222,9 +222,9 @@ def configured_web_theme() -> str:
     if from_env:
         return from_env
 
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
-    return str(get_config_value("web.theme", DEFAULT_WEB_THEME) or DEFAULT_WEB_THEME)
+    return str(current_config().get("web.theme", DEFAULT_WEB_THEME) or DEFAULT_WEB_THEME)
 
 
 def resolve_configured_web_theme(configured: str | None = None) -> ConfiguredWebTheme:

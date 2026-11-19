@@ -1,10 +1,10 @@
 """Where a lookup that names no config finds one, and what happens when it cannot.
 
-A process asks "where is my config" in two ways: :func:`resolve_config_path`
-names the rendered file, and the default singleton behind
-:func:`get_config_value` loads one for every lookup that names no path. They
-have to give one answer. A project directory keeps its render at
-``build/config.yml``, and a process started there with neither variable set
+A process asks "where is my config" in two ways: :func:`locate_config`
+names the rendered file, and the process default (:func:`current_config`)
+loads one for every lookup that names no path. They have to give one answer. A
+project directory keeps its render at ``build/config.yml``, and a process
+started there with neither variable set
 used to load the render through the first and nothing through the second, so a
 connector built from "the config" was built from an empty one.
 
@@ -22,10 +22,9 @@ import pytest
 
 from osprey_connectors import connector_types
 from osprey_connectors.archiver import ChannelArchive
-from osprey_connectors.config import ConfigBuilder, default_config_path, get_config_value
+from osprey_connectors.config import active_config, current_config, load_config, locate_config
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.service_targets import service_targets
-from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+from osprey_connectors_tests._service_table import table_of
 
 ARCHIVER_URL = "https://archiver.example.org:8443"
 
@@ -82,17 +81,17 @@ def facility_archiver(monkeypatch) -> type[RecordingArchiver]:
 def test_a_lookup_in_a_project_directory_reads_the_render_under_build(project):
     rendered = write_config(project / "build" / "config.yml")
 
-    assert get_config_value("archiver.type") == connector_types.EPICS_ARCHIVER
-    assert Path(default_config_path()) == rendered
+    assert current_config().get("archiver.type") == connector_types.EPICS_ARCHIVER
+    assert active_config().path == rendered
 
 
-def test_the_default_config_is_the_one_resolve_config_path_names(project):
+def test_the_default_config_is_the_one_locate_config_names(project):
     write_config(project / "build" / "config.yml")
 
-    builder = ConfigBuilder()
+    loaded = current_config()
 
-    assert builder.config_path == resolve_config_path()
-    assert builder.raw_config == load_osprey_config()
+    assert loaded.path == locate_config()
+    assert loaded.raw_tree() == load_config(locate_config()).raw_tree()
 
 
 @pytest.mark.usefixtures("project")
@@ -100,28 +99,29 @@ def test_a_lookup_reads_the_config_osprey_config_names(tmp_path, monkeypatch):
     elsewhere = write_config(tmp_path / "mounted" / "config.yml")
     monkeypatch.setenv("OSPREY_CONFIG", str(elsewhere))
 
-    assert get_config_value("archiver.settings.url") == ARCHIVER_URL
-    assert Path(default_config_path()) == elsewhere
+    assert current_config().get("archiver.settings.url") == ARCHIVER_URL
+    assert active_config().path == elsewhere
 
 
-def test_config_file_outranks_the_resolved_path(project, tmp_path, monkeypatch):
+def test_config_file_names_nothing_to_the_package(project, tmp_path, monkeypatch):
+    """Only OSPREY_CONFIG names a config: a CONFIG_FILE export redirects no lookup."""
     write_config(project / "build" / "config.yml", connector_types.MOCK_ARCHIVER)
     handed = write_config(tmp_path / "handed" / "config.yml")
     monkeypatch.setenv("CONFIG_FILE", str(handed))
 
-    assert get_config_value("archiver.type") == connector_types.EPICS_ARCHIVER
+    assert current_config().get("archiver.type") == connector_types.MOCK_ARCHIVER
 
 
 def test_a_config_at_the_directory_root_is_still_found(project):
     flat = write_config(project / "config.yml")
 
-    assert get_config_value("archiver.type") == connector_types.EPICS_ARCHIVER
-    assert Path(default_config_path()) == flat
+    assert current_config().get("archiver.type") == connector_types.EPICS_ARCHIVER
+    assert active_config().path == flat
 
 
 def test_no_config_anywhere_names_both_places_it_looked(project):
     with pytest.raises(FileNotFoundError, match="No config.yml found") as caught:
-        ConfigBuilder()
+        current_config()
 
     message = str(caught.value)
     assert str(project / "build" / "config.yml") in message
@@ -134,7 +134,7 @@ def test_a_missing_osprey_config_target_is_named(tmp_path, monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", str(missing))
 
     with pytest.raises(FileNotFoundError, match="OSPREY_CONFIG") as caught:
-        ConfigBuilder()
+        current_config()
 
     assert str(missing) in str(caught.value)
 
@@ -143,7 +143,7 @@ def test_a_missing_osprey_config_target_is_named(tmp_path, monkeypatch):
 async def test_the_archive_built_from_the_loaded_config_is_the_renders(project, facility_archiver):
     write_config(project / "build" / "config.yml")
 
-    spec = service_targets(load_osprey_config()).archive["live"]
+    spec = table_of(current_config().raw_tree()).archive["live"]
     assert spec is not None
     archive = await ConnectorFactory.create_service(spec)
 
@@ -174,7 +174,7 @@ async def test_a_render_with_no_archiver_section_still_builds_the_mock(project, 
     (project / "build" / "config.yml").write_text("system:\n  timezone: UTC\n", encoding="utf-8")
     mock = _recording(monkeypatch, connector_types.MOCK_ARCHIVER)
 
-    spec = service_targets(load_osprey_config()).archive["live"]
+    spec = table_of(current_config().raw_tree()).archive["live"]
     assert spec is not None
     archive = await ConnectorFactory.create_service(spec)
 

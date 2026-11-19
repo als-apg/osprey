@@ -27,6 +27,7 @@ from typing import Any
 from unittest.mock import patch
 
 from osprey_connectors import control_context, testing
+from osprey_connectors.config import install_config
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
@@ -356,10 +357,10 @@ def recorder(prefix: str) -> dict[str, Any]:
         username="osprey",
         password_env="MONGO_ROOT_PASSWORD",
         timeout_s=5,
-        cadence_sec=1,
-        tail_cadence_sec=60,
-        poll_sec=30,
-        hot_span_hours=48,
+        cadence_s=1,
+        tail_cadence_s=60,
+        poll_s=30,
+        hot_span_h=48,
         retention_days=30,
     )
     read = channel_access_reader(settings)
@@ -391,13 +392,6 @@ SCENARIOS = {
 #: The machine this process's writes go to, and the tier that allows them.
 _ARMED_TARGET = "va"
 _ARMED_SECTION = {"writes": "allowed"}
-
-
-def _armed_config(key: str, default: Any = None) -> Any:
-    """``get_config_value`` stand-in: a write tier that allows, all else defaulted."""
-    if key == "control_system":
-        return dict(_ARMED_SECTION)
-    return default
 
 
 def _armed_context(**fields: Any) -> ConnectorContext:
@@ -441,13 +435,19 @@ def _writes_armed() -> Iterator[None]:
         except control_context.StoppedSinceError as stamped:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         testing.invalidate_cache()
-        with (
-            patch("osprey_connectors.config.get_config_value", _armed_config),
-            patch.object(
+        # The write path reads the process config's section: a tier that allows.
+        # (This driver runs as a script, outside the suite's import path, so it
+        # does not use the suite's helper.)
+        previous = install_config(
+            testing.config_of({"control_system": dict(_ARMED_SECTION)}, environ={})
+        )
+        try:
+            with patch.object(
                 ControlSystemConnector, "_context", ConnectorContext(control_target=_ARMED_TARGET)
-            ),
-        ):
-            yield
+            ):
+                yield
+        finally:
+            install_config(previous)
 
 
 def main() -> None:

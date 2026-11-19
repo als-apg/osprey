@@ -18,7 +18,7 @@ from osprey_connectors.logger import get_logger
 
 from .base import ExtendedRegistryConfig, RegistryConfig, RegistryConfigProvider
 
-logger = get_logger(name="registry.loader", color="sky_blue2")
+logger = get_logger("registry.loader")
 
 
 def build_merged_configuration(

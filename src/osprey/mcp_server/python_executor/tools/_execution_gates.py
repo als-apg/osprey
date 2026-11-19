@@ -49,6 +49,7 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor import executor
 from osprey.utils.session_hold_api import execution_verdict
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import baseline_target
 from osprey_connectors.write_switch import Refused, WriteVerdict
@@ -186,7 +187,7 @@ def _launch_target(section: Any) -> str | None:
     if record is not None:
         return str(record.target)
     try:
-        return baseline_target(section)
+        return baseline_target(ControlSystemSection.read(section))
     except ValueError:  # an unnameable target is refused by the verdict, never granted
         logger.warning("Could not name the run's control target; refusing writes", exc_info=True)
         return None
@@ -203,7 +204,7 @@ def _launch_verdict() -> WriteVerdict:
     """
     try:
         section = posture.control_system_section()
-        return execution_verdict(section, _launch_target(section))
+        return execution_verdict(ControlSystemSection.read(section), _launch_target(section))
     except Exception:  # execution_verdict never raises by contract; refuse if it does
         logger.warning("Write verdict could not be reached; refusing", exc_info=True)
         return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)
@@ -829,7 +830,7 @@ async def _review_before_launch(
         admission_refusal,
     )
     from osprey.services.code_review.review import review_code
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
     approved = {
         "approved_target": approved_target,
@@ -861,7 +862,7 @@ async def _review_before_launch(
         request,
         settings,
         repo_root=project_root if project_root is not None else _resolve_project_root(),
-        render_dir=resolve_config_path().parent,
+        render_dir=locate_config().parent,
     )
     return _PreLaunchReview(await _conclude_review(tool, outcome, request))
 

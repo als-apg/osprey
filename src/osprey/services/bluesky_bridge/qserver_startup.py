@@ -155,10 +155,10 @@ def worker_writes_enabled() -> bool:
     False whenever the config cannot be read.
     """
     from osprey.services.bluesky_bridge.queue_backend import lane_tier_allows
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
     return lane_tier_allows(section)
@@ -186,6 +186,7 @@ def build_connector_config(control_system_type: str, section: Any) -> dict[str, 
     :mod:`osprey.services.bluesky_bridge.queue_backend`).
     """
     from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import (
         IN_PROCESS,
         SERVING_LEAF,
@@ -194,7 +195,7 @@ def build_connector_config(control_system_type: str, section: Any) -> dict[str, 
         connector_transport,
     )
 
-    transport = connector_transport(section, control_system_type)
+    transport = connector_transport(ControlSystemSection.read(section), control_system_type)
     if transport == TRANSPORT_CA:
         return {
             "type": control_system_type,
@@ -217,7 +218,8 @@ async def create_connector() -> Any:
         resolve_lane_connector_type,
         resolve_lane_identity,
     )
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.model import evolve
 
@@ -225,7 +227,7 @@ async def create_connector() -> Any:
     if lane_degraded:
         logger.warning("qserver_startup: %s", lane_degraded)
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         section = {}
     # Built in two steps rather than through `create_control_system_connector`
@@ -233,7 +235,7 @@ async def create_connector() -> Any:
     # the limits validator keyed on that type, so the clear has to be in the
     # context it is handed.
     connector, context = ConnectorFactory.build_control_system_connector(
-        build_connector_config(control_system_type, section),
+        ControlSystemSection.read(build_connector_config(control_system_type, section)),
         # This lane's OWN target, not the deployment baseline: a two-lane
         # deployment is exactly where the two differ, and the machine this
         # worker drives is the one its lane declares.

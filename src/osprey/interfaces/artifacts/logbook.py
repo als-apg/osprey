@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from osprey.mcp_server.session import gather_session_metadata
-from osprey_connectors.workspace import resolve_shared_data_root
+from osprey.utils.config_paths import process_agent_data_root
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
 
@@ -365,13 +365,13 @@ def _composition_provider() -> tuple[str, dict[str, Any], dict[str, Any]]:
             is not a name, or the provider is absent from ``api.providers``.
     """
     from osprey.models.config import get_provider_config
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
-    comp = get_config_value("logbook.composition", {})
+    comp = current_config().get("logbook.composition", {})
     if not isinstance(comp, dict):
         comp = {}
 
-    provider = comp.get("provider") or get_config_value("claude_code.provider", "")
+    provider = comp.get("provider") or current_config().get("claude_code.provider", "")
     if not provider:
         raise HTTPException(
             status_code=503,
@@ -417,14 +417,14 @@ def _default_composition_model(
         HTTPException: 503 when neither names a model.
     """
     from osprey.models.config import main_model_id
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     if comp.get("model"):
         return str(comp["model"])
     config = {
         "claude_code": {
-            "provider": get_config_value("claude_code.provider", None),
-            "default_model": get_config_value("claude_code.default_model", None),
+            "provider": current_config().get("claude_code.provider", None),
+            "default_model": current_config().get("claude_code.default_model", None),
         },
         "api": {"providers": {provider: provider_cfg}},
     }
@@ -633,7 +633,7 @@ async def submit(req: SubmitRequest):
     """Submit the composed entry as an ARIEL draft."""
     try:
         draft_id = f"draft-{uuid.uuid4().hex[:12]}"
-        drafts_dir = resolve_shared_data_root() / "drafts"
+        drafts_dir = process_agent_data_root() / "drafts"
         drafts_dir.mkdir(parents=True, exist_ok=True)
 
         draft_data: dict[str, Any] = {

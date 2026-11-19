@@ -18,9 +18,9 @@ from osprey_connectors.archiver._timerange import Processing
 from osprey_connectors.errors import ArchiveQueryError, NaiveDatetimeError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec, Unavailable
-from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._loopback_https import Reply, loopback_pair
+from osprey_connectors_tests._service_table import table_of
 
 
 def _spec(settings: dict) -> BackendSpec:
@@ -578,7 +578,7 @@ class TestFactoryIntegration:
                 "epics_archiver": {"url": "https://archiver.example.com", "timeout_s": 30},
             }
         }
-        spec = service_targets(config).archive["live"]
+        spec = table_of(config).archive["live"]
         assert spec is not None
 
         connector = await ConnectorFactory.create_service(spec)

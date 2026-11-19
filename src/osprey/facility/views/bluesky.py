@@ -136,6 +136,7 @@ def _lanes(inputs: ViewInputs) -> list[tuple[str, bool, float]]:
     """
     from osprey.bluesky_bridge_connection import LANE_KEYS, LANE_ONE, SECOND_LANE_KEYS
     from osprey.services.bluesky_bridge.devices.connector import DEFAULT_SETTLE_TOLERANCE
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import is_simulated, resolve_control_system_type
 
     services = inputs.rendered_config.get("services")
@@ -146,7 +147,7 @@ def _lanes(inputs: ViewInputs) -> list[tuple[str, bool, float]]:
             continue
         if key == LANE_ONE:
             system = inputs.rendered_config.get("control_system")
-            simulated = is_simulated(resolve_control_system_type(system))
+            simulated = is_simulated(resolve_control_system_type(ControlSystemSection.read(system)))
         else:
             simulated = key == SECOND_LANE_KEYS["va"]
         floor = float(block.get("settle_tolerance", DEFAULT_SETTLE_TOLERANCE))

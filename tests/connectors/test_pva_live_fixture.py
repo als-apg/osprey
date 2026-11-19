@@ -416,13 +416,13 @@ def tool_singletons():
     import osprey_connectors.config as config_module
     from osprey.mcp_server.control_system.server_context import reset_server_context
     from osprey.stores.artifact_store import reset_artifact_store
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     def reset_all():
         reset_server_context()
         reset_artifact_store()
-        reset_config_cache()
-        config_module._config_cache.clear()
+        clear_config_state()
+        config_module._loads.clear()
 
     reset_all()
     yield

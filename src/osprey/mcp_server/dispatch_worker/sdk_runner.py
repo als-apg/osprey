@@ -410,7 +410,7 @@ async def run_dispatch(
         make_pretooluse_hook,
         narrow_allowed_tools,
     )
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.config import facility_timezone
 
     sdk_env = build_clean_env(project_cwd=render_dir)
 
@@ -444,7 +444,7 @@ async def run_dispatch(
     # hook subprocesses (which the agent's working directory does not relocate)
     # falling back to their working directory and failing with "No config.yml
     # found in current directory" on every dispatch.
-    sdk_env["CONFIG_FILE"] = str(deployed_config_path())
+    sdk_env["OSPREY_CONFIG"] = sdk_env["CONFIG_FILE"] = str(deployed_config_path())
 
     # The agent's Claude state (its transcripts) lives on the worker's agent-data
     # volume: the container layer is discarded at every recreate. The image
@@ -481,7 +481,7 @@ async def run_dispatch(
     # Attribute every artifact this run saves to the run, so the worker can
     # later report and serve exactly this run's plots. NOT OSPREY_SESSION_ID:
     # that variable relocates other session-scoped agent data (sandbox/session
-    # working dirs via resolve_agent_data_root) and tags artifacts with a
+    # working dirs via session_agent_data_root) and tags artifacts with a
     # session id — a dispatch run is not an interactive session.
     if run_id:
         sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
@@ -518,9 +518,9 @@ async def run_dispatch(
     # the variable absent rather than empty, so the readers below derive the
     # directory themselves instead of resolving against a path of no name.
     try:
-        from osprey_connectors.workspace import resolve_shared_data_root
+        from osprey.utils.config_paths import process_agent_data_root
 
-        sdk_env[OSPREY_AGENT_DATA_ROOT] = str(resolve_shared_data_root())
+        sdk_env[OSPREY_AGENT_DATA_ROOT] = str(process_agent_data_root())
     except Exception:  # a dispatch must not fail on a config load
         logger.warning(
             "Could not resolve the agent-data root for the dispatch agent's environment; "
@@ -663,7 +663,7 @@ async def run_dispatch(
         user_content,
         allowed_tools=effective_tools,
         disallowed_tools=sorted(disallowed),
-        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
+        system_prompt=build_system_prompt(facility_timezone(), extra=surface_prompt),
         can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
         pre_tool_use_hooks=[policy_hook],
         permission_mode=None,

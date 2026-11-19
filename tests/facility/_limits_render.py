@@ -13,10 +13,10 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
+from osprey_connectors_tests._config_trees import serve_control_system
 
 __all__ = ["packaged_facility_dir", "render_limits", "validator_under"]
 
@@ -60,18 +60,10 @@ def render_limits(
     return render_dir / "data" / "channel_limits.json"
 
 
-def validator_under(monkeypatch: pytest.MonkeyPatch, db_file: Path, mode: str) -> LimitsValidator:
+def validator_under(db_file: Path, mode: str) -> LimitsValidator:
     """Load a limits database under ``mode``, stated deployment-wide."""
-    values = {
-        "control_system": {"limits_checking": {"enabled": True, "mode": mode}},
-        "control_system.limits_checking.database_path": str(db_file),
-        "project_root": None,
-    }
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    limits = {"enabled": True, "mode": mode, "database_path": str(db_file)}
+    serve_control_system({"limits_checking": limits}, project_root=None)
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator
