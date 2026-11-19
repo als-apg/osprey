@@ -1144,7 +1144,7 @@ up`` seeds the store from that view. See
    Check every document in a bundle against the OKF format, including each
    ``index.md`` against its directory. An embedded image that is missing, of a
    disallowed type, over 10 MB or without alt text gets a warning, one line
-   per image, and does not fail the bundle.
+   per problem, and does not fail the bundle.
 
 ``osprey knowledge seed-from-ttl BUNDLE [--ttl PATH] [--force] [--repo DIRECTORY]``
    Write stub concept documents into a bundle from the build's graph view,

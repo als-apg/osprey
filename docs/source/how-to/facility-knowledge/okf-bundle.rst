@@ -214,9 +214,9 @@ Working with a Bundle
       * ``capabilities`` — report the bundle's path, size and concept types
       * ``draft_concept`` — author a new concept document (requires human approval)
 
-      Each of the three concept tools also names a ``url`` per concept — the link
-      that opens it in the KNOWLEDGE panel. It is relative to the page the
-      operator is on, so the agent can cite a concept as a markdown link on a
+      ``list_concepts``, ``read_concept`` and ``search`` also name a ``url`` per
+      concept — the link that opens it in the KNOWLEDGE panel. It is relative to the
+      page the operator is on, so the agent can cite a concept as a markdown link on a
       single-user deployment and behind a per-user mount alike. In the operator
       chat, clicking such a link opens the KNOWLEDGE panel in
       the workspace at that concept.
@@ -341,41 +341,36 @@ Working with a Bundle
 Images
 ======
 
-A concept embeds a picture stored in the bundle with any of the three Markdown
-forms: inline, reference-style, or a raw HTML ``<img>``. On a page in
-``devices/``, each of these shows the same figure:
+Some knowledge is easier to show than to describe: a pickup geometry, a rack
+layout, a timing diagram. A concept can embed an image stored in the bundle;
+the KNOWLEDGE panel shows it in the document, and the agent can look at it.
+The example bundle's ``devices/bpm`` concept embeds a figure kept in
+``figures/`` beside it:
 
 .. code-block:: markdown
 
    ![Cross-section of a button BPM](figures/bpm-button-pickups.png)
 
-   ![The four button pickups, A to D][pickups]
-
-   <img src="/devices/figures/bpm-button-pickups.png" alt="Button BPM, beam off centre">
-
-   [pickups]: figures/bpm-button-pickups.png
-
-The example bundle's ``devices/bpm`` concept embeds
-``devices/figures/bpm-button-pickups.png`` this way. A target resolves like a
-link (see `The Core Ideas`_). Keep a concept's figures in a ``figures/``
-directory beside it.
+The target resolves like a link (see `The Core Ideas`_), here to
+``devices/figures/bpm-button-pickups.png``. A reference-style image and a raw
+HTML ``<img>`` work the same way.
 
 * **Types** — PNG, JPEG, GIF, WebP and SVG, judged by the file's content, not
   its name. At most 10 MB.
 * **Alt text** — every image needs it: the panel shows it when the image cannot
-  be drawn, and the agent reads it before deciding to look.
-* **Remote images are not loaded.** An ``https:``, protocol-relative ``//``
-  or ``data:`` target shows its alt text, with a link for a remote source.
+  be shown, and the agent reads it before deciding to look.
+* **Remote images are not loaded.** An ``https:``, ``//`` or ``data:`` target
+  shows its alt text, with a link to an ``http(s):`` address.
 * **SVG is panel-only.** The agent cannot view it.
 * **Markdown inside a raw HTML block**, such as ``![…](…)`` within a
-  ``<div>``, is reported by ``validate`` and listed to the agent, but the panel
-  may not draw it. Use ``<img>`` there.
+  ``<div>``, is checked by ``validate`` and listed to the agent, but the panel
+  may not show it. Use ``<img>`` there.
 
 ``read_concept`` lists each in-bundle image with its path, alt text and whether
-the agent can view it; ``view_asset`` returns the picture. An image larger than
+the agent can view it; ``view_asset`` returns the image. An image larger than
 512 KiB or longer than 1024 px on a side reaches the agent scaled down. A model
-provider without image input gets a note in place of the picture; the reply
-still names the image's path and type.
+on a route that carries no images gets a note in its place (see
+:ref:`what-the-translated-route-does-not-carry`).
 
 
 Searching the Bundle
