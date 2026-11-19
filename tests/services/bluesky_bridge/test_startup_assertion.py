@@ -52,6 +52,7 @@ from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import queue
 from osprey.services.bluesky_bridge.app import app, set_queue_backend
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 _DEVICES_FILE_ENV = "BLUESKY_DEVICES_FILE"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
@@ -157,7 +158,9 @@ def _patch_config(
             return targets.get(key.split(".")[1], default)
         return default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    # Served as the process config too: the limits database path is read from
+    # the loaded config, not through get_config_value.
+    serve_config_lookup(monkeypatch, fake_get_config_value)
 
 
 def _valid_limits_db(tmp_path: Path) -> Path:

@@ -32,6 +32,9 @@ _GET_CONFIG_VALUE = "osprey_connectors.config.get_config_value"
 _CURRENT_CONFIG = "osprey_connectors.config.current_config"
 
 
+#: The dotted key of the limits database path, as the limits validator reads it.
+_DATABASE_PATH_KEY = "control_system.limits_checking.database_path"
+
 #: What a lookup answers for a key it does not hold, told apart from a ``None``.
 _ABSENT = object()
 
@@ -55,6 +58,13 @@ def config_from_lookup(lookup: ConfigLookup) -> LoadedConfig:
         path: Path | str = "config.yml"
     else:
         tree, path = base.raw_tree(), base.path
+    database_path = lookup(_DATABASE_PATH_KEY, _ABSENT)
+    limits = section.get("limits_checking") if isinstance(section, dict) else None
+    if database_path is not _ABSENT and isinstance(limits, dict) and "database_path" not in limits:
+        # The limits database path is read from the loaded config, where it is a
+        # line of the deployment-wide block: a lookup that answers it dotted
+        # beside the section describes that one line.
+        section = {**section, "limits_checking": {**limits, "database_path": database_path}}
     tree["control_system"] = section
     # The path anchor a relative limits database resolves against, as the
     # lookup answers it: a top-level key, read from the loaded config.
