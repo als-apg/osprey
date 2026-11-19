@@ -62,10 +62,12 @@ from osprey_connectors.model import FrozenModel, FrozenTuple
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
+    agent_data_base_dir,
     anchored_path,
     dotted_config_str,
     rendered_config_path,
     repo_root_for_config,
+    resolve_simulation_state_dir,
 )
 
 __all__ = [
@@ -432,6 +434,44 @@ class LoadedConfig(FrozenModel):
         """
         value = self.get(key)
         return default if value is None else config_flag(value, key=key)
+
+    def repo_path(self, value: "str | os.PathLike[str]") -> Path:
+        """A path the config names, as a path here.
+
+        ``~`` is expanded; an absolute path is returned as written, and a
+        relative one is anchored at :attr:`repo_root`, as every relative path
+        a deployment configures is.
+        """
+        return anchored_path(os.fspath(value), self.repo_root)
+
+    @property
+    def agent_data_root(self) -> Path:
+        """The shared agent-data root: ``agent_data.base_dir`` (else ``var/agent_data``), resolved.
+
+        Shared by every session: the stores long-lived daemons read (the
+        gallery, ARIEL, the control-context record) live here.
+        """
+        return self.repo_path(agent_data_base_dir(self._tree)).resolve()
+
+    def session_data_root(self, session_id: str) -> Path:
+        """One session's own agent-data directory, under :attr:`agent_data_root`.
+
+        Raises:
+            ValueError: *session_id* is blank.
+        """
+        if not session_id.strip():
+            raise ValueError("a session's data root needs a non-blank session id")
+        return self.agent_data_root / "sessions" / session_id
+
+    @property
+    def simulation_state_dir(self) -> Path:
+        """The directory holding the simulation's ``active_scenarios`` state file.
+
+        ``simulation.state_dir`` when it names one (relative to
+        :attr:`repo_root`), else ``simulation`` under the agent-data base
+        directory; not created here.
+        """
+        return resolve_simulation_state_dir(self._tree, self.repo_root)
 
     # The trees are the YAML parse's, handed out as such: every framework reader
     # reads the shape its own keys have.

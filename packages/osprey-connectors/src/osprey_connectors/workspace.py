@@ -24,6 +24,7 @@ __all__ = [
     "anchored_path",
     "dotted_config_str",
     "load_osprey_config",
+    "locate_repo_root",
     "rendered_config_path",
     "repo_root_for_config",
     "reset_config_cache",
@@ -309,6 +310,36 @@ def resolve_project_root(config: Mapping[str, object] | None = None) -> Path:
         if (ancestor / _PROFILE_FILENAME).is_file():
             return ancestor
     return candidate if candidate is not None else cwd
+
+
+def locate_repo_root(cwd: Path | None = None) -> Path:
+    """The deployment repo a process stands in when it has no loaded config.
+
+    The ladder :attr:`osprey_connectors.config.LoadedConfig.repo_root` cannot
+    climb, because there is no config to read a ``project_root`` from:
+      1. The repo of the file :func:`osprey_connectors.config.locate_config`
+         names, when one is there (a file that exists but does not load still
+         says which repo the process belongs to).
+      2. The nearest ancestor of *cwd* holding ``profile.yml``, the marker every
+         OSPREY verb walks up to; without it a process started in an unbuilt
+         render would anchor every relative path inside ``build/``.
+      3. *cwd* itself. ``CLAUDE_PROJECT_DIR`` is not an input: this serves
+         processes outside any agent session as well, and a harness variable
+         must not redirect them.
+
+    Args:
+        cwd: The directory to start from; the working directory by default.
+    """
+    from osprey_connectors.config import locate_config
+
+    here = Path.cwd() if cwd is None else Path(cwd)
+    located = locate_config(cwd=here)
+    if located.exists():
+        return repo_root_for_config(located)
+    for ancestor in (here, *here.parents):
+        if (ancestor / _PROFILE_FILENAME).is_file():
+            return ancestor
+    return here
 
 
 def resolve_agent_data_root() -> Path:

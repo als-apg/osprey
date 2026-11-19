@@ -45,17 +45,99 @@ answers "which ``config.yml`` is this process running against".
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from osprey_connectors.config import LoadedConfig
 
 __all__ = [
     "deployment_config",
+    "loaded_or_empty",
+    "process_agent_data_root",
+    "process_repo_root",
+    "session_agent_data_root",
     "resolve_config_dir",
     "resolve_config_relative_path",
     "resolve_render_relative_path",
     "project_root_for_config_dir",
 ]
+
+
+def _process_config() -> LoadedConfig | None:
+    """The process's config (:func:`osprey_connectors.config.current_config`), or ``None``.
+
+    ``None`` for every way it fails to answer: these readers degrade rather
+    than fail, and each says what it falls back to.
+    """
+    from osprey_connectors.config import current_config
+
+    try:
+        return current_config()
+    except Exception:
+        return None
+
+
+# The tree is the YAML parse's: every framework reader reads the shape its own
+# keys have.
+def loaded_or_empty() -> dict[str, Any]:
+    """The process's config tree, as a copy; ``{}`` when it does not load, for any reason.
+
+    For the framework readers that degrade to their own defaults rather than
+    fail when there is no config, or a broken one. The tree is
+    :func:`osprey_connectors.config.current_config`'s: the config a
+    ``using_config`` block or an entry point installed, else the located file.
+    Whether each reader should keep degrading is the reader's to decide.
+    """
+    config = _process_config()
+    return config.raw_tree() if config is not None else {}
+
+
+def process_repo_root() -> Path:
+    """The process config's repo root; without a loaded config, the repo the process stands in.
+
+    :attr:`osprey_connectors.config.LoadedConfig.repo_root`, else
+    :func:`osprey_connectors.workspace.locate_repo_root`. Never raises.
+    """
+    from osprey_connectors.workspace import locate_repo_root
+
+    config = _process_config()
+    return config.repo_root if config is not None else locate_repo_root()
+
+
+def process_agent_data_root() -> Path:
+    """The shared agent-data root of the process config; without one, the default under the repo.
+
+    :attr:`osprey_connectors.config.LoadedConfig.agent_data_root`, else
+    ``var/agent_data`` under :func:`process_repo_root`, resolved. Never raises
+    on a config that does not load.
+    """
+    from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, locate_repo_root
+
+    config = _process_config()
+    if config is not None:
+        return config.agent_data_root
+    return (locate_repo_root() / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
+
+
+def session_agent_data_root() -> Path:
+    """The agent-data directory of the session this process serves, else the shared root.
+
+    The session is the one ``OSPREY_SESSION_ID`` names, which every session's
+    MCP servers are spawned with
+    (:meth:`osprey_connectors.config.LoadedConfig.session_data_root`); a
+    process outside any session gets :func:`process_agent_data_root`.
+    """
+    session_id = os.environ.get("OSPREY_SESSION_ID")
+    if not session_id:
+        return process_agent_data_root()
+    config = _process_config()
+    if config is not None:
+        return config.session_data_root(session_id)
+    return process_agent_data_root() / "sessions" / session_id
 
 
 def resolve_config_dir() -> Path | None:
