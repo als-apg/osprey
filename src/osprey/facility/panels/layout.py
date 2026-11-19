@@ -1481,7 +1481,7 @@ class _Page:
         self,
         view: View,
         graph: PanelGraph,
-        screens: Callable[[Target], str],
+        screens: Callable[[Target], str | None],
         doc_id: str,
         colours: Mapping[str, str] = MappingProxyType({}),
     ) -> None:
@@ -4789,8 +4789,13 @@ class _Page:
 
         Every link is one: a button's text is a label under an *outline* in
         the border role, a symbol or a tile has a transparent box that shows
-        the link's label while the pointer is on it.
+        the link's label while the pointer is on it. A screen the write does not
+        produce (*screens* gives no file for it) gets no box: what is drawn there
+        names it as text.
         """
+        file = self.screens(link.target)
+        if file is None:
+            return
         props: dict[str, Any] = {
             "lineColor": BOX_BORDER if outline else TRANSPARENT,
             "lineWidth": LINE_WIDTH if outline else 0,
@@ -4799,7 +4804,7 @@ class _Page:
             "actions": [
                 {
                     "type": "open_display",
-                    "file": self.screens(link.target),
+                    "file": file,
                     "target": _NAVIGATION_TARGET,
                 }
             ],
@@ -6990,7 +6995,7 @@ def render(
     view: View,
     *,
     graph: PanelGraph,
-    screens: Callable[[Target], str],
+    screens: Callable[[Target], str | None],
     doc_id: str,
     colours: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:

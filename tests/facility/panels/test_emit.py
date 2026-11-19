@@ -883,3 +883,32 @@ def test_no_written_screen_links_to_a_duplicate_the_scope_writes_once(tmp_path):
             linked.add(posixpath.normpath(posixpath.join(here, ref)))
     assert not linked & dropped
     assert any("xr01-quad" in name for name in linked)  # the kept one is reached
+
+
+def test_a_scoped_write_names_what_it_does_not_write_and_links_only_to_its_files(tmp_path):
+    """A written screen holds no link to a file the same write does not produce: the
+    place above the scope is named as text, and check notes each such name."""
+    import posixpath
+
+    from osprey.facility.panels.emit import Draw, _links
+    from tests.facility.panels._views import nodes
+
+    graph = graph_with_part(tmp_path)
+    out = tmp_path / "out"
+    draw = Draw(write_under=("XR/XR01",))
+    write(graph, out, draw=draw)
+    index = json.loads((out / "index.json").read_text())
+    files = {e["file"] for e in index["screens"]}
+    for name in files:
+        if name.endswith(".json"):
+            here = posixpath.dirname(name)
+            refs = _links(json.loads((out / name).read_text()))
+            assert {posixpath.normpath(posixpath.join(here, r)) for r in refs} <= files, name
+    card = json.loads((out / "card/card-xr01-bend1.screen.json").read_text())
+    named = [n for n in nodes(card) if n["props"].get("text") == "XR"]
+    assert named and not [n for n in nodes(card) if n["props"].get("tooltip") == "XR"]
+    notes = [p for p in check(graph, out, draw=draw) if p.kind == "outside_set"]
+    assert notes and all(p.detail.startswith("names ") for p in notes)
+    assert any(
+        p.file == "card/card-xr01-bend1.screen.json" and "place XR" in p.detail for p in notes
+    )

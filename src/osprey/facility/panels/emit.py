@@ -171,7 +171,8 @@ class Problem:
 
     @property
     def failing(self) -> bool:
-        """False for a note: a link to a target outside the written set, or a card or
+        """False for a note: a screen a scoped write names without a link (or a link
+        to a target outside the written set), or a card or
         checkout over its budget (:data:`NOTED_OVER_BUDGET`)."""
         return not self.note and self.kind not in NOTE_KINDS
 
@@ -534,11 +535,17 @@ def _stamp(graph: PanelGraph, draw: Draw) -> str:
 
 def _generate(
     graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw: Draw
-) -> tuple[bytes, str, View]:
-    """The bytes of a target's file, its title and its view."""
+) -> tuple[bytes, str, View, tuple[Target, ...]]:
+    """The bytes of a target's file, its title, its view, and the screens it names
+    without a link because a write kept to ``write_under`` does not produce them."""
     own = _path(target, ids)
+    scope = graph.write_scope
+    unlinked: list[Target] = []
 
-    def screens(other: Target) -> str:
+    def screens(other: Target) -> str | None:
+        if scope is not None and not scope(other):
+            unlinked.append(other)
+            return None  # a written screen links only to a file of the same write
         # Every file sits one directory below ``out``, so this is relative to it.
         return "../" + _path(other, ids)
 
@@ -554,7 +561,7 @@ def _generate(
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
-    return (text + "\n").encode("utf-8"), view.title, view
+    return (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked))
 
 
 def _atomic(path: Path, data: bytes) -> None:
@@ -768,7 +775,7 @@ def write(
     for target in found:
         relative = _path(target, ids)
         if only is None or only(target):
-            data, title, _view = _generate(graph, target, ids, draw)
+            data, title, _view, _unlinked = _generate(graph, target, ids, draw)
             written.append(_put(out, relative, data, seen))
             entries[relative] = _entry(target, ids, title, len(data))
         elif relative in owned and _guard(out, relative, seen).is_file():
@@ -1229,7 +1236,16 @@ def _check_file(
             Problem("stamp", relative, f"written from other {' and '.join(changed)} than now")
         )
     problems += _long_formulas(document, relative)
-    fresh, _title, view = _generate(graph, target, ids, draw)
+    fresh, _title, view, unlinked = _generate(graph, target, ids, draw)
+    problems.extend(
+        Problem(
+            "outside_set",
+            relative,
+            f"names {other.kind} {other.id} without a link: its {other.view} screen is "
+            "outside the written set",
+        )
+        for other in unlinked
+    )
     if target.view == "rollup" and _reads(graph, view) and not _live(document):
         unopened = _unopened(graph, view, ids, valid)
         if unopened:
