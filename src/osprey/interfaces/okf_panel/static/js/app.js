@@ -543,16 +543,17 @@ function requireEl(id) {
     showOpenPage({ id, title: conceptTitles.get(id) ?? id });
     showReaderState({ icon: 'refresh', message: 'Loading the page' });
     const retry = () => loadConcept(id);
-    let resp;
+    let resp = null;
+    let doc = null;
     try {
       resp = await fetch('/api/concept?id=' + encodeURIComponent(id));
+      if (resp.ok) doc = await resp.json();
     } catch {
-      if (token === readerLoad) renderLoadFailure('The page did not load', retry);
-      return;
+      /* no answer, or an unreadable one: reported below */
     }
     if (token !== readerLoad) return;
 
-    if (resp.status === 404) {
+    if (resp?.status === 404) {
       showReaderState({
         icon: 'search',
         message: 'No concept has this id',
@@ -562,15 +563,6 @@ function requireEl(id) {
       return;
     }
 
-    let doc = null;
-    if (resp.ok) {
-      try {
-        doc = await resp.json();
-      } catch {
-        /* unreadable: reported below */
-      }
-    }
-    if (token !== readerLoad) return;
     if (!doc) {
       renderLoadFailure('The page did not load', retry);
       return;
@@ -650,18 +642,18 @@ function requireEl(id) {
     showOpenPage(null);
     showReaderState({ icon: 'refresh', message: 'Loading the overview' });
 
-    let data;
+    let data = null;
     try {
       const resp = await fetch('/api/structure');
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      data = await resp.json();
+      if (resp.ok) data = await resp.json();
     } catch {
-      if (token === readerLoad) {
-        renderLoadFailure('The overview did not load', () => loadStructure(opts));
-      }
-      return;
+      /* no answer, or an unreadable one: reported below */
     }
     if (token !== readerLoad) return;
+    if (!data) {
+      renderLoadFailure('The overview did not load', () => loadStructure(opts));
+      return;
+    }
 
     delete readerEl.dataset.conceptId;
     readerEl.innerHTML = '';
