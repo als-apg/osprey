@@ -46,8 +46,10 @@ from __future__ import annotations
 
 import csv
 import dataclasses
+import json
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
@@ -446,9 +448,24 @@ PROBE_NEEDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "readout": ("label", "signal"),
     }
 )
+
+
+def _walked_relations() -> tuple[str, ...]:
+    """The vocabulary's relation types that run from a device to a device, sorted."""
+    table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
+    rows = json.loads(table.read_text(encoding="utf-8"))["relations"]
+    return tuple(
+        sorted(
+            row["name"] for row in rows if "device" in row["subject"] and "device" in row["object"]
+        )
+    )
+
+
 #: Where a ``channel_roles.csv`` row looks for its channels: the device's own, its
-#: parts', or those of the device a relation of the device names.
-ROLE_SCOPES: tuple[str, ...] = ("device", "parts", "read_out_by", "controlled_by")
+#: parts', or those of the device a relation of the device names (any relation
+#: type of the vocabulary from a device to a device: what reads it out, controls
+#: it, interlocks it, ...).
+ROLE_SCOPES: tuple[str, ...] = ("device", "parts", *_walked_relations())
 #: How a card shows a channel of a role: a number, its state word, a lamp, or a
 #: control (a typed entry, one segment of a choice, an action button).
 SHOWN_AS: tuple[str, ...] = ("value", "word", "lamp", "entry", "choice", "action")

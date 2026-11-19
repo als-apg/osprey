@@ -1452,7 +1452,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    discrete channel means; a command's button reads the word for the value it
    writes, else the action its channel's name says), ``units.csv`` (a channel's
    unit and the divisor its raw value is shown through), ``channel_roles.csv``
-   (what a channel is to a device card, by class and name pattern) and
+   (what a channel is to a device card, by class and name pattern; its ``scope``
+   is ``device``, ``parts``, or a relation type of the vocabulary that runs from
+   a device to a device, such as ``read_out_by``, ``controlled_by`` or
+   ``interlocked_by``, walked from the device and its pattern filled from the
+   relation's port) and
    ``card_recipes.csv`` (a class's card recipe, optionally for the devices under a
    place, a part by its whole's place, or whose id matches a pattern; the first
    row that takes a device wins),

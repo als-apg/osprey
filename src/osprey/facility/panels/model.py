@@ -1527,8 +1527,9 @@ class PanelGraph:
 
         A ``device`` row matches the device's own channels and a ``parts`` row
         those of its parts (``part_of`` it, one level); every match plays the role.
-        A ``read_out_by`` or ``controlled_by`` row walks each such relation of the
-        device to a device, fills the pattern from that relation's object port
+        A row whose scope is a relation type (:data:`~osprey.facility.panels.tables.ROLE_SCOPES`:
+        ``read_out_by``, ``controlled_by``, ``interlocked_by``, ...) walks each such
+        relation of the device to a device, fills the pattern from that relation's object port
         (:func:`substitute`) and matches that device's channels: exactly one
         channel over all walked relations plays the role, more than one is
         contested and none plays it.
