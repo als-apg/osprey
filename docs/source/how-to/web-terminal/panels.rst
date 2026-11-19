@@ -440,8 +440,12 @@ Once the panel is written and validated:
         allow_runtime_panels: true    # off by default
 
    On the next start, every valid panel under ``panels/`` shows up as a tab.
-   Invalid ones are skipped and logged, so one bad panel never breaks the
-   others.
+   Invalid ones are skipped, so one bad panel never breaks the others.
+   ``osprey build`` prints a warning with every reason
+   (``web_terminals.panel_not_served``) for each invalid panel in the render it
+   builds. The panels list, ``GET /api/panels``, carries every panel the
+   running web terminal skipped under ``refused``, including one added after
+   the build.
 
 .. warning::
 
