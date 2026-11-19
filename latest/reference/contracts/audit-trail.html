@@ -598,20 +598,27 @@ who clicked — see <a class="reference internal" href="../../architecture/safet
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
 <td><p>Each batch of live values the channel finder’s value reader fetched,
 one allowed entry per batch: <code class="docutils literal notranslate"><span class="pre">subject</span></code> <code class="docutils literal notranslate"><span class="pre">channel_values_read</span></code>,
-<code class="docutils literal notranslate"><span class="pre">reason</span></code> <code class="docutils literal notranslate"><span class="pre">batch_read</span></code>, <code class="docutils literal notranslate"><span class="pre">detail</span></code> <code class="docutils literal notranslate"><span class="pre">target=&lt;target&gt;</span> <span class="pre">pv_count=&lt;n&gt;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">reason</span></code> <code class="docutils literal notranslate"><span class="pre">batch_read</span></code>, <code class="docutils literal notranslate"><span class="pre">detail</span></code> <code class="docutils literal notranslate"><span class="pre">target=&lt;target&gt;</span> <span class="pre">channel_count=&lt;n&gt;</span></code>,
 <code class="docutils literal notranslate"><span class="pre">session</span></code> <code class="docutils literal notranslate"><span class="pre">channels:&lt;pid&gt;</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">server_fleet</span></code></p></td>
+<td><p>Each refresh cycle of the server fleet service, one allowed entry per
+cycle under the service’s identity <code class="docutils literal notranslate"><span class="pre">server-fleet</span></code>: <code class="docutils literal notranslate"><span class="pre">subject</span></code>
+<code class="docutils literal notranslate"><span class="pre">fleet_cycle</span></code>, <code class="docutils literal notranslate"><span class="pre">reason</span></code> <code class="docutils literal notranslate"><span class="pre">fleet_read</span></code>, <code class="docutils literal notranslate"><span class="pre">detail</span></code>
+<code class="docutils literal notranslate"><span class="pre">target=&lt;target&gt;</span> <span class="pre">channel_count=&lt;n&gt;</span> <span class="pre">cycle=&lt;n&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">session</span></code>
+<code class="docutils literal notranslate"><span class="pre">server_fleet:&lt;target&gt;:&lt;pid&gt;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
 <code class="docutils literal notranslate"><span class="pre">&lt;lane&gt;-queueserver</span></code>)</p></td>
 <td><p>Whether a queued plan’s declared channels answered before it moved, per
 run: <code class="docutils literal notranslate"><span class="pre">allowed</span></code> (<code class="docutils literal notranslate"><span class="pre">all_responded</span></code> or <code class="docutils literal notranslate"><span class="pre">skipped</span></code>) or <code class="docutils literal notranslate"><span class="pre">refused</span></code>
 (<code class="docutils literal notranslate"><span class="pre">unresponsive</span></code>), with the lane, the target and the counts in
 <code class="docutils literal notranslate"><span class="pre">detail</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
 <td><p>Logins and login refusals, where a deployment has a login wall</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
 <td><p>Each watchdog’s verdict on a prompt, its failures, and the operator’s
 answer to a flag — see <a class="reference internal" href="watchdog.html#reference-watchdog"><span class="std std-ref">Watchdog Contract</span></a></p></td>
 </tr>

@@ -582,8 +582,9 @@ support common control-room workflows.</p></td>
 <tr class="row-even"><td><p><strong>Web terminal</strong></p></td>
 <td><p>A browser split-pane UI with logbook and channel-finder panels
 (documented separately — see <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>).
-The Channels panel’s <strong>All PVs</strong> view lists every PV the simulator
-serves (<a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>).</p></td>
+The Channels panel also has a directory view of every channel the
+simulator serves. The simulator uses the EPICS words, so the view is
+titled <strong>All PVs</strong> (<a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a>).</p></td>
 </tr>
 </tbody>
 </table>
@@ -639,7 +640,7 @@ scheme:</p>
 transformer); the second resolves to the <code class="docutils literal notranslate"><span class="pre">SR:MAG:HCM:*:CURRENT:SP</span></code> family.</p>
 <p><strong>How it works.</strong> The preset runs the <code class="docutils literal notranslate"><span class="pre">graph</span></code> channel finder. It answers
 from the facility knowledge graph that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from the
-facility file. The channel-finder agent works with twelve tools:</p>
+facility file. The channel-finder agent works with thirteen tools:</p>
 <ul class="simple">
 <li><p><strong>Keyword lookup.</strong> <code class="docutils literal notranslate"><span class="pre">search_channels</span></code> reads the search index that
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives from the graph. It matches your words against each
@@ -652,14 +653,35 @@ the graph’s labels and properties with <code class="docutils literal notransla
 with <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code>.</p></li>
 <li><p><strong>The rules.</strong> <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> tells the agent how addresses are spelled and
 which tool fits which question.</p></li>
-<li><p><strong>All PVs.</strong> When the graph has no answer, <code class="docutils literal notranslate"><span class="pre">directory_search</span></code>,
-<code class="docutils literal notranslate"><span class="pre">directory_properties</span></code>, <code class="docutils literal notranslate"><span class="pre">pv_record</span></code>, <code class="docutils literal notranslate"><span class="pre">ioc_record</span></code>, <code class="docutils literal notranslate"><span class="pre">active_alarms</span></code>,
-<code class="docutils literal notranslate"><span class="pre">alarm_state</span></code> and <code class="docutils literal notranslate"><span class="pre">alarm_config</span></code> read the simulator’s own directory and its
-replayed alarms.</p></li>
+<li><p><strong>The channel directory.</strong> When the graph has no answer, the agent turns
+to the simulator’s own directory, its server fleet and its replayed alarms
+with <code class="docutils literal notranslate"><span class="pre">directory_search</span></code>, <code class="docutils literal notranslate"><span class="pre">directory_properties</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_record</span></code>,
+<code class="docutils literal notranslate"><span class="pre">server_record</span></code>, <code class="docutils literal notranslate"><span class="pre">server_fleet</span></code>, <code class="docutils literal notranslate"><span class="pre">active_alarms</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_state</span></code> and
+<code class="docutils literal notranslate"><span class="pre">alarm_config</span></code>.</p></li>
 </ul>
 <p>The agent <strong>never fabricates PV names</strong>: every address it returns is one the
 graph or the directory holds. For the other search strategies, see
 <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>.</p>
+<p><strong>Stop a server.</strong> When channels stop answering, the first question is which
+server went down. The preset’s server fleet service reads the heartbeat of
+every simulated server every 10 s. The simulator uses the EPICS words, so its
+servers are IOCs, and the panel lists them in the <strong>IOCs</strong> view, each as
+<code class="docutils literal notranslate"><span class="pre">alive</span></code>. The <code class="docutils literal notranslate"><span class="pre">line-server-stopped</span></code> scenario stops the transfer-line IOC
+<code class="docutils literal notranslate"><span class="pre">sim-LINE</span></code>. Add it to the active set:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>rf-thermal<span class="w"> </span>demo-history<span class="w"> </span>line-server-stopped
+</pre></div>
+</div>
+<p>Within two refresh periods <code class="docutils literal notranslate"><span class="pre">sim-LINE</span></code> turns <code class="docutils literal notranslate"><span class="pre">silent</span></code> and moves to the top
+of the IOCs view. Ask the agent <em>“which IOCs are down?”</em> and its
+<code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> tool names it. Everything the IOC serves goes quiet with it:
+every channel starting <code class="docutils literal notranslate"><span class="pre">LINE:</span></code> (BPMs, correctors, quadrupoles) and the
+status and health channels of the IOC itself give no answer, so a LINE scan
+or orbit read fails. The storage ring and the BTS and LTB lines keep
+answering. To start the IOC again, run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">rf-thermal</span>
+<span class="pre">demo-history</span></code>, and it returns to <code class="docutils literal notranslate"><span class="pre">alive</span></code> within two refresh periods. Both
+commands reseed the logbook and the archive windows of the active set
+(<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>).
+<a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-server-fleet"><span class="std std-ref">The Server Fleet</span></a> explains the states.</p>
 </section>
 <section id="step-4-search-the-electronic-logbook">
 <h2>Step 4: Search the Electronic Logbook<a class="headerlink" href="#step-4-search-the-electronic-logbook" title="Link to this heading">#</a></h2>

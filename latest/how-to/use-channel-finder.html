@@ -719,10 +719,10 @@ channels as named to the channels as meant:</p>
 </svg>
 </div>
 <p>The pipelines search the <em>curated</em> channels: the ones the facility description
-declares and describes. A PV name met in an alarm, a script or a logbook entry
-is often not one of them. For those the Channel Finder also reads the control
-system’s own directory, which lists every PV the control system announces: see
-<a class="reference internal" href="#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>.</p>
+declares and describes. A channel name met in an alarm, a script or a logbook
+entry is often not one of them. For those names the Channel Finder also reads
+the control system’s own directory, which lists every channel the control
+system serves: see <a class="reference internal" href="#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a>.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <p>T. Hellert et al., <em>Mach. Learn.: Sci. Technol.</em> <strong>7</strong>, 045010 (2026) ·
@@ -1009,31 +1009,304 @@ seeded with.</p></li>
 index rather than browsing a channel tree, and the device card reads the store.
 See <a class="reference internal" href="#web-interface">Web Interface</a> below.</p>
 </section>
-<section id="all-pvs-the-control-system-s-directory">
-<span id="channel-finder-all-pvs"></span><h2>All PVs: the Control System’s Directory<a class="headerlink" href="#all-pvs-the-control-system-s-directory" title="Link to this heading">#</a></h2>
-<p>Whichever pipeline runs, it answers only for the curated channels. The
-directory answers for the rest. It is the control system’s own record of every
-PV and IOC, such as a ChannelFinder service, or the virtual accelerator’s PV
-list in the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset. Its names, descriptions and properties are shown
-as the control system records them; nothing in it is curated, and nothing that
-reads it can write.</p>
-<p>The directory is on when <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section; the
-<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships one. The same section can name an alarm server, an alarm
-log and a put log. <a class="reference internal" href="../reference/configuration/config.html#config-pv-directory"><span class="std std-ref">pv_directory: — PV records, alarms and put history</span></a> has the keys and how to switch
-the section off.</p>
-<p><strong>For the agent</strong> the section adds the <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code> MCP server: search the
-directory, read a PV’s or an IOC’s record and, where their source is
-configured, the alarms and recorded writes. Every tool is a read and runs
-without an approval prompt. The agent’s prompt tells it to check the curated
-channels first and to say when a name is the control system’s own.
-<a class="reference internal" href="../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a> lists the tools.</p>
-<p><strong>For the operator</strong> it adds the All PVs, Alarms and Archive views of the
-panel: see <a class="reference internal" href="#all-pvs-alarms-and-archive">All PVs, Alarms and Archive</a>.</p>
-<p>Every answer comes from the machine the control-target chip shows: the
-simulator’s own PVs and replayed alarm feed on <em>Simulator</em>, the facility’s
-services on <em>Live</em> and <em>Rehearsal</em>. An answer with no source for the current
-target reads <code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">available</span> <span class="pre">for</span> <span class="pre">this</span> <span class="pre">target</span></code>.
-<a class="reference internal" href="../reference/connectors-api/services.html"><span class="doc">Directory, alarms and put log</span></a> has the table of sources per target.</p>
+<section id="the-channel-directory">
+<span id="channel-finder-directory"></span><h2>The Channel Directory<a class="headerlink" href="#the-channel-directory" title="Link to this heading">#</a></h2>
+<p>Whichever pipeline runs, it answers only for the curated channels. An operator
+who meets an unfamiliar name in an alarm or a script still wants to know what
+it is and which server serves it. The channel directory answers that question.
+It is the control system’s own record of every channel it serves and of the
+server process behind each one. OSPREY shows the names, descriptions and
+properties exactly as the control system records them: nothing in the
+directory is curated, and nothing that reads it can write.</p>
+<p>At an EPICS facility, for example, the channels are PVs, the servers are IOCs,
+and the directory is usually a ChannelFinder service. The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset
+needs no such service, because its directory lists what the virtual
+accelerator serves.</p>
+<p>The directory is on when <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section, and
+the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships one. The same section can name an alarm server, an
+alarm log and a put log, so that the alarms and the recorded writes of a
+channel appear beside its record. <a class="reference internal" href="../reference/configuration/config.html#config-channel-directory"><span class="std std-ref">channel_directory: — channel records, alarms and put history</span></a> lists the keys
+and shows how to switch the section off.</p>
+<p>The section serves the agent and the operator from the same sources:</p>
+<ul class="simple">
+<li><p>The agent gains the <code class="docutils literal notranslate"><span class="pre">channel-directory</span></code> MCP server. With it the agent
+searches the directory, reads the record of a channel or of a server and,
+where their source is configured, reads alarms and recorded writes. Every
+tool is a read and runs without an approval prompt. The agent’s prompt tells
+it to check the curated channels first and to say when a name is the control
+system’s own. <a class="reference internal" href="../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a> lists the tools.</p></li>
+<li><p>The operator gains the directory view of the Channel Finder panel and, where
+their service is configured, the servers, Alarms and Archive views. See
+<a class="reference internal" href="#the-directory-servers-alarms-and-archive-views">The Directory, Servers, Alarms and Archive Views</a>.</p></li>
+</ul>
+<p>Every answer comes from the machine the control-target chip shows. On
+<em>Simulator</em> the answers are the simulator’s own channels and its replayed
+alarm feed. On <em>Live</em> and <em>Rehearsal</em> they come from the facility’s services.
+When the current target has no source for an answer, the answer reads
+<code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">available</span> <span class="pre">for</span> <span class="pre">this</span> <span class="pre">target</span></code>. <a class="reference internal" href="../reference/connectors-api/services.html"><span class="doc">Directory, alarms and put log</span></a>
+has the table of sources per target.</p>
+<section id="the-control-system-s-words">
+<span id="channel-directory-words"></span><h3>The control system’s words<a class="headerlink" href="#the-control-system-s-words" title="Link to this heading">#</a></h3>
+<p>Every control system has its own names for a channel and for the server that
+serves it, and the people who run the machine use those names. The panel and
+the agent’s answers use them too. OSPREY takes the words from the connector of
+the control target an answer comes from:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Control system</p></th>
+<th class="head"><p>A channel</p></th>
+<th class="head"><p>A server</p></th>
+<th class="head"><p>Directory view</p></th>
+<th class="head"><p>Servers view</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>EPICS, simulator, stand-in</p></td>
+<td><p>PV</p></td>
+<td><p>IOC</p></td>
+<td><p>All PVs</p></td>
+<td><p>IOCs</p></td>
+</tr>
+<tr class="row-odd"><td><p>TANGO</p></td>
+<td><p>attribute</p></td>
+<td><p>device server</p></td>
+<td><p>Attributes</p></td>
+<td><p>Device servers</p></td>
+</tr>
+<tr class="row-even"><td><p>DOOCS</p></td>
+<td><p>property</p></td>
+<td><p>server</p></td>
+<td><p>Properties</p></td>
+<td><p>Servers</p></td>
+</tr>
+<tr class="row-odd"><td><p>Any other</p></td>
+<td><p>channel</p></td>
+<td><p>server</p></td>
+<td><p>Channels</p></td>
+<td><p>Servers</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The simulator and the stand-in use the EPICS words because both serve their
+channels the way EPICS soft IOCs do. The words follow the target, so a TANGO
+facility reads about PVs and IOCs while a session is on the simulator, and
+about attributes and device servers on the live machine. Config keys, tool
+names and commands are the same on every control system, and this page calls
+the two views the directory view and the servers view.</p>
+<p>A facility that writes its own connector states its words on the connector
+class, in a <code class="docutils literal notranslate"><span class="pre">channel_vocabulary</span></code> attribute. The attribute is a mapping with
+the keys <code class="docutils literal notranslate"><span class="pre">channel</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">server</span></code> and <code class="docutils literal notranslate"><span class="pre">servers</span></code>, and optionally
+<code class="docutils literal notranslate"><span class="pre">directory</span></code> and <code class="docutils literal notranslate"><span class="pre">servers_view</span></code> for the titles of the two views. A title
+that is left out is the plural with a capital first letter. A connector
+without the attribute gets the words of the last row.</p>
+</section>
+<section id="directory-backends">
+<span id="channel-directory-backends"></span><h3>Directory backends<a class="headerlink" href="#directory-backends" title="Link to this heading">#</a></h3>
+<p>A directory backend reads one kind of directory service. Two ship with OSPREY:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">channelfinder</span></code> reads a ChannelFinder service, the directory that EPICS
+facilities commonly run. Name it in <code class="docutils literal notranslate"><span class="pre">channel_directory.type</span></code> and give the
+address of the service in <code class="docutils literal notranslate"><span class="pre">channel_directory.settings.url</span></code>.</p></li>
+<li><p>The simulator’s backend lists every channel the virtual accelerator serves.
+It needs no configuration: OSPREY uses it on the simulator target whenever
+the section is present.</p></li>
+</ul>
+<p>A facility whose directory is another service, such as a TANGO database,
+writes a backend for it and names the class by its dotted path in
+<code class="docutils literal notranslate"><span class="pre">channel_directory.type</span></code>. The backend implements the <code class="docutils literal notranslate"><span class="pre">ChannelDirectory</span></code>
+contract in <a class="reference internal" href="../reference/connectors-api/services.html"><span class="doc">Directory, alarms and put log</span></a>. The contract asks for a
+search, the record of one channel and the values of a property. Listing the
+servers is optional, and the server fleet depends on it. The alarm and
+put-log sources of the section work the same way, and that page lists their
+shipped backends too.</p>
+</section>
+</section>
+<section id="the-server-fleet">
+<span id="channel-finder-server-fleet"></span><h2>The Server Fleet<a class="headerlink" href="#the-server-fleet" title="Link to this heading">#</a></h2>
+<p>The directory says which servers exist. It does not say which of them are
+running, and that is the first question when channels stop answering.
+Answering it for a whole facility means reading a liveness channel on every
+server, which is too many reads to repeat each time someone asks. The server
+fleet service therefore reads them once per refresh period and keeps one
+snapshot per control target. The servers view of the panel, the agent’s
+<code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> tool and the page of each server all answer from that
+snapshot. The three always agree, and asking again costs the control system
+nothing.</p>
+<p>At an EPICS facility the servers are IOCs, the liveness channel is the
+heartbeat PV of each IOC, and the panel titles the view <strong>IOCs</strong>
+(<a class="reference internal" href="#channel-directory-words"><span class="std std-ref">The control system’s words</span></a>). The fleet reads through the connector of
+each target and works with any directory backend that can list its servers,
+which both shipped backends can (<a class="reference internal" href="#channel-directory-backends"><span class="std std-ref">Directory backends</span></a>).</p>
+<p>The service is off until <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet</span></code>
+block; an empty one (<code class="docutils literal notranslate"><span class="pre">fleet:</span> <span class="pre">{}</span></code>) is enough. The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset runs the
+service with a 10 s period, and <a class="reference internal" href="../getting-started/demo.html"><span class="doc">The Demo Deployment</span></a> stops a server
+to show how the view responds. <a class="reference internal" href="../reference/configuration/config.html#config-channel-directory"><span class="std std-ref">channel_directory: — channel records, alarms and put history</span></a> lists the keys.</p>
+<section id="reading-the-servers-view">
+<h3>Reading the servers view<a class="headerlink" href="#reading-the-servers-view" title="Link to this heading">#</a></h3>
+<p>The header shows when the snapshot was taken and how old it is, whether the
+read path works, and the outcome of the directory listing and of each roster
+source. Below it, one tile per state and per finding carries its count.
+Selecting a tile keeps only its rows, and so do words typed into the search
+box. The table has one row per server: its name, its host, its state, how
+long it has been in that state, its findings, its status in the directory and
+the roster sources that name it. The worst rows come first: stalled, silent,
+unreached with a finding, alive with a finding, unknown, unreached, alive.
+<strong>Group by</strong> gathers the rows under the field that
+<code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.group_by</span></code> names.</p>
+<p>Each server has one state:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 85.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>State</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">alive</span></code></p></td>
+<td><p>The liveness channel answered and, where it is a counter, moved since
+the previous reading.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">stalled</span></code></p></td>
+<td><p>It answered, and the counter has not moved.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">silent</span></code></p></td>
+<td><p>It gives no answer now and has answered before through this read path.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">unreached</span></code></p></td>
+<td><p>It has never answered through this read path.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">unknown</span></code></p></td>
+<td><p>No state could be established. The read failed, the read path is down,
+the server has no liveness channel, a counter has only one reading so
+far, or the read path is unverified and every server that answered in
+the last cycle went quiet at once.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Neither <code class="docutils literal notranslate"><span class="pre">unreached</span></code> nor <code class="docutils literal notranslate"><span class="pre">unknown</span></code> says that a server stopped: both mean
+that the service could not tell. A finding may stand beside the state:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Finding</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">degraded</span></code></p></td>
+<td><p>The server is alive and one of its health readings is outside its good
+range. A health channel that could not be read does not count.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">expected_running_not_alive</span></code></p></td>
+<td><p>A roster source expects the server to run, and it is stalled, silent or
+unreached.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">expected_stopped_alive</span></code></p></td>
+<td><p>A roster source expects the server to be stopped, and it is alive.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">alive_unexpected</span></code></p></td>
+<td><p>The server is alive, and no roster source expects it to run or to stop.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The three expectation findings appear only when a roster source is
+configured (<a class="reference internal" href="#roster-sources">Roster sources</a>), and <code class="docutils literal notranslate"><span class="pre">unknown</span></code> never carries a finding.</p>
+<p>When the service has no state to show, the view says why instead of listing
+servers, and adds that this says nothing about whether any server runs:</p>
+<ul class="simple">
+<li><p><em>No snapshot yet</em>: the first refresh of the target has not completed.</p></li>
+<li><p><em>Target not refreshed</em>: the target is not in
+<code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.targets</span></code>, it is a virtual accelerator served in
+process, or the service cannot connect to it.</p></li>
+<li><p><em>Cannot list the servers</em>: no listing of the directory has succeeded so far,
+or the directory backend cannot list its servers.</p></li>
+<li><p><em>Snapshot stale</em>: the service stopped refreshing, and the snapshot is older
+than three refresh periods (or three cycles, when a cycle outlasts the
+period).</p></li>
+<li><p><em>server fleet unavailable</em>: the service gave no usable answer.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> tool answers the agent from the same snapshot, with the
+counts, the meaning of each state and the rows that pass its filters for
+state, finding, group, host or text. It makes the same statements, except
+that it still returns the rows of a stale snapshot, marked as the states of
+that time.</p>
+</section>
+<section id="which-servers-are-listed">
+<h3>Which servers are listed<a class="headerlink" href="#which-servers-are-listed" title="Link to this heading">#</a></h3>
+<p>Each target lists the servers of its own directory, including a server whose
+channels are all inactive, and reads their liveness from that target. The
+stand-in uses the directory of the facility, so a server whose liveness
+channel the stand-in does not serve shows <code class="docutils literal notranslate"><span class="pre">unreached</span></code>. A server that has
+left the directory and every roster source stays in the view, marked
+<code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">listed</span></code>, for as long as it answers and for
+<code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.retention_days</span></code> after it goes quiet.</p>
+<p>Before it reads any server, each refresh reads the probe channel of the
+target, one channel that the target always serves. When the probe does not
+answer, a silent server proves nothing, so every server is <code class="docutils literal notranslate"><span class="pre">unknown</span></code> and
+the header reports the read path as down. A target with no probe channel is
+reported as <em>unverified</em>.</p>
+<p>With the fleet on, the page of a server and the <code class="docutils literal notranslate"><span class="pre">server_record</span></code> tool show
+the row of the snapshot: the state, the findings and the time the liveness
+channel was read. Neither makes a read of its own, so the answer can be up to
+one refresh period old. Without a fresh row they say why, and that no state
+is known for the server.</p>
+</section>
+<section id="load-per-refresh">
+<h3>Load per refresh<a class="headerlink" href="#load-per-refresh" title="Link to this heading">#</a></h3>
+<p>Only the service reads liveness channels, so the load on the control system
+does not grow with the number of users. For each refreshed target, one
+refresh costs:</p>
+<ul class="simple">
+<li><p>one read of the probe, then one concurrent read of every liveness and
+health channel, or none when the probe does not answer;</p></li>
+<li><p>one audit record on the <code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> surface
+(<a class="reference internal" href="../reference/contracts/audit-trail.html"><span class="doc">Audit Trail Contract</span></a>);</p></li>
+<li><p>one read of each roster source, on <code class="docutils literal notranslate"><span class="pre">live</span></code> only.</p></li>
+</ul>
+<p>The directory is queried less often: on the first refresh, on every tenth
+after it and after a failed attempt. Each query lists the servers and runs
+one paged search per liveness and health suffix.</p>
+<p>As an example, take a light source with about 1,600 liveness and health
+channels behind one gateway. At the default period of 30 s the service makes
+about 53 reads per second, writes 2,880 audit records per day and lists the
+directory every five minutes.</p>
+</section>
+<section id="roster-sources">
+<h3>Roster sources<a class="headerlink" href="#roster-sources" title="Link to this heading">#</a></h3>
+<p>On its own the fleet knows only which servers answer. A roster source tells
+it what the facility expects: which servers should run, which should be
+stopped, and which class and group each belongs to. That expectation is what
+turns a <code class="docutils literal notranslate"><span class="pre">silent</span></code> server into the finding <code class="docutils literal notranslate"><span class="pre">expected_running_not_alive</span></code>.
+Roster sources and the named classes of <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.classes</span></code>
+apply on <code class="docutils literal notranslate"><span class="pre">live</span></code> only. On the virtual accelerator and the stand-in, every
+server is judged by the heartbeat channel that the directory lists for it.</p>
+<p>A roster source is a small piece of Python that the facility writes: any
+object with a <code class="docutils literal notranslate"><span class="pre">name</span></code> and a <code class="docutils literal notranslate"><span class="pre">read(deadline)</span></code> method that returns a list of
+<code class="docutils literal notranslate"><span class="pre">RosterRow(name,</span> <span class="pre">host,</span> <span class="pre">class_name,</span> <span class="pre">expected,</span> <span class="pre">group=None)</span></code> from
+<code class="docutils literal notranslate"><span class="pre">osprey.services.channel_directory.roster</span></code>. <code class="docutils literal notranslate"><span class="pre">expected</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;running&quot;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&quot;stopped&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">None</span></code>, and <code class="docutils literal notranslate"><span class="pre">read</span></code> raises to report a failure. The
+contract is public and may still change between releases.</p>
+<p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.roster_sources</span></code> lists the sources, each as a
+<code class="docutils literal notranslate"><span class="pre">module:attribute</span></code> reference to a source object or to a function without
+arguments that returns one. The rows of all sources merge into one row per
+server. A source that fails is shown as unavailable with its reason, and the
+other sources still count.</p>
+<p><code class="docutils literal notranslate"><span class="pre">StaticRoster</span></code> is an example to start from. It reads a YAML list of
+servers and sits in <code class="docutils literal notranslate"><span class="pre">docs/source/how-to/control-systems/examples/roster/</span></code>
+with <code class="docutils literal notranslate"><span class="pre">roster_static.yml</span></code> beside it. With that directory importable,
+<code class="docutils literal notranslate"><span class="pre">roster_sources:</span> <span class="pre">[&quot;roster_static:roster&quot;]</span></code> uses it. To check a source of
+your own, call <code class="docutils literal notranslate"><span class="pre">check_roster_source(source)</span></code> from the roster module: it
+returns one line per problem, and none when the source conforms.</p>
+</section>
 </section>
 <section id="web-interface">
 <h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>
@@ -1047,10 +1320,11 @@ the search box in the panel toolbar (<code class="docutils literal notranslate">
 channels that match all of them. Each word is matched against the address, the
 description, the device or signal name, and the name or synonyms of the
 device’s class or any class above it. The view switch is at the toolbar’s
-left: Explore, or Curated and All PVs when <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a
-<code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section, with Alarms and Archive when their service is
-configured. There is no Feedback view: the graph keeps no saved hints, and
-its answers are not captured for review. The result count and the search box are at its right.</p>
+left. It offers Explore alone, or Curated and the directory view when
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section, with the servers, Alarms
+and Archive views when their service is configured. There is no Feedback
+view: the graph keeps no saved hints, and its answers are not captured for
+review. The result count and the search box are at its right.</p>
 <p>The sidebar narrows further:</p>
 <ul class="simple">
 <li><p>Section, System and Signal count matching channels.</p></li>
@@ -1109,17 +1383,19 @@ fills it. Channel validation is not offered on this pipeline. The
 channel-suggestion typeahead in the web panels still works in graph mode:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the channel names from the facility file and writes them
 into the snapshot the panels use.</p>
-<section id="all-pvs-alarms-and-archive">
-<h3>All PVs, Alarms and Archive<a class="headerlink" href="#all-pvs-alarms-and-archive" title="Link to this heading">#</a></h3>
-<p>With a <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section (<a class="reference internal" href="#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>) the view switch
-gains <strong>All PVs</strong>, which searches the directory. In the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset:</p>
+<section id="the-directory-servers-alarms-and-archive-views">
+<h3>The Directory, Servers, Alarms and Archive Views<a class="headerlink" href="#the-directory-servers-alarms-and-archive-views" title="Link to this heading">#</a></h3>
+<p>With a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section (<a class="reference internal" href="#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a>) the view
+switch gains the directory view, which searches the directory. Its tab
+carries the control system’s own title (<a class="reference internal" href="#channel-directory-words"><span class="std std-ref">The control system’s words</span></a>). The
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset runs on the simulator, so there the tab reads <strong>All PVs</strong>:</p>
 <ol class="arabic simple">
 <li><p>Click <strong>All PVs</strong>, type <code class="docutils literal notranslate"><span class="pre">cavity</span> <span class="pre">temperature</span></code> into the search box and press
-Enter. The rows are the PVs whose description holds both words, each with
-its description, current value, alarm, record type and IOC.</p></li>
-<li><p>Click <code class="docutils literal notranslate"><span class="pre">SR:RF:CAVITY:01:TEMPERATURE:RB</span></code> to open its PV page. A banner
-shows a latched alarm from the demo’s replayed alarm feed, with its
-guidance.</p></li>
+Enter. The rows are the channels whose description holds both words, each
+with its description, current value, alarm, type and server.</p></li>
+<li><p>Click <code class="docutils literal notranslate"><span class="pre">SR:RF:CAVITY:01:TEMPERATURE:RB</span></code> to open the page of that channel.
+A banner shows a latched alarm from the replayed alarm feed of the demo,
+with its guidance.</p></li>
 </ol>
 <p>Words match descriptions first, and names only when no description matched;
 every word must match. A word holding <code class="docutils literal notranslate"><span class="pre">*</span></code> or <code class="docutils literal notranslate"><span class="pre">?</span></code> matches names as a glob,
@@ -1127,24 +1403,31 @@ and a leading <code class="docutils literal notranslate"><span class="pre">=</sp
 and <strong>show request</strong> reveals the request that ran.</p>
 <p>Each row carries one of two marks:</p>
 <ul class="simple">
-<li><p>◆ <strong>Curated</strong>: the facility description declares the PV.</p></li>
-<li><p>◇ <strong>Control system only</strong>: the control system announces it and the facility
-description does not.</p></li>
+<li><p>◆ <strong>Curated</strong>: the facility description declares the channel.</p></li>
+<li><p>◇ <strong>Control system only</strong>: the control system serves it and the facility
+description does not declare it.</p></li>
 </ul>
-<p>The search words carry over from the Curated view: a <code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">here?</span></code> line under
-its results opens All PVs with the same words, and a curated search with no
-hits offers to search the whole directory instead. The names of ticked rows
-can be copied, sent to the assistant or, when CANOPY serves Trace, plotted.</p>
-<p>A <strong>PV page</strong> has one card per answer: Value, Alarm, Put history, Directory,
-Archive and Logbook. A card whose service is not configured is one dashed
-line. Clicking an IOC opens its <strong>IOC page</strong>: its PVs, the alarms on it, its
-health PVs, and an alive chip that reads the heartbeat PV twice, 2 s apart.</p>
-<p>Two more views appear when their service is configured. Neither writes:</p>
+<p>The search words carry over from the Curated view. A <code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">here?</span></code> line under
+its results opens the directory view with the same words, and a curated
+search with no hits offers to search the whole directory instead. The names
+of ticked rows can be copied, sent to the assistant or, when CANOPY serves
+Trace, plotted.</p>
+<p>The page of a channel has one card per answer: Value, Alarm, Put history,
+Directory, Archive and Logbook. A card whose service is not configured is one
+dashed line. Clicking a server opens the page of that server, with its
+channels, the alarms on it, its health channels and a chip that says whether
+it is alive. The chip reads the heartbeat channel twice, 2 s apart, or shows
+the state from the fleet snapshot when <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet</span></code> is set
+(<a class="reference internal" href="#channel-finder-server-fleet"><span class="std std-ref">The Server Fleet</span></a>).</p>
+<p>Three more views appear when their service is configured, and none of them
+writes:</p>
 <ul class="simple">
+<li><p>The servers view lists every server of the control target with its liveness
+state and findings (<a class="reference internal" href="#channel-finder-server-fleet"><span class="std std-ref">The Server Fleet</span></a>).</p></li>
 <li><p><strong>Alarms</strong> lists what is in alarm now on the control target, worst first.
-Acknowledge in the alarm server’s own client.</p></li>
-<li><p><strong>Archive</strong> says what the control target’s archive records: how many of the
-directory’s PVs, and its newest sample.</p></li>
+To acknowledge an alarm, use the client of the alarm server.</p></li>
+<li><p><strong>Archive</strong> says what the archive of the control target records: how many
+of the channels in the directory, and its newest sample.</p></li>
 </ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys for every pipeline, and how the active one is served to
 the agent, are in <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a>.</p>
@@ -1204,9 +1487,20 @@ the agent, are in <a class="reference internal" href="../reference/contracts/cha
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hierarchical-pipeline">Hierarchical Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#middle-layer-pipeline">Middle Layer Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-pipeline">Graph Pipeline</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#all-pvs-the-control-system-s-directory">All PVs: the Control System’s Directory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-channel-directory">The Channel Directory</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-system-s-words">The control system’s words</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-backends">Directory backends</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-server-fleet">The Server Fleet</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-the-servers-view">Reading the servers view</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-servers-are-listed">Which servers are listed</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#load-per-refresh">Load per refresh</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#roster-sources">Roster sources</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-interface">Web Interface</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#all-pvs-alarms-and-archive">All PVs, Alarms and Archive</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-directory-servers-alarms-and-archive-views">The Directory, Servers, Alarms and Archive Views</a></li>
 </ul>
 </li>
 </ul>

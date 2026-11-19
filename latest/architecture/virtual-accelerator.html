@@ -549,7 +549,7 @@ composite, each physics model is an engine plug-in reached only through its
 <p>The served list is the simulator view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>: its <code class="docutils literal notranslate"><span class="pre">channels</span></code>,
 every channel address the facility declares, then one
 <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> address for each served physics model, then the
-view’s <code class="docutils literal notranslate"><span class="pre">ioc_health</span></code> list: read-only <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>,
+view’s <code class="docutils literal notranslate"><span class="pre">server_health</span></code> list: read-only <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>,
 <code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> and <code class="docutils literal notranslate"><span class="pre">ENGINEER</span></code> addresses for every served model, texture
 included. Which models are served is the view’s <code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>, with
 the texture model always last. A physics model is one child of the composite,

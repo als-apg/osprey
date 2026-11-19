@@ -486,9 +486,24 @@
                   
   <section id="directory-alarms-and-put-log">
 <span id="connectors-api-services"></span><h1>Directory, alarms and put log<a class="headerlink" href="#directory-alarms-and-put-log" title="Link to this heading">#</a></h1>
-<p>The read-only contracts of the directory, alarm and put-log backends behind All
-PVs (<a class="reference internal" href="../../how-to/use-channel-finder.html#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>), and which source answers each kind on
-each control target.</p>
+<p>The channel directory (<a class="reference internal" href="../../how-to/use-channel-finder.html#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a>) reads four kinds of
+source: a directory of channels and servers, the current alarm state, the
+alarm history and the put history. Each kind has a read-only contract, and
+this page documents the four contracts and the rule that decides which source
+answers on each control target.</p>
+<p>These backends ship, each named by its <code class="docutils literal notranslate"><span class="pre">type</span></code>:</p>
+<ul class="simple">
+<li><p><strong>Directory:</strong> <code class="docutils literal notranslate"><span class="pre">channelfinder</span></code>, a ChannelFinder service, and the
+simulator’s own list of channels.</p></li>
+<li><p><strong>Alarm state:</strong> <code class="docutils literal notranslate"><span class="pre">phoebus_alarm_server</span></code>, the Phoebus alarm server through
+its Kafka topic; <code class="docutils literal notranslate"><span class="pre">osprey_alarm_relay</span></code>, the same state from an OSPREY alarm
+relay over HTTP; and a replayed file for the simulator.</p></li>
+<li><p><strong>Alarm history:</strong> <code class="docutils literal notranslate"><span class="pre">phoebus_alarm_logger</span></code>, the Phoebus alarm logger.</p></li>
+<li><p><strong>Put history:</strong> <code class="docutils literal notranslate"><span class="pre">caputlog</span></code>, a caPutLog service.</p></li>
+</ul>
+<p>The shipped services are ones that EPICS facilities run. A facility with a
+different service writes a class against the contract of its kind and names
+the class by its dotted path where the built-in <code class="docutils literal notranslate"><span class="pre">type</span></code> would stand.</p>
 <p id="module-osprey_connectors.service_answers">What every read-only service backend answers, whatever its kind.</p>
 <p>A backend is read-only and never raises: a service that gives no answer is a
 value, <a class="reference internal" href="#osprey_connectors.service_answers.Unavailable" title="osprey_connectors.service_answers.Unavailable"><code class="xref py py-class docutils literal notranslate"><span class="pre">Unavailable</span></code></a>, or a page whose outcome says so. Every method is

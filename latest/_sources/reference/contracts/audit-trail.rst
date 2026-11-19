@@ -103,8 +103,14 @@ refusal never share one.
    * - ``channels``
      - Each batch of live values the channel finder's value reader fetched,
        one allowed entry per batch: ``subject`` ``channel_values_read``,
-       ``reason`` ``batch_read``, ``detail`` ``target=<target> pv_count=<n>``,
+       ``reason`` ``batch_read``, ``detail`` ``target=<target> channel_count=<n>``,
        ``session`` ``channels:<pid>``
+   * - ``server_fleet``
+     - Each refresh cycle of the server fleet service, one allowed entry per
+       cycle under the service's identity ``server-fleet``: ``subject``
+       ``fleet_cycle``, ``reason`` ``fleet_read``, ``detail``
+       ``target=<target> channel_count=<n> cycle=<n>``, ``session``
+       ``server_fleet:<target>:<pid>``
    * - ``preflight`` (written as ``queueserver`` and as each lane's
        ``<lane>-queueserver``)
      - Whether a queued plan's declared channels answered before it moved, per

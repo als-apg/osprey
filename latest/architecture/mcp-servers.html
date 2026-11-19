@@ -473,8 +473,8 @@ tools via stdio JSON-RPC. This page lists every server that ships in-tree,
 with every tool each one can register. The <strong>10 core servers</strong> are the ones a
 deployment normally renders: <code class="docutils literal notranslate"><span class="pre">control_system</span></code>, the four channel-finder
 variants, <code class="docutils literal notranslate"><span class="pre">workspace</span></code>, <code class="docutils literal notranslate"><span class="pre">python_executor</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel</span></code>,
-<code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">graph</span></code>. <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code> renders only
-when the config has a <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section. Four more ship in-tree but are
+<code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">graph</span></code>. <code class="docutils literal notranslate"><span class="pre">channel-directory</span></code> renders only
+when the config has a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section. Four more ship in-tree but are
 off by default: <code class="docutils literal notranslate"><span class="pre">phoebus</span></code>, <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code>. A profile
 enables one with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.&lt;name&gt;.enabled:</span> <span class="pre">true</span></code>. The
 <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset enables <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code>; <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> and
@@ -483,7 +483,7 @@ these.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
   <title id="mcp-server-map-title">The MCP server map</title>
-  <desc id="mcp-server-map-desc">The OSPREY agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, or pv-directory when the config has a pv_directory section; all run as child processes of the harness and expose no network port.</desc>
+  <desc id="mcp-server-map-desc">The OSPREY agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, or channel-directory when the config has a channel_directory section; all run as child processes of the harness and expose no network port.</desc>
   <defs>
     <marker id="mcp-server-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -541,7 +541,7 @@ these.</p>
   <text class="ts" x="572" y="378" text-anchor="middle">facility graph · Cypher</text>
   <rect class="mask" x="676" y="336" width="160" height="64" rx="6"/>
   <rect class="nb" x="676" y="336" width="160" height="64" rx="6"/>
-  <text class="tn" x="756" y="362" text-anchor="middle">pv-directory</text>
+  <text class="tn" x="756" y="362" text-anchor="middle">channel-directory</text>
   <text class="ts" x="756" y="378" text-anchor="middle">read-only · if configured</text>
   <!-- zone footnote -->
   <text class="ts" x="480" y="428" text-anchor="middle">rendered from config.yml by osprey build — profiles can inject more servers</text>
@@ -550,7 +550,7 @@ these.</p>
 <p>The four channel-finder variants count as four of the ten, but a deployment
 serves exactly one of them — whichever <code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> names —
 under the single <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name. The map shows those seven running
-processes, and <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code> where it renders.</p>
+processes, and <code class="docutils literal notranslate"><span class="pre">channel-directory</span></code> where it renders.</p>
 <section id="control-system">
 <h2>Control System<a class="headerlink" href="#control-system" title="Link to this heading">#</a></h2>
 <section id="id1">
@@ -672,29 +672,35 @@ questions, each with per-corpus parameter values.</p></li>
 </ul>
 </section>
 </section>
-<section id="pv-directory">
-<h2>PV Directory<a class="headerlink" href="#pv-directory" title="Link to this heading">#</a></h2>
+<section id="channel-directory">
+<h2>Channel Directory<a class="headerlink" href="#channel-directory" title="Link to this heading">#</a></h2>
 <section id="id2">
-<h3><code class="docutils literal notranslate"><span class="pre">pv-directory</span></code><a class="headerlink" href="#id2" title="Link to this heading">#</a></h3>
-<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.pv_directory</span></code></p>
-<p>Reads the control system’s own directory of channel addresses for the session’s
-current control target. It is present only when the config has a
-<code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section; the alarm and put-log tools are present only when
-that section configures their source. Every tool is a read and is pre-approved.
-The <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> shared login carries the server; the <code class="docutils literal notranslate"><span class="pre">logbook</span></code> and
-<code class="docutils literal notranslate"><span class="pre">knowledge</span></code> logins switch it off. See <a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>.</p>
+<h3><code class="docutils literal notranslate"><span class="pre">channel-directory</span></code><a class="headerlink" href="#id2" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_directory</span></code></p>
+<p>Reads the control system’s own directory of channels, and of the servers that
+serve them, for the session’s current control target. The server is present
+only when the config has a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section, and its alarm and
+put-log tools only when that section configures their source. Every tool is a
+read and is pre-approved. The <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> shared login carries the
+server; the <code class="docutils literal notranslate"><span class="pre">logbook</span></code> and <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> logins switch it off.</p>
+<p>The tool names are the same on every control system. The answers name
+channels and servers in the control system’s own words, such as PV and IOC at
+an EPICS facility (<a class="reference internal" href="../how-to/use-channel-finder.html#channel-directory-words"><span class="std std-ref">The control system’s words</span></a>).
+<a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a> describes the directory and the backends that
+ship with OSPREY.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">directory_search</span></code> – Search the directory by words, name, property values and
 status, curated channels and announced ones alike, each row marked with its origin.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">directory_properties</span></code> – List the values one directory property holds, such as
-each IOC or host, spelled as the directory spells them.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pv_record</span></code> – Look up channel addresses: the directory record and, where
+each server or host, spelled as the directory spells them.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_record</span></code> – Look up channel addresses: the directory record and, where
 configured, alarm state, alarm configuration, alarm history, put history and
 archive facts.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">ioc_record</span></code> – Look up one IOC: its host, ports, channel counts, engineer, the
-addresses of its health channels and, with an alarm feed configured, its channels
-in alarm.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">server_record</span></code> – Look up one server: its host, ports, channel counts, engineer,
+the addresses of its health channels and, with an alarm feed configured, its
+channels in alarm. With <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet</span></code> configured it adds the state of
+the server from the server fleet snapshot, with its read time.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">active_alarms</span></code> – List every channel in alarm now, with the counts per severity,
 from the alarm feed.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">alarm_state</span></code> – Read the current alarm of each channel address from the alarm
@@ -704,6 +710,9 @@ channel address.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">alarm_config</span></code> – Look up one channel address in the alarm configuration: its
 path, guidance, displays, and whether its alarm is enabled and latching.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">put_history</span></code> – List the writes the put log recorded for one channel address.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> – List the servers of the current target with their liveness state
+and findings from the server fleet snapshot, filtered by state, finding, group, host
+or text; present only with <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet</span></code> configured.</p></li>
 </ul>
 </section>
 </section>
@@ -1116,8 +1125,8 @@ the poll tier reports as skipped (requires human approval).</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-graph"><code class="docutils literal notranslate"><span class="pre">channel_finder_graph</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pv-directory">PV Directory</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id2"><code class="docutils literal notranslate"><span class="pre">pv-directory</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-directory">Channel Directory</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id2"><code class="docutils literal notranslate"><span class="pre">channel-directory</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a><ul class="visible nav section-nav flex-column">

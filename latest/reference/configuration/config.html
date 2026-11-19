@@ -502,8 +502,8 @@ uses on a logbook database you run yourself (<code class="docutils literal notra
 how much of each logbook entry the agent reads (<code class="docutils literal notranslate"><span class="pre">ariel.entry_text</span></code>), whether
 the agent shows its thinking (<code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code>), the Phoebus
 display bridge
-(<code class="docutils literal notranslate"><span class="pre">phoebus:</span></code>), where PV records, alarms and put history come from
-(<code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code>), and the deployment keys that decide which container image each
+(<code class="docutils literal notranslate"><span class="pre">phoebus:</span></code>), where channel records, alarms and put history come from
+(<code class="docutils literal notranslate"><span class="pre">channel_directory:</span></code>), and the deployment keys that decide which container image each
 service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files are filled
 in. Settings that only
 ever arrive from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing
@@ -739,12 +739,12 @@ an empty graph from reading as a populated one; a count of zero warns and
 names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> as the remedy. The agent’s own graph
 tools report the same degraded states from the inside — see
 <a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> — appears when a <code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> section is configured.
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> — appears when a <code class="docutils literal notranslate"><span class="pre">channel_directory:</span></code> section is configured.
 One row per configured service (directory, alarm logger, put log), read
 from that service’s probe on the current control target: <code class="docutils literal notranslate"><span class="pre">ok</span></code> with the
 service’s evidence while it answers, <code class="docutils literal notranslate"><span class="pre">warning</span></code> with the reason when it
 cannot, and <code class="docutils literal notranslate"><span class="pre">skip</span></code> when it has no source on this target.
-<code class="docutils literal notranslate"><span class="pre">pv_directory_alarm_feed</span></code> (<code class="docutils literal notranslate"><span class="pre">--full</span></code>) starts the alarm feed, waits up to
+<code class="docutils literal notranslate"><span class="pre">channel_directory_alarm_feed</span></code> (<code class="docutils literal notranslate"><span class="pre">--full</span></code>) starts the alarm feed, waits up to
 its deadline for catch-up and reports what the feed has read.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">reach</span></code> — appears when this render has a client switched on for a shared
 service: hybrid logbook search and the OKF panel (the qmd sidecar), the
@@ -1626,12 +1626,20 @@ live values only.</p></td>
 <p><code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE</span></code> and <code class="docutils literal notranslate"><span class="pre">PHOEBUS_ARCHIVER_URL</span></code>
 outrank their keys; see <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>.</p>
 </section>
-<section id="pv-directory-pv-records-alarms-and-put-history">
-<span id="config-pv-directory"></span><h2><code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> — PV records, alarms and put history<a class="headerlink" href="#pv-directory-pv-records-alarms-and-put-history" title="Link to this heading">#</a></h2>
-<p>This section feeds the Channels panel’s All PVs view and the <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code>
-MCP server. Each source answers on the control targets it serves: <code class="docutils literal notranslate"><span class="pre">type</span></code>
-and the three sub-blocks on <code class="docutils literal notranslate"><span class="pre">live</span></code> and <code class="docutils literal notranslate"><span class="pre">standin</span></code>, the simulator and
-<code class="docutils literal notranslate"><span class="pre">alarm_state.replay_file</span></code> on <code class="docutils literal notranslate"><span class="pre">va</span></code>.</p>
+<section id="channel-directory-channel-records-alarms-and-put-history">
+<span id="config-channel-directory"></span><h2><code class="docutils literal notranslate"><span class="pre">channel_directory:</span></code> — channel records, alarms and put history<a class="headerlink" href="#channel-directory-channel-records-alarms-and-put-history" title="Link to this heading">#</a></h2>
+<p>This section names the services behind the channel directory: the control
+system’s own record of every channel and of the server that serves it, and
+optionally its alarms and its put history. The directory view of the Channels
+panel and the <code class="docutils literal notranslate"><span class="pre">channel-directory</span></code> MCP server read them
+(<a class="reference internal" href="../../how-to/use-channel-finder.html#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a>).</p>
+<p>Each source answers on the control targets it serves. <code class="docutils literal notranslate"><span class="pre">type</span></code> and the three
+sub-blocks answer on <code class="docutils literal notranslate"><span class="pre">live</span></code> and <code class="docutils literal notranslate"><span class="pre">standin</span></code>; the simulator and
+<code class="docutils literal notranslate"><span class="pre">alarm_state.replay_file</span></code> answer on <code class="docutils literal notranslate"><span class="pre">va</span></code>. The built-in sources read
+services that EPICS facilities run, and a facility with other services names
+its own backends (<a class="reference internal" href="../../how-to/use-channel-finder.html#channel-directory-backends"><span class="std std-ref">Directory backends</span></a>). The panel and the agent
+name channels and servers in the control system’s own words, such as PV and
+IOC at an EPICS facility (<a class="reference internal" href="../../how-to/use-channel-finder.html#channel-directory-words"><span class="std std-ref">The control system’s words</span></a>).</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 30.0%" />
@@ -1643,54 +1651,56 @@ and the three sub-blocks on <code class="docutils literal notranslate"><span cla
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.type</span></code></p></td>
-<td><p>The facility’s directory service; <code class="docutils literal notranslate"><span class="pre">channelfinder</span></code> is built in.
-Absent, the section is simulator-only (below).</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.type</span></code></p></td>
+<td><p>The directory service of the facility. <code class="docutils literal notranslate"><span class="pre">channelfinder</span></code> is the
+built-in type, and a dotted path names a backend of your own. Absent,
+the section has the simulator-only form.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.settings.url</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.settings.url</span></code></p></td>
 <td><p>The service URL. The build refuses a <code class="docutils literal notranslate"><span class="pre">type</span></code> without it.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.settings.timeout_s</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.settings.timeout_s</span></code></p></td>
 <td><p>Seconds one call may take. Default <code class="docutils literal notranslate"><span class="pre">6.0</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.settings.auth</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.settings.auth</span></code></p></td>
 <td><p>The login a proxy in front of the service asks for: <code class="docutils literal notranslate"><span class="pre">token_env</span></code>, or
 <code class="docutils literal notranslate"><span class="pre">username</span></code> with <code class="docutils literal notranslate"><span class="pre">password_env</span></code>, each secret named by environment
 variable. <code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is the absolute path of a PEM CA. A web
 terminal is handed each variable a block names and each CA file that is
 on the host.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.description_property</span></code></p></td>
-<td><p>The directory property shown as a PV’s description. Default
-<code class="docutils literal notranslate"><span class="pre">recordDesc</span></code>.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.description_property</span></code></p></td>
+<td><p>The directory property shown as the description of a channel. Default
+<code class="docutils literal notranslate"><span class="pre">recordDesc</span></code>, the name ChannelFinder gives it.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.exact_properties</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.display.exact_properties</span></code></p></td>
 <td><p>Properties a search matches as whole values. Default
-<code class="docutils literal notranslate"><span class="pre">[pvStatus,</span> <span class="pre">recordType]</span></code>.</p></td>
+<code class="docutils literal notranslate"><span class="pre">[pvStatus,</span> <span class="pre">recordType]</span></code>, two ChannelFinder properties.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.detail_properties</span></code></p></td>
-<td><p>The properties a PV page shows. Unset, every property the record
-carries.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.display.detail_properties</span></code></p></td>
+<td><p>The properties the page of a channel shows. Unset, every property the
+record carries.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.hidden_properties</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.display.hidden_properties</span></code></p></td>
 <td><p>Properties never shown.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.filter_cap</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.display.filter_cap</span></code></p></td>
 <td><p>The largest result set fetched whole for facets, the origin filter and
 CSV export. Default <code class="docutils literal notranslate"><span class="pre">5000</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.ioc_health_suffixes</span></code></p></td>
-<td><p>The record-name suffix of each IOC health role (<code class="docutils literal notranslate"><span class="pre">heartbeat</span></code>,
-<code class="docutils literal notranslate"><span class="pre">uptime</span></code>, <code class="docutils literal notranslate"><span class="pre">engineer</span></code>). Default
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.display.server_health_suffixes</span></code></p></td>
+<td><p>The name suffix of the channel that holds each health role of a server
+(<code class="docutils literal notranslate"><span class="pre">heartbeat</span></code>, <code class="docutils literal notranslate"><span class="pre">uptime</span></code>, <code class="docutils literal notranslate"><span class="pre">engineer</span></code>). Default
 <code class="docutils literal notranslate"><span class="pre">{heartbeat:</span> <span class="pre">HEARTBEAT,</span> <span class="pre">uptime:</span> <span class="pre">UPTIME}</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.engineer_property</span></code></p></td>
-<td><p>The directory property naming an IOC’s engineer. Default <code class="docutils literal notranslate"><span class="pre">Engineer</span></code>.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.display.engineer_property</span></code></p></td>
+<td><p>The directory property that names the engineer of a server. Default
+<code class="docutils literal notranslate"><span class="pre">Engineer</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_log</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.alarm_log</span></code></p></td>
 <td><p>Alarm history: <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">phoebus_alarm_logger</span></code> with <code class="docutils literal notranslate"><span class="pre">settings.url</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.alarm_state</span></code></p></td>
 <td><p>Current alarm state. <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">phoebus_alarm_server</span></code> reads the alarm
 server’s Kafka topic and needs <code class="docutils literal notranslate"><span class="pre">settings.bootstrap_servers</span></code> and
 <code class="docutils literal notranslate"><span class="pre">settings.topic</span></code>. Where the broker is out of reach and only HTTP
@@ -1698,7 +1708,7 @@ crosses the network, <code class="docutils literal notranslate"><span class="pre
 reads the same state from a relay run beside the broker
 (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey_connectors.alarm_state.relay</span></code>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state.settings.auth</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.alarm_state.settings.auth</span></code></p></td>
 <td><p>The login a broker asks for: <code class="docutils literal notranslate"><span class="pre">username</span></code> with <code class="docutils literal notranslate"><span class="pre">password_env</span></code>, sent
 as SASL. <code class="docutils literal notranslate"><span class="pre">mechanism</span></code> names how: <code class="docutils literal notranslate"><span class="pre">PLAIN</span></code> unless it says
 <code class="docutils literal notranslate"><span class="pre">SCRAM-SHA-256</span></code> or <code class="docutils literal notranslate"><span class="pre">SCRAM-SHA-512</span></code>. A login is sent over TLS, verified against
@@ -1706,13 +1716,47 @@ as SASL. <code class="docutils literal notranslate"><span class="pre">mechanism<
 <code class="docutils literal notranslate"><span class="pre">cleartext:</span> <span class="pre">true</span></code> sends it unencrypted, for a listener that offers
 no TLS: anyone on the network path can then read the password.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state.replay_file</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.alarm_state.replay_file</span></code></p></td>
 <td><p>The alarm feed on <code class="docutils literal notranslate"><span class="pre">va</span></code>: <code class="docutils literal notranslate"><span class="pre">demo:&lt;name&gt;</span></code> names a feed packaged with
 OSPREY, any other value an <code class="docutils literal notranslate"><span class="pre">.ndjson</span></code> file relative to the project.
 It may be set beside <code class="docutils literal notranslate"><span class="pre">type</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.put_log</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.put_log</span></code></p></td>
 <td><p>Put history: <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">caputlog</span></code> with <code class="docutils literal notranslate"><span class="pre">settings.url</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet</span></code></p></td>
+<td><p>The server fleet (<a class="reference internal" href="../../how-to/use-channel-finder.html#channel-finder-server-fleet"><span class="std std-ref">The Server Fleet</span></a>). With the block
+present (<code class="docutils literal notranslate"><span class="pre">fleet:</span> <span class="pre">{}</span></code> is enough), the servers view, the
+<code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> tool and the fleet service are on. Absent or
+<code class="docutils literal notranslate"><span class="pre">null</span></code>, none of them exists and nothing is read periodically.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.targets</span></code></p></td>
+<td><p>The control targets refreshed, a list of <code class="docutils literal notranslate"><span class="pre">live</span></code>, <code class="docutils literal notranslate"><span class="pre">va</span></code> and
+<code class="docutils literal notranslate"><span class="pre">standin</span></code>; each must be configured. Default: the deployment’s own
+target. A virtual accelerator served in process is never refreshed.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.period_s</span></code></p></td>
+<td><p>Seconds between refreshes. At least <code class="docutils literal notranslate"><span class="pre">5</span></code> and at least twice the
+longest <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> of a refreshed target’s connector, or the build
+fails. Default <code class="docutils literal notranslate"><span class="pre">30</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.retention_days</span></code></p></td>
+<td><p>Days a server that is no longer listed is remembered after it goes
+quiet. Default <code class="docutils literal notranslate"><span class="pre">7</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.listing_deadline_s</span></code></p></td>
+<td><p>Seconds one listing of the directory may take. Default <code class="docutils literal notranslate"><span class="pre">60</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.group_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">class_name</span></code> or <code class="docutils literal notranslate"><span class="pre">group</span></code>. Default <code class="docutils literal notranslate"><span class="pre">host</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.classes</span></code></p></td>
+<td><p>Named server classes (see <em>Server classes</em>), applied on <code class="docutils literal notranslate"><span class="pre">live</span></code> only.
+Default none.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.roster_sources</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">module:attribute</span></code> references to roster sources, read on <code class="docutils literal notranslate"><span class="pre">live</span></code>
+only. Default none.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1727,32 +1771,64 @@ are: turn on the ACL authorizer, keep the unauthenticated listener’s
 <code class="docutils literal notranslate"><span class="pre">User:ANONYMOUS</span></code> among <code class="docutils literal notranslate"><span class="pre">super.users</span></code>, add a SASL listener on a new port,
 and allow the OSPREY user <code class="docutils literal notranslate"><span class="pre">Read</span></code> on the topic. Open only that port to the
 OSPREY host and name the user under <code class="docutils literal notranslate"><span class="pre">alarm_state.settings.auth</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">pv_directory.caveats</span></code> and each sub-block’s <code class="docutils literal notranslate"><span class="pre">caveats</span></code> are lines shown with
+<p><code class="docutils literal notranslate"><span class="pre">channel_directory.caveats</span></code> and each sub-block’s <code class="docutils literal notranslate"><span class="pre">caveats</span></code> are lines shown with
 every answer from that source. A sub-block takes the same <code class="docutils literal notranslate"><span class="pre">settings</span></code> keys as
 the directory. The Kafka client is the <code class="docutils literal notranslate"><span class="pre">alarm-state</span></code> extra
 (<code class="docutils literal notranslate"><span class="pre">osprey-framework[alarm-state]</span></code>); without it the build warns and the feed
 is unavailable. A container gets it by setting <code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_SPEC</span></code> to that
 requirement (<a class="reference internal" href="../../how-to/deploy-project/project-image.html"><span class="doc">The Project Image</span></a>).</p>
-<p><strong>Simulator-only form.</strong> A section without <code class="docutils literal notranslate"><span class="pre">type</span></code> lists the simulator’s channels
-and IOC health PVs on <code class="docutils literal notranslate"><span class="pre">va</span></code>. A build with no simulator has nothing to list:
-it warns, and every section answers “not available for this target”.</p>
-<p><strong>Off.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.pv_directory=null</span></code>, or <code class="docutils literal notranslate"><span class="pre">pv_directory:</span> <span class="pre">null</span></code> in
+<p><strong>Server classes.</strong> A class says which channel shows that a server is alive
+and which channels show its health. A server that no roster source assigns a
+class has the default class: its liveness channel is the <code class="docutils literal notranslate"><span class="pre">heartbeat</span></code> of
+<code class="docutils literal notranslate"><span class="pre">channel_directory.display.server_health_suffixes</span></code>, judged as a counter, and
+it has no health channel, so it is never degraded. A named class gives
+<code class="docutils literal notranslate"><span class="pre">liveness</span></code> with a <code class="docutils literal notranslate"><span class="pre">kind</span></code> (<code class="docutils literal notranslate"><span class="pre">counter</span></code>: alive when it moves; <code class="docutils literal notranslate"><span class="pre">status</span></code>:
+alive when it answers) and a list of <code class="docutils literal notranslate"><span class="pre">health</span></code> channels, each with a
+<code class="docutils literal notranslate"><span class="pre">good</span></code> range <code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high]</span></code> where one side may be <code class="docutils literal notranslate"><span class="pre">null</span></code>. Each channel is
+named by <code class="docutils literal notranslate"><span class="pre">suffix</span></code>, looked up among the channels the directory lists for the
+server, or by <code class="docutils literal notranslate"><span class="pre">pattern</span></code>, the channel name with <code class="docutils literal notranslate"><span class="pre">{server}</span></code> standing for
+the name of the server. The class name <code class="docutils literal notranslate"><span class="pre">default</span></code> is reserved. Every invalid
+value fails the build, which names its key. The states, findings and load
+per refresh are in <a class="reference internal" href="../../how-to/use-channel-finder.html#channel-finder-server-fleet"><span class="std std-ref">The Server Fleet</span></a>. For example, an EPICS
+facility with a class for its VxWorks IOCs:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># build/config.yml</span>
+<span class="nt">channel_directory</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channelfinder</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://channelfinder.example.org/ChannelFinder</span>
+<span class="w">  </span><span class="nt">fleet</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">targets</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">live</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">period_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">    </span><span class="nt">group_by</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">class_name</span>
+<span class="w">    </span><span class="nt">classes</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">vxworks</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">liveness</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">suffix</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;:IOC_STS&quot;</span><span class="p p-Indicator">,</span><span class="nt"> kind</span><span class="p">:</span><span class="w"> </span><span class="nv">status</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">health</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">suffix</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;:CPU_LOAD&quot;</span><span class="p p-Indicator">,</span><span class="nt"> good</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">80</span><span class="p p-Indicator">]}</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">pattern</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{server}:MEM_FREE&quot;</span><span class="p p-Indicator">,</span><span class="nt"> good</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1000000</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">null</span><span class="p p-Indicator">]}</span>
+</pre></div>
+</div>
+<p><strong>Simulator-only form.</strong> A section without <code class="docutils literal notranslate"><span class="pre">type</span></code> lists the channels of the
+simulator, the health channels of its servers included, on <code class="docutils literal notranslate"><span class="pre">va</span></code>. A build
+with no simulator has nothing to list: it warns, and every section answers
+“not available for this target”.</p>
+<p><strong>Off.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.channel_directory=null</span></code>, or <code class="docutils literal notranslate"><span class="pre">channel_directory:</span> <span class="pre">null</span></code> in
 a profile that extends a preset with the section, removes it. That spelling
 builds only over a parent that writes the section as one nested mapping,
-never as dotted <code class="docutils literal notranslate"><span class="pre">pv_directory.*</span></code> keys. The shared logins
-<code class="docutils literal notranslate"><span class="pre">tiers/logbook.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">tiers/knowledge.yml</span></code> switch the <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code>
+never as dotted <code class="docutils literal notranslate"><span class="pre">channel_directory.*</span></code> keys. The shared logins
+<code class="docutils literal notranslate"><span class="pre">tiers/logbook.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">tiers/knowledge.yml</span></code> switch the <code class="docutils literal notranslate"><span class="pre">channel-directory</span></code>
 server off
-(<code class="docutils literal notranslate"><span class="pre">claude_code.servers.pv-directory.enabled:</span> <span class="pre">false</span></code>).</p>
-<p>A facility with ChannelFinder, the Phoebus alarm services and caPutLog:</p>
+(<code class="docutils literal notranslate"><span class="pre">claude_code.servers.channel-directory.enabled:</span> <span class="pre">false</span></code>).</p>
+<p>An EPICS facility with ChannelFinder, the Phoebus alarm services and caPutLog:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># build/config.yml</span>
-<span class="nt">pv_directory</span><span class="p">:</span>
+<span class="nt">channel_directory</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channelfinder</span>
 <span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://channelfinder.example.org/ChannelFinder</span>
 <span class="w">  </span><span class="nt">display</span><span class="p">:</span>
-<span class="w">    </span><span class="c1"># Shown first on a PV page.</span>
+<span class="w">    </span><span class="c1"># Shown first on the page of a channel.</span>
 <span class="w">    </span><span class="nt">detail_properties</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">recordDesc</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">iocName</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">hostName</span><span class="p p-Indicator">]</span>
-<span class="w">    </span><span class="nt">ioc_health_suffixes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">heartbeat</span><span class="p">:</span><span class="w"> </span><span class="nv">HEARTBEAT</span><span class="p p-Indicator">,</span><span class="nt"> uptime</span><span class="p">:</span><span class="w"> </span><span class="nv">UPTIME</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">server_health_suffixes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">heartbeat</span><span class="p">:</span><span class="w"> </span><span class="nv">HEARTBEAT</span><span class="p p-Indicator">,</span><span class="nt"> uptime</span><span class="p">:</span><span class="w"> </span><span class="nv">UPTIME</span><span class="p p-Indicator">}</span>
 <span class="w">  </span><span class="nt">alarm_log</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">phoebus_alarm_logger</span>
 <span class="w">    </span><span class="nt">settings</span><span class="p">:</span>
@@ -1882,47 +1958,52 @@ default. One row per image:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.history.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>bluesky</p></td>
+<tr class="row-even"><td><p>server_fleet</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.server_fleet.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-bridge</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>bluesky (Tiled sidecar)</p></td>
+<tr class="row-even"><td><p>bluesky (Tiled sidecar)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TILED_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-even"><td><p>bluesky (Redis sidecar)</p></td>
+<tr class="row-odd"><td><p>bluesky (Redis sidecar)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_REDIS_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.redis_image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-odd"><td><p>bluesky_web</p></td>
+<tr class="row-even"><td><p>bluesky_web</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_WEB_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-web</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>optimizer</p></td>
+<tr class="row-odd"><td><p>optimizer</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OPTIMIZER_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.optimizer.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-optimizer</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>optimizer (Redis sidecar)</p></td>
+<tr class="row-even"><td><p>optimizer (Redis sidecar)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OPTIMIZER_REDIS_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.optimizer.redis_image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-even"><td><p>optimizer_web</p></td>
+<tr class="row-odd"><td><p>optimizer_web</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OPTIMIZER_WEB_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.optimizer_web.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-optimizer-web</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>virtual_accelerator</p></td>
+<tr class="row-even"><td><p>virtual_accelerator</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-va</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>qmd</p></td>
+<tr class="row-odd"><td><p>qmd</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd</span></code></p></td>
@@ -2179,7 +2260,7 @@ the surface that refused it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-thinking-display-whether-the-agent-shows-its-thinking"><code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code> — whether the agent shows its thinking</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus-the-phoebus-display-bridge"><code class="docutils literal notranslate"><span class="pre">phoebus:</span></code> — the Phoebus display bridge</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pv-directory-pv-records-alarms-and-put-history"><code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> — PV records, alarms and put history</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-directory-channel-records-alarms-and-put-history"><code class="docutils literal notranslate"><span class="pre">channel_directory:</span></code> — channel records, alarms and put history</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screen-capture-where-screenshots-are-written"><code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code> — where screenshots are written</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="nav section-nav flex-column">
