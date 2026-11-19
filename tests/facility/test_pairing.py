@@ -111,6 +111,27 @@ def test_the_simulation_follows_a_readback_only_from_its_one_setpoint() -> None:
     assert simulated_pairs(channels) == {"RB": "SP"}
 
 
+def test_the_simulation_follows_no_readback_of_another_type() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", value_type="enum", options=["Idle", "On"]),
+        **_rb("STS", "power_on_status", value_type="bool"),
+    }
+    assert simulated_pairs(channels) == {}
+
+
+def test_a_command_pairs_with_its_status_of_another_type() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", value_type="enum", options=["Idle", "On", "Off"]),
+        **_rb("STS", "power_on_status", value_type="enum", options=["Unknown", "Off", "On"]),
+    }
+    assert derive_pairs(channels) == {"CMD": "STS"}
+
+
+def test_a_setpoint_and_readback_of_another_type_do_not_pair() -> None:
+    channels = {**_sp("SP", value_type="int"), **_rb("RB")}
+    assert derive_pairs(channels) == {}
+
+
 # --- derive_pairs ----------------------------------------------------------------------
 
 

@@ -49,6 +49,7 @@ from osprey.facility.errors import (
     exact_number,
     quoted_slots,
 )
+from osprey.facility.pairing import must_agree
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
@@ -1827,7 +1828,7 @@ class _Records:
             for slot in ("value_type", "options", "shape")
             if channel.get(slot) != target.get(slot)
         ]
-        if differing:
+        if differing and must_agree(channel, target):
             yield self._error(
                 "pair-invalid",
                 "channel",
@@ -1852,7 +1853,7 @@ class _Records:
                 _pair_remedy(address, channel, f"give {address} and {pair} the same `unit`"),
             )
             return
-        if not simulated:
+        if not simulated or differing:
             return
         own = self.index.wired.get(address, set())
         theirs = self.index.wired.get(pair, set())

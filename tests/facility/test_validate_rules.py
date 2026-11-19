@@ -657,12 +657,40 @@ class TestPairRules:
         ],
         ids=["value_type", "options", "shape"],
     )
-    def test_setpoint_and_pair_share_their_type(
+    def test_a_setpoint_and_readback_of_one_quantity_share_their_type(
         self, tmp_path: Path, setpoint: dict[str, Any], readback: dict[str, Any], slots: str
     ) -> None:
-        files = _tree(**{"records/channels.yaml": [{**SP, **setpoint}, {**RB, **readback}, X]})
+        sp = {**SP, "signal": "gap_setpoint", **setpoint}
+        rb = {**RB, "signal": "gap_readback", **readback}
+        files = _tree(**{"records/channels.yaml": [sp, rb, X]})
         error = _rule(tmp_path, files, "pair-invalid")
         assert error.detail == f"setpoint and pair Q1:RB differ in {slots}"
+
+    @pytest.mark.parametrize(
+        ("setpoint", "readback"),
+        [
+            # a command of no stated signal and the two-state status it reads back on
+            ({}, {"value_type": "bool", "options": ["Active", "Bypassed"]}),
+            (
+                {
+                    "signal": "power_on_command",
+                    "value_type": "enum",
+                    "options": ["Idle", "On", "Off", "Cycle"],
+                },
+                {
+                    "signal": "power_on_status",
+                    "value_type": "enum",
+                    "options": ["Unknown", "Off", "On"],
+                },
+            ),
+        ],
+        ids=["no signal", "command and status"],
+    )
+    def test_a_command_or_a_pair_of_no_stated_quantity_may_differ_in_type(
+        self, tmp_path: Path, setpoint: dict[str, Any], readback: dict[str, Any]
+    ) -> None:
+        files = _tree(**{"records/channels.yaml": [{**SP, **setpoint}, {**RB, **readback}, X]})
+        assert _run(tmp_path, files).ok, _lines(_run(tmp_path, files))
 
     def test_setpoint_and_pair_are_owned_by_one_model(self, tmp_path: Path) -> None:
         files = _tree(**{"models.yaml": [_wired("Q1:SP"), _wired("Q1:RB", model="other")]})

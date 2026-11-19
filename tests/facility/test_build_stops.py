@@ -1431,7 +1431,10 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "pair_invalid__type_mismatch": (
-        _plain(update("records/channels.yaml", 1, value_type="int")),
+        _plain(
+            update("records/channels.yaml", 0, signal="current_setpoint"),
+            update("records/channels.yaml", 1, signal="current_readback", value_type="int"),
+        ),
         (
             "facility: pair-invalid: channel Q1:SP — setpoint and pair Q1:RB differ in "
             "`value_type`; fix: give Q1:SP and Q1:RB the same `value_type`"
