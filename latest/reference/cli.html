@@ -1779,7 +1779,11 @@ sources give two states is <code class="docutils literal notranslate"><span clas
 discrete channel means; a command’s button reads the word for the value it
 writes, else the action its channel’s name says), <code class="docutils literal notranslate"><span class="pre">units.csv</span></code> (a channel’s
 unit and the divisor its raw value is shown through), <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code>
-(what a channel is to a device card, by class and name pattern) and
+(what a channel is to a device card, by class and name pattern; its <code class="docutils literal notranslate"><span class="pre">scope</span></code>
+is <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">parts</span></code>, or a relation type of the vocabulary that runs from
+a device to a device, such as <code class="docutils literal notranslate"><span class="pre">read_out_by</span></code>, <code class="docutils literal notranslate"><span class="pre">controlled_by</span></code> or
+<code class="docutils literal notranslate"><span class="pre">interlocked_by</span></code>, walked from the device and its pattern filled from the
+relation’s port) and
 <code class="docutils literal notranslate"><span class="pre">card_recipes.csv</span></code> (a class’s card recipe, optionally for the devices under a
 place, a part by its whole’s place, or whose id matches a pattern; the first
 row that takes a device wins),
