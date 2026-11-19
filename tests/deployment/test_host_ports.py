@@ -1226,11 +1226,16 @@ class TestHostNetworkConflicts:
         assert [c.kind for c in found] == conflicts
 
     def test_own_bridge_container_does_not_excuse_the_port_it_moves_to_on_the_host(
-        self, monkeypatch, listening_port
+        self, monkeypatch
     ):
         # graphdb is moving onto the host network; its old compose-network
         # container publishes other ports, so it cannot be what holds port_host.
-        _, port = listening_port
+        # The test states which host ports are held: port_host is, and graphdb's
+        # second host port (its HTTP default) is free.
+        port = 17687
+        monkeypatch.setattr(
+            host_ports, "_port_is_free", lambda host_ip, host_port: host_port != port
+        )
         ps_json = json.dumps(
             {
                 "Names": "proj-graphdb",
