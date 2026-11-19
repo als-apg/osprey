@@ -447,7 +447,10 @@
 <span class="sd">``linear`` input counting as its own sum. Noise and drift are pure functions</span>
 <span class="sd">of the address and the epoch millisecond, so a live read and an archived</span>
 <span class="sd">sample at the same instant agree. Writing a setpoint holds the</span>
-<span class="sd">value and echoes it into the readback its ``pair`` names.</span>
+<span class="sd">value and echoes it into the readback its ``pair`` names. A labelled readback</span>
+<span class="sd">takes a state by index: the index of a labelled setpoint&#39;s label, or a number</span>
+<span class="sd">written to the setpoint, which must be an integral index of the readback&#39;s</span>
+<span class="sd">labels; a write the readback refuses holds nothing.</span>
 
 <span class="sd">A ``noise`` record states one term: ``{absolute: sigma}`` adds ``sigma``</span>
 <span class="sd">times a keyed normal draw, and ``{relative: f}`` adds ``f`` times</span>
@@ -732,7 +735,7 @@
             <span class="n">address</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominal</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">unserved_defaults</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">))</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span>
         <span class="p">}</span>
         <span class="k">for</span> <span class="n">setpoint</span><span class="p">,</span> <span class="n">readback</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">readback</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">setpoint</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">readback</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echoed</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="n">setpoint</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">setpoint</span><span class="p">])</span>
         <span class="n">start</span> <span class="o">=</span> <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_derived</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span><span class="p">}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Variable</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">address</span><span class="p">:</span> <span class="n">channel_variable</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">],</span> <span class="n">start</span><span class="p">[</span><span class="n">address</span><span class="p">])</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span>
@@ -755,6 +758,29 @@
                 <span class="k">if</span> <span class="s2">&quot;default&quot;</span> <span class="ow">in</span> <span class="n">record</span><span class="p">:</span>
                     <span class="n">defaults</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]),</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">defaults</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_echoed</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">readback</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">setpoint</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The value ``readback`` holds for its setpoint&#39;s held ``value``.</span>
+
+<span class="sd">        A labelled readback takes a state by index: a labelled setpoint&#39;s label</span>
+<span class="sd">        gives its index in the setpoint&#39;s labels, a number must be an integral</span>
+<span class="sd">        index. Any other readback takes the value itself.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The readback refuses the value or the index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">channel_value_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">readback</span><span class="p">])</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">values</span><span class="o">.</span><span class="n">LABELLED_TYPES</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="n">setpoint_channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">setpoint</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">channel_value_type</span><span class="p">(</span><span class="n">setpoint_channel</span><span class="p">)</span> <span class="ow">in</span> <span class="n">values</span><span class="o">.</span><span class="n">LABELLED_TYPES</span><span class="p">:</span>
+            <span class="n">index</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">channel_labels</span><span class="p">(</span><span class="n">setpoint_channel</span><span class="p">)</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">and</span> <span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">is_integer</span><span class="p">():</span>
+            <span class="n">index</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">index</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_coerce</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">:</span>
         <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
@@ -1139,7 +1165,7 @@
             <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
         <span class="p">}</span>
         <span class="n">echoes</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">]:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="n">value</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">]:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echoed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">coerced</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
             <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span>
         <span class="p">}</span>
