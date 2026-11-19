@@ -242,9 +242,9 @@ def pair_follows(channels: Mapping[str, Mapping[str, Any]]) -> list[Follow]:
             elif follows is None:
                 found.append(Follow(setpoint, readback, NOT_FOLLOWED, _WHY_TYPES))
             else:
-                labels, why = index_copy(channels[setpoint], channel)
+                labels, refused = index_copy(channels[setpoint], channel)
                 if labels is None:
-                    found.append(Follow(setpoint, readback, NOT_FOLLOWED, why or _WHY_TYPES))
+                    found.append(Follow(setpoint, readback, NOT_FOLLOWED, refused or _WHY_TYPES))
                 else:
                     found.append(
                         Follow(setpoint, readback, FOLLOWED_SEED, _WHY_INDEX, COPY_INDEX, labels)
