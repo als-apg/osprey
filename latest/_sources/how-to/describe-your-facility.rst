@@ -281,6 +281,25 @@ until they agree or a ``set`` fix names ``members``. A place's or device's
 layer states; one name in one scheme that two layers state with different
 content is still a ``layer-conflict``.
 
+A place, device, channel or group record may say what the fields it states rest
+on. ``basis: inferred`` with a ``rule`` says a named rule derived them, not a
+source; with neither, they are stated. A producer that pairs channels by their
+names writes such a layer:
+
+.. code-block:: yaml
+
+   # data/facility/imported/names/channels.yaml
+   - id: BR:DIAG:TV:01:PADDLE:SP
+     pair: BR:DIAG:TV:01:PADDLE:RB
+     basis: inferred
+     rule: an SP channel pairs with the RB channel of its name
+
+The two words are no fields of the record: the build keeps them in the
+provenance entry of that layer's file. Screens mark such a field inferred,
+unless another layer states the same value outright. A record's fields all rest
+on one basis, so a layer that states some fields and infers others writes them
+as two layers.
+
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
 

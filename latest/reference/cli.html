@@ -1788,8 +1788,8 @@ lists counts rather than its channels gets a roll-up of its own, paged at
 rule-bearing channel is read by exactly one roll-up page.</p>
 <p>The rule tables are CSV files, each held to its header, and each may be
 absent. What the facility file states is the default, and a table states
-only what it does not: a setpoint’s readback is its channel’s <code class="docutils literal notranslate"><span class="pre">pair</span></code>
-(<code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code> names others), a thing’s short name what <code class="docutils literal notranslate"><span class="pre">names.csv</span></code> states,
+only what it does not: a setpoint’s readback is its channel’s <code class="docutils literal notranslate"><span class="pre">pair</span></code> and
+nothing else (a pair the build derives is marked inferred, with its rule), a thing’s short name what <code class="docutils literal notranslate"><span class="pre">names.csv</span></code> states,
 else its <code class="docutils literal notranslate"><span class="pre">label</span></code>, else the last <code class="docutils literal notranslate"><span class="pre">:</span></code>- or <code class="docutils literal notranslate"><span class="pre">/</span></code>-separated part of its id, a
 channel is drawn by its <code class="docutils literal notranslate"><span class="pre">role</span></code> (a setpoint as an entry
 beside its readback, a readback as a value; <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code> names its
@@ -1805,14 +1805,14 @@ and group title, and stays in front of what tells two channels of one role
 apart, while a choice’s or an action’s label is the word on its press). <code class="docutils literal notranslate"><span class="pre">check</span></code>
 prints one <code class="docutils literal notranslate"><span class="pre">redundant:</span> <span class="pre">&lt;table&gt;:</span> <span class="pre">&lt;n&gt;</span> <span class="pre">rows</span></code> line per table whose rows only
 restate the facility file or these defaults with no column of them read for
-anything else (a <code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code> row of basis <code class="docutils literal notranslate"><span class="pre">stated</span></code> and no source; a
+anything else (a
 <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row without which every device it matches plays the same
 roles in the same order, read the same, so never a press), so a
 deployment can delete them, and one <code class="docutils literal notranslate"><span class="pre">redundant:</span> <span class="pre">record_types.csv</span> <span class="pre">drawn_as</span></code>
 line for the rows whose <code class="docutils literal notranslate"><span class="pre">drawn_as</span></code> is their role’s: their record type is
 read, so the row stays and only that value may be left empty.
 The tables: <code class="docutils literal notranslate"><span class="pre">positions.csv</span></code>
-(where a thing sits), <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code>,
+(where a thing sits), <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code>,
 <code class="docutils literal notranslate"><span class="pre">panels/health.csv</span></code> (the state a channel’s value means: <code class="docutils literal notranslate"><span class="pre">normal</span></code>,
 <code class="docutils literal notranslate"><span class="pre">warn</span></code>, <code class="docutils literal notranslate"><span class="pre">bad</span></code>; a value no row names is <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, and one that two
 sources give two states is <code class="docutils literal notranslate"><span class="pre">disagree</span></code>),

@@ -804,6 +804,22 @@ until they agree or a <code class="docutils literal notranslate"><span class="pr
 <code class="docutils literal notranslate"><span class="pre">scheme_names</span></code> are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
 content is still a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.</p>
+<p>A place, device, channel or group record may say what the fields it states rest
+on. <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code> with a <code class="docutils literal notranslate"><span class="pre">rule</span></code> says a named rule derived them, not a
+source; with neither, they are stated. A producer that pairs channels by their
+names writes such a layer:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># data/facility/imported/names/channels.yaml</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BR:DIAG:TV:01:PADDLE:SP</span>
+<span class="w">  </span><span class="nt">pair</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BR:DIAG:TV:01:PADDLE:RB</span>
+<span class="w">  </span><span class="nt">basis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inferred</span>
+<span class="w">  </span><span class="nt">rule</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">an SP channel pairs with the RB channel of its name</span>
+</pre></div>
+</div>
+<p>The two words are no fields of the record: the build keeps them in the
+provenance entry of that layer’s file. Screens mark such a field inferred,
+unless another layer states the same value outright. A record’s fields all rest
+on one basis, so a layer that states some fields and infers others writes them
+as two layers.</p>
 <p>The importers are <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code>,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">relations</span></code>.</p>
 <section id="a-middle-layer-export">

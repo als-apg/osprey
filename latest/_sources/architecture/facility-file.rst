@@ -36,8 +36,10 @@ computes:
 - for each wiring record, its unit, direction, value range and operating
   point, and what its model's engine says it is: engine_role, plane and refresh.
 
-The second is ``provenance``: per record, which layer and file stated each field,
-which fixes were applied and which fields the build filled.
+The second is ``provenance``: per record, which layer and file stated each field
+(and, where the layer's record says so, the rule the field rests on), which fixes
+were applied, which fields the build filled, and of those the ones it derived by
+a named rule, such as a setpoint's pair.
 ``osprey facility show <id>`` prints it.
 
 The file is the same in every render of a build. It carries no timestamp, no
