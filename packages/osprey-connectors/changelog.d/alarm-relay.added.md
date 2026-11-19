@@ -1,1 +1,0 @@
-An alarm relay for a broker the reader cannot reach: `python -m osprey_connectors.alarm_state.relay` follows a Phoebus alarm server's Kafka topic from beside the broker and serves the folded state over read-only HTTP, and the `osprey_alarm_relay` alarm-state backend reads it.
