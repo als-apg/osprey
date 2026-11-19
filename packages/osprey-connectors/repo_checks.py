@@ -48,6 +48,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.directory.ChannelDirectory": (
         "an out-of-tree directory backend subclasses it"
     ),
+    "osprey_connectors.directory.ServerRow": (
+        "a directory backend's list_servers answers in this type"
+    ),
     "osprey_connectors.factory.BuiltinConnector": (
         "the framework reads each built-in's fields in this type"
     ),
@@ -94,6 +97,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.series.loss_refill_bound": (
         "the framework's archive rewrite reads the loss refill bound"
     ),
+    "osprey_connectors.simulation.servers.TEXTURE_SERVER": (
+        "a facility validator names the server of the channels no model owns"
+    ),
     "osprey_connectors.simulation.state.Overlap": "a composition check answers in this type",
     "osprey_connectors.simulation.view.Binding": "a view lists its wiring records in this type",
     "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
@@ -102,9 +108,13 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH": ("a word of the wiring vocabulary"),
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS": (
+        "a view writer names the server health signals by these words"
+    ),
     "osprey_connectors.types.LIMITS_MODE_EXCLUSIVE": (
         "a word of the limits-mode vocabulary a config states"
     ),
