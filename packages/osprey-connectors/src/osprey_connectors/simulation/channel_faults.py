@@ -18,7 +18,10 @@ wires it or the texture holds it, while its scenario is active:
   readback is the disconnected reading. A setpoint with no readback of its
   own reads its demand and reports the condition itself.
 
-No fault withholds a reply: a read always answers.
+No fault withholds a reply: a read always answers. The one exception is a
+scenario's ``stopped_servers`` (:mod:`~osprey_connectors.simulation.servers`):
+every channel of a stopped server gives no answer while the scenario is
+active, and answers again, with its current value, once it is not.
 
 The module imports only the standard library, so the build's validator and
 the composite share one table.

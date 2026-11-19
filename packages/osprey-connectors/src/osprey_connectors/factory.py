@@ -692,7 +692,7 @@ _SERVICE_BUILTINS: tuple[_ServiceBuiltin, ...] = (
         "directory",
         "osprey_connectors.directory._simulator",
         "SimulatorDirectory",
-        "Every PV the virtual accelerator serves, from the build's simulator view",
+        "Every channel the virtual accelerator serves, from the build's simulator view",
     ),
     _ServiceBuiltin(
         "phoebus_alarm_logger",

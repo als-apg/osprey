@@ -10,6 +10,7 @@ from osprey_connectors.directory._contract import (
     DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
+    ServerRow,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "DirectoryQuery",
     "DirectoryRecord",
     "DirectoryRow",
+    "ServerRow",
 ]

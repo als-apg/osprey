@@ -50,7 +50,8 @@ logger = get_logger("phoebus_alarm_state")
 KAFKA_CLIENT_MISSING = "Kafka client not installed (install osprey-connectors[alarm-state])"
 SETTINGS_MISSING = "alarm_state.settings needs bootstrap_servers and topic"
 
-_WHERE = "pv_directory.alarm_state.settings"
+#: The key a settings error names when the caller gives none.
+_WHERE = "channel_directory.alarm_state.settings"
 _BEARER_REFUSED = "a Kafka broker takes `auth.username` and `auth.password_env`, sent as SASL"
 #: The SASL mechanisms a password login can be sent with; the first is the default.
 SASL_MECHANISMS = ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512")
@@ -211,7 +212,7 @@ class PhoebusAlarmState(AlarmState):
                 self._cannot_start = Unavailable(SETTINGS_MISSING)
                 return self._cannot_start
             try:
-                _read_login(settings)
+                _read_login(settings, self.spec.settings_key)
             except ValueError as exc:
                 self._cannot_start = Unavailable(str(exc))
             else:
@@ -243,7 +244,11 @@ class PhoebusAlarmState(AlarmState):
             await asyncio.sleep(_RETRY_S)
 
     async def _follow(self) -> None:
-        consumer = (self._consumer_factory or _aiokafka_consumer)(self.spec.settings)
+        consumer = (
+            self._consumer_factory(self.spec.settings)
+            if self._consumer_factory is not None
+            else _aiokafka_consumer(self.spec.settings, self.spec.settings_key)
+        )
         try:
             await consumer.start()
             partitions = consumer.assignment()
@@ -298,8 +303,12 @@ async def _reached(consumer: _Consumer, targets: Mapping[object, int]) -> bool:
     return True
 
 
-def _read_login(settings: Mapping[str, object]) -> tuple[ConnectionSettings, str, bool]:
+def _read_login(
+    settings: Mapping[str, object], where: str = _WHERE
+) -> tuple[ConnectionSettings, str, bool]:
     """The block's login and CA, the SASL mechanism, and whether the login goes unencrypted.
+
+    *where* is the config key of *settings*, which every error names.
 
     Raises:
         ValueError: ``auth`` or ``tls`` breaks the connection shape, names a
@@ -308,7 +317,7 @@ def _read_login(settings: Mapping[str, object]) -> tuple[ConnectionSettings, str
     """
     connection = read_connection_settings(
         settings,
-        where=_WHERE,
+        where=where,
         logins=frozenset({"password"}),
         unsupported_because=_BEARER_REFUSED,
         extra_auth_keys=frozenset({"mechanism", "cleartext"}),
@@ -317,19 +326,19 @@ def _read_login(settings: Mapping[str, object]) -> tuple[ConnectionSettings, str
     auth = auth if isinstance(auth, Mapping) else {}
     mechanism = auth.get("mechanism", SASL_MECHANISMS[0])
     if mechanism not in SASL_MECHANISMS:
-        raise ValueError(f"`{_WHERE}.auth.mechanism` must be one of {', '.join(SASL_MECHANISMS)}")
+        raise ValueError(f"`{where}.auth.mechanism` must be one of {', '.join(SASL_MECHANISMS)}")
     cleartext = auth.get("cleartext", False)
     if not isinstance(cleartext, bool):
-        raise ValueError(f"`{_WHERE}.auth.cleartext` must be true or false")
+        raise ValueError(f"`{where}.auth.cleartext` must be true or false")
     if cleartext and connection.ca_bundle is not None:
         raise ValueError(
-            f"`{_WHERE}.auth.cleartext` sends the login unencrypted, and `{_WHERE}.tls.ca_bundle` "
+            f"`{where}.auth.cleartext` sends the login unencrypted, and `{where}.tls.ca_bundle` "
             "names a CA for TLS: set one"
         )
     return connection, str(mechanism), cleartext
 
 
-def _login_options(settings: Mapping[str, object]) -> dict[str, object]:
+def _login_options(settings: Mapping[str, object], where: str = _WHERE) -> dict[str, object]:
     """The consumer options a login and a CA add; none for an open plaintext broker.
 
     The password is read from the environment here, when the consumer is built.
@@ -340,7 +349,7 @@ def _login_options(settings: Mapping[str, object]) -> dict[str, object]:
         ValueError: As :func:`_read_login`, or the CA file cannot be used.
         ConnectionError: The variable ``auth.password_env`` names is unset.
     """
-    connection, mechanism, cleartext = _read_login(settings)
+    connection, mechanism, cleartext = _read_login(settings, where)
     credential = connection.resolve_credential()
     encrypted = connection.ca_bundle is not None or (credential is not None and not cleartext)
     options: dict[str, object] = {}
@@ -356,7 +365,7 @@ def _login_options(settings: Mapping[str, object]) -> dict[str, object]:
     return options
 
 
-def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
+def _aiokafka_consumer(settings: Mapping[str, object], where: str = _WHERE) -> _Consumer:
     aiokafka = importlib.import_module("aiokafka")
     consumer: _Consumer = aiokafka.AIOKafkaConsumer(
         settings["topic"],
@@ -364,6 +373,6 @@ def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
         group_id=None,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
-        **_login_options(settings),
+        **_login_options(settings, where),
     )
     return consumer
