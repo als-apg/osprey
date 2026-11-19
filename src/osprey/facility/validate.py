@@ -132,6 +132,10 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
 )
 _ROW: dict[str, int] = {kind: row for row, kinds in enumerate(_TABLE_ROWS) for kind in kinds}
 
+#: The seed keys that give a channel a value of its own, which a followed readback
+#: cannot keep: a write to its setpoint replaces the held value.
+_OWN_VALUE_KEYS = ("topoff", "topoff_lifetime", "linear", "pulse")
+
 #: The largest number of labels a bool or enum channel carries.
 _MAX_OPTIONS = 16
 #: The longest label, in ASCII characters.
@@ -1806,7 +1810,7 @@ class _Records:
             if pair != address:
                 named.setdefault(pair, []).append(address)
         followed = {
-            follow.readback
+            follow.readback: follow.setpoint
             for follow in pair_follows(self.index.channels)
             if follow.follow != NOT_FOLLOWED
         }
@@ -1815,6 +1819,27 @@ class _Records:
                 channel = self.index.channels[address]
                 yield from self._pair(address, channel, pair, simulated=pair in followed)
         yield from self._follows(named)
+        yield from self._followed_own_values(followed)
+
+    def _followed_own_values(self, followed: Mapping[str, str]) -> Iterator[FacilityBuildError]:
+        """A readback the simulation follows takes its setpoint's value, so its seed
+        states no value of its own."""
+        for readback, setpoint in sorted(followed.items()):
+            channel = self.index.channels[readback]
+            seed = channel.get("simulation")
+            if not isinstance(seed, dict):
+                continue
+            for key in _OWN_VALUE_KEYS:
+                if key in seed:
+                    yield self._error(
+                        "seed-invalid",
+                        "channel",
+                        readback,
+                        self._seed_files(channel),
+                        f"`{key}` on a readback the simulation follows from {setpoint}; a write "
+                        f"to {setpoint} would replace the value `{key}` gives it",
+                        f"state `follows: none` on {readback}, or remove `{key}`",
+                    )
 
     def _follows(self, named: Mapping[str, list[str]]) -> Iterator[FacilityBuildError]:
         """A seed's ``follows`` names the one setpoint that pairs with its readback, or ``none``."""

@@ -289,6 +289,9 @@ until they agree or a ``set`` fix names ``members``. A place's or device's
 ``scheme_names`` are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
 content is still a ``layer-conflict``.
+A channel's seed (``simulation``, which ``seeds.yaml`` states too) is joined
+per key: one layer may state ``follows`` and another the seed's values, and
+only one key two layers state differently is a ``layer-conflict``.
 
 A place, device, channel or group record may say what the fields it states rest
 on. ``basis: inferred`` with a ``rule`` says a named rule derived them, not a
@@ -656,7 +659,9 @@ starts at its setpoint's value and takes each write at once, with its own noise
 and drift on top. The build stops with ``seed-invalid`` when ``follows`` sits
 on a channel no setpoint names, on a readback several setpoints name, names a
 setpoint whose ``pair`` is another channel, or names a setpoint of another
-type. The simulator view's ``follows.json`` lists every pair with whether the
+type. It stops too when a followed readback's seed gives it a value of its own
+(``topoff``, ``topoff_lifetime``, ``linear`` or ``pulse``): a write to the
+setpoint would replace that value, so state ``follows: none`` on it. The simulator view's ``follows.json`` lists every pair with whether the
 simulation follows it (``default``, ``seed`` or ``not followed``) and why, and
 counts each.
 

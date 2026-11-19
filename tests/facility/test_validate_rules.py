@@ -1291,6 +1291,29 @@ class TestFollowsSeed:
         assert result.failed == "combine", _lines(result)
         assert [(e.kind, e.record_id) for e in result.errors] == [("layer-conflict", "Q1:RB")]
 
+    @pytest.mark.parametrize(
+        "seed",
+        [
+            {"topoff": {"ceiling": 500.0, "lifetime_h": 7.0, "period_s": 30.0}},
+            {"linear": {"BPM1:X": 2.0}},
+        ],
+        ids=["topoff", "linear"],
+    )
+    def test_a_followed_readback_with_a_value_of_its_own(
+        self, tmp_path: Path, seed: dict[str, Any]
+    ) -> None:
+        files = _tree(**{"seeds.yaml": {"Q1:RB": seed}})
+        error = _rule(tmp_path / "followed", files, "seed-invalid")
+        key = next(iter(seed))
+        assert error.record_id == "Q1:RB"
+        assert error.detail == (
+            f"`{key}` on a readback the simulation follows from Q1:SP; a write to Q1:SP "
+            f"would replace the value `{key}` gives it"
+        )
+        assert error.remedy == f"state `follows: none` on Q1:RB, or remove `{key}`"
+        files = _tree(**{"seeds.yaml": {"Q1:RB": {**seed, "follows": "none"}}})
+        assert _run(tmp_path / "none", files).ok, _lines(_run(tmp_path / "none", files))
+
     def test_a_readback_followed_from_none_starts_at_its_own_seed(self, tmp_path: Path) -> None:
         files = _tree(
             **{
@@ -1526,7 +1549,7 @@ class TestRefusedArchiverEvents:
         assert [e.kind for e in result.errors] == ["seed-invalid", "seed-invalid"]
 
     def test_an_event_on_a_linear_input_builds(self, tmp_path: Path) -> None:
-        seeds = {**self.GATED, "Q1:RB": {"linear": {"BPM1:X": 1.0}}}
+        seeds = {**self.GATED, "Q1:RB": {"linear": {"BPM1:X": 1.0}, "follows": "none"}}
         files = _pulse_tree(seeds=seeds, **{"scenarios/s.yaml": {"archiver": [_event("BPM1:X")]}})
         result = _run(tmp_path, files)
         assert result.ok, _lines(result)
