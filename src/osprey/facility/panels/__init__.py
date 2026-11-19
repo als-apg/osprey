@@ -38,13 +38,13 @@ from osprey.facility.panels.model import (
     Channel,
     Citation,
     Edge,
+    Pair,
     PanelGraph,
     Thing,
     load_graph,
 )
 from osprey.facility.panels.tables import (
     HealthRule,
-    Pair,
     PanelTableError,
     PanelTables,
     Pose,

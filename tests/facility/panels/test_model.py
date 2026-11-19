@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from osprey.facility.pairing import PAIR_RULE
 from osprey.facility.panels import PanelGraph, load_graph
 from tests.facility.panels._fixture import (
     PANELS_DIR,
@@ -93,6 +94,39 @@ def test_a_pair_whose_readback_is_excluded_is_absent(tmp_path: Path) -> None:
         handle.write("channel,XR01-QF1:Current-RB,stand-in for the test,XR-LAYOUT,A,sheet 1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
     assert graph.pair("XR01-QF1:Current-SP") is None
+
+
+def test_a_pair_the_facility_file_states_is_stated_by_the_file_that_states_it(
+    panel_graph: PanelGraph,
+) -> None:
+    pair = panel_graph.pair("XR01-QF1:Current-SP")
+    assert pair is not None
+    assert (pair.readback, pair.basis, pair.rule) == ("XR01-QF1:Current-RB", "stated", None)
+    assert pair.source == "records/channels.yaml"
+
+
+def test_a_pair_the_build_derives_is_inferred_by_the_build_s_rule(
+    panel_graph: PanelGraph,
+) -> None:
+    pair = panel_graph.pair("XR01-PS1:On-Cmd")  # states no pair; one status of its quantity
+    assert pair is not None
+    assert (pair.readback, pair.basis, pair.rule) == ("XR01-PS1:On-Sts", "inferred", PAIR_RULE)
+    assert pair.source is None
+
+
+def test_a_readback_or_a_left_out_setpoint_has_no_pair(panel_graph: PanelGraph) -> None:
+    assert panel_graph.pair("XR01-QF1:Current-RB") is None
+    assert panel_graph.pair(VA_CHANNEL) is None
+
+
+def test_the_panels_directory_states_no_pairs(tmp_path: Path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "pairs.csv").write_text(
+        "setpoint,readback\nXR01-QF1:Current-SP,XR01-QD1:Current-RB\n", encoding="utf-8"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    pair = graph.pair("XR01-QF1:Current-SP")
+    assert pair is not None and pair.readback == "XR01-QF1:Current-RB"
 
 
 def test_a_channel_carries_name_drawn_as_writable_and_alias(panel_graph: PanelGraph) -> None:
@@ -241,30 +275,6 @@ def test_rule_returns_every_row_of_every_source(panel_graph: PanelGraph) -> None
         ("1", "normal", "xr-screens"),
     ]
     assert panel_graph.rule("XR01-QF1:Current-RB") == []
-
-
-def test_pair_comes_from_the_table_only(panel_graph: PanelGraph) -> None:
-    stated = panel_graph.pair("XR01-QF1:Current-SP")
-    assert stated is not None
-    assert (stated.readback, stated.basis, stated.source) == (
-        "XR01-QF1:Current-RB",
-        "stated",
-        "xr-ioc",
-    )
-    inferred = panel_graph.pair("XR01-PS1:On-Cmd")
-    assert inferred is not None
-    assert (inferred.readback, inferred.basis) == ("XR01-PS1:On-Sts", "inferred")
-    # The facility file pairs these and pairs.csv does not: the facility file's pair.
-    from osprey.facility.panels.model import FACILITY_PAIR
-
-    pair = panel_graph.pair("XR02-QF1:Current-SP")
-    assert pair is not None and (pair.evidence, pair.basis) == (FACILITY_PAIR, "stated")
-    assert pair.readback == "XR02-QF1:Current-RB"
-    by_signal = panel_graph.pair("XR01-QD1:Current-SP")  # the build pairs it by signal
-    assert by_signal is not None and by_signal.evidence == FACILITY_PAIR
-    assert panel_graph.pair("XR01-QF1:Current-RB") is None
-    # each row states a source or an inferred basis the screens read: none restates it
-    assert panel_graph.redundant.get("pairs.csv") is None
 
 
 def test_an_excluded_document_drops_what_it_sources(tmp_path: Path, panel_facility: Path) -> None:
@@ -433,8 +443,6 @@ def test_an_excluded_document_drops_the_rule_rows_it_sources(tmp_path: Path, pan
         rows.write("document,xr-ioc,an invented source left out,,,\n")
     graph = load_graph(panel_facility, tables)
     assert {row.source for row in graph.rules()} == {"xr-screens"}
-    pair = graph.pair("XR01-QF1:Current-SP")  # its pair row cites xr-ioc: the file's pair
-    assert pair is not None and pair.source is None
     assert graph.record_type("XR01-QF1:Current-SP") is None
     assert graph.channel("XR01-QF1:Current-SP").drawn_as == "setpoint"  # by its role
 

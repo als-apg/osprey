@@ -6,7 +6,6 @@ line, the schema this module holds them to:
 - ``positions.csv``: where a thing sits, one row per thing and frame;
 - ``record_types.csv``: each channel's record type and how a screen draws it,
   one row per channel;
-- ``pairs.csv``: the readback a setpoint is shown beside, one row per setpoint;
 - ``health.csv``: the state a channel's value means, one row per stated value
   and source, so two sources may state two states for one value;
 - ``excluded.csv``: things, channels and documents no screen shows;
@@ -30,7 +29,8 @@ line, the schema this module holds them to:
 - ``symbols.csv``: how a card's strip draws a device of a class: its symbol and lane.
 
 Every file may be absent, which reads as empty: what the facility file states
-(pairs, labels, roles by signal) is the default. Across
+(labels, roles by signal) is the default; a setpoint's
+readback is the facility file's alone (its channel ``pair``). Across
 the calibration files, a claim's kind must be a stated kind, a claim's
 ``supersedes`` a stated claim, and a curve's ``id`` a claim whose value is a
 curve. A header must name exactly the file's columns (in
@@ -72,7 +72,6 @@ __all__ = [
     "TABLE_FILES",
     "Exclusion",
     "HealthRule",
-    "Pair",
     "PanelTableError",
     "PanelTables",
     "PicturePart",
@@ -103,7 +102,6 @@ __all__ = [
 
 POSITIONS = "positions.csv"
 RECORD_TYPES = "record_types.csv"
-PAIRS = "pairs.csv"
 HEALTH = "health.csv"
 EXCLUDED = "excluded.csv"
 PICTURES = "pictures.csv"
@@ -129,7 +127,6 @@ CARD_ACTIONS: tuple[str, ...] = ("keep", "drop")
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
     RECORD_TYPES,
-    PAIRS,
     HEALTH,
     EXCLUDED,
     PICTURES,
@@ -182,7 +179,6 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "revision",
             "locator",
         ],
-        PAIRS: ["setpoint", "readback", "evidence", "basis", "source", "revision", "locator"],
         HEALTH: ["channel", "value", "state", "evidence", "basis", "source", "revision", "locator"],
         EXCLUDED: ["kind", "id", "reason", "source", "revision", "locator"],
         PICTURES: [
@@ -484,7 +480,6 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         POSITIONS: ("thing", "frame", "basis"),
         RECORD_TYPES: ("channel", "record_type", "basis"),
-        PAIRS: ("setpoint", "readback", "basis"),
         HEALTH: ("channel", "value", "state", "basis"),
         EXCLUDED: ("kind", "id"),
         PICTURES: ("device_class", "view", "part", "kind"),
@@ -516,7 +511,6 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
         POSITIONS: {"basis": BASES},
         RECORD_TYPES: {"drawn_as": DRAWN_AS, "basis": BASES},
-        PAIRS: {"basis": BASES},
         HEALTH: {"state": HEALTH_STATES, "basis": BASES},
         EXCLUDED: {"kind": EXCLUDED_KINDS},
         # a part's kind is the facility's word: any text
@@ -568,7 +562,6 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         POSITIONS: ("thing", "frame"),
         RECORD_TYPES: ("channel",),
-        PAIRS: ("setpoint",),
         NAMES: ("thing",),
         METRICS: ("view", "level", "class", "order"),
         CALIBRATION_KINDS: ("kind", "class"),
@@ -644,19 +637,6 @@ class RecordType:
     channel: str
     record_type: str
     drawn_as: DrawnAs | None
-    basis: Basis
-    source: str | None
-    revision: str | None
-    locator: str | None
-
-
-@dataclass(frozen=True)
-class Pair:
-    """The readback a setpoint is shown beside, and where that is stated."""
-
-    setpoint: str
-    readback: str
-    evidence: str | None
     basis: Basis
     source: str | None
     revision: str | None
@@ -1269,7 +1249,6 @@ class PanelTables:
 
     positions: tuple[Pose, ...]
     record_types: tuple[RecordType, ...]
-    pairs: tuple[Pair, ...]
     health: tuple[HealthRule, ...]
     excluded: tuple[Exclusion, ...]
     pictures: tuple[PicturePart, ...]
@@ -1294,7 +1273,6 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
     {
         POSITIONS: Pose,
         RECORD_TYPES: RecordType,
-        PAIRS: Pair,
         HEALTH: HealthRule,
         EXCLUDED: Exclusion,
         PICTURES: PicturePart,
@@ -1611,7 +1589,6 @@ def read_tables(panels_dir: Path) -> PanelTables:
     return PanelTables(
         positions=_read(directory, POSITIONS),
         record_types=_read(directory, RECORD_TYPES),
-        pairs=_read(directory, PAIRS),
         health=_read(directory, HEALTH),
         excluded=_read(directory, EXCLUDED),
         pictures=_read(directory, PICTURES),

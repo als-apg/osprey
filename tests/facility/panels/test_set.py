@@ -397,8 +397,6 @@ def test_a_member_with_no_light_shows_the_value_its_card_shows_first(tmp_path) -
     health = (tables / "health.csv").read_text().splitlines(keepends=True)
     kept = [line for line in health if "-Q" not in line.split(",", 1)[0]]  # no magnet rule
     (tables / "health.csv").write_text("".join(kept))
-    pairs = (tables / "pairs.csv").read_text().splitlines(keepends=True)
-    (tables / "pairs.csv").write_text(pairs[0])  # nor a pair the tables state
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", unpaired), tables)
     view = set_overview(graph, "XR-QUAD")
     cells = [c for s in view.sections for g in s.items if hasattr(g, "rows") for r in g.rows for c in r.cells]  # fmt: skip

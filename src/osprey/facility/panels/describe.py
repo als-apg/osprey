@@ -1727,7 +1727,7 @@ def tile_less(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, int]:
 
 def _status(graph: PanelGraph, hit: RoleHit, status: Mapping[str, str]) -> str | None:
     """The channel whose value says which segment of a choice is in force: the
-    readback ``pairs.csv`` pairs with the command, else the channel of the role
+    readback the facility file pairs with the command, else the channel of the role
     named as the command's without ``-cmd``, else ``None`` (the command itself)."""
     pair = graph.pair(hit.channel)
     if pair is not None:

@@ -1464,8 +1464,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
 
    The rule tables are CSV files, each held to its header, and each may be
    absent. What the facility file states is the default, and a table states
-   only what it does not: a setpoint's readback is its channel's ``pair``
-   (``pairs.csv`` names others), a thing's short name what ``names.csv`` states,
+   only what it does not: a setpoint's readback is its channel's ``pair`` and
+   nothing else (a pair the build derives is marked inferred, with its rule), a thing's short name what ``names.csv`` states,
    else its ``label``, else the last ``:``- or ``/``-separated part of its id, a
    channel is drawn by its ``role`` (a setpoint as an entry
    beside its readback, a readback as a value; ``record_types.csv`` names its
@@ -1481,14 +1481,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    apart, while a choice's or an action's label is the word on its press). ``check``
    prints one ``redundant: <table>: <n> rows`` line per table whose rows only
    restate the facility file or these defaults with no column of them read for
-   anything else (a ``pairs.csv`` row of basis ``stated`` and no source; a
+   anything else (a
    ``channel_roles.csv`` row without which every device it matches plays the same
    roles in the same order, read the same, so never a press), so a
    deployment can delete them, and one ``redundant: record_types.csv drawn_as``
    line for the rows whose ``drawn_as`` is their role's: their record type is
    read, so the row stays and only that value may be left empty.
    The tables: ``positions.csv``
-   (where a thing sits), ``record_types.csv``, ``pairs.csv``,
+   (where a thing sits), ``record_types.csv``,
    ``panels/health.csv`` (the state a channel's value means: ``normal``,
    ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
    sources give two states is ``disagree``),
