@@ -32,8 +32,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors.archiver_selection import archiver_settings_errors
-from osprey_connectors.config_sections import ControlSystemSection
+from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.limits_posture import incomplete_limits_blocks
 from osprey_connectors_tests._service_table import table_of
@@ -147,7 +146,7 @@ def test_the_builds_own_checks_pass(path):
     for label, document in _documents(path).items():
         archiver = document.get("archiver")
         if archiver is not None:
-            assert archiver_settings_errors(archiver) == [], label
+            assert ArchiverSection.read(archiver).problems == (), label
         control_system = document.get("control_system")
         if control_system is not None:
             assert incomplete_limits_blocks(ControlSystemSection.read(control_system)) == [], label

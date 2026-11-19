@@ -164,12 +164,12 @@ async def test_connector_caching(tmp_path, monkeypatch):
 
 async def test_archive_caching(tmp_path, monkeypatch):
     """Two calls to registry.archive() for one target build one archive."""
-    from osprey_connectors.service_targets import service_targets
+    from osprey.services.pv_directory._connectors import service_table
 
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"archiver": {"type": "mock_archiver"}})
     registry = initialize_server_context()
-    table = service_targets(registry.config.raw)
+    table = service_table(registry.config.raw)
 
     mock_archive = AsyncMock()
     with patch(
@@ -190,12 +190,12 @@ async def test_archive_caching(tmp_path, monkeypatch):
 
 async def test_each_target_keeps_its_own_archive(tmp_path, monkeypatch):
     """An archive belongs to its target: another target's spec builds another archive."""
-    from osprey_connectors.service_targets import service_targets
+    from osprey.services.pv_directory._connectors import service_table
 
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"archiver": {"type": "mock_archiver"}})
     registry = initialize_server_context()
-    table = service_targets(registry.config.raw)
+    table = service_table(registry.config.raw)
 
     with patch(
         "osprey_connectors.factory.ConnectorFactory.create_service",
@@ -412,7 +412,7 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
     )
     registry = initialize_server_context()
 
-    from osprey_connectors.service_targets import service_targets
+    from osprey.services.pv_directory._connectors import service_table
 
     mock_cs = AsyncMock()
     mock_arch = AsyncMock()
@@ -430,7 +430,7 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
         ),
     ):
         await registry.control_system()
-        await registry.archive(service_targets(registry.config.raw).archive["va"])
+        await registry.archive(service_table(registry.config.raw).archive["va"])
 
     await registry.shutdown()
 

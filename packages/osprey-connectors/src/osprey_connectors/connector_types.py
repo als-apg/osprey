@@ -402,23 +402,6 @@ STANDIN_TYPES = tuple(row.name for row in _CONTROL_SYSTEMS if row.machine == "re
 INVENTED_HISTORY_TYPES = tuple(row.name for row in _CONTROL_SYSTEMS if row.invents_history)
 
 
-def _resolve_type(section: object, fallback: str) -> str:
-    """The connector type a factory builds from a config section.
-
-    A section that is missing, is not a mapping, or carries no usable ``type``
-    resolves to *fallback* — the factory's documented fail-closed default, which
-    it announces with a ``… is not set; defaulting to …`` warning. For a control
-    system that default is the simulator in process, which dials nothing; the
-    transport (:func:`connector_transport`), never the type, says whether a
-    connector dials a network. Empty and
-    ``None`` count as absent (YAML gives ``None`` for a bare ``type:``); any
-    other value is returned as written, so a typo reaches the factory's
-    "Unknown … type" error rather than being quietly rounded to something.
-    """
-    value = section.get("type") if isinstance(section, dict) else None
-    return str(value) if value else fallback
-
-
 def resolve_control_system_type(section: "ControlSystemSection") -> str:
     """The control system a ``control_system:`` config section actually selects.
 

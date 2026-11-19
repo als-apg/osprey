@@ -152,7 +152,7 @@ class TestArchiverTypeFallback:
 
         spec = table_of(config).archive[connector_types.TARGET_LIVE]
         assert spec is not None
-        assert spec.settings["sample_rate_hz"] == 1.0
+        assert spec.settings.model_dump()["sample_rate_hz"] == 1.0
 
 
 class TestShippedPresetsDeclareAnArchiver:

@@ -66,6 +66,7 @@ class TestTheArchives:
         read = MongoStoreSettings.from_block(MONGO, key=WHERE)
         assert (read.host, read.port, read.database, read.collection) == ("store", 27017, "db", "c")
         assert read.login == PasswordLogin(username="u", password_env="P")
+        assert read.with_env_overrides() == read
         assert (read.auth_source, read.timeout_s) == ("admin", 60)
 
     def test_a_numeric_string_port_is_its_number(self):
@@ -74,9 +75,15 @@ class TestTheArchives:
 
     def test_a_port_that_names_none_is_refused_at_build(self):
         """Behaviour change: it was handed to pymongo, which failed at the first call."""
+        read = MongoStoreSettings.from_block({**MONGO, "port": "x"}, key=WHERE)
         with pytest.raises(ConfigurationError) as raised:
-            MongoStoreSettings.from_block({**MONGO, "port": "x"}, key=WHERE)
+            read.with_env_overrides()
         assert raised.value.key == "archiver.settings.port"
+
+    def test_a_missing_port_is_named_before_a_missing_login_as_it_always_was(self):
+        block = {"host": "h", "name": "db", "collection": "c", "username": "u"}
+        with pytest.raises(ConfigurationError, match="port is required for MongoDB archiver"):
+            MongoStoreSettings.from_block(block, key=WHERE).with_env_overrides()
 
     def test_the_overrides_win_and_a_missing_host_is_refused_after_them(self, monkeypatch):
         monkeypatch.setenv("OSPREY_ARCHIVER_MONGODB_HOST", "mongo")

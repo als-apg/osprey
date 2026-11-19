@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig, freshness_max_age_s
-from osprey.services.pv_directory._connectors import DIRECTORY_CONNECTORS_AVAILABLE, service_table
+from osprey.services.pv_directory import _connectors
 from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.connector_types import MONGODB_ARCHIVER, TARGET_VA
@@ -49,9 +49,9 @@ def history_targets(config: Mapping[str, Any]) -> frozenset[str]:
     The archive row of the connectors' ``service_targets``, without the mock;
     none on a connectors release without the PV directory modules.
     """
-    if not DIRECTORY_CONNECTORS_AVAILABLE:
+    if not _connectors.DIRECTORY_CONNECTORS_AVAILABLE:
         return frozenset()
-    held: frozenset[str] = service_table(config).history_targets()
+    held: frozenset[str] = _connectors.service_table(config).history_targets()
     return held
 
 

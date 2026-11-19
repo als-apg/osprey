@@ -368,7 +368,7 @@ class TestMoleBlock:
     def store_archive(self, monkeypatch):
         """The deployment's store, attributed to ``va`` by the table."""
         held = SimpleNamespace(history_targets=lambda: frozenset({"va"}))
-        monkeypatch.setattr(sidecar_module, "service_targets", lambda config: held)
+        monkeypatch.setattr(sidecar_module, "service_table", lambda config: held)
         monkeypatch.delenv("OSPREY_ARCHIVER_MONGODB_HOST", raising=False)
         monkeypatch.delenv("OSPREY_ARCHIVER_MONGODB_PORT", raising=False)
 

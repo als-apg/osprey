@@ -47,7 +47,7 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.config_sections import ConnectorSettings
+from osprey_connectors.config_sections import ConnectorSettings, Unreadable
 from osprey_connectors.connection import (
     ConnectionSettings,
     PasswordLogin,
@@ -186,47 +186,61 @@ def _required(message: str, key: str) -> ConfigurationError:
 class MongoStoreSettings(ConnectorSettings):
     """The MongoDB archive's block, ``archiver.settings``, read: where the store is and the login.
 
-    Pure: reading it consults no environment. :meth:`with_env_overrides` applies
-    the in-network address a containerized process was given, and
-    :meth:`client_kwargs` is what ``pymongo.MongoClient`` is opened with.
+    Pure: reading it consults no environment, and refuses only a ``url`` the
+    block cannot take. What the store needs besides is required by
+    :meth:`with_env_overrides`, once the in-network address a containerized
+    process was given is applied, in the order the archive always refused it:
+    the host, ``name``, ``collection``, the port, the login, then the shape of
+    the connection keys. :meth:`client_kwargs` is what ``pymongo.MongoClient``
+    is opened with.
 
     Attributes:
         url: A ``mongodb://`` or ``mongodb+srv://`` connection string, which
             names the store verbatim; ``None`` when the block names it by
             ``host`` and ``port``.
         host: The store's host as configured (the host-side truth).
-        port: The store's port as configured.
-        database: The database, ``name`` in the block.
-        collection: The collection.
+        port: The store's port as configured: an integer, or a numeric string
+            read as its number; :class:`~osprey_connectors.config_sections.Unreadable`
+            when it names no port.
+        database: The database, ``name`` in the block; ``None`` when unset.
+        collection: The collection; ``None`` when unset.
         auth_source: ``auth.source``, the database the user is defined in.
-        connection: ``timeout_s``, the password login under ``auth:``
-            (required without ``url``) and ``tls.ca_bundle``, read by
-            :func:`~osprey_connectors.connection.read_connection_settings`.
+        missing_login: Why the login a block without ``url`` needs is missing,
+            in the archive's words; ``None`` when it is not.
+        connection: ``timeout_s``, the password login under ``auth:`` and
+            ``tls.ca_bundle``, read by
+            :func:`~osprey_connectors.connection.read_connection_settings`, or
+            the refusal that reader gave.
     """
 
     url: str | None = None
     host: str | None = None
-    port: int | None = None
-    database: str
-    collection: str
+    port: int | Unreadable | None = None
+    database: str | None = None
+    collection: str | None = None
     auth_source: str | None = None
-    connection: ConnectionSettings
+    missing_login: str | None = None
+    connection: ConnectionSettings | Unreadable
 
     @property
     def login(self) -> PasswordLogin | None:
         """The password login under ``auth:``; ``None`` when the block names none."""
-        login = self.connection.login
+        login = self.connection.login if isinstance(self.connection, ConnectionSettings) else None
         return login if isinstance(login, PasswordLogin) else None
 
     @property
     def ca_bundle(self) -> str | None:
         """``tls.ca_bundle``, a CA file to trust; setting it turns TLS on."""
+        if not isinstance(self.connection, ConnectionSettings):
+            return None
         bundle = self.connection.ca_bundle
         return str(bundle) if bundle is not None else None
 
     @property
     def timeout_s(self) -> float:
         """The seconds a call waits by default; 60 when the block sets none."""
+        if not isinstance(self.connection, ConnectionSettings):
+            return 60
         return self.connection.timeout_or(60)
 
     @model_validator(mode="before")
@@ -245,89 +259,119 @@ class MongoStoreSettings(ConnectorSettings):
             except ValueError as error:
                 raise _required(str(error), "url") from None
 
-        db_name = data.get("name")
-        if not db_name:
-            raise _required("name (database name) is required for MongoDB archiver", "name")
-        collection_name = data.get("collection")
-        if not collection_name:
-            raise _required("collection is required for MongoDB archiver", "collection")
-
         auth = data.get("auth")
         auth_block: Mapping[object, object] = auth if _is_mapping(auth) else {}
+        missing_login: str | None = None
         if url is None and "token_env" not in auth_block:
             # The login is required on this path. A bearer-token block skips these
             # checks and is refused by name by the reader below.
             for leaf in ("username", "password_env"):
-                if not auth_block.get(leaf):
-                    raise _required(f"auth.{leaf} is required for MongoDB archiver", f"auth.{leaf}")
-            if not auth_block.get("source"):
-                raise _required(
-                    "auth.source (authentication database) is required for MongoDB archiver",
-                    "auth.source",
+                if missing_login is None and not auth_block.get(leaf):
+                    missing_login = f"auth.{leaf} is required for MongoDB archiver"
+            if missing_login is None and not auth_block.get("source"):
+                missing_login = (
+                    "auth.source (authentication database) is required for MongoDB archiver"
                 )
 
-        connection = read_connection_settings(
-            data,
-            where=_WHERE,
-            logins=frozenset({"password"}),
-            unsupported_because=(
-                "the MongoDB archiver takes a username and auth.password_env, not a bearer token"
-            ),
-            extra_auth_keys=frozenset({"source"}),
-        )
+        connection: ConnectionSettings | Unreadable
+        try:
+            connection = read_connection_settings(
+                data,
+                where=_WHERE,
+                logins=frozenset({"password"}),
+                unsupported_because=(
+                    "the MongoDB archiver takes a username and auth.password_env, "
+                    "not a bearer token"
+                ),
+                extra_auth_keys=frozenset({"source"}),
+            )
+        except ConfigurationError as error:
+            connection = Unreadable(key=error.key or _WHERE, raw=None, problem=str(error))
         source = auth_block.get("source")
         host = data.get("host")
+        db_name = data.get("name")
+        collection_name = data.get("collection")
         written_port = data.get("port")
-        port = None if written_port is None else coerce_port(written_port)
-        if written_port is not None and port is None:
-            raise _required(f"`{_WHERE}.port` is {written_port!r}, not a port", "port")
+        port: int | Unreadable | None = None
+        if isinstance(written_port, Unreadable | int) and not isinstance(written_port, bool):
+            port = written_port
+        elif written_port is not None:
+            coerced = coerce_port(written_port)
+            port = (
+                coerced
+                if coerced is not None
+                else Unreadable(key=f"{_WHERE}.port", raw=written_port)
+            )
         return {
             **data,
             "url": url,
             "host": str(host) if host else None,
             "port": port,
-            "database": str(db_name),
-            "collection": str(collection_name),
+            "database": str(db_name) if db_name else None,
+            "collection": str(collection_name) if collection_name else None,
             "auth_source": str(source) if source else None,
+            "missing_login": missing_login,
             "connection": connection,
         }
 
     def with_env_overrides(self) -> MongoStoreSettings:
-        """These settings with the store's in-network address this process was given.
+        """These settings, complete, with the store's in-network address this process was given.
 
-        A block naming its store by ``url`` is returned as it is. Otherwise the
+        A block naming its store by ``url`` takes no override. Otherwise the
         address overrides (:func:`~osprey_connectors.archive_store.address_overrides`)
         win over the configured host and port.
 
         Raises:
-            ConfigurationError: Neither the block nor the environment names the
-                store's host, or its port.
+            ConfigurationError: What the store needs is missing or cannot be
+                used, in the archive's words, in the order it always refused
+                it: the host, ``name``, ``collection``, the port, the login,
+                then the connection keys.
             ValueError: The port override is not an integer.
         """
-        if self.url is not None:
-            return self
-        override_host, override_port = address_overrides()
-        host = override_host or self.host
-        if not host:
-            raise _required("host is required for MongoDB archiver", "host")
-        # No literal fallback, and deliberately not one. For a store this
-        # deployment publishes, the host port is its ``mongo`` layout slot —
-        # ``deployment.port_base + 801`` — which this package cannot compute:
-        # osprey-connectors is a separate wheel that does not depend on
-        # ``osprey``, so it has no access to ``osprey.port_layout``. The build
-        # always writes ``archiver.mongodb_archiver.port`` from the resolved
-        # base, and an external facility store names its own port, so a missing
-        # key is an authoring error rather than a number to guess: guessing
-        # would dial a port belonging to a different deployment's block.
-        port = override_port if override_port is not None else self.port
-        if port is None:
-            raise _required(
-                "port is required for MongoDB archiver: set "
-                "archiver.mongodb_archiver.port in config.yml to the store's host "
-                "port (a project that deploys its own MongoDB gets it written by "
-                "'osprey build'), or set OSPREY_ARCHIVER_MONGODB_PORT for a "
-                "container reaching the store on the compose network",
-                "port",
+        host, port = self.host, self.port
+        if self.url is None:
+            # Where the store is. The configured value is the host-side truth; a
+            # containerized consumer is handed the in-network address through the
+            # environment and that wins (see _HOST_OVERRIDE_ENV). Resolved before the
+            # required-ness check so an environment-only address is a legitimate
+            # one, and the error below still fires when neither source names a host.
+            override_host, override_port = address_overrides()
+            host = override_host or host
+            if not host:
+                raise _required("host is required for MongoDB archiver", "host")
+            if override_port is not None:
+                port = override_port
+        if self.database is None:
+            raise _required("name (database name) is required for MongoDB archiver", "name")
+        if self.collection is None:
+            raise _required("collection is required for MongoDB archiver", "collection")
+        if self.url is None:
+            # No literal fallback, and deliberately not one. For a store this
+            # deployment publishes, the host port is its ``mongo`` layout slot —
+            # ``deployment.port_base + 801`` — which this package cannot compute:
+            # osprey-connectors is a separate wheel that does not depend on
+            # ``osprey``, so it has no access to ``osprey.port_layout``. The build
+            # always writes ``archiver.mongodb_archiver.port`` from the resolved
+            # base, and an external facility store names its own port, so a missing
+            # key is an authoring error rather than a number to guess: guessing
+            # would dial a port belonging to a different deployment's block.
+            if port is None:
+                raise _required(
+                    "port is required for MongoDB archiver: set "
+                    "archiver.mongodb_archiver.port in config.yml to the store's host "
+                    "port (a project that deploys its own MongoDB gets it written by "
+                    "'osprey build'), or set OSPREY_ARCHIVER_MONGODB_PORT for a "
+                    "container reaching the store on the compose network",
+                    "port",
+                )
+            if isinstance(port, Unreadable):
+                raise _required(f"`{_WHERE}.port` is {port.raw!r}, not a port", "port")
+            if self.missing_login is not None:
+                leaf = self.missing_login.split(" ", 1)[0]
+                raise _required(self.missing_login, leaf)
+        if isinstance(self.connection, Unreadable):
+            raise ConfigurationError(
+                self.connection.problem or self.connection.key, key=self.connection.key
             )
         return evolve(self, host=host, port=port)
 
@@ -336,7 +380,7 @@ class MongoStoreSettings(ConnectorSettings):
         return mongo_client_kwargs(
             url=self.url,
             host=self.host,
-            port=self.port,
+            port=self.port if isinstance(self.port, int) else None,
             username=self.login.username if self.login is not None else None,
             password=password,
             auth_source=self.auth_source,
@@ -463,7 +507,7 @@ class MongoDBArchiverConnector(ChannelArchive):
             else f"{store_settings.host}:{store_settings.port}"
         )
         _log_route_once(by_url, self._store)
-        self._names = (store_settings.database, store_settings.collection)
+        self._names = (str(store_settings.database), str(store_settings.collection))
         self._ca_bundle = store_settings.ca_bundle
         self._client_kwargs: dict[str, ContractAny] = store_settings.client_kwargs(password)
 
