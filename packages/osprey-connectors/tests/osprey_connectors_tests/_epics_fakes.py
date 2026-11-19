@@ -23,6 +23,7 @@ import numpy
 import pytest
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 EPICS_CA_VARS = (
     "EPICS_CA_ADDR_LIST",
@@ -73,7 +74,7 @@ def patch_writes_enabled(monkeypatch, enabled: bool, root: Any = None) -> None:
             return dict(section)
         return default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    serve_config_lookup(monkeypatch, fake_get_config_value)
     if enabled:
         if root is None:
             raise ValueError(

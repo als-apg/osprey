@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 __all__ = ["packaged_facility_dir", "render_limits", "validator_under"]
 
@@ -67,11 +68,8 @@ def validator_under(monkeypatch: pytest.MonkeyPatch, db_file: Path, mode: str) -
         "control_system.limits_checking.database_path": str(db_file),
         "project_root": None,
     }
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator

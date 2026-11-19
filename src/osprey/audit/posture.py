@@ -176,11 +176,14 @@ def verdict() -> WriteVerdict:
     ``osprey-connectors`` is a declared dependency of this package, so the lazy
     import below is a leaf's import-cost rule, not an optional feature.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.refusals import VerdictReason
     from osprey_connectors.write_switch import Refused, write_verdict
 
     try:
-        return write_verdict(control_system_section(), recorded_control_target())
+        return write_verdict(
+            ControlSystemSection.read(control_system_section()), recorded_control_target()
+        )
     except Exception:  # write_verdict never raises by contract; refuse if it does
         logger.debug("Write verdict could not be reached; refusing", exc_info=True)
         return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)

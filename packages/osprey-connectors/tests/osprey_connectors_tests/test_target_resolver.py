@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     DOOCS,
@@ -79,9 +80,11 @@ def test_the_stand_in_is_a_type_of_its_own_whose_history_is_invented():
 def test_channel_access_is_spoken_by_epics_the_va_and_the_stand_in():
     """The one wire the queue worker executes plans against; the rest browse."""
     for connector_type in (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN):
-        assert connector_transport({"type": connector_type}) == TRANSPORT_CA
-    assert connector_transport({"type": DOOCS}) == "doocs"
-    assert connector_transport(_in_process()) == TRANSPORT_IN_PROCESS
+        assert (
+            connector_transport(ControlSystemSection.read({"type": connector_type})) == TRANSPORT_CA
+        )
+    assert connector_transport(ControlSystemSection.read({"type": DOOCS})) == "doocs"
+    assert connector_transport(ControlSystemSection.read(_in_process())) == TRANSPORT_IN_PROCESS
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +104,7 @@ def test_channel_access_is_spoken_by_epics_the_va_and_the_stand_in():
     ids=["epics-baseline", "va-baseline", "in-process-baseline", "no-type", "no-section"],
 )
 def test_va_resolves_to_the_virtual_accelerator_whatever_the_baseline_is(section: Any):
-    assert resolve_target(section, TARGET_VA) == VIRTUAL_ACCELERATOR
+    assert resolve_target(ControlSystemSection.read(section), TARGET_VA) == VIRTUAL_ACCELERATOR
 
 
 def test_the_resolved_type_is_the_connector_sub_block_key():
@@ -111,8 +114,12 @@ def test_the_resolved_type_is_the_connector_sub_block_key():
         {"epics": {"address": "gw"}, "virtual_accelerator": {"timeout_s": 5.0}},
     )
 
-    assert section["connector"][resolve_target(section, TARGET_VA)] == {"timeout_s": 5.0}
-    assert section["connector"][resolve_target(section, TARGET_LIVE)] == {"address": "gw"}
+    assert section["connector"][resolve_target(ControlSystemSection.read(section), TARGET_VA)] == {
+        "timeout_s": 5.0
+    }
+    assert section["connector"][
+        resolve_target(ControlSystemSection.read(section), TARGET_LIVE)
+    ] == {"address": "gw"}
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +147,7 @@ def test_the_resolved_type_is_the_connector_sub_block_key():
     ],
 )
 def test_standin_resolves_to_the_stand_in_block_whatever_the_baseline_is(section: Any):
-    assert resolve_target(section, TARGET_STANDIN) == LIVE_STANDIN
+    assert resolve_target(ControlSystemSection.read(section), TARGET_STANDIN) == LIVE_STANDIN
 
 
 # ---------------------------------------------------------------------------
@@ -149,17 +156,17 @@ def test_standin_resolves_to_the_stand_in_block_whatever_the_baseline_is(section
 
 
 def test_live_on_an_epics_baseline_is_that_baseline():
-    assert resolve_target(_section(EPICS), TARGET_LIVE) == EPICS
+    assert resolve_target(ControlSystemSection.read(_section(EPICS)), TARGET_LIVE) == EPICS
 
 
 def test_live_is_protocol_neutral():
     """Nothing here knows which control system a facility runs."""
-    assert resolve_target(_section(DOOCS), TARGET_LIVE) == DOOCS
+    assert resolve_target(ControlSystemSection.read(_section(DOOCS)), TARGET_LIVE) == DOOCS
 
 
 def test_live_passes_an_unknown_baseline_type_through_unjudged():
     """A typo reaches the factory's "Unknown … type" error, as it does today."""
-    assert resolve_target(_section("epcis"), TARGET_LIVE) == "epcis"
+    assert resolve_target(ControlSystemSection.read(_section("epcis")), TARGET_LIVE) == "epcis"
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +186,7 @@ def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(serving: 
         },
     )
 
-    assert resolve_target(section, TARGET_LIVE) == EPICS
+    assert resolve_target(ControlSystemSection.read(section), TARGET_LIVE) == EPICS
 
 
 @pytest.mark.parametrize(
@@ -189,7 +196,7 @@ def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(serving: 
 )
 def test_live_on_a_simulated_baseline_refuses_without_a_connector_table(connector: Any):
     with pytest.raises(ValueError):
-        resolve_target(_section(None, connector), TARGET_LIVE)
+        resolve_target(ControlSystemSection.read(_section(None, connector)), TARGET_LIVE)
 
 
 @pytest.mark.parametrize(
@@ -214,7 +221,9 @@ def test_a_live_that_cannot_be_derived_names_the_one_real_machine_limit(
     reads only the error still learns what the product's shape is, and which
     blocks (the missing live one, or the two ambiguous ones) made it so."""
     with pytest.raises(ValueError) as excinfo:
-        resolve_target(_section(VIRTUAL_ACCELERATOR, connector), TARGET_LIVE)
+        resolve_target(
+            ControlSystemSection.read(_section(VIRTUAL_ACCELERATOR, connector)), TARGET_LIVE
+        )
 
     message = str(excinfo.value)
     for expected in expected_substrings:
@@ -228,7 +237,7 @@ def test_a_second_real_block_beside_a_real_baseline_is_reported(caplog: Any):
     section = _section(EPICS, {"epics": {"address": "ring"}, DOOCS: {"address": "injector"}})
 
     with caplog.at_level(logging.WARNING, logger="osprey_connectors.targets"):
-        assert resolve_target(section, TARGET_LIVE) == EPICS
+        assert resolve_target(ControlSystemSection.read(section), TARGET_LIVE) == EPICS
 
     assert len(caplog.records) == 1
     message = caplog.records[0].getMessage()
@@ -248,7 +257,7 @@ def test_the_stand_in_and_the_simulator_are_not_a_second_real_machine(caplog: An
     )
 
     with caplog.at_level(logging.WARNING, logger="osprey_connectors.targets"):
-        assert resolve_target(section, TARGET_LIVE) == EPICS
+        assert resolve_target(ControlSystemSection.read(section), TARGET_LIVE) == EPICS
 
     assert caplog.records == []
 
@@ -256,9 +265,11 @@ def test_the_stand_in_and_the_simulator_are_not_a_second_real_machine(caplog: An
 def test_live_never_falls_back_to_hardware_on_a_bare_config():
     """An empty config resolves to the simulator in process; live has to raise, not guess."""
     for section in ({}, None, _section(), _section(None)):
-        assert resolve_control_system_type(section) == VIRTUAL_ACCELERATOR
+        assert (
+            resolve_control_system_type(ControlSystemSection.read(section)) == VIRTUAL_ACCELERATOR
+        )
         with pytest.raises(ValueError):
-            resolve_target(section, TARGET_LIVE)
+            resolve_target(ControlSystemSection.read(section), TARGET_LIVE)
 
 
 # ---------------------------------------------------------------------------
@@ -279,17 +290,17 @@ def test_a_stand_in_block_is_not_a_candidate_for_the_live_machine(baseline: str)
         },
     )
 
-    assert resolve_target(section, TARGET_LIVE) == EPICS
-    assert resolve_target(section, TARGET_STANDIN) == LIVE_STANDIN
+    assert resolve_target(ControlSystemSection.read(section), TARGET_LIVE) == EPICS
+    assert resolve_target(ControlSystemSection.read(section), TARGET_STANDIN) == LIVE_STANDIN
 
 
 def test_a_stand_in_baseline_is_never_returned_as_its_own_live_type():
     """``standin`` reaches the stand-in; ``live`` has to name a machine it isn't."""
     section = _section(LIVE_STANDIN, {"live_standin": {"gateways": {"read_only": {}}}})
 
-    assert resolve_target(section, TARGET_STANDIN) == LIVE_STANDIN
+    assert resolve_target(ControlSystemSection.read(section), TARGET_STANDIN) == LIVE_STANDIN
     with pytest.raises(ValueError) as excinfo:
-        resolve_target(section, TARGET_LIVE)
+        resolve_target(ControlSystemSection.read(section), TARGET_LIVE)
 
     message = str(excinfo.value)
     assert "control_system.connector" in message
@@ -332,7 +343,7 @@ def test_a_stand_in_baseline_is_never_returned_as_its_own_live_type():
 )
 def test_an_unrecognized_target_raises_and_resolves_to_nothing(target: Any):
     with pytest.raises(ValueError) as excinfo:
-        resolve_target(_section(EPICS), target)
+        resolve_target(ControlSystemSection.read(_section(EPICS)), target)
 
     message = str(excinfo.value)
     assert TARGET_LIVE in message
@@ -347,13 +358,21 @@ def test_an_unrecognized_target_raises_and_resolves_to_nothing(target: Any):
 
 
 def test_the_no_argument_resolver_falls_back_to_the_simulator():
-    assert resolve_control_system_type(None) == VIRTUAL_ACCELERATOR
-    assert resolve_control_system_type({}) == VIRTUAL_ACCELERATOR
-    assert resolve_control_system_type({"type": None}) == VIRTUAL_ACCELERATOR
-    assert resolve_control_system_type({"type": ""}) == VIRTUAL_ACCELERATOR
-    assert resolve_control_system_type("not-a-mapping") == VIRTUAL_ACCELERATOR
-    assert resolve_control_system_type({"type": EPICS}) == EPICS
-    assert resolve_control_system_type({"type": " epics "}) == " epics "
+    assert resolve_control_system_type(ControlSystemSection.read(None)) == VIRTUAL_ACCELERATOR
+    assert resolve_control_system_type(ControlSystemSection.read({})) == VIRTUAL_ACCELERATOR
+    assert (
+        resolve_control_system_type(ControlSystemSection.read({"type": None}))
+        == VIRTUAL_ACCELERATOR
+    )
+    assert (
+        resolve_control_system_type(ControlSystemSection.read({"type": ""})) == VIRTUAL_ACCELERATOR
+    )
+    assert (
+        resolve_control_system_type(ControlSystemSection.read("not-a-mapping"))
+        == VIRTUAL_ACCELERATOR
+    )
+    assert resolve_control_system_type(ControlSystemSection.read({"type": EPICS})) == EPICS
+    assert resolve_control_system_type(ControlSystemSection.read({"type": " epics "})) == " epics "
 
 
 @pytest.mark.parametrize(
@@ -369,21 +388,21 @@ def test_the_no_argument_resolver_falls_back_to_the_simulator():
 def test_the_baseline_target_is_the_machine_the_section_selects(
     control_system_type: str, expected: str
 ):
-    assert baseline_target(_section(control_system_type)) == expected
+    assert baseline_target(ControlSystemSection.read(_section(control_system_type))) == expected
 
 
 def test_a_deployment_that_named_no_machine_is_on_the_simulator():
     """A section that states no type is the simulator in process, baselined on ``va``."""
     for section in ({}, None, _section(), _section(None), _in_process()):
-        assert baseline_target(section) == TARGET_VA
+        assert baseline_target(ControlSystemSection.read(section)) == TARGET_VA
 
 
 def test_resolving_a_target_does_not_mutate_the_section():
     section = _section(VIRTUAL_ACCELERATOR, {"epics": {"address": "gw"}})
     before = {"type": VIRTUAL_ACCELERATOR, "connector": {"epics": {"address": "gw"}}}
 
-    resolve_target(section, TARGET_LIVE)
-    resolve_target(section, TARGET_VA)
+    resolve_target(ControlSystemSection.read(section), TARGET_LIVE)
+    resolve_target(ControlSystemSection.read(section), TARGET_VA)
 
     assert section == before
 
@@ -401,4 +420,6 @@ def test_resolving_a_target_does_not_mutate_the_section():
     ids=["served-simulator", "in-process-simulator", "no-section", "epics", "doocs", "standin"],
 )
 def test_is_simulated_answers_for_the_type_a_section_selects(section: Any, simulated: bool):
-    assert is_simulated(resolve_control_system_type(section)) is simulated
+    assert (
+        is_simulated(resolve_control_system_type(ControlSystemSection.read(section))) is simulated
+    )

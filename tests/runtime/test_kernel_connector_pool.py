@@ -30,10 +30,12 @@ import osprey.runtime as runtime
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ConnectorContext,
+    ConnectorSettings,
     WriteOutcome,
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
@@ -132,10 +134,11 @@ class _FirstContextConnector:
     """A connector whose client keeps the first context the process created."""
 
     disconnected: list["_FirstContextConnector"] = []
+    settings_model = ConnectorSettings
 
     async def connect(self, context: ConnectorContext) -> None:
         self._control_target = context.control_target
-        self.server = context.settings["server"]
+        self.server = (context.settings.model_extra or {})["server"]
         _FIRST_SERVER.setdefault("server", self.server)
 
     async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
@@ -231,8 +234,10 @@ class _FakePool:
     async def connector(self, target: str, *, execution_mode: str | None = None) -> _FakeHandle:
         self.record_loop()
         self.asked.append((target, execution_mode))
-        connector_type = resolve_target(self.section, target)
-        allowed = write_switch.write_verdict(self.section, target).allowed
+        connector_type = resolve_target(ControlSystemSection.read(self.section), target)
+        allowed = write_switch.write_verdict(
+            ControlSystemSection.read(self.section), target
+        ).allowed
         handle = _FakeHandle(
             self,
             target,
@@ -407,7 +412,9 @@ class TestTheKernelPool:
 
         assert runtime.read_channel("SR:X") == "va-server/SR:X"
 
-        assert fake_pool[0].asked == [(baseline_target(SWITCHABLE), None)]
+        assert fake_pool[0].asked == [
+            (baseline_target(ControlSystemSection.read(SWITCHABLE)), None)
+        ]
 
     def test_a_switch_in_flight_refuses_before_the_pool_is_built(self, monkeypatch, fake_pool):
         _serve(monkeypatch, SWITCHABLE)
@@ -441,7 +448,7 @@ class TestTheKernelPool:
         runtime.read_channel("SR:X")
 
         (pool,) = fake_pool
-        assert pool.asked == [(baseline_target(section), None)]
+        assert pool.asked == [(baseline_target(ControlSystemSection.read(section)), None)]
         assert runtime._runtime_connector is pool.handles[0]
 
     def test_an_in_process_deployment_beside_a_real_block_asks_for_va_never_live(
@@ -790,7 +797,7 @@ class TestRealChildren:
                 "live_standin": {"timeout_s": 1.0},
             },
         }
-        assert configured_targets(section) == ["live", "standin"]
+        assert configured_targets(ControlSystemSection.read(section)) == ["live", "standin"]
         config = tmp_path / "config.yml"
         config.write_text(yaml.safe_dump({"control_system": section}))
         monkeypatch.chdir(tmp_path)

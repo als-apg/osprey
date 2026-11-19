@@ -567,7 +567,7 @@ class TestCreateExecutionFolder:
         ws = tmp_path / "_agent_data"
         ws.mkdir()
         zone = zone_away_from_host()
-        monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: zone)
+        monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda: zone)
 
         with patch(
             "osprey_connectors.workspace.resolve_agent_data_root",

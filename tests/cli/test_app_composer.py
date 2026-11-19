@@ -28,6 +28,7 @@ from osprey.cli.templates.claude_code import _graphdb_configured, _pv_directory_
 from osprey.deployment.web_terminals.lint import lint_shared_render
 from osprey.errors import BuildProfileError
 from osprey.registry.mcp import resolve_servers
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import configured_targets
 
 _SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
@@ -167,7 +168,9 @@ def host_shape_repo(
 
 
 def _targets(config: dict) -> list[str]:
-    return configured_targets(effective_config_subtree(config, ("control_system",)))
+    return configured_targets(
+        ControlSystemSection.read(effective_config_subtree(config, ("control_system",)))
+    )
 
 
 def _render_servers(profile) -> list[str]:

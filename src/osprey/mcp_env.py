@@ -55,7 +55,7 @@ def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
 
     Shell exports outrank both files, ``.env`` outranks ``.env.shared``, and
     the shell-only launch variables are never applied
-    (:func:`osprey_connectors.config.apply_env_chain` with ``override=False``).
+    (:func:`osprey_connectors.dotenv.apply_env_chain` with ``override=False``).
 
     That a variable the shell already exports outranks both files is the
     property the empty-string clearing below protects:
@@ -63,8 +63,7 @@ def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
     variable is unset) are cleared first, so they read as absent rather than as
     a shell value that shadows the whole chain.
     """
-    from osprey_connectors.config import apply_env_chain
-    from osprey_connectors.dotenv import chain_files
+    from osprey_connectors.dotenv import apply_env_chain, chain_files
     from osprey_connectors.workspace import repo_root_for_config
 
     config_path = os.environ.get("OSPREY_CONFIG", "")

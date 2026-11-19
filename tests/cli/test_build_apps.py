@@ -17,6 +17,7 @@ import yaml
 
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.profiles.web_panels import panel_spec_enabled
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_tier import tier_writes
 from tests.cli._lifecycle_build import invoke_build, rendered_config, stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
@@ -458,7 +459,7 @@ def test_a_login_that_does_not_show_the_application_gets_none_of_it(
     login = f"quiet-{tier}"
     render = _render(roster_repo, login)
 
-    assert tier_writes(render["control_system"]) == tier
+    assert tier_writes(ControlSystemSection.read(render["control_system"])) == tier
     assert not panel_spec_enabled(_knob_panel(render) or {"enabled": False})
     assert "knob" not in render["claude_code"].get("servers", {})
     assert WRITE_TOOL not in _gated(_render_dir(roster_repo, login))

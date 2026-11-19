@@ -58,7 +58,7 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import setup_remedy
 from osprey.errors import ConfigurationError
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("scaffold")
@@ -98,15 +98,15 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
     """Load ``config.yml`` from ``project_dir`` through the shared project loader.
 
     The single config loader in this module, and deliberately the same one the
-    deploy path uses (:func:`osprey_connectors.config.load_project_config`), so these
+    deploy path uses (:func:`osprey_connectors.config.load_config`), so these
     verbs report on — and render from — exactly the config a deploy would have
     produced.
 
     The existence check stays ahead of the load, which is this call site's one
     divergence from the shared loader: callers catch ``ClickException`` to mean
-    "nothing built here", and ``ConfigBuilder``'s own ``FileNotFoundError``
-    advises setting ``CONFIG_FILE``, which is the wrong instruction for a verb
-    that resolves its own repo.
+    "nothing built here", and the loader's own ``ConfigNotFoundError`` advises
+    setting ``OSPREY_CONFIG``, which is the wrong instruction for a verb that
+    resolves its own repo.
 
     Args:
         project_dir: The repo's build zone.
@@ -125,7 +125,7 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
             "or was reset. Run 'osprey build' to render it."
         )
 
-    return load_project_config(config_file)
+    return load_config(config_file).raw_tree()
 
 
 class ScaffoldClaimError(Exception):

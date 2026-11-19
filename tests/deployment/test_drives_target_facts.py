@@ -27,6 +27,7 @@ from osprey.deployment.compose_generator import (
     setup_build_dir,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey_connectors.errors import ConfigurationError
 
 KEY = "knob_backend"
 IDENTITY = "app-orbit-bump"
@@ -297,9 +298,10 @@ def test_channel_access_on_the_bridge_follows_the_gateway_the_tier_selects(
     )
 
 
-def test_channel_access_on_the_bridge_names_a_gateway_with_no_port_by_its_address(
+def test_channel_access_on_the_bridge_names_a_gateway_with_no_port_on_the_default_port(
     repo: Path,
 ) -> None:
+    """A gateway that names no port is reached on Channel Access's own, as connect() reaches it."""
     gateways = {"read_only": {"address": "gw-read.example.org", "port": None}}
     config = _config(
         {"type": "epics", "writes": "never", "connector": {"epics": {"gateways": gateways}}}
@@ -307,25 +309,26 @@ def test_channel_access_on_the_bridge_names_a_gateway_with_no_port_by_its_addres
 
     svc, _ = _render(repo, config)
 
-    assert svc["environment"]["EPICS_CA_NAME_SERVERS"] == "gw-read.example.org"
+    assert svc["environment"]["EPICS_CA_NAME_SERVERS"] == "gw-read.example.org:5064"
 
 
 @pytest.mark.parametrize(
-    ("writes", "named"),
-    [("never", "gateways.read_only"), ("allowed", "gateways.write_access")],
+    ("writes", "role"),
+    [("never", "read_only"), ("allowed", "write_access")],
 )
-def test_a_selected_gateway_with_no_address_names_the_role_the_tier_selects(
-    writes: str, named: str
+def test_a_selected_gateway_with_no_address_is_refused_naming_its_key(
+    writes: str, role: str
 ) -> None:
-    gateways = {"read_only": {"port": 5064}, "write_access": {"port": 5084}}
+    """A gateway row with no address is no gateway at all: the build refuses it by key."""
+    gateways = {role: {"port": 5064}}
     config = _config(
         {"type": "epics", "writes": writes, "connector": {"epics": {"gateways": gateways}}}
     )
 
-    with pytest.raises(DeploymentPreconditionError, match=KEY) as refusal:
+    with pytest.raises(ConfigurationError) as refusal:
         _inject_project_metadata(config)
 
-    assert named in refusal.value.remedy
+    assert refusal.value.key == f"control_system.connector.epics.gateways.{role}"
 
 
 def test_a_live_gateway_with_no_address_refuses_naming_the_service() -> None:

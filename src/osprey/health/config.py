@@ -8,7 +8,7 @@ validation, the scalar suite settings (``suite_timeout_s``,
 ``on_demand_timeout_s``, ``interval_s``), and the ``health.disk`` thresholds
 of the ``file_system.disk_space`` row.
 
-The configuration is read through the standard loader (``ConfigBuilder.get``),
+The configuration is read through the standard loader (``load_config``),
 which has already resolved ``${VAR}`` placeholders — this module performs no
 second interpolation pass. Library validation failures raise
 :class:`~osprey.errors.ConfigurationError`; the CLI converts those into report

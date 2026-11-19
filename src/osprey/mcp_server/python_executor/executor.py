@@ -59,7 +59,8 @@ from osprey.stores.artifact_manifest import (
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES, PRESET_TRACKING_DIRNAME
 from osprey_connectors import write_switch
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
@@ -538,7 +539,7 @@ def _create_execution_folder() -> Path:
     base = resolve_agent_data_root() / "data" / "python_executions"
     base.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(facility_timezone()).strftime("%Y%m%d_%H%M%S")
     folder_name = f"{timestamp}_{uuid.uuid4().hex[:8]}"
     folder = base / folder_name
     folder.mkdir(parents=True, exist_ok=True)
@@ -701,12 +702,24 @@ def _target_is_resolvable(target: str) -> bool:
     A config that cannot be read at all also answers ``False``: not knowing
     whether the target resolves is not the same as knowing that it does.
     """
+    from osprey_connectors.errors import ConfigLoadError
+
     try:
         from osprey_connectors.config import get_config_value
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import resolve_target
 
         section = get_config_value("control_system", {})
-        resolve_target(section if isinstance(section, dict) else {}, target)
+        resolve_target(
+            ControlSystemSection.read(section if isinstance(section, dict) else {}), target
+        )
+    except ConfigLoadError:
+        # A config that did not load is a ValueError too (ConfigNotFoundError,
+        # ConfigParseError): it is the unreadable case below, not a refusal.
+        logger.debug(
+            "Could not check target resolvability; execution runs unstamped", exc_info=True
+        )
+        return False
     except ValueError:
         logger.warning(
             "Control target %r is not resolvable on this deployment; execution runs unstamped",
@@ -748,7 +761,9 @@ def _launch_posture(target: str | None) -> str:
     if target is not None:
         try:
             permitted = write_switch.write_verdict(
-                posture.control_system_section(), target, ignore_launch_pin=True
+                ControlSystemSection.read(posture.control_system_section()),
+                target,
+                ignore_launch_pin=True,
             ).allowed
         except Exception:  # write_verdict never raises; an unreachable one grants nothing
             logger.warning(

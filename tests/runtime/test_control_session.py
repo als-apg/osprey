@@ -31,11 +31,13 @@ from osprey.runtime.session import (
 )
 from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._harness._control_context_fixtures import _set_switch_to
@@ -95,7 +97,7 @@ def _serve(monkeypatch, section):
     def get_config_value(path, default=None, _config_path=None):
         return section if path == "control_system" else default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+    serve_config_lookup(monkeypatch, get_config_value)
 
 
 def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> Path:
@@ -413,7 +415,9 @@ class TestWriteBudgetAndProcessMark:
         write_record(mock_va)
 
         session = await _opened()
-        other = await ConnectorFactory.create_control_system_connector(VA_SECTION)
+        other = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(VA_SECTION)
+        )
 
         assert other.context.readonly_wording == "script"
         await other.disconnect()
@@ -1078,7 +1082,7 @@ def pin_env(tmp_path, monkeypatch):
     def get_config_value(path, default=None, _config_path=None):
         return section if path == "control_system" else default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+    serve_config_lookup(monkeypatch, get_config_value)
     testing.invalidate_cache()
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)

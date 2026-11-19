@@ -123,7 +123,7 @@ class Recorder:
         recorder idling for a week does not fill the logs saying so.
         """
         stamp = now.timestamp()
-        if self._last_poll is not None and stamp - self._last_poll < self._settings.poll_sec:
+        if self._last_poll is not None and stamp - self._last_poll < self._settings.poll_s:
             return self._recording
         self._last_poll = stamp
 
@@ -147,9 +147,9 @@ class Recorder:
                     "the `%s` target is this deployment's own virtual accelerator "
                     "(control_system.type=%s).",
                     len(self._addresses),
-                    self._settings.cadence_sec,
+                    self._settings.cadence_s,
                     len(self._waveforms),
-                    self._settings.tail_cadence_sec,
+                    self._settings.tail_cadence_s,
                     self._settings.database,
                     self._settings.collection,
                     RECORDED_TARGET,
@@ -168,7 +168,7 @@ class Recorder:
                     VIRTUAL_ACCELERATOR_PORT_KEY,
                     RECORDED_TARGET,
                     self._config_path,
-                    self._settings.poll_sec,
+                    self._settings.poll_s,
                     facts.control_system_type or "<unset>",
                 )
             self._recording = should_record
@@ -177,7 +177,7 @@ class Recorder:
 
     def slot_for(self, now: datetime) -> int:
         """The absolute grid instant, in whole seconds, that ``now`` falls in."""
-        cadence = self._settings.cadence_sec
+        cadence = self._settings.cadence_s
         return int(now.timestamp()) // cadence * cadence
 
     async def tick(self, now: datetime) -> bool:
@@ -233,7 +233,7 @@ class Recorder:
         """
         if (
             not self._waveforms
-            or slot % self._settings.tail_cadence_sec != 0
+            or slot % self._settings.tail_cadence_s != 0
             or slot == self._last_waveform_slot
         ):
             return False
@@ -278,7 +278,7 @@ class Recorder:
     # ------------------------------------------------------------------
 
     def _seconds_to_next_slot(self, now: datetime) -> float:
-        cadence = self._settings.cadence_sec
+        cadence = self._settings.cadence_s
         elapsed = now.timestamp() % cadence
         return cadence - elapsed
 
@@ -338,9 +338,12 @@ async def _connect() -> ControlSystemConnector:
     may not reach. With no gateway configured, ``connect()`` leaves the
     environment as it stands.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
 
-    return await ConnectorFactory.create_control_system_connector({"type": "epics"})
+    return await ConnectorFactory.create_control_system_connector(
+        ControlSystemSection.read({"type": "epics"})
+    )
 
 
 def channel_access_reader(settings: RecorderSettings) -> ChannelReader:
@@ -363,7 +366,7 @@ def channel_access_reader(settings: RecorderSettings) -> ChannelReader:
     sample cadence, so one unreachable channel cannot cost the whole sample:
     what answered by then is kept, and the rest is dropped.
     """
-    cadence = float(settings.cadence_sec)
+    cadence = float(settings.cadence_s)
     connector: ControlSystemConnector | None = None
 
     async def read(addresses: Sequence[str]) -> Mapping[str, Any]:

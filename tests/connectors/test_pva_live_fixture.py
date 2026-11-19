@@ -422,7 +422,7 @@ def tool_singletons():
         reset_server_context()
         reset_artifact_store()
         reset_config_cache()
-        config_module._config_cache.clear()
+        config_module._loads.clear()
 
     reset_all()
     yield

@@ -36,6 +36,7 @@ from osprey.apps.errors import AppManifestError
 from osprey.mcp_server import approval_record
 from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.refusals import VerdictReason, refusal_text
 from osprey_connectors.workspace import load_osprey_config
 from osprey_connectors.write_switch import Refused, WriteVerdict
@@ -259,7 +260,7 @@ def _verdict(config: Mapping[str, Any]) -> WriteVerdict:
     target = recorded_control_target()
     section = config.get("control_system")
     try:
-        return execution_verdict(section or {}, target)
+        return execution_verdict(ControlSystemSection.read(section or {}), target)
     except Exception:  # unknown posture must not write
         logger.warning(
             "Execution verdict for an application tool could not be reached", exc_info=True

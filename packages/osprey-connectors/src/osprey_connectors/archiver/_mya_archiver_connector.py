@@ -76,7 +76,7 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.errors import ArchiveQueryError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
@@ -320,7 +320,7 @@ class MYAArchiverConnector(ChannelArchive):
         self._deployment: str = config.get("deployment") or _DEFAULT_DEPLOYMENT
         self._timeout: float = connection.timeout_or(_DEFAULT_TIMEOUT_S)
         zone = config.get("timezone")
-        self._timezone: ZoneInfo = ZoneInfo(zone) if zone else get_facility_timezone()
+        self._timezone: ZoneInfo = ZoneInfo(zone) if zone else facility_timezone()
 
         logger.debug(
             "MYA archiver connected: %s (deployment=%s)",

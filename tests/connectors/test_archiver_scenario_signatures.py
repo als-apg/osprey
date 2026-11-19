@@ -40,7 +40,7 @@ import yaml
 import osprey
 from osprey.facility.sources import read_yaml
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 from osprey_connectors.service_answers import BackendSpec, Unavailable
@@ -183,7 +183,7 @@ class TestRfThermal:
             days_ago=when["days_ago"],
             time=clock if isinstance(clock, time) else time.fromisoformat(str(clock)),
         )
-        return resolve_relative_timestamp(spec, RF_ANCHOR.astimezone(get_facility_timezone()))
+        return resolve_relative_timestamp(spec, RF_ANCHOR.astimezone(facility_timezone()))
 
     def _entry(self, scenario: dict, entry_id: str) -> datetime:
         when = next(entry["when"] for entry in scenario["logbook"] if entry["entry_id"] == entry_id)

@@ -29,6 +29,7 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     EPICS,
     IN_PROCESS,
@@ -87,7 +88,7 @@ def test_a_standin_baseline_is_switch_capable_and_does_not_raise():
     )
 
     # Act / Assert
-    assert switch_capable(section) is True
+    assert switch_capable(ControlSystemSection.read(section)) is True
 
 
 def test_a_standin_beside_a_simulator_is_switch_capable_without_a_live_block():
@@ -108,8 +109,8 @@ def test_a_standin_beside_a_simulator_is_switch_capable_without_a_live_block():
     )
 
     # Act / Assert
-    assert switch_capable(section) is True
-    assert configured_targets(section) == [TARGET_VA, TARGET_STANDIN]
+    assert switch_capable(ControlSystemSection.read(section)) is True
+    assert configured_targets(ControlSystemSection.read(section)) == [TARGET_VA, TARGET_STANDIN]
 
 
 def test_a_va_baseline_beside_a_standin_is_switch_capable():
@@ -124,8 +125,8 @@ def test_a_va_baseline_beside_a_standin_is_switch_capable():
     )
 
     # Act / Assert
-    assert switch_capable(section) is True
-    assert configured_targets(section) == [TARGET_VA, TARGET_STANDIN]
+    assert switch_capable(ControlSystemSection.read(section)) is True
+    assert configured_targets(ControlSystemSection.read(section)) == [TARGET_VA, TARGET_STANDIN]
 
 
 @pytest.mark.parametrize(
@@ -144,7 +145,7 @@ def test_a_va_baseline_beside_a_standin_is_switch_capable():
 )
 def test_a_single_target_render_is_not_switch_capable(section):
     """One configured target is nowhere to switch to."""
-    assert switch_capable(section) is False
+    assert switch_capable(ControlSystemSection.read(section)) is False
 
 
 def test_the_live_and_va_pair_is_still_switch_capable():
@@ -159,7 +160,7 @@ def test_the_live_and_va_pair_is_still_switch_capable():
     )
 
     # Act / Assert
-    assert switch_capable(section) is True
+    assert switch_capable(ControlSystemSection.read(section)) is True
 
 
 def test_the_in_process_simulator_carrying_a_live_block_is_switch_capable():
@@ -178,7 +179,7 @@ def test_the_in_process_simulator_carrying_a_live_block_is_switch_capable():
     )
 
     # Act / Assert
-    assert switch_capable(section) is True
+    assert switch_capable(ControlSystemSection.read(section)) is True
 
 
 @pytest.mark.parametrize(
@@ -238,13 +239,15 @@ def test_the_in_process_simulator_carrying_a_live_block_is_switch_capable():
 )
 def test_switch_capable_is_two_configured_targets(section):
     """A resolvable section is switch-capable exactly when it configures two targets."""
-    assert switch_capable(section) is (len(configured_targets(section)) >= 2)
+    assert switch_capable(ControlSystemSection.read(section)) is (
+        len(configured_targets(ControlSystemSection.read(section))) >= 2
+    )
 
 
 @pytest.mark.parametrize("section", [None, [], "epics"])
 def test_a_section_that_is_not_a_mapping_is_not_switch_capable(section):
     """Only a ``control_system:`` mapping can configure a target."""
-    assert switch_capable(section) is False
+    assert switch_capable(ControlSystemSection.read(section)) is False
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +267,11 @@ def test_the_configured_targets_are_the_baseline_and_every_block_behind_one():
     )
 
     # Act / Assert
-    assert configured_targets(section) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+    assert configured_targets(ControlSystemSection.read(section)) == [
+        TARGET_LIVE,
+        TARGET_VA,
+        TARGET_STANDIN,
+    ]
 
 
 def test_a_standin_baseline_keeps_the_vocabulary_order():
@@ -280,7 +287,11 @@ def test_a_standin_baseline_keeps_the_vocabulary_order():
     )
 
     # Act / Assert
-    assert configured_targets(section) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+    assert configured_targets(ControlSystemSection.read(section)) == [
+        TARGET_LIVE,
+        TARGET_VA,
+        TARGET_STANDIN,
+    ]
 
 
 def test_a_va_baseline_enumerates_exactly_as_it_did_before_the_third_target():
@@ -295,7 +306,7 @@ def test_a_va_baseline_enumerates_exactly_as_it_did_before_the_third_target():
     )
 
     # Act / Assert
-    assert configured_targets(section) == [TARGET_LIVE, TARGET_VA]
+    assert configured_targets(ControlSystemSection.read(section)) == [TARGET_LIVE, TARGET_VA]
 
 
 @pytest.mark.parametrize(
@@ -312,7 +323,7 @@ def test_a_target_without_a_usable_block_is_not_configured(standin_block: Any):
     section = _section(EPICS, connector=connector)
 
     # Act / Assert
-    assert configured_targets(section) == [TARGET_LIVE]
+    assert configured_targets(ControlSystemSection.read(section)) == [TARGET_LIVE]
 
 
 def test_a_live_that_does_not_resolve_is_not_a_configured_target():
@@ -321,16 +332,18 @@ def test_a_live_that_does_not_resolve_is_not_a_configured_target():
     section = _section(VIRTUAL_ACCELERATOR, connector={"virtual_accelerator": VA_BLOCK})
 
     # Act / Assert
-    assert configured_targets(section) == [TARGET_VA]
+    assert configured_targets(ControlSystemSection.read(section)) == [TARGET_VA]
 
 
 def test_the_baseline_is_configured_even_with_no_block_of_its_own():
     """A deployment is on the connector ``control_system.type`` builds regardless."""
     # Act / Assert
-    assert configured_targets(_section()) == [TARGET_VA]
-    assert configured_targets(_section(connector={})) == [TARGET_VA]
-    assert configured_targets(_section(VIRTUAL_ACCELERATOR)) == [TARGET_VA]
-    assert configured_targets(_section(LIVE_STANDIN)) == [TARGET_STANDIN]
+    assert configured_targets(ControlSystemSection.read(_section())) == [TARGET_VA]
+    assert configured_targets(ControlSystemSection.read(_section(connector={}))) == [TARGET_VA]
+    assert configured_targets(ControlSystemSection.read(_section(VIRTUAL_ACCELERATOR))) == [
+        TARGET_VA
+    ]
+    assert configured_targets(ControlSystemSection.read(_section(LIVE_STANDIN))) == [TARGET_STANDIN]
 
 
 @pytest.mark.parametrize(
@@ -339,7 +352,7 @@ def test_the_baseline_is_configured_even_with_no_block_of_its_own():
 def test_a_section_that_is_not_a_mapping_still_has_its_baseline(section: Any):
     """Never raises and never empty: the one target such a deployment is on."""
     # Act / Assert
-    assert configured_targets(section) == [TARGET_VA]
+    assert configured_targets(ControlSystemSection.read(section)) == [TARGET_VA]
 
 
 def test_asking_which_targets_are_configured_does_not_mutate_the_section():
@@ -348,7 +361,7 @@ def test_asking_which_targets_are_configured_does_not_mutate_the_section():
     before = {"type": EPICS, "connector": {"epics": {"port": 5064}}}
 
     # Act
-    configured_targets(section)
+    configured_targets(ControlSystemSection.read(section))
 
     # Assert
     assert section == before
@@ -379,9 +392,9 @@ def test_a_block_the_tier_rewrite_emptied_is_left_as_an_empty_mapping_and_not_co
     )
 
     # Act / Assert
-    assert target_configured(rewritten, TARGET_VA) is False
-    assert configured_targets(rewritten) == [TARGET_LIVE]
-    assert switch_capable(rewritten) is False
+    assert target_configured(ControlSystemSection.read(rewritten), TARGET_VA) is False
+    assert configured_targets(ControlSystemSection.read(rewritten)) == [TARGET_LIVE]
+    assert switch_capable(ControlSystemSection.read(rewritten)) is False
 
 
 def test_a_baseline_whose_own_block_the_rewrite_emptied_is_still_configured():
@@ -398,5 +411,5 @@ def test_a_baseline_whose_own_block_the_rewrite_emptied_is_still_configured():
     )
 
     # Act / Assert
-    assert configured_targets(rewritten) == [TARGET_VA]
-    assert switch_capable(rewritten) is False
+    assert configured_targets(ControlSystemSection.read(rewritten)) == [TARGET_VA]
+    assert switch_capable(ControlSystemSection.read(rewritten)) is False

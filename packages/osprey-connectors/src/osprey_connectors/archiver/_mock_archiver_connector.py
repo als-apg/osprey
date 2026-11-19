@@ -23,7 +23,7 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.control_system._va_in_process_connector import (
     SIMULATOR_VIEW_SETTING,
     simulation_state_dir,
@@ -122,7 +122,7 @@ class MockArchiverConnector(ChannelArchive):
                 active = parse_active_state(self._state_file.read_text(encoding="utf-8"))
             except FileNotFoundError:
                 signature = None
-        self._archive = build(self._view, active, tz=get_facility_timezone())
+        self._archive = build(self._view, active, tz=facility_timezone())
         self._state_signature = signature
 
     def _open(self) -> None:

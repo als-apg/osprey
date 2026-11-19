@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.refusals import REASONS
 from osprey_connectors.write_switch import backstop_verdict, write_verdict
 from osprey_connectors_tests._harness._write_verdict_cases import (
@@ -44,12 +45,12 @@ def test_package_verdict_matches_the_row(case: Case, monkeypatch, tmp_path):
     stage(case, monkeypatch, tmp_path)
 
     if case.verdict == "backstop":
-        verdict = backstop_verdict(case.section)
+        verdict = backstop_verdict(ControlSystemSection.read(case.section))
         assert verdict.target is None
         assert verdict.kind is None
     else:
         verdict = write_verdict(
-            case.section,
+            ControlSystemSection.read(case.section),
             case.target,
             ignore_launch_pin=case.ignore_launch_pin,
             **owner_argument(case),

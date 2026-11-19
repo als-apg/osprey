@@ -73,10 +73,11 @@ def test_a_malformed_cap_is_refused_naming_the_key(value):
 def test_a_non_mapping_config_entry_reads_as_absent(monkeypatch):
     import osprey_connectors.config as connectors_config
 
+    sections = {"models": "oops", "api.providers": {"p": "oops"}}
     monkeypatch.setattr(
         connectors_config,
-        "get_configurable",
-        lambda config_path=None: {"model_configs": "oops", "provider_configs": {"p": "oops"}},
+        "get_config_value",
+        lambda path, default=None, config_path=None: sections.get(path, default),
     )
     assert get_model_config("m") == {}
     assert get_provider_config("p") == {}

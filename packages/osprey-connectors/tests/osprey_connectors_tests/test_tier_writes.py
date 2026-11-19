@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors import targets, write_tier
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     EPICS,
     LIVE_STANDIN,
@@ -65,13 +66,13 @@ def test_new_names_are_exported() -> None:
 
 
 def test_literal_allowed_arms() -> None:
-    assert tier_writes(_section(writes="allowed")) == "allowed"
-    assert tier_allows(_section(writes="allowed")) is True
+    assert tier_writes(ControlSystemSection.read(_section(writes="allowed"))) == "allowed"
+    assert tier_allows(ControlSystemSection.read(_section(writes="allowed"))) is True
 
 
 def test_literal_asked_arms() -> None:
-    assert tier_writes(_section(writes="asked")) == "asked"
-    assert tier_allows(_section(writes="asked")) is True
+    assert tier_writes(ControlSystemSection.read(_section(writes="asked"))) == "asked"
+    assert tier_allows(ControlSystemSection.read(_section(writes="asked"))) is True
 
 
 @pytest.mark.parametrize(
@@ -102,14 +103,14 @@ def test_literal_asked_arms() -> None:
     ],
 )
 def test_any_other_value_of_the_new_key_is_never(value: Any) -> None:
-    assert tier_writes(_section(writes=value)) == "never"
-    assert tier_allows(_section(writes=value)) is False
+    assert tier_writes(ControlSystemSection.read(_section(writes=value))) == "never"
+    assert tier_allows(ControlSystemSection.read(_section(writes=value))) is False
 
 
 @pytest.mark.parametrize("section", [None, "allowed", True, 1, ["writes"], ("allowed",), object()])
 def test_a_section_that_is_not_a_mapping_is_never(section: Any) -> None:
-    assert tier_writes(section) == "never"
-    assert tier_allows(section) is False
+    assert tier_writes(ControlSystemSection.read(section)) == "never"
+    assert tier_allows(ControlSystemSection.read(section)) is False
 
 
 # -- the new key absent: never, whatever the retired leaves say ------------------
@@ -146,8 +147,8 @@ def test_a_section_that_is_not_a_mapping_is_never(section: Any) -> None:
 )
 def test_an_unrebuilt_render_reads_never(section: dict[str, Any]) -> None:
     """A render from before the tier key existed is ``never`` until it is rebuilt."""
-    assert tier_writes(section) == "never"
-    assert tier_allows(section) is False
+    assert tier_writes(ControlSystemSection.read(section)) == "never"
+    assert tier_allows(ControlSystemSection.read(section)) is False
 
 
 @pytest.mark.parametrize(
@@ -172,8 +173,8 @@ def test_an_unrebuilt_render_reads_never(section: dict[str, Any]) -> None:
     ],
 )
 def test_absent_key_with_nothing_stated_is_never(section: dict[str, Any]) -> None:
-    assert tier_writes(section) == "never"
-    assert tier_allows(section) is False
+    assert tier_writes(ControlSystemSection.read(section)) == "never"
+    assert tier_allows(ControlSystemSection.read(section)) is False
 
 
 # -- both present: the new key decides ------------------------------------------
@@ -193,17 +194,17 @@ def test_new_key_decides_when_both_are_present(writes: Any, expected: str) -> No
     armed = _section(
         writes=writes, writes_enabled=True, connector={EPICS: {"writes_enabled": True}}
     )
-    assert tier_writes(armed) == expected
+    assert tier_writes(ControlSystemSection.read(armed)) == expected
     unarmed = _section(
         writes=writes, writes_enabled=False, connector={EPICS: {"writes_enabled": False}}
     )
-    assert tier_writes(unarmed) == expected
+    assert tier_writes(ControlSystemSection.read(unarmed)) == expected
 
 
 def test_tier_reading_never_mutates_the_section() -> None:
     section = _section(writes_enabled=True, connector={EPICS: {"writes_enabled": True}})
     snapshot = repr(section)
-    tier_writes(section)
+    tier_writes(ControlSystemSection.read(section))
     assert repr(section) == snapshot
 
 
@@ -215,33 +216,33 @@ def test_tier_reading_never_mutates_the_section() -> None:
     [(TARGET_LIVE, "real"), (TARGET_STANDIN, "real"), (TARGET_VA, "simulator")],
 )
 def test_machine_kind_per_target(target: str, kind: str) -> None:
-    assert machine_kind(_section(), target) == kind
+    assert machine_kind(ControlSystemSection.read(_section()), target) == kind
 
 
 @pytest.mark.parametrize("target", [None, "", "LIVE", "Live", " live", "sim", "epics", 0, True])
 def test_machine_kind_of_an_unknown_target_is_none(target: Any) -> None:
-    assert machine_kind(_section(), target) is None
+    assert machine_kind(ControlSystemSection.read(_section()), target) is None
 
 
 def test_machine_kind_of_live_with_no_real_machine_is_none() -> None:
     """Baselined on the simulator with no real block: ``live`` does not resolve."""
     section = {"type": VIRTUAL_ACCELERATOR}
-    assert machine_kind(section, TARGET_LIVE) is None
-    assert machine_kind(section, TARGET_VA) == "simulator"
-    assert machine_kind(section, TARGET_STANDIN) == "real"
+    assert machine_kind(ControlSystemSection.read(section), TARGET_LIVE) is None
+    assert machine_kind(ControlSystemSection.read(section), TARGET_VA) == "simulator"
+    assert machine_kind(ControlSystemSection.read(section), TARGET_STANDIN) == "real"
 
 
 def test_machine_kind_of_live_derived_from_the_connector_table_is_real() -> None:
     section = {"type": VIRTUAL_ACCELERATOR, "connector": {EPICS: {}}}
-    assert machine_kind(section, TARGET_LIVE) == "real"
+    assert machine_kind(ControlSystemSection.read(section), TARGET_LIVE) == "real"
 
 
 @pytest.mark.parametrize("section", [None, "epics", 3])
 def test_machine_kind_on_a_section_that_is_not_a_mapping_never_raises(section: Any) -> None:
-    assert machine_kind(section, TARGET_VA) == "simulator"
-    assert machine_kind(section, "nope") is None
+    assert machine_kind(ControlSystemSection.read(section), TARGET_VA) == "simulator"
+    assert machine_kind(ControlSystemSection.read(section), "nope") is None
     # live on an unreadable section either resolves or is None; it never raises.
-    assert machine_kind(section, TARGET_LIVE) in ("real", None)
+    assert machine_kind(ControlSystemSection.read(section), TARGET_LIVE) in ("real", None)
 
 
 # -- published_machine_kind -------------------------------------------------------
@@ -333,10 +334,16 @@ def test_write_ceiling_is_the_tier_on_a_host_and_the_rung_under_a_tree(
     monkeypatch, tree_bound, section, ceiling
 ):
     from osprey_connectors import write_switch
+    from osprey_connectors.config_sections import ControlSystemSection
 
     if tree_bound:
         monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
     else:
         monkeypatch.delenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
-    assert write_switch.write_ceiling(section, "alice") == ceiling
-    assert write_switch.write_ceiling(section, "alice", tree_bound=tree_bound) == ceiling
+    assert write_switch.write_ceiling(ControlSystemSection.read(section), "alice") == ceiling
+    assert (
+        write_switch.write_ceiling(
+            ControlSystemSection.read(section), "alice", tree_bound=tree_bound
+        )
+        == ceiling
+    )

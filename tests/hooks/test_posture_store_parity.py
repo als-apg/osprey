@@ -35,6 +35,7 @@ import pytest
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import _control_state, control_context, execution_mode, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import switch_capable
 from osprey_connectors_tests._harness import (
     pin_identity,
@@ -820,4 +821,4 @@ _GW = {"gateways": {"read_only": {"address": "gw"}}}
 )
 def test_the_hook_decides_switch_capability_as_the_connector_module_does(section):
     """The stdlib mirror and the framework predicate answer every shape alike."""
-    assert reader._switch_capable(section) == switch_capable(section)
+    assert reader._switch_capable(section) == switch_capable(ControlSystemSection.read(section))

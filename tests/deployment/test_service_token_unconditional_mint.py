@@ -449,11 +449,11 @@ def _load_the_entry_point_chain(monkeypatch, repo):
     because the thing being measured IS that this step is what makes the shared
     half visible.
     """
-    import osprey_connectors.config as config
+    import osprey_connectors.dotenv as dotenv_module
 
-    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setattr(dotenv_module, "_shell_overrides", {})
     monkeypatch.chdir(repo)
-    config.load_project_dotenv()
+    dotenv_module.load_project_dotenv()
 
 
 def test_a_token_only_the_shared_half_carries_is_minted_over(_clean_token_env, tmp_path):

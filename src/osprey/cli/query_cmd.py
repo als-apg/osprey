@@ -83,8 +83,7 @@ def _overlay_repo_env(repo_root: Path) -> None:
     addressing among them) out of this environment, so a narrowed copy would
     silently mis-address the control system rather than fail.
     """
-    from osprey_connectors.config import apply_env_chain
-    from osprey_connectors.dotenv import chain_files
+    from osprey_connectors.dotenv import apply_env_chain, chain_files
 
     apply_env_chain(os.environ, chain_files(repo_root))
 

@@ -24,6 +24,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile_deploy import limits_block_errors
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.limits_posture import (
@@ -32,6 +33,7 @@ from osprey_connectors.limits_posture import (
     incomplete_limits_blocks,
     type_limits_posture,
 )
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 BOUNDED = "DEMO:MAG:HCM:01:CURRENT:SP"
 LOCKED = "DEMO:VAC:PUMP:01:VOLTAGE:SP"
@@ -60,11 +62,8 @@ def _validator(monkeypatch, tmp_path: Path, mode: Any) -> LimitsValidator:
         "control_system.limits_checking.database_path": str(db_file),
         "project_root": None,
     }
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator
@@ -103,11 +102,8 @@ class TestTheModeDecidesAChannelWithNoRecord:
             "control_system": {"limits_checking": {"enabled": True}},
             "control_system.limits_checking.database_path": str(db_file),
         }
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda key, default=None: values.get(key, default),
-        )
-        monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+        serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
+        monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
         refusal = _refusal(LimitsValidator.from_config(), UNLISTED, 499.5)
 
@@ -145,20 +141,20 @@ class TestTheModeIsPerConnectorType:
     }
 
     def test_a_per_type_block_answers_for_its_type(self) -> None:
-        posture = type_limits_posture(self.SECTION, VA)
+        posture = type_limits_posture(ControlSystemSection.read(self.SECTION), VA)
 
         assert posture == LimitsPosture(enabled=True, mode="optional", connector_type=VA)
         assert posture.key("mode") == VA_MODE_KEY
 
     def test_a_type_with_no_block_reads_the_deployment_wide_mode(self) -> None:
-        posture = type_limits_posture(self.SECTION, "epics")
+        posture = type_limits_posture(ControlSystemSection.read(self.SECTION), "epics")
 
         assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key("mode") == MODE_KEY
 
     def test_strict_is_enabled_and_exclusive(self) -> None:
-        assert type_limits_posture(self.SECTION, "epics").strict is True
-        assert type_limits_posture(self.SECTION, VA).strict is False
+        assert type_limits_posture(ControlSystemSection.read(self.SECTION), "epics").strict is True
+        assert type_limits_posture(ControlSystemSection.read(self.SECTION), VA).strict is False
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +218,7 @@ class TestABadModeFailsTheBuild:
     def test_a_per_type_bad_mode_names_the_per_type_key(self, mode: Any) -> None:
         section = {"connector": {VA: {"limits_checking": {"enabled": True, "mode": mode}}}}
 
-        (error,) = incomplete_limits_blocks(section)
+        (error,) = incomplete_limits_blocks(ControlSystemSection.read(section))
 
         assert error.startswith(f"{VA_MODE_KEY} is {mode!r}, not exclusive or optional")
 
@@ -262,7 +258,9 @@ class TestALeafTheBlockDoesNotDefineFailsTheBuild:
     def test_a_per_type_block_is_checked_too(self) -> None:
         block = {"enabled": True, "mode": "optional", LEFTOVER_LEAF: True}
 
-        errors = incomplete_limits_blocks({"connector": {VA: {"limits_checking": block}}})
+        errors = incomplete_limits_blocks(
+            ControlSystemSection.read({"connector": {VA: {"limits_checking": block}}})
+        )
 
         assert errors == [
             f"control_system.connector.{VA}.limits_checking.{LEFTOVER_LEAF} is not a limits "
@@ -277,7 +275,9 @@ class TestALeafTheBlockDoesNotDefineFailsTheBuild:
     def test_a_per_type_block_takes_no_database_path(self) -> None:
         block = {"enabled": True, "mode": "optional", "database_path": "data/channel_limits.json"}
 
-        errors = incomplete_limits_blocks({"connector": {VA: {"limits_checking": block}}})
+        errors = incomplete_limits_blocks(
+            ControlSystemSection.read({"connector": {VA: {"limits_checking": block}}})
+        )
 
         assert errors == [
             f"control_system.connector.{VA}.limits_checking.database_path is not a limits "

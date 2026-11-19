@@ -2,7 +2,9 @@
 
 from contextlib import nullcontext
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+from osprey_connectors_tests._config_lookup import config_lookup_patched
 
 
 def make_channel_value(value, sampled_at=datetime(2024, 1, 15, 10, 30, tzinfo=UTC)):
@@ -37,4 +39,4 @@ def config_patch(overrides: dict):
             return overrides[path]
         return real(path, default, *args, **kwargs)
 
-    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
+    return config_lookup_patched(fake)

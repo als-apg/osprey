@@ -70,6 +70,7 @@ from dataclasses import dataclass
 
 from osprey.mcp_server.control_system.target_state import TARGET_LIVE
 from osprey_connectors import control_context, targets
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_banner")
@@ -127,7 +128,7 @@ def resolve_baseline_target() -> str:
     """
     config = load_osprey_config()
     section = config.get("control_system") if isinstance(config, dict) else None
-    return targets.baseline_target(section)
+    return targets.baseline_target(ControlSystemSection.read(section))
 
 
 def resolve_control_target(baseline_target: str) -> str:

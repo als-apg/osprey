@@ -1131,7 +1131,7 @@ def test_capabilities_names_the_facility_zone(client):
     from zoneinfo import ZoneInfo
 
     with patch(
-        "osprey.interfaces.ariel.api.routes.get_facility_timezone",
+        "osprey.interfaces.ariel.api.routes.facility_timezone",
         return_value=ZoneInfo("Asia/Tokyo"),
     ):
         response = client.get("/api/capabilities")

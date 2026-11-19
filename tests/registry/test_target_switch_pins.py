@@ -212,11 +212,12 @@ def test_a_writes_off_render_does_not_deny_the_switch_tool(tmp_path) -> None:
     # above describe the static-deny render and not an `allowed` one (which
     # denies nothing statically, and would pass these pins for the wrong
     # reason). The tier key alone decides when present.
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_writes
 
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     assert config["control_system"]["writes"] == "never"
-    assert tier_writes(config["control_system"]) == "never"
+    assert tier_writes(ControlSystemSection.read(config["control_system"])) == "never"
 
 
 # ---------------------------------------------------------------------------
@@ -358,10 +359,11 @@ def _framework_target_type(section: dict, target: str) -> str | None:
     raise into a hook — so agreement is checked against that translation rather
     than against the exception itself.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import resolve_target
 
     try:
-        return resolve_target(section, target)
+        return resolve_target(ControlSystemSection.read(section), target)
     except ValueError:
         return None
 
@@ -384,11 +386,14 @@ def test_the_reader_derives_targets_exactly_as_the_framework_does(connector, bas
     baseline type is driven through both copies and the answers compared.
     """
     from osprey_connectors import connector_types, targets
+    from osprey_connectors.config_sections import ControlSystemSection
 
     reader = _reader()
     section = {"type": baseline_type, "connector": connector}
 
-    assert reader._baseline_target(section) == targets.baseline_target(section)
+    assert reader._baseline_target(section) == targets.baseline_target(
+        ControlSystemSection.read(section)
+    )
     assert reader._live_type(section) == _framework_target_type(section, "live")
     for target in connector_types.CONTROL_TARGETS:
         assert reader.target_type(section, target) == _framework_target_type(section, target)
@@ -402,6 +407,7 @@ def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> Non
     fold in a posture for a soft IOC nobody stood up.
     """
     from osprey_connectors import connector_types, targets
+    from osprey_connectors.config_sections import ControlSystemSection
 
     reader = _reader()
     without = {
@@ -421,9 +427,9 @@ def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> Non
         # The reachable set: every
         # configured target when the deployment renders the switch, else its baseline.
         reachable = (
-            targets.configured_targets(section)
-            if targets.switch_capable(section)
-            else [targets.baseline_target(section)]
+            targets.configured_targets(ControlSystemSection.read(section))
+            if targets.switch_capable(ControlSystemSection.read(section))
+            else [targets.baseline_target(ControlSystemSection.read(section))]
         )
         assert sorted(reader.session_types(section)) == sorted(reachable)
     assert "standin" not in reader.session_types(without)
@@ -517,6 +523,7 @@ def standin_settings_renders(tmp_path_factory) -> dict:
     """
     from osprey.cli.templates.manager import TemplateManager
     from osprey_connectors import connector_types, targets
+    from osprey_connectors.config_sections import ControlSystemSection
 
     manager = TemplateManager()
     project_dir = create_project_as_built(
@@ -560,7 +567,7 @@ def standin_settings_renders(tmp_path_factory) -> dict:
         # ``configured_targets`` reads the module global at call time, so it
         # does — asserted here rather than assumed.
         assert targets.configured_targets(
-            {"type": "virtual_accelerator", "connector": three_connector}
+            ControlSystemSection.read({"type": "virtual_accelerator", "connector": three_connector})
         ) == [connector_types.TARGET_LIVE, connector_types.TARGET_VA], (
             "configured_targets did not follow the patched CONTROL_TARGETS — it "
             "captured the vocabulary at import time, and this pin cannot compare "
@@ -590,6 +597,7 @@ def test_a_two_target_deployment_enumerates_exactly_its_two_targets() -> None:
     below are downstream of — stated on its own because a phantom slot is worth
     catching without paying for a project render.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
     from osprey_connectors.targets import configured_targets
 
@@ -600,11 +608,15 @@ def test_a_two_target_deployment_enumerates_exactly_its_two_targets() -> None:
     two = {"type": "virtual_accelerator", "writes": "allowed", "connector": connector}
     three = {**two, "connector": {**connector, "live_standin": {"timeout_s": 5.0}}}
 
-    assert configured_targets(two) == [TARGET_LIVE, TARGET_VA]
+    assert configured_targets(ControlSystemSection.read(two)) == [TARGET_LIVE, TARGET_VA]
     # The mirror: the same deployment WITH a stand-in block does get the slot,
     # so the absence above is the config's doing and not a target that fell out
     # of the enumeration everywhere.
-    assert configured_targets(three) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+    assert configured_targets(ControlSystemSection.read(three)) == [
+        TARGET_LIVE,
+        TARGET_VA,
+        TARGET_STANDIN,
+    ]
 
 
 @pytest.mark.slow
@@ -649,6 +661,7 @@ def test_a_configured_standin_does_reach_the_settings_render(
     same two-target config on a ``never`` tier renders differently, and denies
     the write tool the ``allowed`` render does not.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
     from osprey_connectors.targets import configured_targets
     from osprey_connectors.write_tier import tier_writes
@@ -656,12 +669,12 @@ def test_a_configured_standin_does_reach_the_settings_render(
     renders = standin_settings_renders
 
     # The stand-in really is configured: the third render is a three-target one.
-    assert configured_targets(renders["three_section"]) == [
+    assert configured_targets(ControlSystemSection.read(renders["three_section"])) == [
         TARGET_LIVE,
         TARGET_VA,
         TARGET_STANDIN,
     ]
-    assert tier_writes(renders["three_section"]) == "allowed"
+    assert tier_writes(ControlSystemSection.read(renders["three_section"])) == "allowed"
     assert renders["three"] == renders["two"], (
         "a configured stand-in changed the permission render — a target, not the "
         "tier, is deciding what Claude Code is launched with"

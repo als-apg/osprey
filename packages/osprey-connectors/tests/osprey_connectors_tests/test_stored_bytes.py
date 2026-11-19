@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from osprey_connectors import control_context, session_hold, testing
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_context import (
     ControlContext,
     MachineStatement,
@@ -1142,16 +1143,19 @@ def _file_of(name: str, grant_id: str) -> Path:
 def test_a_write_over_a_file_in_the_previous_format_refuses_unreadable(name: str) -> None:
     """The same grant and lease allow; the file rewritten as the previous writer did refuses."""
     grant = _approved()
-    assert wa._verdict(SECTION, "va", OPS, grant.id, None, None).allowed is True
+    assert (
+        wa._verdict(ControlSystemSection.read(SECTION), "va", OPS, grant.id, None, None).allowed
+        is True
+    )
 
     path = _file_of(name, grant.id)
     previous = _previous_format(json.loads(path.read_bytes()))
     path.write_text(json.dumps(previous, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     before = path.read_bytes()
 
-    answer = wa._verdict(SECTION, "va", OPS, grant.id, None, None)
+    answer = wa._verdict(ControlSystemSection.read(SECTION), "va", OPS, grant.id, None, None)
     assert (answer.allowed, answer.reason) == (False, "auth_unreadable")
-    spent = wa._spend(SECTION, "va", OPS, grant.id, None, None)
+    spent = wa._spend(ControlSystemSection.read(SECTION), "va", OPS, grant.id, None, None)
     assert (spent.allowed, spent.reason) == (False, "auth_unreadable")
     assert path.read_bytes() == before
 

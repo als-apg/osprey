@@ -133,7 +133,7 @@ def default_altitude(
     ``load_project_dotenv`` is stubbed because it writes an ancestor ``.env``
     straight into ``os.environ``, which would outlive the test.
     """
-    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.dotenv.load_project_dotenv", lambda *a, **k: None)
     result = CliRunner().invoke(cli, [])
     assert result.exit_code == 0, result.output
     logging.getLogger().setLevel(logging.INFO)
@@ -517,7 +517,7 @@ class TestVerboseKeepsThePrimaryOutput:
     ):
         from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
-        monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
+        monkeypatch.setattr("osprey_connectors.dotenv.load_project_dotenv", lambda *a, **k: None)
         assert CliRunner().invoke(cli, ["-v"]).exit_code == 0
 
         (tmp_path / ENV_SHARED_FILENAME).write_text("ARIEL_DB_PASSWORD=shared\n", encoding="utf-8")
@@ -688,9 +688,7 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
 
-    knobs = SimpleNamespace(
-        retention_days=7, hot_span_hours=6, hot_cadence_sec=1, tail_cadence_sec=60
-    )
+    knobs = SimpleNamespace(retention_days=7, hot_span_h=6, hot_cadence_s=1, tail_cadence_s=60)
     monkeypatch.setattr(
         seed_mod, "SeedKnobs", SimpleNamespace(from_config=staticmethod(lambda config: knobs))
     )

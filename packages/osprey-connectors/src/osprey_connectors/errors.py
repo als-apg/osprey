@@ -28,6 +28,9 @@ a ``ValueError``. The hierarchy, with each builtin second base::
     ├── ConnectRefusedError                   (ConnectionError) connect refused by policy
     ├── ClientLibraryRefusedError             (RuntimeError)
     ├── ConfigurationError                    (ValueError) a config value, by its key
+    ├── ConfigLoadError                       a config file that did not load, by its path
+    │   ├── ConfigNotFoundError               (also a ConfigurationError; FileNotFoundError)
+    │   └── ConfigParseError                  (also a ConfigurationError) not YAML, or no mapping
     ├── NaiveDatetimeError                    (ValueError) an instant with no zone
     ├── ArchiveQueryError                     (ValueError) an archive query argument
     ├── StateUnavailableError                 (RuntimeError) no state directory
@@ -113,6 +116,9 @@ __all__ = [
     "ChannelWriteFailedError",
     "ChildLinkError",
     "ClientLibraryRefusedError",
+    "ConfigLoadError",
+    "ConfigNotFoundError",
+    "ConfigParseError",
     "ConfigurationError",
     "ConnectRefusedError",
     "ConnectorInternalError",
@@ -618,6 +624,56 @@ class ConfigurationError(ConnectorsError, ValueError):
     def __init__(self, message: str, *, key: str | None = None) -> None:
         self.key = key
         super().__init__(message)
+
+
+class ConfigLoadError(ConnectorsError):
+    """A config file did not load; ``path`` is the file that was asked for.
+
+    Raised as itself when the file could not be read at all: the path names a
+    directory (a container bind-mount whose source was missing is created as
+    one), or reading it failed. A directory is deliberately not a
+    :class:`ConfigNotFoundError`: the readers that degrade on a
+    ``FileNotFoundError`` (the limits validator, the connector host's write
+    report) would read it as "no config here" and turn checks off, where today
+    the load fails. Its two subclasses name the other ways a load fails.
+    """
+
+    def __init__(self, message: str, *, path: Path) -> None:
+        self.path = path
+        super().__init__(message)
+
+
+class ConfigNotFoundError(ConfigLoadError, ConfigurationError, FileNotFoundError):
+    """No config file is there; ``searched`` is every path that was looked at, in order.
+
+    A ``FileNotFoundError``, as the bare refusal it replaces was, and that base
+    is load-bearing: the readers that run without a config (the limits
+    validator answers "no validator", the connector host reports writes off)
+    catch it by that name. ``path`` is the path the load would have read: the
+    one named, or the last place a lookup that named none looked.
+    """
+
+    def __init__(self, message: str, *, path: Path, searched: "Sequence[Path]") -> None:
+        self.searched = tuple(searched)
+        super().__init__(message, path=path)
+
+
+class ConfigParseError(ConfigLoadError, ConfigurationError):
+    """A config file was read but holds no usable config.
+
+    It is not YAML (``line`` is the 1-based line the parser stopped at, when it
+    says), or its document is not a mapping, or one of the sections the loader
+    reads whole is not one (``key`` names it). A ``ValueError``, as the
+    refusals it replaces were.
+    """
+
+    def __init__(
+        self, message: str, *, path: Path, line: int | None = None, key: str | None = None
+    ) -> None:
+        self.line = line
+        super().__init__(message, path=path)
+        # After the bases ran: ConfigurationError's own __init__ sets it to None.
+        self.key = key
 
 
 class NaiveDatetimeError(ConnectorsError, ValueError):

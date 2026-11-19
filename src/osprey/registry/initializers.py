@@ -23,7 +23,7 @@ from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig
 
-logger = get_logger(name="registry.init", color="sky_blue2")
+logger = get_logger("registry.init")
 
 
 # ---------------------------------------------------------------------------

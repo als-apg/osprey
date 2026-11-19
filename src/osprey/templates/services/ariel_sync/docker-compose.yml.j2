@@ -133,8 +133,10 @@ services:
       # Under the project directory, in build/ — the same four-zone shape the
       # repo has, because this container runs the PROJECT image and anything it
       # renders against a project root expects that layout (the dispatch worker
-      # carries the same note).
+      # carries the same note). The connectors package reads OSPREY_CONFIG
+      # alone, so it names the same file.
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
+      OSPREY_CONFIG: /app/{{ osprey_labels.project_name }}/build/config.yml
       OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
       TZ: {{ system.timezone }}
 {{- dial.ariel_store(postgres_deployed, on_host, osprey_host_dial_address, services, osprey_ports) }}

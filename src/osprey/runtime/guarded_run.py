@@ -328,6 +328,7 @@ def guarded_run_target(target: str | None) -> str:
         GuardedRunDirError: If the name is not one of the control targets,
             which would otherwise become a directory of its own.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import CONTROL_TARGETS
     from osprey_connectors.targets import baseline_target
 
@@ -339,7 +340,9 @@ def guarded_run_target(target: str | None) -> str:
         from osprey_connectors.workspace import load_osprey_config
 
         section = load_osprey_config().get("control_system")
-        target = baseline_target(section if isinstance(section, dict) else {})
+        target = baseline_target(
+            ControlSystemSection.read(section if isinstance(section, dict) else {})
+        )
     if target not in CONTROL_TARGETS:
         raise GuardedRunDirError(
             f"Unknown control target {target!r} for a guarded run. "
@@ -507,11 +510,14 @@ def target_limits_off(target: str) -> bool:
     Returns:
         ``True`` only for a complete posture with ``enabled`` ``False``.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.limits_posture import target_limits_posture
     from osprey_connectors.workspace import load_osprey_config
 
     section = load_osprey_config().get("control_system")
-    posture = target_limits_posture(section if isinstance(section, dict) else {}, target)
+    posture = target_limits_posture(
+        ControlSystemSection.read(section if isinstance(section, dict) else {}), target
+    )
     return not posture.incomplete and posture.enabled is False
 
 

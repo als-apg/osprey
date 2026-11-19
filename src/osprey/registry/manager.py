@@ -21,7 +21,7 @@ from .export import export_registry_to_json as _export_registry_to_json
 from .initializers import INITIALIZER_DISPATCH
 from .loader import build_merged_configuration
 
-logger = get_logger(name="registry", color="sky_blue2")
+logger = get_logger("registry")
 
 
 class RegistryManager:
@@ -420,9 +420,9 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
     logger.debug("Creating registry from config...")
     try:
         if config_path:
-            from osprey_connectors.config import get_config_builder
+            from osprey_connectors.config import install_config, load_config
 
-            get_config_builder(config_path=config_path, set_as_default=True)
+            install_config(load_config(config_path))
             logger.debug(f"Set {config_path} as default configuration")
 
         base_path = None

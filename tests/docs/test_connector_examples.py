@@ -305,7 +305,7 @@ def test_the_timezone_config_the_page_shows_ends_the_warning(quickstart_ioc, tmp
     result = _run(
         "read_channels",
         tmp_path,
-        _clean_env(tmp_path, CONFIG_FILE=str(config)),
+        _clean_env(tmp_path, OSPREY_CONFIG=str(config)),
         {"CONFIG": _pointed_at(module.CONFIG, quickstart_ioc.port)},
     )
     assert _ok(result) == _expected("read_channels")
@@ -325,13 +325,10 @@ def test_the_timezone_config_the_page_shows_sets_the_zone(tmp_path):
         [
             sys.executable,
             "-c",
-            (
-                "from osprey_connectors.config import get_facility_timezone; "
-                "print(get_facility_timezone())"
-            ),
+            ("from osprey_connectors.config import facility_timezone; print(facility_timezone())"),
         ],
         cwd=tmp_path,
-        env=_clean_env(tmp_path, CONFIG_FILE=str(config)),
+        env=_clean_env(tmp_path, OSPREY_CONFIG=str(config)),
         capture_output=True,
         text=True,
         timeout=RUN_TIMEOUT_S,
@@ -374,7 +371,7 @@ def test_with_the_tier_armed_the_next_term_refuses(quickstart_ioc, tmp_path):
     result = _run(
         "write_refused",
         tmp_path,
-        _clean_env(tmp_path, CONFIG_FILE=str(config)),
+        _clean_env(tmp_path, OSPREY_CONFIG=str(config)),
         {"CONFIG": _pointed_at(module.CONFIG, quickstart_ioc.port)},
     )
     assert _ok(result).splitlines()[-1] == "[osprey-refusal: target_unknown]"
@@ -432,7 +429,7 @@ def test_read_simulator_reads_the_beam_current(simulator_project, tmp_path):
     result = _run(
         "read_simulator",
         simulator_project,
-        _clean_env(tmp_path, CONFIG_FILE=str(simulator_project / "config.yml")),
+        _clean_env(tmp_path, OSPREY_CONFIG=str(simulator_project / "config.yml")),
     )
     value, units = _ok(result).strip().removeprefix("Value: ").rsplit(" ", 1)
     assert float(value) > 0
@@ -485,7 +482,7 @@ def _approve_when_asked(deadline_s: float) -> wa.Grant:
 
 def test_write_from_a_program_writes_what_was_approved(standin_deployment):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("EPICS_CA", "EPICS_PVA"))}
-    env["CONFIG_FILE"] = str(standin_deployment / "config.yml")
+    env["OSPREY_CONFIG"] = str(standin_deployment / "config.yml")
     program = subprocess.Popen(
         [sys.executable, "-c", _DRIVER, str(EXAMPLES / "write_from_a_program.py"), "{}"],
         cwd=standin_deployment,

@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors import write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 
 #: The two values a 2026.10.0 map entry may carry.
 _RELEASED_LOGIN_TIERS = frozenset({"allowed", "never"})
@@ -72,5 +73,5 @@ def test_the_old_reader_reads_a_two_word_map_as_before():
 
 def test_this_package_reads_each_entry_of_the_same_map(monkeypatch):
     monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
-    assert write_switch.owner_tier_term(MIXED, "alice") == "allowed"
-    assert write_switch.owner_tier_term(MIXED, "bob") == "asked"
+    assert write_switch.owner_tier_term(ControlSystemSection.read(MIXED), "alice") == "allowed"
+    assert write_switch.owner_tier_term(ControlSystemSection.read(MIXED), "bob") == "asked"

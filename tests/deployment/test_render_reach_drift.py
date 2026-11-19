@@ -130,18 +130,19 @@ def _dial_port_va(layer_dir: Path, render_cfg: dict, monkeypatch) -> int:
     ``services.virtual_accelerator.port`` through ``fill_gateway_ports`` before
     any socket is opened; that pure resolution path is called here with the
     render's own rendered connector block and the render's own rendered
-    ``config.yml`` as the ambient config (``CONFIG_FILE``).
+    ``config.yml`` as the ambient config (``OSPREY_CONFIG``).
     """
+    from osprey_connectors.control_system._epics_connector import EpicsSettings
     from osprey_connectors.control_system._va_connector import fill_gateway_ports
     from osprey_connectors.workspace import reset_config_cache
 
-    monkeypatch.setenv("CONFIG_FILE", str(layer_dir / "config.yml"))
-    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    monkeypatch.setenv("OSPREY_CONFIG", str(layer_dir / "config.yml"))
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
     reset_config_cache()
     try:
         va_block = render_cfg["control_system"]["connector"]["virtual_accelerator"]
-        filled = fill_gateway_ports(va_block)
-        ports = {gateway["port"] for gateway in filled["gateways"].values()}
+        rows = EpicsSettings.from_block(va_block, connector_type="virtual_accelerator").gateways
+        ports = {getattr(row, "port", None) for row in fill_gateway_ports(rows).values()}
         assert len(ports) == 1, f"gateways disagree on the VA port: {sorted(ports)}"
         return int(ports.pop())
     finally:

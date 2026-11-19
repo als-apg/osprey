@@ -44,6 +44,14 @@ OWN_STORE = {
 }
 KNOBS = {
     "retention_days": 30,
+    "hot_span_h": 48,
+    "hot_cadence_s": 10,
+    "tail_cadence_s": 60,
+    "recorder_cadence_s": 10,
+}
+#: The same knobs as the directory API serves them, under its own names.
+SERVED_KNOBS = {
+    "retention_days": 30,
     "hot_span_hours": 48,
     "hot_cadence_sec": 10,
     "tail_cadence_sec": 60,
@@ -175,7 +183,7 @@ def test_the_route_answers_the_shared_fixtures_shape(start, tmp_path: Path) -> N
     assert answer["newest_sample"] == "2026-11-12T08:00:04+00:00"
     assert answer["configuration"] == {
         "archiver": {"type": "mongodb_archiver"},
-        "va_archiver": KNOBS,
+        "va_archiver": SERVED_KNOBS,
     }
     assert "MONGO_PASSWORD" not in response.text
 

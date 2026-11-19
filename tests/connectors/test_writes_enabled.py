@@ -9,7 +9,6 @@ switch picks the machine.
 
 from collections.abc import Callable
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -22,6 +21,11 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
 )
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_lookup import (
+    config_lookup_patched,
+    constant_lookup,
+    serve_config_lookup,
+)
 from osprey_connectors_tests._write_fakes import (
     RecordingConnector,
     arm_switch,
@@ -42,7 +46,7 @@ def switch_on(monkeypatch, tmp_path):
 @pytest.fixture
 def armed(switch_on, monkeypatch):
     """A write tier that allows, and the switch on: a write reaches the transport."""
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_config_lookup(monkeypatch, writes_enabled_config)
     return switch_on
 
 
@@ -82,7 +86,7 @@ class TestInitSubclassWrapping:
     async def test_write_blocked_when_disabled(self):
         """A tier that does not allow writes refuses, the write never attempted."""
         connector = _StubConnector()
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             result = await connector.write_channel("TEST:PV", 1.0)
         assert isinstance(result, ChannelWriteResult)
         assert result.outcome is WriteOutcome.REFUSED
@@ -106,7 +110,7 @@ class TestInitSubclassWrapping:
         """A tier that does not allow writes refuses every operation of a batch."""
         connector = _StubConnector()
         ops = [("PV:A", 1.0), ("PV:B", 2.0)]
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             results = await connector.write_multiple_channels(ops)
         assert len(results) == 2
         assert all(r.outcome is WriteOutcome.REFUSED for r in results)
@@ -131,7 +135,7 @@ class TestWritesEnabledProperty:
     @pytest.mark.usefixtures("switch_on")
     def test_a_tier_that_does_not_allow_refuses(self):
         connector = _StubConnector()
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             assert connector._writes_enabled is False
 
     @pytest.mark.usefixtures("armed")
@@ -144,7 +148,7 @@ class TestWritesEnabledProperty:
         monkeypatch.setattr(
             ControlSystemConnector, "_context", ConnectorContext(control_target=TARGET_VA)
         )
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+        serve_config_lookup(monkeypatch, writes_enabled_config)
         assert _StubConnector()._writes_enabled is False
 
     @pytest.mark.parametrize(
@@ -155,7 +159,7 @@ class TestWritesEnabledProperty:
     @pytest.mark.usefixtures("switch_on")
     def test_config_error_fails_safe(self, error):
         connector = _StubConnector()
-        with patch("osprey_connectors.config.get_config_value", side_effect=error):
+        with config_lookup_patched(error):
             assert connector._writes_enabled is False
 
 
@@ -177,7 +181,7 @@ class TestMockWritesDisabledViaBaseClass:
 
         view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = VAInProcessConnector()
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
             )
@@ -200,10 +204,7 @@ class TestMockWritesDisabledViaBaseClass:
 
         view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = VAInProcessConnector()
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=writes_enabled_config,
-        ):
+        with config_lookup_patched(writes_enabled_config):
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
             )
@@ -257,6 +258,7 @@ class TestFactoryTypeStamp:
     @pytest.mark.asyncio
     async def test_stamp_is_visible_inside_connect(self):
         from osprey_connectors import connector_types
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.factory import ConnectorFactory
         from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -265,7 +267,7 @@ class TestFactoryTypeStamp:
                 connector_types.VIRTUAL_ACCELERATOR, _TypeSeenConnector
             )
             connector = await ConnectorFactory.create_control_system_connector(
-                {"type": connector_types.VIRTUAL_ACCELERATOR}
+                ControlSystemSection.read({"type": connector_types.VIRTUAL_ACCELERATOR})
             )
 
         assert connector.type_seen_in_connect == connector_types.VIRTUAL_ACCELERATOR
@@ -290,10 +292,7 @@ class TestTheTierIsTargetBlind:
         """The tier allows; the live machine's switch is on."""
         arm_switch(monkeypatch, tmp_path / "data", TARGET_LIVE, stamp=False)
         connector = self._stub("epics", TARGET_LIVE)
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=config_reader(_TIER_ALLOWED_SECTION),
-        ):
+        with config_lookup_patched(config_reader(_TIER_ALLOWED_SECTION)):
             assert connector._writes_enabled is True
 
     @pytest.mark.asyncio
@@ -301,10 +300,7 @@ class TestTheTierIsTargetBlind:
         """The same tier, the simulator switched on: the live machine stays off."""
         arm_switch(monkeypatch, tmp_path / "data", TARGET_VA, stamp=False)
         connector = self._stub("epics", TARGET_LIVE)
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=config_reader(_TIER_ALLOWED_SECTION),
-        ):
+        with config_lookup_patched(config_reader(_TIER_ALLOWED_SECTION)):
             result = await connector.write_channel("TEST:PV", 1.0)
 
         assert result.outcome is WriteOutcome.REFUSED
@@ -314,10 +310,7 @@ class TestTheTierIsTargetBlind:
     def test_a_retired_type_leaf_does_not_hold_back_an_allowed_tier(self, monkeypatch, tmp_path):
         arm_switch(monkeypatch, tmp_path / "data", TARGET_LIVE, stamp=False)
         connector = self._stub("epics", TARGET_LIVE)
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=config_reader(_LIVE_DISARMED_SECTION),
-        ):
+        with config_lookup_patched(config_reader(_LIVE_DISARMED_SECTION)):
             assert connector._writes_enabled is True
 
     @pytest.mark.parametrize("stand_in", [True, "true", 1, "yes"])
@@ -326,10 +319,7 @@ class TestTheTierIsTargetBlind:
         arm_switch(monkeypatch, tmp_path / "data", TARGET_LIVE, stamp=False)
         connector = self._stub("epics", TARGET_LIVE)
         section = {"type": "epics", "writes_enabled": stand_in}
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=config_reader(section),
-        ):
+        with config_lookup_patched(config_reader(section)):
             assert connector._writes_enabled is False
 
     @pytest.mark.asyncio
@@ -339,10 +329,7 @@ class TestTheTierIsTargetBlind:
         """No stamp names no machine, whatever the tier and every switch say."""
         arm_switch(monkeypatch, tmp_path / "data", TARGET_VA, stamp=False)
         connector = _StubConnector()
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=config_reader(_LIVE_DISARMED_SECTION),
-        ):
+        with config_lookup_patched(config_reader(_LIVE_DISARMED_SECTION)):
             result = await connector.write_channel("TEST:PV", 1.0)
 
         assert result.outcome is WriteOutcome.REFUSED

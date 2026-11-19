@@ -1995,10 +1995,11 @@ def _warn_writes_without_live_target(sdef: ServerDefinition, ctx: dict) -> None:
     """
     if not sdef.writes or sdef.app or "control_system_section" not in ctx:
         return
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import TARGET_LIVE
     from osprey_connectors.targets import target_configured
 
-    if not target_configured(ctx["control_system_section"], TARGET_LIVE):
+    if not target_configured(ControlSystemSection.read(ctx["control_system_section"]), TARGET_LIVE):
         logger.warning(
             "Server %r declares write tools (%s), but control_system configures no "
             "%r target, so no session can arm them",

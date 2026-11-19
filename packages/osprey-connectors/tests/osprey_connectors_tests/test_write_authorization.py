@@ -29,6 +29,7 @@ import pytest
 
 from osprey_connectors import control_context, refusals, session_hold, testing, write_switch
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.model import evolve, parse_instant
 from osprey_connectors.write_authorization import (
@@ -110,7 +111,9 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def spend(section: Any, target: str, operations: Any, *, authorization: str) -> Any:
     """One write call judged and its step spent, with no switch verdict read first."""
-    return wa._spend(section, target, operations, authorization, None, None)
+    return wa._spend(
+        ControlSystemSection.read(section), target, operations, authorization, None, None
+    )
 
 
 def record() -> control_context.ControlContext:
@@ -177,7 +180,7 @@ def approve(**fields: Any) -> Grant:
 
 
 def verdict(grant_id: str, operations: Any = OPS, section: Any = SECTION) -> Any:
-    return wa._verdict(section, TARGET, operations, grant_id, None, None)
+    return wa._verdict(ControlSystemSection.read(section), TARGET, operations, grant_id, None, None)
 
 
 def ledger_path(grant_id: str) -> Path:
@@ -634,7 +637,10 @@ class TestFormats:
         assert set(json.loads(before)) == {
             "schema", "owner", "target", "generation", "posture", "last_switch", "switch", "switch_epoch",
         }  # fmt: skip
-        assert write_switch.write_verdict(SECTION, TARGET).reason == "switch_off"
+        assert (
+            write_switch.write_verdict(ControlSystemSection.read(SECTION), TARGET).reason
+            == "switch_off"
+        )
 
 
 # -- fail-closed reads --------------------------------------------------------
@@ -807,9 +813,11 @@ class TestComposition:
 
     def test_the_switch_off_is_lifted_for_the_listed_channels_only(self):
         grant = approve()
-        assert authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert authorized_execution_verdict(
+            ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+        ).allowed
         unlisted = authorized_execution_verdict(
-            SECTION, TARGET, [("C:SP", 1.0)], authorization=grant.id
+            ControlSystemSection.read(SECTION), TARGET, [("C:SP", 1.0)], authorization=grant.id
         )
         assert unlisted.reason == "auth_channel"
 
@@ -817,53 +825,67 @@ class TestComposition:
     def test_a_switch_turned_on_mid_run_does_not_lift_the_bounds(self, position: str):
         grant = approve()
         switch(position)
-        assert write_switch.write_verdict(SECTION, TARGET).allowed
+        assert write_switch.write_verdict(ControlSystemSection.read(SECTION), TARGET).allowed
         for operations, reason in (
             ([("C:SP", 1.0)], "auth_channel"),
             ([("A:SP", 11.0)], "auth_range"),
         ):
             answer = authorized_execution_verdict(
-                SECTION, TARGET, operations, authorization=grant.id
+                ControlSystemSection.read(SECTION), TARGET, operations, authorization=grant.id
             )
             assert answer.reason == reason
 
     def test_an_authorization_lifts_no_tier(self):
         grant = approve()
-        answer = authorized_execution_verdict(NEVER, TARGET, OPS, authorization=grant.id)
+        answer = authorized_execution_verdict(
+            ControlSystemSection.read(NEVER), TARGET, OPS, authorization=grant.id
+        )
         assert (answer.reason, answer.authorization) == ("tier_never", grant.id)
 
     def test_an_authorization_lifts_no_read_only_run(self, monkeypatch):
         grant = approve()
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        answer = authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id)
+        answer = authorized_execution_verdict(
+            ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+        )
         assert answer.reason == "readonly_run"
 
     def test_an_authorization_lifts_no_hold(self, tmp_path: Path, monkeypatch):
         grant = approve()
         monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(tmp_path / "holds"))
         monkeypatch.setenv("OSPREY_SESSION_ID", "s1")
-        answer = authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id)
+        answer = authorized_execution_verdict(
+            ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+        )
         assert answer.reason == "session_held"
 
     def test_an_authorization_lifts_no_pin_with_the_switch_on_or_off(self, monkeypatch):
         grant = approve()
         monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=sandbox")
         assert (
-            authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id).reason
+            authorized_execution_verdict(
+                ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+            ).reason
             == "launch_pinned"
         )
         switch("allowed")
         assert (
-            authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id).reason
+            authorized_execution_verdict(
+                ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+            ).reason
             == "launch_pinned"
         )
 
     def test_spending_through_the_composition(self):
         grant = approve()
-        answer = spend_authorized_write(SECTION, TARGET, OPS, authorization=grant.id)
+        answer = spend_authorized_write(
+            ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+        )
         assert answer.allowed and answer.authorization == grant.id
         assert len(ledger(grant.id).spent) == 1
-        assert authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert authorized_execution_verdict(
+            ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+        ).allowed
         assert len(ledger(grant.id).spent) == 1
 
 
@@ -941,13 +963,14 @@ SPENDER = textwrap.dedent(
     import json, os, sys, time
     from pathlib import Path
     from osprey_connectors import write_authorization as wa
+    from osprey_connectors.config_sections import ControlSystemSection
 
     section, grant_id, tries, go = json.loads(sys.argv[1]), sys.argv[2], int(sys.argv[3]), Path(sys.argv[4])
     while not go.exists():
         time.sleep(0.001)
     spent = 0
     for _ in range(tries):
-        answer = wa._spend(section, "va", [("A:SP", 1.0), ("B:SP", 0.5)], grant_id, None, None)
+        answer = wa._spend(ControlSystemSection.read(section), "va", [("A:SP", 1.0), ("B:SP", 0.5)], grant_id, None, None)
         if answer.allowed:
             spent += 1
         elif answer.reason != "auth_exhausted":
@@ -1321,7 +1344,9 @@ def _self_issue(**fields: Any) -> Grant:
         "label": "run-self",
     }
     values.update(fields)
-    return self_issue(SECTION, TARGET, {"A:SP": ChannelRange.of(0.0, 10.0)}, **values)
+    return self_issue(
+        ControlSystemSection.read(SECTION), TARGET, {"A:SP": ChannelRange.of(0.0, 10.0)}, **values
+    )
 
 
 class TestSelfIssue:
@@ -1383,10 +1408,14 @@ class TestSelfIssue:
         start_lease(grant.id)
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         switch(gesture)
-        refused = spend_authorized_write(SECTION, TARGET, OPS, authorization=grant.id)
+        refused = spend_authorized_write(
+            ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+        )
         assert refused.reason == "auth_revoked"
         switch("allowed")
-        again = spend_authorized_write(SECTION, TARGET, OPS, authorization=grant.id)
+        again = spend_authorized_write(
+            ControlSystemSection.read(SECTION), TARGET, OPS, authorization=grant.id
+        )
         assert again.reason == after
         with pytest.raises(AuthorizationRefusedError):
             renew_lease(grant.id)
@@ -1412,7 +1441,12 @@ class TestSelfIssue:
         switch("allowed")
         with pytest.raises(ValueError):
             self_issue(
-                SECTION, TARGET, {"A:SP": (0.0, 1.0)}, steps=3, expires_at=FAR_FUTURE, lease_s=60.0
+                ControlSystemSection.read(SECTION),
+                TARGET,
+                {"A:SP": (0.0, 1.0)},
+                steps=3,
+                expires_at=FAR_FUTURE,
+                lease_s=60.0,
             )
         assert _grants(grants_dir()) == ((), ())
 
@@ -1420,7 +1454,7 @@ class TestSelfIssue:
         switch("allowed")
         with pytest.raises(ValueError):
             self_issue(
-                SECTION,
+                ControlSystemSection.read(SECTION),
                 TARGET,
                 {"A:SP": ChannelRange.of(5.0, 1.0)},
                 steps=3,
@@ -1716,21 +1750,30 @@ class TestTree:
     def test_the_owners_grant_lets_the_holder_write_with_the_switch_off(self, tree: Path):
         grant = self.issue(tree)
         assert wa.authorizations_dir("alice") == tree / "alice" / wa.AUTHORIZATIONS_DIR_NAME
-        assert write_switch.write_verdict(self.SECTION, TARGET).reason == "switch_off"
-        answer = spend_authorized_write(self.SECTION, TARGET, OPS, authorization=grant.id)
+        assert (
+            write_switch.write_verdict(ControlSystemSection.read(self.SECTION), TARGET).reason
+            == "switch_off"
+        )
+        answer = spend_authorized_write(
+            ControlSystemSection.read(self.SECTION), TARGET, OPS, authorization=grant.id
+        )
         assert answer.allowed
         assert len(ledger(grant.id).spent) == 1
 
     def test_another_identity_under_the_same_owner_gains_nothing(self, tree: Path, monkeypatch):
         grant = self.issue(tree)
         pin_identity(monkeypatch, "bluesky")
-        answer = authorized_execution_verdict(self.SECTION, TARGET, OPS, authorization=grant.id)
+        answer = authorized_execution_verdict(
+            ControlSystemSection.read(self.SECTION), TARGET, OPS, authorization=grant.id
+        )
         assert answer.reason == "auth_holder"
 
     def test_an_owner_the_tiers_do_not_name_refuses_first(self, tree: Path):
         grant = self.issue(tree)
         section = {"type": "epics", "writes": "allowed", "login_tiers": {"bob": "allowed"}}
-        answer = authorized_execution_verdict(section, TARGET, OPS, authorization=grant.id)
+        answer = authorized_execution_verdict(
+            ControlSystemSection.read(section), TARGET, OPS, authorization=grant.id
+        )
         assert answer.reason == "owner_unknown"
 
     def test_a_planted_link_at_the_owners_grants_refuses(self, tree: Path, tmp_path: Path):

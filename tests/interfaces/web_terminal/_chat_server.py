@@ -395,7 +395,7 @@ def live_chat_server(
             f"{_SEAM}.build_system_prompt",
             return_value={"type": "preset", "preset": "claude_code"},
         ),
-        patch(f"{_SEAM}.get_facility_timezone", return_value=None),
+        patch(f"{_SEAM}.facility_timezone", return_value=None),
     ]
     with hub_app(
         workspace,

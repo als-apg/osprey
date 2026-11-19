@@ -61,7 +61,7 @@ from osprey.interfaces.web_terminal.tool_preview import (
     tool_result_text,
 )
 from osprey.utils.tool_rules import matches_denylist
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR, ensure_session
 
 logger = logging.getLogger(__name__)
@@ -455,6 +455,7 @@ def _read_render(project_dir: str) -> _RenderFacts:
 
     import yaml
 
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_allows
 
     try:
@@ -473,7 +474,7 @@ def _read_render(project_dir: str) -> _RenderFacts:
     return _RenderFacts(
         config=config,
         hook_config=hook_config if isinstance(hook_config, dict) else {},
-        tier_allows=tier_allows(config.get("control_system")),
+        tier_allows=tier_allows(ControlSystemSection.read(config.get("control_system"))),
     )
 
 
@@ -1216,7 +1217,7 @@ class OperatorSession:
                 max_budget_usd=None,
                 permission_mode=None,
                 setting_sources=["project"],
-                system_prompt=build_system_prompt(get_facility_timezone(), _SVG_CALLOUT_GUIDE),
+                system_prompt=build_system_prompt(facility_timezone(), _SVG_CALLOUT_GUIDE),
                 env=session_env if session_env is not None else {},
                 resume=resume_id,
                 session_id=session_id,

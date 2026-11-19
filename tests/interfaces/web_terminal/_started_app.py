@@ -25,6 +25,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
+from osprey_connectors_tests._config_lookup import config_lookup_patched
 
 
 @contextmanager
@@ -85,6 +86,6 @@ def started_client(
             "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": dict(web or {})},
         ),
-        patch("osprey_connectors.config.get_config_value", get_config_value),
+        config_lookup_patched(get_config_value),
     ) as client:
         yield client

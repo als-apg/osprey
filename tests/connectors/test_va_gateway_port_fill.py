@@ -26,8 +26,10 @@ import yaml
 import osprey.profiles
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
+from osprey_connectors.config_sections import GatewayRow
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system import _va_connector as va_connector
+from osprey_connectors.control_system._epics_connector import EpicsSettings
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.control_system._va_connector import (
     DEFAULT_VA_PORT,
@@ -41,6 +43,18 @@ from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, use
 
 DEMO_PRESET = "demo"
 PRESET_PATH = "profiles/presets/demo.yml"
+
+
+def _rows(block: dict[str, Any]) -> dict[str, GatewayRow]:
+    """*block*'s gateways, read as the virtual accelerator's settings read them."""
+    return dict(EpicsSettings.from_block(block, connector_type="virtual_accelerator").gateways)
+
+
+def _filled(block: dict[str, Any]) -> dict[str, GatewayRow]:
+    """*block*'s gateway rows with their unset ports filled."""
+    filled = fill_gateway_ports(_rows(block))
+    assert all(isinstance(row, GatewayRow) for row in filled.values())
+    return {role: row for role, row in filled.items() if isinstance(row, GatewayRow)}
 
 
 def _preset_source(preset: str) -> str:
@@ -129,7 +143,7 @@ def test_unset_gateway_port_follows_the_deployed_va_port(deployed_va_port) -> No
     """The whole point: moving the VA service's port moves the connector."""
     deployed_va_port(5074)
 
-    filled = fill_gateway_ports(
+    filled = _filled(
         {
             "gateways": {
                 "read_only": {"address": "localhost", "use_name_server": True},
@@ -138,29 +152,29 @@ def test_unset_gateway_port_follows_the_deployed_va_port(deployed_va_port) -> No
         }
     )
 
-    assert filled["gateways"]["read_only"]["port"] == 5074
-    assert filled["gateways"]["write_access"]["port"] == 5074
+    assert filled["read_only"].port == 5074
+    assert filled["write_access"].port == 5074
 
 
 def test_rendered_preset_follows_a_post_render_port_edit(deployed_va_port) -> None:
     """The as-shipped config, fed the edited service port, follows it."""
     deployed_va_port(15064)
 
-    filled = fill_gateway_ports(_rendered_va_block())
+    filled = _filled(_rendered_va_block())
 
-    assert filled["gateways"]["read_only"]["port"] == 15064
-    assert filled["gateways"]["write_access"]["port"] == 15064
+    assert filled["read_only"].port == 15064
+    assert filled["write_access"].port == 15064
     # Everything else about the gateway survives the fill.
-    assert filled["gateways"]["read_only"]["use_name_server"] is True
+    assert filled["read_only"].use_name_server is True
 
 
 def test_defaults_to_5064_when_the_service_port_is_unset(deployed_va_port) -> None:
     """With neither the gateway nor the service naming a port, 5064 stands."""
     deployed_va_port(None)
 
-    filled = fill_gateway_ports({"gateways": {"read_only": {"address": "localhost"}}})
+    filled = _filled({"gateways": {"read_only": {"address": "localhost"}}})
 
-    assert filled["gateways"]["read_only"]["port"] == DEFAULT_VA_PORT
+    assert filled["read_only"].port == DEFAULT_VA_PORT
 
 
 def test_unreadable_config_falls_back_to_5064(monkeypatch) -> None:
@@ -172,9 +186,9 @@ def test_unreadable_config_falls_back_to_5064(monkeypatch) -> None:
 
     monkeypatch.setattr(config_module, "get_config_value", exploding_get_config_value)
 
-    filled = fill_gateway_ports({"gateways": {"read_only": {"address": "localhost"}}})
+    filled = _filled({"gateways": {"read_only": {"address": "localhost"}}})
 
-    assert filled["gateways"]["read_only"]["port"] == DEFAULT_VA_PORT
+    assert filled["read_only"].port == DEFAULT_VA_PORT
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +200,7 @@ def test_explicit_gateway_port_wins(deployed_va_port) -> None:
     """A project pointed at a VA it does not deploy keeps its own port."""
     deployed_va_port(15064)
 
-    filled = fill_gateway_ports(
+    filled = _filled(
         {
             "gateways": {
                 "read_only": {"address": "va.example.org", "port": 5074},
@@ -195,15 +209,15 @@ def test_explicit_gateway_port_wins(deployed_va_port) -> None:
         }
     )
 
-    assert filled["gateways"]["read_only"]["port"] == 5074
-    assert filled["gateways"]["write_access"]["port"] == 5084
+    assert filled["read_only"].port == 5074
+    assert filled["write_access"].port == 5084
 
 
 def test_explicit_and_derived_ports_mix_per_gateway(deployed_va_port) -> None:
     """Filling is per gateway — one explicit port does not pin the other."""
     deployed_va_port(15064)
 
-    filled = fill_gateway_ports(
+    filled = _filled(
         {
             "gateways": {
                 "read_only": {"address": "localhost"},
@@ -212,8 +226,8 @@ def test_explicit_and_derived_ports_mix_per_gateway(deployed_va_port) -> None:
         }
     )
 
-    assert filled["gateways"]["read_only"]["port"] == 15064
-    assert filled["gateways"]["write_access"]["port"] == 5084
+    assert filled["read_only"].port == 15064
+    assert filled["write_access"].port == 5084
 
 
 def test_fully_explicit_config_never_reads_the_config_file(monkeypatch) -> None:
@@ -225,9 +239,9 @@ def test_fully_explicit_config_never_reads_the_config_file(monkeypatch) -> None:
 
     monkeypatch.setattr(config_module, "get_config_value", unexpected_read)
 
-    config = {"gateways": {"read_only": {"address": "localhost", "port": 5074}}}
+    rows = _rows({"gateways": {"read_only": {"address": "localhost", "port": 5074}}})
 
-    assert fill_gateway_ports(config) is config
+    assert fill_gateway_ports(rows) == rows
 
 
 # ---------------------------------------------------------------------------
@@ -235,14 +249,14 @@ def test_fully_explicit_config_never_reads_the_config_file(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_callers_config_is_not_mutated(deployed_va_port) -> None:
-    """The factory hands over the loaded config block; the fill must not edit it."""
+def test_the_callers_rows_are_not_mutated(deployed_va_port) -> None:
+    """The settings hand over their rows; the fill returns new ones."""
     deployed_va_port(15064)
-    config = {"gateways": {"read_only": {"address": "localhost"}}}
+    rows = _rows({"gateways": {"read_only": {"address": "localhost"}}})
 
-    fill_gateway_ports(config)
+    fill_gateway_ports(rows)
 
-    assert config == {"gateways": {"read_only": {"address": "localhost"}}}
+    assert rows == {"read_only": GatewayRow(address="localhost")}
 
 
 @pytest.mark.parametrize(
@@ -265,7 +279,7 @@ def test_a_config_with_no_gateways_passes_through(config: dict[str, Any], monkey
         lambda *a, **k: pytest.fail("resolved a port for a gateway-less config"),
     )
 
-    assert fill_gateway_ports(config) is config
+    assert fill_gateway_ports(_rows(config)) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +312,8 @@ async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, mon
         )
     )
 
-    assert captured["config"]["gateways"]["read_only"]["port"] == 15064
-    assert captured["config"]["timeout_s"] == 5.0
+    assert captured["config"].gateways["read_only"].port == 15064
+    assert captured["config"].timeout_s == 5.0
 
 
 @pytest.mark.asyncio

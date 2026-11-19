@@ -117,6 +117,7 @@ from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import (
     agent_data_base_dir,
@@ -280,8 +281,8 @@ def _check_drive_switch() -> None:
     try:
         config = load_osprey_config()
         section = config.get("control_system") if isinstance(config, dict) else None
-        target = baseline_target(section)
-        verdict = execution_verdict(section or {}, target)
+        target = baseline_target(ControlSystemSection.read(section))
+        verdict = execution_verdict(ControlSystemSection.read(section or {}), target)
     except Exception:  # unknown posture must not drive a panel
         logger.warning("Write verdict for phoebus_drive could not be reached", exc_info=True)
         verdict = write_switch.Refused(

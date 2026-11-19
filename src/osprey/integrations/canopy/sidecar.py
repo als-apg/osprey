@@ -409,9 +409,9 @@ def _read_config(path: str) -> dict[str, Any] | None:
     if not path:
         return None
     try:
-        from osprey_connectors.config import ConfigBuilder
+        from osprey_connectors.config import load_config
 
-        raw = ConfigBuilder(path, load_env=False).raw_config
+        raw = load_config(path).raw_tree()
     except Exception as exc:
         logger.warning("The config at %s could not be read (%s)", path, exc)
         return None

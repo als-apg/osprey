@@ -271,8 +271,15 @@ def test_mode_3_deleted_key_in_a_preset_config_override_goes_red():
     assert "demo.yml" in details(guard)
 
 
-def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
+def test_mode_3_deleted_key_in_the_loader_defaults_goes_red(monkeypatch):
     """And a third: a key nothing ships but the loader synthesizes."""
+    from osprey_connectors import config
+    from osprey_connectors.testing import config_of
+
+    def synthesizing_load(path, *, environ=None):  # noqa: ARG001 - load_config's signature
+        return config_of({"project_name": "probe", "facility_timezone": "UTC"}, path=path)
+
+    monkeypatch.setattr(config, "load_config", synthesizing_load)
 
     def resurrect_in_the_loader(manifest):
         manifest["deleted"].append("facility_timezone")

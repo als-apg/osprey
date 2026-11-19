@@ -105,13 +105,13 @@ def config_path() -> Path:
 
 
 def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
-    """Load the deployment's ``config.yml`` through the shared ``ConfigBuilder``.
+    """Load the deployment's ``config.yml`` and install it as the process default.
 
     ``${VAR}`` and ``${VAR:-default}`` resolve exactly as they do for every
-    other config reader, and the server shares the builder
-    :func:`~osprey.mcp_server.startup.prime_config_builder` already loaded.
-    Returns ``{}``, with a warning naming the path, when the file is missing or
-    cannot be loaded.
+    other config reader. The config
+    :func:`~osprey.mcp_server.startup.prime_config_builder` installed is reused
+    when it is this file, so the server parses it once. Returns ``{}``, with a
+    warning naming the path, when the file is missing or cannot be loaded.
     """
     path = config_path()
     if not path.exists():
@@ -119,11 +119,13 @@ def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
         return {}
 
     try:
-        from osprey_connectors.config import get_config_builder
+        from osprey_connectors.config import active_config, install_config, load_config
 
-        raw: dict[str, Any] = get_config_builder(
-            config_path=str(path), set_as_default=True
-        ).raw_config
+        loaded = active_config()
+        if loaded is None or loaded.path.resolve() != path.resolve():
+            loaded = load_config(path)
+            install_config(loaded)
+        raw: dict[str, Any] = loaded.raw_tree()
     except Exception as exc:
         logger.warning(
             "Config file %s could not be loaded, channel finder starts unconfigured: %s",

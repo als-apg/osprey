@@ -128,7 +128,7 @@ from lume.model import LUMEModel
 from lume.variables import IntVariable, NDVariable, ScalarVariable, StrVariable, Variable
 from typing_extensions import override
 
-from osprey_connectors.config import default_config_path
+from osprey_connectors.config import active_config
 from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import TEXTURE, values
@@ -225,10 +225,10 @@ def log_dir() -> Path | None:
         ``var/simulator`` under the repo root of the config this process
         loaded.
     """
-    config_path = default_config_path()
-    if config_path is None:
+    loaded = active_config()
+    if loaded is None:
         return None
-    return repo_root_for_config(config_path) / SIMULATOR_LOG_DIR_RELPATH
+    return repo_root_for_config(loaded.path) / SIMULATOR_LOG_DIR_RELPATH
 
 
 def _default_log_dir() -> Path | None:

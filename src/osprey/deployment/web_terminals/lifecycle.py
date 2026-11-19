@@ -135,7 +135,7 @@ from osprey.deployment.web_terminals.roster import (
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.utils.config_writer import config_replace_list
 from osprey.utils.workspace import STATE_DIR_NAME
-from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.config import load_config
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.logger import get_logger
 
@@ -251,7 +251,7 @@ def decommission_user(
             policy should have removed is still there.
     """
     config_path = Path(config_path)
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = load_config(str(config_path)).raw_tree()
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
     refuse_app_card(web_terminals, user)
     _require_running_runtime(config)
@@ -306,7 +306,7 @@ def decommission_user(
     # Roster edit + artifact re-render happen before container/volume removal:
     # they are recoverable by re-running `osprey up`, unlike volume removal.
     config_replace_list(config_path, _USERS_KEY_PATH, remaining)
-    updated_config = ConfigBuilder(str(config_path)).raw_config
+    updated_config = load_config(str(config_path)).raw_tree()
     write_web_terminal_artifacts(updated_config, repo_root)
 
     runtime = get_runtime_command(config)[0]
@@ -410,7 +410,7 @@ def prune_users(
             policy should have removed is still there.
     """
     config_path = Path(config_path)
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = load_config(str(config_path)).raw_tree()
     _require_running_runtime(config)
 
     repo_root = resolve_repo_root(config, config_path)
@@ -636,7 +636,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
             image the runtime refused to remove is still there.
     """
     config_path = Path(config_path)
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = load_config(str(config_path)).raw_tree()
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
@@ -1060,7 +1060,7 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
             operator their old password still works when it does not.
     """
     config_path = Path(config_path)
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = load_config(str(config_path)).raw_tree()
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
     # First of all gates: an app card is not a person whatever the auth method,
     # and saying so is the precise answer.

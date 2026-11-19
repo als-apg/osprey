@@ -104,7 +104,7 @@ from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.seconds import positive_seconds
 from osprey.utils.workspace import session_hold_dir
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
 from osprey_connectors.workspace import repo_root_for_config
 from osprey_connectors.write_tier import WRITES_KEY
@@ -1494,10 +1494,11 @@ def _create_lifespan(
                 os.environ["OSPREY_CONFIG"] = str(candidate)
                 logger.debug("Auto-set OSPREY_CONFIG=%s", candidate)
 
-        # Clear any stale config cache (e.g. from web_cmd.py pre-lifespan call)
-        from osprey_connectors.workspace import reset_config_cache
+        # Forget a stale process default (e.g. from web_cmd.py pre-lifespan
+        # call), so the next lookup locates the file OSPREY_CONFIG names.
+        from osprey_connectors.config import install_config
 
-        reset_config_cache()
+        install_config(None)
 
         # Put volume-owned artifact bodies back into the project tree before
         # anything reads it. In a deployed container the tree comes back
@@ -1555,7 +1556,7 @@ def _create_lifespan(
         # The one reader of this render (config_view). The env chain is loaded
         # first, once, so a ``${VAR}`` reference expands the way the deploy
         # expands it; the view's re-parses never reload it.
-        from osprey_connectors.config import load_project_dotenv
+        from osprey_connectors.dotenv import load_project_dotenv
 
         load_project_dotenv()
         app.state.terminal_config = TerminalConfigView(resolved_config_path)
@@ -2323,7 +2324,7 @@ def create_app(
                 "storage_scope": resolve_storage_scope(terminal_user),
                 # The zone system.timezone names, resolved by the call the
                 # operator chat's system prompt uses, so page and agent read one clock.
-                "facility_timezone": get_facility_timezone().key,
+                "facility_timezone": facility_timezone().key,
                 "landing_url": landing_url,
                 "auth_role": auth_role or "",
                 "auth_role_source_label": auth_role_source_label,
@@ -2381,7 +2382,7 @@ def create_app(
                 "storage_scope": resolve_storage_scope(
                     getattr(request.app.state, "terminal_user", "")
                 ),
-                "facility_timezone": get_facility_timezone().key,
+                "facility_timezone": facility_timezone().key,
                 "web_theme_id": getattr(request.app.state, "web_theme_id", "dark"),
                 "web_theme_mode": getattr(request.app.state, "web_theme_mode", None) or "",
                 # activity-strip.js reaches panel-manager.js for the labels it

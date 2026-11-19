@@ -322,7 +322,7 @@ def _profile_edits() -> dict[str, Any]:
             "services": {},
             "bluesky": None,
             "bluesky_web": None,
-            "va_archiver": {"retention_days": 2, "hot_span_hours": 2},
+            "va_archiver": {"retention_days": 2, "hot_span_h": 2},
         }
     )
 

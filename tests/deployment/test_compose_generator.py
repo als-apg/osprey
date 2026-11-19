@@ -1121,7 +1121,7 @@ def test_va_state_mount_matches_the_scenario_state_dir(
     assert (tmp_path / source).resolve() == resolve_simulation_state_dir(config, tmp_path).resolve()
 
 
-# The worker process reads OSPREY config directly (get_facility_timezone while
+# The worker process reads OSPREY config directly (facility_timezone while
 # building the agent system prompt) with CWD=/app (the image WORKDIR), so without
 # CONFIG_FILE it falls back to /app/config.yml and every dispatch errors with
 # "No config.yml found in current directory: /app".
@@ -2421,8 +2421,8 @@ def test_orm_stack_correctors_hold_the_sweep_span(orm_stack_render: Path) -> Non
 #
 # 1. A generated project's config records no interpreter at all — there is no
 #    ``execution.python_env_path`` for staging to carry across. (An older
-#    config that still carries the retired key stages verbatim, but
-#    ``ConfigBuilder`` drops it on load.)
+#    config that still carries the retired key stages verbatim, and nothing
+#    reads it.)
 # 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code) derives
 #    ``current_python_env`` from the filesystem — the project's own ``.venv``
 #    when it has one, else the generating interpreter — and consults the config
@@ -2445,7 +2445,7 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
     """The config staged for a service's bind-mount must name no interpreter.
 
     Drives the real staging code path against a real generated project: its
-    ``config.yml`` is loaded internally via ``ConfigBuilder()`` (which resolves
+    ``config.yml`` is loaded internally via ``load_config()`` (which resolves
     against ``os.getcwd()``), flattened, and written to
     ``<build_dir>/<service_dir>/config.yml``. Neither the retired
     ``execution.python_env_path`` key nor any interpreter path may appear —

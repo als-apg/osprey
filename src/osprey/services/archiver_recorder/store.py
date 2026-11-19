@@ -48,7 +48,7 @@ def expiry_for(timestamp: datetime, settings: RecorderSettings) -> datetime:
     """When the sample taken at ``timestamp`` should expire.
 
     Two tiers, decided by the timestamp alone. A sample that lands on the tail
-    grid — an exact multiple of ``recorder_tail_cadence_sec`` since the epoch —
+    grid — an exact multiple of ``recorder_tail_cadence_s`` since the epoch —
     is kept for the full retention span; every other sample is kept for the hot
     span only.
 
@@ -63,11 +63,11 @@ def expiry_for(timestamp: datetime, settings: RecorderSettings) -> datetime:
     process started), a restart lands on the same instants the previous run
     did, and on the same instants the seeder used.
     """
-    on_tail_grid = int(timestamp.timestamp()) % settings.tail_cadence_sec == 0
+    on_tail_grid = int(timestamp.timestamp()) % settings.tail_cadence_s == 0
     span = (
         timedelta(days=settings.retention_days)
         if on_tail_grid
-        else timedelta(hours=settings.hot_span_hours)
+        else timedelta(hours=settings.hot_span_h)
     )
     return timestamp + span
 

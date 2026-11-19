@@ -20,8 +20,6 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
 from osprey.agent_runner.build_artifacts.ownership import (
     get_user_owned,
@@ -48,7 +46,7 @@ from osprey.interfaces.web_terminal.ownership import (
     reserved_write_channel,
     resolve_ownership,
 )
-from osprey_connectors.config import resolve_env_vars
+from osprey_connectors.config import load_config
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, annotation only
     from osprey.cli.scaffold_cmd import ClaimTarget
@@ -165,9 +163,7 @@ class ScaffoldGalleryService:
         config_file = self.project_dir / "config.yml"
         if not config_file.exists():
             return {}
-        with open(config_file, encoding="utf-8") as f:
-            config = resolve_env_vars(yaml.safe_load(f) or {})
-        return config if isinstance(config, dict) else {}
+        return load_config(config_file).raw_tree()
 
     # ── Ownership ─────────────────────────────────────────────────────
 

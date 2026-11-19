@@ -62,7 +62,7 @@ from osprey.deployment.deployment_record import NOTHING_DEPLOYED, read_deploymen
 from osprey.deployment.errors import DeploymentRecordError
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.health.models import CheckResult, Status
-from osprey_connectors.config import get_full_configuration
+from osprey_connectors.config import current_config
 
 if TYPE_CHECKING:
     from osprey.health.probes import ProbeContext
@@ -219,7 +219,7 @@ def _probe_config(ctx: ProbeContext) -> Mapping[str, Any] | None:
     if ctx.config is not None:
         return ctx.config
     try:
-        return get_full_configuration()
+        return current_config().raw_tree()
     except Exception:  # config unavailability degrades to a skip row
         return None
 

@@ -157,6 +157,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     out-of-process read/write drives a REAL production connector -- isolated in
     its own process only for CA-teardown safety, never a mocked or bypassed path.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
 
     overrides = spec["config_overrides"]
@@ -185,9 +186,17 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     arm_target = spec.get("arm_target")
     armed_root = _arm_switch(arm_target) if arm_target is not None else None
 
-    with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
+    # The write path reads the loaded config's section, everything else the
+    # lookup: serve both. (A script, outside the suite's import path.)
+    loaded = testing.config_of(
+        {"control_system": _get_config_value("control_system", {})}, environ={}
+    )
+    with (
+        patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value),
+        patch("osprey_connectors.config.current_config", return_value=loaded),
+    ):
         connector = await ConnectorFactory.create_control_system_connector(
-            spec["connector_config"], control_target=arm_target
+            ControlSystemSection.read(spec["connector_config"]), control_target=arm_target
         )
         result: dict[str, Any] = {"write_outcome": None, "write_error_message": None}
 

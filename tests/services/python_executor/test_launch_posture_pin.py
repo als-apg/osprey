@@ -41,6 +41,7 @@ from osprey_connectors import (
     testing,
     write_switch,
 )
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors_tests._harness import pin_identity, state_dir_under, write_control_context
 from osprey_connectors_tests._write_fakes import turn_switch
 
@@ -198,7 +199,7 @@ class TestASwitchAgainstARunningSandbox:
     @staticmethod
     def _next_write(target: str) -> write_switch.WriteVerdict:
         testing.invalidate_cache()
-        return write_switch.write_verdict(ARMED_TIER, target)
+        return write_switch.write_verdict(ControlSystemSection.read(ARMED_TIER), target)
 
     def test_an_off_record_refuses_the_next_write_of_a_running_sandbox(
         self, data_root, monkeypatch

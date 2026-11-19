@@ -764,9 +764,9 @@ def create_server() -> FastMCP:
             timeline_hours = 24.0
         since_seconds = max(0.0, timeline_hours) * 3600.0
 
-        from osprey_connectors.config import get_facility_timezone
+        from osprey_connectors.config import facility_timezone
 
-        zone = get_facility_timezone()
+        zone = facility_timezone()
 
         # Triggers (enrich with config detail). A clock schedule carries no
         # state and a missed slot is never made up, so the next slot after now

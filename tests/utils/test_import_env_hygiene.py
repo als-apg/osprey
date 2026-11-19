@@ -98,7 +98,7 @@ def test_explicit_load_does_publish_the_sentinel(tmp_path):
 
     seen = _probe(
         """
-        from osprey_connectors.config import load_project_dotenv
+        from osprey_connectors.dotenv import load_project_dotenv
         load_project_dotenv()
         """,
         cwd=tmp_path,
@@ -119,7 +119,7 @@ def test_a_process_stamped_as_handed_its_environment_does_not_load_the_chain(tmp
 
     seen = _probe(
         """
-        from osprey_connectors.config import load_project_dotenv
+        from osprey_connectors.dotenv import load_project_dotenv
         load_project_dotenv()
         """,
         cwd=tmp_path,
@@ -137,7 +137,7 @@ def test_explicit_load_overrides_an_existing_value(tmp_path):
         """
         import os
         os.environ["OSPREY_IMPORT_HYGIENE_SENTINEL"] = "from-the-shell"
-        from osprey_connectors.config import load_project_dotenv
+        from osprey_connectors.dotenv import load_project_dotenv
         load_project_dotenv()
         """,
         cwd=tmp_path,
@@ -154,7 +154,7 @@ def test_explicit_load_records_what_it_overrode(tmp_path, monkeypatch):
     reconstruct the shell from this record. A key the shell never set, or set
     to the file's own value, is not recorded — nothing was shadowed.
     """
-    import osprey_connectors.config as config
+    import osprey_connectors.dotenv as dotenv_module
 
     (tmp_path / ".env").write_text(
         "OSPREY_HYGIENE_DIFFERS=from-the-file\n"
@@ -164,20 +164,20 @@ def test_explicit_load_records_what_it_overrode(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("OSPREY_HYGIENE_DIFFERS", "from-the-shell")
     monkeypatch.setenv("OSPREY_HYGIENE_AGREES", "same-both-sides")
-    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setattr(dotenv_module, "_shell_overrides", {})
     monkeypatch.chdir(tmp_path)
 
-    config.load_project_dotenv()
+    dotenv_module.load_project_dotenv()
 
-    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+    assert dotenv_module.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
     # The override itself still happened — .env stays the in-process winner.
     assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-the-file"
 
     # The load runs more than once per process; after the first, the
     # environment already matches the file — the record of what the SHELL
     # held must survive the repeat, not be erased by it.
-    config.load_project_dotenv()
-    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+    dotenv_module.load_project_dotenv()
+    assert dotenv_module.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
 
 
 def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkeypatch):
@@ -187,7 +187,7 @@ def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkey
     host overrides them with. Loading only one of the two would either drop the
     defaults or let them shadow the operator's own settings.
     """
-    import osprey_connectors.config as config
+    import osprey_connectors.dotenv as dotenv_module
 
     (tmp_path / ".env.shared").write_text(
         "OSPREY_HYGIENE_BOTH=from-shared\nOSPREY_HYGIENE_SHARED_ONLY=shared-only\n",
@@ -197,16 +197,16 @@ def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkey
         "OSPREY_HYGIENE_BOTH=from-local\nOSPREY_HYGIENE_LOCAL_ONLY=local-only\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setattr(dotenv_module, "_shell_overrides", {})
     monkeypatch.chdir(tmp_path)
 
-    config.load_project_dotenv()
+    dotenv_module.load_project_dotenv()
 
     assert os.environ["OSPREY_HYGIENE_BOTH"] == "from-local"
     assert os.environ["OSPREY_HYGIENE_SHARED_ONLY"] == "shared-only"
     assert os.environ["OSPREY_HYGIENE_LOCAL_ONLY"] == "local-only"
     # Nothing was shadowed: the shell set none of these.
-    assert config.dotenv_shell_overrides() == {}
+    assert dotenv_module.dotenv_shell_overrides() == {}
 
 
 def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
@@ -217,7 +217,7 @@ def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
     comparison is against the *winning* (local) value: a shell export that
     agrees with it shadowed nothing, however the shared defaults spelled it.
     """
-    import osprey_connectors.config as config
+    import osprey_connectors.dotenv as dotenv_module
 
     (tmp_path / ".env.shared").write_text(
         "OSPREY_HYGIENE_DIFFERS=from-shared\nOSPREY_HYGIENE_SHELL_WINS_TIE=from-shared\n",
@@ -229,12 +229,12 @@ def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("OSPREY_HYGIENE_DIFFERS", "from-the-shell")
     monkeypatch.setenv("OSPREY_HYGIENE_SHELL_WINS_TIE", "agreed")
-    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setattr(dotenv_module, "_shell_overrides", {})
     monkeypatch.chdir(tmp_path)
 
-    config.load_project_dotenv()
+    dotenv_module.load_project_dotenv()
 
-    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+    assert dotenv_module.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
     assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-local"
 
 

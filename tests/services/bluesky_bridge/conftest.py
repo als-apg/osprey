@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.validation_record import validation_records
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from tests._control_system import section_for
 from tests.services.bluesky_bridge._bridge_state import reset_bridge_state
 
@@ -76,7 +77,7 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> Callable[[str | Exception], No
                 return section
             return default
 
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+        serve_config_lookup(monkeypatch, fake_get_config_value)
 
     return _set
 

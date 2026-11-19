@@ -415,13 +415,13 @@ def create_sandbox_execution_folder() -> Path:
 
     The folder is named for the facility-zone start time.
     """
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.config import facility_timezone
     from osprey_connectors.workspace import resolve_agent_data_root
 
     base = resolve_agent_data_root() / "data" / "sandbox_executions"
     base.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(facility_timezone()).strftime("%Y%m%d_%H%M%S")
     folder_name = f"{timestamp}_{uuid.uuid4().hex[:8]}"
     folder = base / folder_name
     folder.mkdir(parents=True, exist_ok=True)

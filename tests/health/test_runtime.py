@@ -57,8 +57,8 @@ def _patch_factory(
     intercepts the build.
     """
 
-    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
-        construct_calls.append(config)
+    async def fake_create(config: Any, *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
+        construct_calls.append(dict(config.raw))
         return connector
 
     monkeypatch.setattr(
@@ -319,8 +319,8 @@ def _patch_slow_factory(
     ``shutdown()`` would never disconnect.
     """
 
-    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
-        construct_calls.append(config)
+    async def fake_create(config: Any, *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
+        construct_calls.append(dict(config.raw))
         await asyncio.sleep(0)
         return connector
 

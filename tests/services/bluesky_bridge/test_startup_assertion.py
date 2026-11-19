@@ -244,15 +244,15 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """R4 container fix: a relative database_path resolves against the
-    CONFIG_FILE directory, NOT project_root.
+    OSPREY_CONFIG directory, NOT project_root.
 
-    Simulates the container deploy: CONFIG_FILE points at the mounted
+    Simulates the container deploy: OSPREY_CONFIG points at the mounted
     config.yml under /app/project (here, a temp dir containing a readable
     config.yml and data/channel_limits.json), while project_root is a
     bogus/nonexistent HOST path. Before the fix, the guard resolved the
     relative database_path against project_root and raised (the host path
     doesn't exist in-container); after the fix it resolves against the
-    CONFIG_FILE directory and starts normally.
+    OSPREY_CONFIG directory and starts normally.
     """
     container_dir = tmp_path / "app_project"
     container_dir.mkdir()
@@ -262,7 +262,7 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     (data_dir / "channel_limits.json").write_text(
         json.dumps({"TEST:COR:01:SP": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
     )
-    monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(container_dir / "config.yml"))
 
     bogus_project_root = tmp_path / "host_build_path_does_not_exist"
     _patch_config(

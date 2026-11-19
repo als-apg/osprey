@@ -126,6 +126,7 @@ def _assert_limits_readable_if_writable() -> None:
             secret value.
     """
     from osprey_connectors.config import get_config_value
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.limits_posture import target_limits_posture
 
     from .queue_backend import lane_tier_allows, resolve_lane_identity
@@ -139,7 +140,7 @@ def _assert_limits_readable_if_writable() -> None:
 
     if not lane_tier_allows(section):
         return
-    posture = target_limits_posture(section, lane_target)
+    posture = target_limits_posture(ControlSystemSection.read(section), lane_target)
     if posture.incomplete:
         # The connector and the hook both build the blocking failsafe from
         # this same posture, so no write would get through anyway; the gate

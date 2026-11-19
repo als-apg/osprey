@@ -46,7 +46,7 @@ from osprey.simulation.apply import (
     preflight_archive_rewrite,
 )
 from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD, field_name
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation.archive import (
     MANIFEST_ID,
     SeedKnobs,
@@ -69,7 +69,7 @@ T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 # Two hours of coarse history with ten minutes of dense, so a container test
 # seeds in well under a second. The event sits inside the coarse stretch on
 # purpose: densification is only interesting where the grid is coarse.
-KNOBS = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
+KNOBS = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=10, tail_cadence_s=60)
 
 SPIKE_OFFSET_S = -7200  # two hours before the anchor: coarse-grid territory
 LATE_OFFSET_S = -5400  # ninety minutes back: still coarse, and clear of the first
@@ -90,7 +90,7 @@ def event_window(events: list[dict], *args, **kwargs) -> tuple[float, float]:
 
     In the facility zone unless a case names its own, as the rewrite places them.
     """
-    kwargs.setdefault("tz", get_facility_timezone())
+    kwargs.setdefault("tz", facility_timezone())
     return apply.event_window(view_events(events), *args, **kwargs)
 
 
@@ -99,7 +99,7 @@ def event_subwindows(events: list[dict], *args, **kwargs) -> list[tuple[float, f
 
     In the facility zone unless a case names its own, as the rewrite places them.
     """
-    kwargs.setdefault("tz", get_facility_timezone())
+    kwargs.setdefault("tz", facility_timezone())
     return apply.event_subwindows(view_events(events), *args, **kwargs)
 
 
@@ -246,9 +246,9 @@ def _write_project(
         },
         "va_archiver": {
             "retention_days": KNOBS.retention_days,
-            "hot_span_hours": KNOBS.hot_span_hours,
-            "hot_cadence_sec": KNOBS.hot_cadence_sec,
-            "tail_cadence_sec": KNOBS.tail_cadence_sec,
+            "hot_span_h": KNOBS.hot_span_h,
+            "hot_cadence_s": KNOBS.hot_cadence_s,
+            "tail_cadence_s": KNOBS.tail_cadence_s,
         },
     }
     if store is not None:
@@ -336,7 +336,7 @@ def _seeded(root: Path, mongo_store: dict):
     # and the disagreement would look exactly like a scenario that failed to
     # restore.
     archive = build(
-        root / "data" / "simulator", ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone()
+        root / "data" / "simulator", ActiveState(names=[], anchor_at=T0), tz=facility_timezone()
     )
     seed_base(collection, archive, KNOBS, anchor_at=T0, chunk_size=256)
     try:
@@ -882,7 +882,7 @@ class TestRewrite:
         insert 3 seconds off the shared clock.
         """
         root, collection = project
-        assert T0.second % KNOBS.hot_cadence_sec != 0, "the anchor must be off-grid"
+        assert T0.second % KNOBS.hot_cadence_s != 0, "the anchor must be off-grid"
 
         _apply(root, ["burst"], at=T0)
 
@@ -890,10 +890,10 @@ class TestRewrite:
         assert inserted
         for document in inserted:
             epoch = document[DATE_FIELD].replace(tzinfo=UTC).timestamp()
-            assert epoch % KNOBS.hot_cadence_sec == 0, "insert is off the dense grid"
+            assert epoch % KNOBS.hot_cadence_s == 0, "insert is off the dense grid"
             # Strictly between coarse samples: a dense insert on a coarse
             # timestamp would duplicate a sample the base seed already wrote.
-            assert epoch % KNOBS.tail_cadence_sec != 0
+            assert epoch % KNOBS.tail_cadence_s != 0
 
     def test_switching_back_leaves_no_trace_of_the_previous_scenario(self, project):
         """The headline contract.
@@ -965,11 +965,11 @@ class TestOverlappingWindows:
 
         _apply(root, ["twin-burst"])
 
-        low, high = _window(LATE_OFFSET_S, shrink=KNOBS.hot_cadence_sec)
+        low, high = _window(LATE_OFFSET_S, shrink=KNOBS.hot_cadence_s)
         for channel in (PRESSURE, TEMPERATURE):
             gaps = _gaps(collection, channel, low, high)
             assert gaps, f"{channel} has no samples in the shared window at all"
-            assert max(gaps) <= KNOBS.hot_cadence_sec, f"{channel} has a hole in its own window"
+            assert max(gaps) <= KNOBS.hot_cadence_s, f"{channel} has a hole in its own window"
 
     def test_each_channel_is_dense_only_inside_its_own_windows(self, project):
         """The other half of the same contract: a channel with no event in a
@@ -979,9 +979,9 @@ class TestOverlappingWindows:
 
         _apply(root, ["twin-burst"])
 
-        low, high = _window(SPIKE_OFFSET_S, shrink=KNOBS.hot_cadence_sec)
-        assert max(_gaps(collection, PRESSURE, low, high)) <= KNOBS.hot_cadence_sec
-        assert min(_gaps(collection, TEMPERATURE, low, high)) == KNOBS.tail_cadence_sec
+        low, high = _window(SPIKE_OFFSET_S, shrink=KNOBS.hot_cadence_s)
+        assert max(_gaps(collection, PRESSURE, low, high)) <= KNOBS.hot_cadence_s
+        assert min(_gaps(collection, TEMPERATURE, low, high)) == KNOBS.tail_cadence_s
 
     def test_a_shared_instant_is_one_document_carrying_both_channels(self, project):
         """Not two competing samples of the same instant, and not one sample
@@ -990,7 +990,7 @@ class TestOverlappingWindows:
 
         _apply(root, ["twin-burst"])
 
-        low, high = _window(LATE_OFFSET_S, shrink=KNOBS.hot_cadence_sec)
+        low, high = _window(LATE_OFFSET_S, shrink=KNOBS.hot_cadence_s)
         inserted = list(
             collection.find({DATE_FIELD: {"$gte": low, "$lte": high}, DENSIFIED_FIELD: True})
         )
@@ -1088,7 +1088,7 @@ class TestScenarioSwitch:
 
         _apply(root, ["late-burst"])
 
-        live_low, live_high = _window(LATE_OFFSET_S, shrink=KNOBS.hot_cadence_sec)
+        live_low, live_high = _window(LATE_OFFSET_S, shrink=KNOBS.hot_cadence_s)
         live = {DATE_FIELD: {"$gte": live_low, "$lte": live_high}}
         protected = collection.count_documents({**live, EXPIRE_FIELD: {"$exists": False}})
         assert protected > 0, "the new window is not protected from retention"

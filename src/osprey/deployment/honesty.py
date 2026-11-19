@@ -34,7 +34,7 @@ guards resolves it — otherwise the divergence *is* the bypass.**
   therefore live, and :func:`pairing_in_profile` fails closed when they
   disagree: whichever one wins, the profile has stated the archive twice and is
   free to be wrong once.
-- A rendered ``config.yml`` is read by :class:`~osprey_connectors.config.ConfigBuilder`
+- A rendered ``config.yml`` is read by :func:`~osprey_connectors.config.load_config`
   and by ``MCPServerConfig``, and both walk *nested sections only* — a top-level
   ``archiver.type:`` line there sets nothing at all. So
   :func:`pairing_in_rendered_config` resolves nested-only. A flat line is not
@@ -80,6 +80,7 @@ from __future__ import annotations
 from typing_extensions import override
 
 from osprey_connectors.archiver_selection import resolve_archiver_type
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,
@@ -125,10 +126,13 @@ def invents_history(control_system_section: object) -> bool:
     recorder, so it is not one. A ``serving`` value no reader accepts is judged
     served, the refusing side; the build names that value on its own.
     """
-    if resolve_control_system_type(control_system_section) not in INVENTED_HISTORY_TYPES:
+    if (
+        resolve_control_system_type(ControlSystemSection.read(control_system_section))
+        not in INVENTED_HISTORY_TYPES
+    ):
         return False
     try:
-        return talks_to_network(control_system_section)
+        return talks_to_network(ControlSystemSection.read(control_system_section))
     except ValueError:
         return True
 
@@ -264,7 +268,9 @@ def pairing_for_target(config: object, target: str) -> ArchiverPairing:
             target exists before asking whether it may be used.
     """
     control_system = _sections(config).get("control_system")
-    section = target_section(control_system, resolve_target(control_system, target))
+    section = target_section(
+        control_system, resolve_target(ControlSystemSection.read(control_system), target)
+    )
     return _rendered_pairing(config, invents_history(section))
 
 

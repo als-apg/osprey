@@ -39,12 +39,12 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-#: Produces ``(expanded, unexpanded)`` from a freshly constructed config builder,
-#: or raises (``FileNotFoundError`` for a racy disappearance; any other exception
-#: for bad YAML / non-mapping / is-a-directory). Callers own builder construction
-#: — the CLI its shared singleton, the web loader a private
-#: ``ConfigBuilder(load_env=False)`` — while :func:`_load_config_result` owns the
-#: single degradation-and-parse contract both must honor.
+#: Produces ``(expanded, unexpanded)`` from a fresh config load, or raises
+#: (``FileNotFoundError`` for a racy disappearance; any other exception for bad
+#: YAML / non-mapping / is-a-directory). Callers own the load — the CLI installs
+#: it as the process default, the web loader installs nothing — while
+#: :func:`_load_config_result` owns the single degradation-and-parse contract
+#: both must honor.
 _ConfigLoader = Callable[[], "tuple[dict[str, Any] | None, dict[str, Any] | None]"]
 
 # Core categories that read the loaded config and therefore degrade to a single
@@ -97,10 +97,11 @@ def load_config(
     """
 
     def _load() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        from osprey_connectors.config import get_config_builder
+        from osprey_connectors import config as connectors_config
 
-        builder = get_config_builder(str(config_path), set_as_default=True)
-        return builder.raw_config, builder.get_unexpanded_config()
+        loaded = connectors_config.load_config(config_path)
+        connectors_config.install_config(loaded)
+        return loaded.raw_tree(), loaded.unexpanded_tree()
 
     return _load_config_result(config_path, project_path, _load)
 

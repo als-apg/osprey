@@ -36,6 +36,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, cast
 
 from osprey.health.models import CheckResult, Status
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system import ControlSystemConnector
 from osprey_connectors.targets import baseline_target
 
@@ -164,7 +165,8 @@ class HealthRuntime:
                 # A health run is not a session and never switches: the target
                 # it probes is the one its own configured section describes.
                 connector = await ConnectorFactory.create_control_system_connector(
-                    self._config, control_target=baseline_target(self._config)
+                    ControlSystemSection.read(self._config),
+                    control_target=baseline_target(ControlSystemSection.read(self._config)),
                 )
                 if self._closed:
                     # shutdown() ran during construction: it found the slot

@@ -181,12 +181,12 @@ class TestLegacyConfigFileShim:
         return [r for r in caplog.records if "is deprecated" in r.getMessage()]
 
     def test_container_config_file_loads_and_resolves_to_subprocess(self, tmp_path, caplog):
-        from osprey_connectors.config import get_full_configuration
+        from osprey_connectors.config import load_config
 
         config_file = self._write_config(tmp_path, "container")
 
         with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            configurable = get_full_configuration(str(config_file))
+            configurable = load_config(config_file).raw_tree()
             resolved = resolve_execution_method(configurable, source=str(config_file))
 
         # The loader passes the legacy value through untouched — no rewriting of
@@ -207,14 +207,14 @@ class TestLegacyConfigFileShim:
         """Warn-once is per process, not per read — the executor resolves per tool
         call, so a per-read warning would bury the operator in duplicates.
         """
-        from osprey_connectors.config import get_full_configuration
+        from osprey_connectors.config import load_config
 
         first = self._write_config(tmp_path, "container", name="first.yml")
         second = self._write_config(tmp_path, "CONTAINER", name="second.yml")
 
         with caplog.at_level(logging.WARNING, logger="CONFIG"):
             for config_file in (first, first, second):
-                configurable = get_full_configuration(str(config_file))
+                configurable = load_config(config_file).raw_tree()
                 assert (
                     resolve_execution_method(configurable, source=str(config_file)) == "subprocess"
                 )
@@ -228,12 +228,12 @@ class TestLegacyConfigFileShim:
         assert str(first) in deprecations[0].getMessage()
 
     def test_subprocess_config_file_loads_without_warning(self, tmp_path, caplog):
-        from osprey_connectors.config import get_full_configuration
+        from osprey_connectors.config import load_config
 
         config_file = self._write_config(tmp_path, "subprocess")
 
         with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            configurable = get_full_configuration(str(config_file))
+            configurable = load_config(config_file).raw_tree()
             resolved = resolve_execution_method(configurable, source=str(config_file))
 
         assert resolved == "subprocess"
@@ -241,39 +241,14 @@ class TestLegacyConfigFileShim:
 
 
 class TestExecutionDefaults:
-    """The built-in execution defaults advertise the honest backend."""
+    """A config with no ``execution:`` block runs on the honest backend."""
 
-    def test_default_execution_config_uses_subprocess(self, tmp_path):
-        from osprey_connectors.config import ConfigBuilder
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("project_root: .\n")
-
-        builder = ConfigBuilder(str(config_file), load_env=False)
-        execution = builder._get_execution_config()
-
-        assert execution["execution_method"] == "subprocess"
-
-    def test_defaults_round_trip_through_the_resolver(self, tmp_path):
-        from osprey_connectors.config import ConfigBuilder
+    def test_no_execution_section_resolves_to_subprocess(self, tmp_path):
+        from osprey_connectors.config import load_config
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("project_root: .\n")
 
-        builder = ConfigBuilder(str(config_file), load_env=False)
-        resolved = resolve_execution_method({"execution": builder._get_execution_config()})
+        resolved = resolve_execution_method(load_config(config_file).raw_tree())
 
-        assert resolved == "subprocess"
-
-
-def test_the_config_defaults_are_the_executor_vocabulary():
-    """``ConfigBuilder`` fills the same defaults the executor reads by name.
-
-    The connector package spells them privately for the config it builds; the
-    framework's names are the public ones. Two spellings drift silently.
-    """
-    from osprey.utils.execution_method import DEFAULT_EXECUTION_TIMEOUT_SECONDS
-    from osprey_connectors import config as connector_config
-
-    assert connector_config._EXECUTION_METHOD_SUBPROCESS == EXECUTION_METHOD_SUBPROCESS
-    assert connector_config._DEFAULT_EXECUTION_TIMEOUT_SECONDS == DEFAULT_EXECUTION_TIMEOUT_SECONDS
+        assert resolved == EXECUTION_METHOD_SUBPROCESS

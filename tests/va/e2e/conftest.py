@@ -65,6 +65,7 @@ import yaml
 from osprey.facility.records import FacilityRecords
 from osprey.services.virtual_accelerator.entrypoint import READY_MARKER
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
+from osprey_connectors_tests._config_lookup import config_lookup_patched
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
 from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
@@ -583,7 +584,7 @@ def patched_config(**overrides: Any) -> Iterator[None]:
             node[leaf] = value
         return section or default
 
-    with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
+    with config_lookup_patched(_get_config_value):
         yield
 
 
@@ -605,6 +606,7 @@ async def connect_va(**config_overrides: Any):
     The connector is registered for automatic disconnect after the test (see
     ``_disconnect_va_connectors``); callers need no try/finally of their own.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import TARGET_VA
     from osprey_connectors.factory import ConnectorFactory
 
@@ -612,7 +614,7 @@ async def connect_va(**config_overrides: Any):
     # stamps it: the write verdict is per target, and an unstamped connector
     # names no machine and is refused before its tier is read.
     connector = await ConnectorFactory.create_control_system_connector(
-        CONNECTOR_CONFIG, control_target=TARGET_VA
+        ControlSystemSection.read(CONNECTOR_CONFIG), control_target=TARGET_VA
     )
     _LIVE_CONNECTORS.append(connector)
     return connector

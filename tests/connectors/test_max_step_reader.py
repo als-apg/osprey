@@ -21,6 +21,7 @@ from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._limits_validator import ChannelLimitsConfig, LimitsValidator
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._epics_fakes import FakeChannel, ca_connector, ca_reading
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.connectors._driver_fakes import driven_through
@@ -59,7 +60,7 @@ def _step_validator(channel: str, max_step: float = 5.0) -> LimitsValidator:
 
 
 async def test_the_simulator_reads_its_own_store(monkeypatch, tmp_path):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_config_lookup(monkeypatch, writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         armed_context(
@@ -155,7 +156,7 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
     No Channel Access read could ever answer for a simulated channel, so this
     write used to be refused as unverifiable however small the step was.
     """
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_config_lookup(monkeypatch, writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         armed_context(
@@ -177,7 +178,7 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
 
 
 async def test_max_step_lets_a_small_step_through_on_the_simulator(monkeypatch, tmp_path):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_config_lookup(monkeypatch, writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         armed_context(

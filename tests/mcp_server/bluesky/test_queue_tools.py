@@ -46,6 +46,7 @@ from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import TERMINAL_USER_ENV
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.targets import baseline_target
@@ -117,7 +118,7 @@ def _configure(
         )
     if control_system is not None or writes is not None:
         # The record points at the baseline, the target the single lane serves.
-        target = baseline_target(section)
+        target = baseline_target(ControlSystemSection.read(section))
         write_control_context(
             tmp_path / "agent_data", target=target, switch={target: "on"} if writes else None
         )

@@ -5,9 +5,11 @@ import logging
 import pytest
 
 from osprey_connectors import connector_types
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._mock_dynamic_connector import MockDynamicConnector
 from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch, writes_enabled_config
@@ -45,7 +47,9 @@ class TestDynamicConnectorImport:
 
         dotted = "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector"
         config = {"type": dotted, "connector": {}}
-        connector = await ConnectorFactory.create_control_system_connector(config)
+        connector = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
         result = await connector.read_channel("TEST:CH")
         assert result.value == 42
         assert ConnectorFactory._control_system_connectors[dotted] is MockDynamicConnector
@@ -83,7 +87,7 @@ class TestDynamicConnectorImport:
 
         with pytest.raises(ValueError) as caught:
             await ConnectorFactory.create_control_system_connector(
-                {"type": connector_type, "connector": {}}
+                ControlSystemSection.read({"type": connector_type, "connector": {}})
             )
 
         assert message in str(caught.value)
@@ -147,7 +151,7 @@ class TestCustomConnectorConfirm:
     def writes_enabled(self, monkeypatch):
         # A custom connector is stamped with its dotted type; the tier is
         # target- and type-blind, so the deployment's allowed tier arms it.
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+        serve_config_lookup(monkeypatch, writes_enabled_config)
 
     async def _connector(self):
         config = {
@@ -157,7 +161,7 @@ class TestCustomConnectorConfirm:
         # Built for the simulator target, whose switch the module's fixture
         # turned on: the factory stamps the target the caller names.
         return await ConnectorFactory.create_control_system_connector(
-            config, control_target=ARMED_TARGET
+            ControlSystemSection.read(config), control_target=ARMED_TARGET
         )
 
     @pytest.mark.asyncio

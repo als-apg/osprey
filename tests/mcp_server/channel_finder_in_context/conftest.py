@@ -12,12 +12,12 @@ def _reset_registry():
     from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
-    _cfg._default_config = None
-    _cfg._default_configurable = None
-    _cfg._config_cache.clear()
+    _cfg._installed = None
+    _cfg._last_lazy = None
+    _cfg._loads.clear()
 
     yield
 
     reset_cf_ic_context()
     reset_config_cache()
-    _cfg._config_cache.clear()
+    _cfg._loads.clear()

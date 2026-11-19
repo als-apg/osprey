@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any, Final
 
 from osprey_connectors import write_switch
-from osprey_connectors.config import ConfigBuilder, load_project_dotenv
+from osprey_connectors.config import load_config
+from osprey_connectors.dotenv import load_project_dotenv
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.write_switch import WriteCeiling
 
@@ -81,10 +82,11 @@ def rendered_config(config_path: Path | None) -> Any:
     then gets to read the file exactly once for every question it asks.
     Blocking; never call it from the event loop.
 
-    **Parsed the way the deploy parses it**: :class:`ConfigBuilder`, so
-    ``${VAR}`` expands and a document that is not a mapping is refused. With
-    ``load_env=False``: the server loaded its ``.env`` chain once at start-up,
-    and a re-parse must not reload it into a running process.
+    **Parsed the way the deploy parses it**:
+    :func:`osprey_connectors.config.load_config`, so ``${VAR}`` expands and a
+    document that is not a mapping is refused. It reads no ``.env``: the server
+    loaded its chain once at start-up, and a re-parse must not reload it into a
+    running process.
 
     **Memoized by the file's signature.** ``config.yml`` is a build artefact: it
     changes when a deployment is re-rendered and not otherwise, while the chip
@@ -108,7 +110,7 @@ def rendered_config(config_path: Path | None) -> Any:
         if memo is not None and memo[0] == path and memo[1] == signature:
             return copy.deepcopy(memo[2])
         with quiet_logger(["registry", "CONFIG"]):
-            config = ConfigBuilder(path, load_env=False).raw_config
+            config = load_config(path).raw_tree()
     except Exception:  # an unreadable config is not a writes-on render
         logger.warning("Could not read the rendered config at %s", config_path)
         return UNREADABLE
@@ -142,12 +144,13 @@ def login_tier(section: Any, login: str) -> WriteCeiling:
     if section is UNREADABLE:
         return TIER_UNKNOWN
     try:
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.write_tier import tier_writes
 
-        if tier_writes(section) == "never":
+        if tier_writes(ControlSystemSection.read(section)) == "never":
             return "never"
-        rung = write_switch.owner_tier_term(section, login)
-        ceiling = write_switch.write_ceiling(section, login)
+        rung = write_switch.owner_tier_term(ControlSystemSection.read(section), login)
+        ceiling = write_switch.write_ceiling(ControlSystemSection.read(section), login)
     except Exception:  # an unreadable tier is not an allowed one
         logger.warning("Could not read the write tier for login %s", login)
         return TIER_UNKNOWN
@@ -203,7 +206,7 @@ def coerce_config_flag(key: str, value: object, default: bool) -> bool:
 
 
 def _flag_in(config: Any, key: str, default: bool) -> bool:
-    """The flag at dotted *key* of an already-read render, walked as ``ConfigBuilder.get``."""
+    """The flag at dotted *key* of an already-read render, walked as ``LoadedConfig.get``."""
     value = config
     try:
         for part in key.split("."):

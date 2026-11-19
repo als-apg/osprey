@@ -56,6 +56,7 @@ from osprey.mcp_server.control_system import (
     target_state,
 )
 from osprey_connectors import control_context, gateways, testing, workspace, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import ReadResult
 from osprey_connectors.refusals import refusal_phrase
@@ -1155,7 +1156,9 @@ def armed(tmp_path, **kwargs):
 def fresh_verdict(config_path, target):
     """The write verdict a new call by the signed-in login gets, asked directly."""
     section = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))["control_system"]
-    return write_switch.write_verdict(section, target, owner=acting_identity())
+    return write_switch.write_verdict(
+        ControlSystemSection.read(section), target, owner=acting_identity()
+    )
 
 
 def switch_on(agent_data_root, *targets):

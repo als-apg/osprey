@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from osprey.apps.sdk import WriteVerdictView, _limits, prewrite_verdict
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 BOUNDED = "SR:HCM:01:CURRENT:SP"
 STEPPED = "SR:HCM:02:CURRENT:SP"
@@ -58,11 +59,8 @@ def _configure(
         "control_system.limits_checking.database_path": str(db_file),
         "project_root": None,
     }
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 
 def _on(mode: str | None) -> dict[str, Any]:

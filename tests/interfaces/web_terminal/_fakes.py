@@ -345,7 +345,7 @@ def sdk_seam(client_or_factory: Any = None) -> Iterator[list[ClaudeAgentOptions]
         )
         stack.enter_context(patch(seam + "validate_project_directory", return_value=[]))
         stack.enter_context(patch(seam + "build_system_prompt", return_value=PRESET_SYSTEM_PROMPT))
-        stack.enter_context(patch(seam + "get_facility_timezone", return_value=None))
+        stack.enter_context(patch(seam + "facility_timezone", return_value=None))
         yield captured
 
 

@@ -109,10 +109,10 @@ def _config_dir() -> Path | None:
         which case the shared resolver falls back to its own rule.
     """
     from osprey.utils.config_paths import resolve_config_dir
-    from osprey_connectors.config import default_config_path
+    from osprey_connectors.config import active_config
 
-    loaded = default_config_path()
-    return Path(loaded).parent if loaded else resolve_config_dir()
+    loaded = active_config()
+    return loaded.path.parent if loaded is not None else resolve_config_dir()
 
 
 def _report_vocabulary(vocabulary: dict | None) -> None:
@@ -613,13 +613,13 @@ def _anchor_project_config(ctx: click.Context) -> None:
     to find, nothing is anchored: a verb that needs none (``vocab-check PATH``,
     ``--help``) still runs, and one that needs one reports it missing.
     """
-    from osprey_connectors.config import config_anchored_at
+    from osprey.utils.config_paths import deployment_config
 
     from .project_utils import resolve_config_path
 
     config_path = Path(resolve_config_path())
     if config_path.is_file():
-        ctx.with_resource(config_anchored_at(config_path))
+        ctx.with_resource(deployment_config(config_path))
 
 
 class _ArielGroup(click.Group):

@@ -68,6 +68,7 @@ from osprey.interfaces.web_terminal.config_view import (
 from osprey.interfaces.web_terminal.routes import websocket as posture_routes
 from osprey_connectors import control_context, write_switch
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.identity import acting_identity
@@ -255,7 +256,7 @@ def _facts(config_path: Path | None, request_id: str) -> _Facts:
     target = facts.request.target
     if target in facts.configured:
         verdict = write_switch.write_verdict(
-            None if section is UNREADABLE else section,
+            ControlSystemSection.read(None if section is UNREADABLE else section),
             target,
             owner=login,
             ignore_launch_pin=True,

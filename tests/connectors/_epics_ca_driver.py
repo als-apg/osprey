@@ -356,10 +356,10 @@ def recorder(prefix: str) -> dict[str, Any]:
         username="osprey",
         password_env="MONGO_ROOT_PASSWORD",
         timeout_s=5,
-        cadence_sec=1,
-        tail_cadence_sec=60,
-        poll_sec=30,
-        hot_span_hours=48,
+        cadence_s=1,
+        tail_cadence_s=60,
+        poll_s=30,
+        hot_span_h=48,
         retention_days=30,
     )
     read = channel_access_reader(settings)
@@ -442,7 +442,16 @@ def _writes_armed() -> Iterator[None]:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         testing.invalidate_cache()
         with (
+            # The write path reads the loaded config's section, everything else
+            # the lookup: serve both. (This driver runs as a script, outside the
+            # suite's import path, so it does not use the suite's helper.)
             patch("osprey_connectors.config.get_config_value", _armed_config),
+            patch(
+                "osprey_connectors.config.current_config",
+                lambda: testing.config_of(
+                    {"control_system": _armed_config("control_system", {})}, environ={}
+                ),
+            ),
             patch.object(
                 ControlSystemConnector, "_context", ConnectorContext(control_target=_ARMED_TARGET)
             ),

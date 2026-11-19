@@ -241,10 +241,10 @@ def test_up_starts_the_compose_files_the_build_left(lifecycle_repo, started):
 
 def _built_project(repo: Path) -> str:
     """The compose project the build in *repo* names, read the way a start reads it."""
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
     return resolve_project_name(
-        load_project_config(str(container_lifecycle.as_built_config_path(repo)))
+        load_config(container_lifecycle.as_built_config_path(repo)).raw_tree()
     )
 
 
@@ -375,7 +375,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
     what a facility that configures nothing gets anyway: the bug is only visible
     as a WRONG ANSWER when the render names a real zone.
     """
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.config import facility_timezone
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(
@@ -385,7 +385,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
     seen: dict = {}
 
     def _probe(_config, _dev_mode, _env, _build_context=None, **_kwargs):
-        seen["tz"] = str(get_facility_timezone())
+        seen["tz"] = str(facility_timezone())
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _probe)
 
@@ -1490,9 +1490,9 @@ def test_a_real_build_lands_compose_where_up_looks_for_it(built_repo):
 
     # And `up`'s discovery finds them, from the repo root, off the shipped
     # config — the half that would have gone on reading an empty directory.
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
-    config = load_project_config(str(built_repo / "build" / "config.yml"), wrap_errors=True)
+    config = load_config(str(built_repo / "build" / "config.yml")).raw_tree()
     discovered = container_lifecycle.as_built_compose_files(config, built_repo)
 
     assert discovered

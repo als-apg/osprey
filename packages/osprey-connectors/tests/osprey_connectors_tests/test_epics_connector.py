@@ -343,7 +343,7 @@ class TestReadChannel:
         A naive ``datetime.fromtimestamp(ts)`` without a zone would fail this.
         """
         monkeypatch.setattr(
-            "osprey_connectors.config.get_facility_timezone",
+            "osprey_connectors.config.facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),  # UTC+9, no DST
         )
         connector = _channel_connector(ca_reading(1.23, timestamp=1_750_000_000.0))
@@ -357,7 +357,7 @@ class TestReadChannel:
     async def test_missing_timestamp_falls_back_to_now(self, monkeypatch):
         """When the reading carries no timestamp, the read stamps a UTC 'now'."""
         monkeypatch.setattr(
-            "osprey_connectors.config.get_facility_timezone",
+            "osprey_connectors.config.facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),
         )
         connector = _channel_connector(ca_reading(3.14, timestamp=0))
@@ -1043,7 +1043,7 @@ class TestSubscribe:
     async def test_a_time_event_converts_to_channel_value(self, monkeypatch):
         """A TIME event is adapted into a UTC-stamped ChannelValue with its connection's CTRL."""
         monkeypatch.setattr(
-            "osprey_connectors.config.get_facility_timezone",
+            "osprey_connectors.config.facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),
         )
         connector = _channel_connector()

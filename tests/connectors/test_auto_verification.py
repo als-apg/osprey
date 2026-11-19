@@ -9,12 +9,16 @@ would.
 """
 
 import json
-from unittest.mock import patch
 
 import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors_tests._config_lookup import (
+    config_lookup_patched,
+    constant_lookup,
+    serve_config_lookup,
+)
 from osprey_connectors_tests._write_fakes import (
     ARMED_SECTION,
     arm_switch,
@@ -91,7 +95,7 @@ async def _connected_mock(monkeypatch, tmp_path, limits_file=None, **extra):
     *outcome* rather than the mock's synthetic jitter.
     """
     config = writes_enabled_config if limits_file is None else _limits_config(limits_file, **extra)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", config)
+    serve_config_lookup(monkeypatch, config)
 
     connector = VAInProcessConnector()
     await connector.connect(
@@ -370,7 +374,7 @@ class TestWritesDisabledOutranksConfirmation:
     async def test_a_disabled_write_is_refused_not_unrequested(self, tmp_path):
         view = served_tree(tmp_path, ["TEST:CHANNEL"])
         connector = VAInProcessConnector()
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
             )
