@@ -252,6 +252,9 @@ def channel_record(channel: Mapping[str, Any], source: RosterSource) -> ChannelR
         description=channel.get("description"),
         on=_on(channel.get("on")),
         options=_options(channel.get("options")),
+        command=channel.get("command") is True,
+        timeout_s=channel.get("timeout_s"),
+        idle=channel.get("idle"),
     )
 
 
