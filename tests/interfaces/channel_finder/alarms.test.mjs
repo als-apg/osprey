@@ -7,7 +7,7 @@
  *   npx vitest run tests/interfaces/channel_finder/alarms.test.mjs
  */
 
-import './epics-words.mjs';
+import { epicsDirectory } from './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,12 +32,12 @@ const PANEL_HTML = (() => {
   return `${match[0]}</div>`;
 })();
 
-const DESCRIPTOR = {
+const DESCRIPTOR = epicsDirectory({
   label: 'All PVs',
   configured_services: ['alarm_state'],
   canopy: true,
   ariel: true,
-};
+});
 
 const GUIDANCE = [
   { title: 'Response', details: 'Check cavity 1 cooling water flow and the tuner position.' },

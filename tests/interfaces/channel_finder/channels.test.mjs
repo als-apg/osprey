@@ -7,7 +7,7 @@
  *   npx vitest run tests/interfaces/channel_finder/channels.test.mjs
  */
 
-import './epics-words.mjs';
+import { epicsDirectory } from './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,7 +32,12 @@ const PANEL_HTML = (() => {
   return `${match[0]}</div>`;
 })();
 
-const DESCRIPTOR = { label: 'All PVs', configured_services: [], canopy: true, ariel: true };
+const DESCRIPTOR = epicsDirectory({
+  label: 'All PVs',
+  configured_services: [],
+  canopy: true,
+  ariel: true,
+});
 
 /** @type {(() => void) | null} */
 let unmount = null;

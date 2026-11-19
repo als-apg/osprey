@@ -14,12 +14,17 @@
  * next case's events.
  */
 
-import './epics-words.mjs';
+import { epicsDirectory } from './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 
 const JS = '../../../src/osprey/interfaces/channel_finder/static/js';
 
-const DESCRIPTOR = { label: 'All PVs', configured_services: [], canopy: true, ariel: true };
+const DESCRIPTOR = epicsDirectory({
+  label: 'All PVs',
+  configured_services: [],
+  canopy: true,
+  ariel: true,
+});
 
 const WITH_DIRECTORY = { pipeline_type: 'hierarchical', directory: DESCRIPTOR };
 const WITHOUT_DIRECTORY = { pipeline_type: 'hierarchical' };

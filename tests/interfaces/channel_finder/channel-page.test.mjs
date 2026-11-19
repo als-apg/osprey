@@ -4,7 +4,7 @@
  *   npx vitest run tests/interfaces/channel_finder/channel-page.test.mjs
  */
 
-import './epics-words.mjs';
+import { epicsDirectory } from './epics-words.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, vi, afterEach, describe } from 'vitest';
@@ -30,12 +30,12 @@ const fixtureSection = (id) =>
   FIXTURE['pv/{name}'].sections.find((/** @type {any} */ s) => s.section === id);
 const MOUNT = '/u/a/panel/channel-finder/';
 const ARIEL_SEARCH = '/u/a/panel/ariel/api/search';
-const DESCRIPTOR = {
+const DESCRIPTOR = epicsDirectory({
   label: 'All PVs',
   configured_services: ['alarm_log', 'alarm_state', 'put_log', 'archive', 'logbook'],
   canopy: true,
   ariel: true,
-};
+});
 
 /** An ARIEL `view: 'row'` answer: RowResponse entries. */
 const ROW_ANSWER = {

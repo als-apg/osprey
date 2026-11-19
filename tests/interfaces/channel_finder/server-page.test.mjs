@@ -6,7 +6,7 @@
  *   npx vitest run tests/interfaces/channel_finder/server-page.test.mjs
  */
 
-import './epics-words.mjs';
+import { useEpicsWords } from './epics-words.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,7 +69,7 @@ const readValues = vi.fn();
 /** @type {HTMLElement} */
 let container;
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers();
   document.body.innerHTML = '<div id="view-container"></div>';
   container = /** @type {HTMLElement} */ (document.getElementById('view-container'));
@@ -77,6 +77,7 @@ beforeEach(() => {
   readValues.mockReset();
   vi.resetModules();
   vi.doMock(`${JS}/directory-api.js`, () => ({ fetchServerFacts, readValues }));
+  await useEpicsWords();
 });
 
 let page = /** @type {any} */ (null);
