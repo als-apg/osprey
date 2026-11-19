@@ -1,4 +1,4 @@
-"""The simulator directory lists every simulated IOC, from the view alone."""
+"""The simulator directory lists every simulated server, from the view alone."""
 
 from __future__ import annotations
 

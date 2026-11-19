@@ -47,7 +47,8 @@ A connector is built by `ConnectorFactory` from its registered type name, after
 
 The directory, alarm and put-log kinds are built from a `BackendSpec` by
 `ConnectorFactory.create_service`; `service_targets` makes the specs of a
-deployment's `pv_directory` section, per control target. A backend of your own
+deployment's `channel_directory` section, per control target (a config that
+still spells the section `pv_directory` is read under that key). A backend of your own
 registers with `register_service(kind, name, cls)` or is named by dotted path.
 
 A type name that holds a dot, such as `my_site.connectors.MyConnector`, is

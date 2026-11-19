@@ -199,7 +199,7 @@ class TestListServers:
         rows = await backend(fake).list_servers(DEADLINE)
 
         assert isinstance(rows, Unavailable)
-        assert "refused" in rows.reason and "5000 PVs" in rows.reason
+        assert "refused" in rows.reason and "5000 channels" in rows.reason
 
     async def test_the_real_transport_lets_the_scroll_continue_after_a_channel_name(self):
         fake = ChannelFinderFake(

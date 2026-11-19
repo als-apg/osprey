@@ -32,13 +32,13 @@ STOP_TEXTURE = "texture-stopped"
 
 
 def _view(path: Path) -> Path:
-    """Model ``M`` (no deck) and the texture, with a scenario stopping each one's IOC."""
+    """Model ``M`` (no deck) and the texture, with a scenario stopping each one's server."""
     documents = {
         "served_models.json": {"models": ["M", "texture"]},
         "addresses.json": {
             "channels": [SETPOINT],
             "status": [STATUS],
-            "ioc_health": [HEARTBEAT, TEXTURE_HEARTBEAT],
+            "server_health": [HEARTBEAT, TEXTURE_HEARTBEAT],
         },
         "variables.json": {
             "code": "T",
@@ -102,7 +102,7 @@ def test_each_address_belongs_to_the_server_the_directory_names(tmp_path: Path) 
     owners = {address: view.channel(address).owner for address in view.channels()}
     physics = [model.name for model in view.physics_models()]
     assert server_addresses(
-        physics, owners, view.status_addresses(), view.ioc_health_by_model()
+        physics, owners, view.status_addresses(), view.server_health_by_model()
     ) == {
         "sim-M": frozenset({STATUS, HEARTBEAT}),
         TEXTURE_SERVER: frozenset({SETPOINT, TEXTURE_HEARTBEAT}),
@@ -154,7 +154,7 @@ async def test_a_stopped_servers_channel_gives_no_answer_then_answers_again(conn
             await connector.read_channel(address)
         with pytest.raises(ChannelUnreachableError):
             await connector.get_metadata(address)
-    # The other IOC keeps answering.
+    # The other server keeps answering.
     assert (await connector.read_channel(SETPOINT)).value == pytest.approx(5.0)
     assert (await connector.read_channel(TEXTURE_HEARTBEAT)).value is not None
     _activate(state_dir)

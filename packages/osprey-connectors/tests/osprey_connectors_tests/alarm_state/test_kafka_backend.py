@@ -640,7 +640,7 @@ async def test_a_login_the_broker_cannot_take_answers_why_and_starts_nothing(
 
     answer = await _answer(backend)
     assert isinstance(answer, Unavailable)
-    assert f"pv_directory.alarm_state.settings.{names}" in answer.reason
+    assert f"channel_directory.alarm_state.settings.{names}" in answer.reason
     assert "s3cret" not in answer.reason
     assert backend._task is None
 

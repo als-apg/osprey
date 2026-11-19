@@ -42,7 +42,7 @@ class DirectoryRow:
 
 @dataclass(frozen=True, kw_only=True)
 class DirectoryRecord:
-    """One PV in full. Every property is optional and a string, as measured."""
+    """One channel in full. Every property is optional and a string, as measured."""
 
     row: DirectoryRow
     properties: Mapping[str, str] = field(default_factory=dict)
@@ -120,7 +120,7 @@ class ServerRow:
 
 
 class ChannelDirectory(_Backend, ABC):
-    """Search the control system's own directory of PVs."""
+    """Search the control system's own directory of channels."""
 
     @property
     def field_properties(self) -> Mapping[str, str]:
@@ -142,7 +142,7 @@ class ChannelDirectory(_Backend, ABC):
     async def describe(
         self, name: str, deadline: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        """The record of the PV called exactly *name*, or ``NOT_LISTED``."""
+        """The record of the channel called exactly *name*, or ``NOT_LISTED``."""
 
     @abstractmethod
     async def property_names(self, deadline: float) -> list[str] | Unavailable:
@@ -161,7 +161,7 @@ class ChannelDirectory(_Backend, ABC):
         short answers ``Unavailable``, never part of the list. A backend that
         cannot list its servers keeps this default, which says so.
         """
-        return Unavailable("this directory cannot list its IOCs")
+        return Unavailable("this directory cannot list its servers")
 
     @abstractmethod
     async def probe(self, deadline: float) -> str | Unavailable:

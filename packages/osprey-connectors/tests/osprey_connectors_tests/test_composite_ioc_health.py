@@ -1,4 +1,4 @@
-"""The composite and the in-process connector serve the view's IOC health addresses."""
+"""The composite and the in-process connector serve the view's server health addresses."""
 
 from __future__ import annotations
 

@@ -120,7 +120,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
     ("record", "fields"),
     [
         (Source, ["kind", "target", "service", "rehearsal"]),
-        (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
+        (BackendSpec, ["kind", "type", "target", "settings", "rehearsal", "section"]),
         (AlarmHistoryRow, ["time", "severity", "status", "message", "user", "kind"]),
         (PutRow, ["at", "channel", "field", "old", "new", "user", "client"]),
         (
