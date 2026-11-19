@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from osprey.facility.panels import layout, symbols
 from osprey.facility.panels.describe import health_rollup
 from osprey.facility.panels.view import Group
@@ -187,3 +189,18 @@ def test_the_ring_draws_an_arc_per_child_with_its_name_and_link(ring_graph) -> N
         a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
     )  # fmt: skip
     assert not [t for t in _tiles(doc) if t["props"]["tooltip"] in ("XR/XR01", "XR/XR02")]
+
+
+@pytest.mark.parametrize(("length", "ring"), [(20.0, True), (14.0, False), (40.0, False)])
+def test_children_are_arcs_only_when_they_go_round_the_ring(tmp_path, length, ring) -> None:
+    """The sectors at 1-2 m and 11-12.5 m go round a 20 m ring; on a 14 m or a 40 m
+    ring they leave a gap of half of it or more, a part of the ring, as one sector's
+    places are: no arcs."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.describe import on_a_ring
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from tests.facility.panels.test_describe import ring_model
+
+    facility = write_fixture_facility(tmp_path / "f.json", ring_model(length))
+    graph = load_graph(facility, copy_tables(tmp_path / "panels"))
+    assert on_a_ring(graph, "XR") is ring

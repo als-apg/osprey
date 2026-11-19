@@ -3960,20 +3960,21 @@ MIN_RING_ARCS = 2
 def on_a_ring(graph: PanelGraph, place_id: str) -> bool:
     """Whether a place's roll-up draws its children as arcs of a ring: at least
     :data:`MIN_RING_ARCS` of them lie along one beam path the facility file marks
-    ``periodic`` (:meth:`PanelGraph.frame_length`)."""
-    return len(ring_arcs(graph, place_id, ring_only=True)) >= MIN_RING_ARCS
+    ``periodic`` (:meth:`PanelGraph.frame_length`), and they go round it: no gap
+    between their positions, taken round the ring, is half its length or more (a
+    part of the ring, such as one sector, is no ring)."""
+    spans, length = _child_spans(graph, place_id)
+    if not length or len(spans) < MIN_RING_ARCS:
+        return False
+    found = sorted(s for span in spans.values() for s in span)
+    gaps = [b - a for a, b in zip(found, found[1:], strict=False)]
+    gaps.append(found[0] + length - found[-1])
+    return max(gaps) < length / 2
 
 
-def ring_arcs(graph: PanelGraph, place_id: str, *, ring_only: bool = False) -> list[str]:
-    """The child places of *place_id* that lie on the ring, in beam order.
-
-    A child lies on the ring when what it holds (:meth:`PanelGraph.contents`)
-    has a position along the beam path most of them are on. Its span starts after
-    the widest gap between its positions, taken round the ring when the path's
-    length is stated (:meth:`PanelGraph.frame_length`), so a child across the
-    ring's start is ordered by where its span begins, not by its position nearest
-    zero.
-    """
+def _child_spans(graph: PanelGraph, place_id: str) -> tuple[dict[str, list[float]], float | None]:
+    """The positions of what each child place of *place_id* holds along the beam
+    path most of them are on, and that path's length (``None`` for a line)."""
     placed: dict[str, list[tuple[str, float]]] = {}
     for child in graph.within(place_id):
         if child.kind != "place":
@@ -3993,7 +3994,20 @@ def ring_arcs(graph: PanelGraph, place_id: str, *, ring_only: bool = False) -> l
         for child, found in placed.items()
         if any(f == frame for f, _s in found)
     }
-    length = graph.frame_length(frame) if frame is not None else None
+    return spans, graph.frame_length(frame) if frame is not None else None
+
+
+def ring_arcs(graph: PanelGraph, place_id: str, *, ring_only: bool = False) -> list[str]:
+    """The child places of *place_id* that lie on the ring, in beam order.
+
+    A child lies on the ring when what it holds (:meth:`PanelGraph.contents`)
+    has a position along the beam path most of them are on. Its span starts after
+    the widest gap between its positions, taken round the ring when the path's
+    length is stated (:meth:`PanelGraph.frame_length`), so a child across the
+    ring's start is ordered by where its span begins, not by its position nearest
+    zero.
+    """
+    spans, length = _child_spans(graph, place_id)
     if ring_only and not length:
         return []
 

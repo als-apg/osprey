@@ -31,14 +31,14 @@ def panel_graph(panel_facility: Path, panel_tables: Path):
 
 @pytest.fixture(scope="session")
 def ring_graph(tmp_path_factory: pytest.TempPathFactory, panel_tables: Path):
-    """The fixture graph with its ring a periodic model ``XRM`` 14 m long: every
+    """The fixture graph with its ring a periodic model ``XRM`` 20 m long: every
     XR01/XR02 device belongs to it, so ``XR``'s roll-up draws its sectors as arcs."""
     from osprey.facility.panels import load_graph
 
     def change(document) -> None:
         document["models"] = [
             *document.get("models", []),
-            {"name": "XRM", "engine": "none", "length": 14.0, "periodic": True},
+            {"name": "XRM", "engine": "none", "length": 20.0, "periodic": True},
         ]
         for device in document["devices"]:
             if device["id"].startswith(("XR01:", "XR02:")):

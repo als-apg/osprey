@@ -1429,7 +1429,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
    ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
    level; a place with at least two children along a beam path the facility
-   file marks ``periodic`` draws them as arcs of a ring, in beam order) and ``checkout`` (every setpoint beside its readback).
+   file marks ``periodic``, going round it (no gap between their positions half
+   the ring or more, so one sector's places are no ring), draws them as arcs of
+   a ring, in beam order) and ``checkout`` (every setpoint beside its readback).
 
    Every screen but the home leads back to it first in its crumbs, then out
    through the places around it (to each place's view where it has one). The
