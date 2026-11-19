@@ -1208,6 +1208,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    left out and the count per reason (unwired, no width, unsolved, table
    calibration); it does not change the verdict or the exit code:
    ``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``.
+   Each model with a deck gets ``length`` (its beam path in metres) and
+   ``periodic`` (``true`` for a ring, ``false`` for a line) in the facility file,
+   from the deck; a model with a deck that states either stops with
+   ``model-conflict``, and a model without one may state them.
    A device whose stated ``s`` lies outside its periodic model's deck is placed
    modulo the deck's length, and both ``osprey build`` and this command print
    one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
@@ -1404,7 +1408,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    records), ``channels`` (every channel of a device with more than a card
    lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
    calibration kind over a set), ``place`` (a place's devices in beam order
-   with a band of key numbers), ``rack`` (a rack elevation, chassis at their
+   with a band of key numbers: positions are the ring-frame poses, else each
+   device's ``s`` along its model; one strip keeps to the beam path most of its
+   devices are on, the others wait in its tray, and a stretch across a ring's
+   start is drawn in one piece; a card's strip window reads on across the start
+   the same way. A ring is a model the facility file marks ``periodic``, at its
+   ``length``; the ring frame of the poses takes the model most of its posed
+   devices belong to), ``rack`` (a rack elevation, chassis at their
    unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
    ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
    level) and ``checkout`` (every setpoint beside its readback).
@@ -1444,7 +1454,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    unit and the divisor its raw value is shown through), ``channel_roles.csv``
    (what a channel is to a device card, by class and name pattern) and
    ``card_recipes.csv`` (a class's card recipe, optionally for the devices under a
-   place or whose id matches a pattern; the first row that takes a device wins),
+   place, a part by its whole's place, or whose id matches a pattern; the first
+   row that takes a device wins),
    ``card_sections.csv`` (a recipe's drawn sections in order) and ``chains.csv``
    (the hops of a recipe's chains: each walks one relation in one direction from
    the device or an earlier hop, keeps the things its ``to`` filter takes, and
@@ -1530,20 +1541,31 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    is named "contested, not in force" beside the value in force, alone it makes
    the row and its cell "contested" with no value, and a contested curve is not
    drawn. The calibration block is the
-   ``calibration-strip``. ``no_cards.csv`` (class, under, devices,
-   owner_relation, owner_direction, owner_to, and the optional when and
-   attribute) names devices that get no card: ``class`` ``*`` matches any
-   class, ``when`` is ``no-channel`` (the device has no channel),
-   ``no-recipe`` (no card recipe holds it) or both joined by ``;``, and
-   ``attribute`` is ``name=value``, a value the device's ``attributes`` map
-   states (a list value matches each of its items). Every condition a row
-   states must hold, and the first row that takes a device wins; the device is
-   drawn on its owner's card (the thing the stated relation names), a link to
-   it opens that card, and ``index.json`` lists it under ``drawn_on`` with the
-   owner's screen. A row with no owner relation, or a device whose owner is not
-   found, gets no screen and no entry: a related card names it as a block or a
-   row that opens nothing. ``check`` counts both, and how many devices each row
-   takes. A device card is drawn:
+   ``calibration-strip``. A device with no place of its own and an accepted
+   ``part_of`` to a placed whole stands where the whole is: in its crumbs, on
+   strips at the whole's position, and its card says "in <place> by its whole
+   <whole>". A device that is an endpoint of channels another device holds (a
+   family's shared supply) shows that supply's value roles read-only under
+   "shared supply <id>", with a link to the supply's card; the supply's presses
+   stay on its own card. A device gets a card when it has a channel its card shows (one on it, one it
+   is an endpoint of, or one a ``channel_roles.csv`` row walks to from it) or a
+   drawing (a ``card_recipes.csv`` row or a ``pictures.csv`` row that applies to
+   it); a pose or a relation alone gives none. ``cards.csv`` (action, class,
+   under, devices, attribute, when, owner_relation, owner_direction, owner_to,
+   reason, source) holds the exceptions: ``action`` ``keep`` gives the devices a
+   row selects a card, ``drop`` takes theirs. ``class`` ``*`` matches any class,
+   ``under`` holds a device whose place is it or lies within it, and a part by
+   its whole's place (a part with no place of its own sits where its whole sits), ``devices`` is an id pattern, ``attribute`` is ``name=value``, a
+   value the device's ``attributes`` map states (a list value matches each of its
+   items), and ``when`` is ``no-channel`` (no channel its card shows),
+   ``no-drawing`` (no recipe, no picture) or both joined by ``;``. Every selector a
+   row states must hold, and the first row that selects a device decides. A
+   ``drop`` row may name an owner by a relation and a direction (a ``keep`` row
+   may not): the device is drawn on its owner's card, a link to it opens that
+   card, and ``index.json`` lists it under ``drawn_on`` with the owner's screen. A
+   device with no card and no owner found gets no screen and no entry: a related
+   card names it without a link. ``check`` counts the devices with no card, those
+   the default alone leaves without one, and how many devices each row decides. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles; a tile's measure is
    ``value`` or ``word`` of the role's first channel, or over every channel of

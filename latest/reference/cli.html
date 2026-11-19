@@ -1543,6 +1543,10 @@ a second line for that model follows on stderr, giving the number of rows
 left out and the count per reason (unwired, no width, unsolved, table
 calibration); it does not change the verdict or the exit code:
 <code class="docutils literal notranslate"><span class="pre">response</span> <span class="pre">check</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">left</span> <span class="pre">out</span> <span class="pre">&lt;n&gt;</span> <span class="pre">rows</span> <span class="pre">(&lt;k&gt;</span> <span class="pre">unwired,</span> <span class="pre">&lt;j&gt;</span> <span class="pre">no</span> <span class="pre">width,</span> <span class="pre">&lt;u&gt;</span> <span class="pre">unsolved,</span> <span class="pre">&lt;t&gt;</span> <span class="pre">table</span> <span class="pre">calibration)</span></code>.
+Each model with a deck gets <code class="docutils literal notranslate"><span class="pre">length</span></code> (its beam path in metres) and
+<code class="docutils literal notranslate"><span class="pre">periodic</span></code> (<code class="docutils literal notranslate"><span class="pre">true</span></code> for a ring, <code class="docutils literal notranslate"><span class="pre">false</span></code> for a line) in the facility file,
+from the deck; a model with a deck that states either stops with
+<code class="docutils literal notranslate"><span class="pre">model-conflict</span></code>, and a model without one may state them.
 A device whose stated <code class="docutils literal notranslate"><span class="pre">s</span></code> lies outside its periodic model’s deck is placed
 modulo the deck’s length, and both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and this command print
 one <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">place-wrapped:</span> <span class="pre">device</span> <span class="pre">&lt;id&gt;</span> <span class="pre">—</span> <span class="pre">…;</span> <span class="pre">fix:</span> <span class="pre">…</span></code> warning per device
@@ -1732,7 +1736,13 @@ from it), <code class="docutils literal notranslate"><span class="pre">card</spa
 records), <code class="docutils literal notranslate"><span class="pre">channels</span></code> (every channel of a device with more than a card
 lists, grouped by role, then record type: the one plain list), <code class="docutils literal notranslate"><span class="pre">set</span></code> (the members of a group as a grid), <code class="docutils literal notranslate"><span class="pre">calibration</span></code> (one
 calibration kind over a set), <code class="docutils literal notranslate"><span class="pre">place</span></code> (a place’s devices in beam order
-with a band of key numbers), <code class="docutils literal notranslate"><span class="pre">rack</span></code> (a rack elevation, chassis at their
+with a band of key numbers: positions are the ring-frame poses, else each
+device’s <code class="docutils literal notranslate"><span class="pre">s</span></code> along its model; one strip keeps to the beam path most of its
+devices are on, the others wait in its tray, and a stretch across a ring’s
+start is drawn in one piece; a card’s strip window reads on across the start
+the same way. A ring is a model the facility file marks <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, at its
+<code class="docutils literal notranslate"><span class="pre">length</span></code>; the ring frame of the poses takes the model most of its posed
+devices belong to), <code class="docutils literal notranslate"><span class="pre">rack</span></code> (a rack elevation, chassis at their
 unit; a half-width unit, whose <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claim states <code class="docutils literal notranslate"><span class="pre">side</span></code> <code class="docutils literal notranslate"><span class="pre">L</span></code> or
 <code class="docutils literal notranslate"><span class="pre">R</span></code>, fills that half, two halves of one unit side by side), <code class="docutils literal notranslate"><span class="pre">rollup</span></code> (the health of a place and everything in it, level by
 level) and <code class="docutils literal notranslate"><span class="pre">checkout</span></code> (every setpoint beside its readback).</p>
@@ -1769,7 +1779,8 @@ writes, else the action its channel’s name says), <code class="docutils litera
 unit and the divisor its raw value is shown through), <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code>
 (what a channel is to a device card, by class and name pattern) and
 <code class="docutils literal notranslate"><span class="pre">card_recipes.csv</span></code> (a class’s card recipe, optionally for the devices under a
-place or whose id matches a pattern; the first row that takes a device wins),
+place, a part by its whole’s place, or whose id matches a pattern; the first
+row that takes a device wins),
 <code class="docutils literal notranslate"><span class="pre">card_sections.csv</span></code> (a recipe’s drawn sections in order) and <code class="docutils literal notranslate"><span class="pre">chains.csv</span></code>
 (the hops of a recipe’s chains: each walks one relation in one direction from
 the device or an earlier hop, keeps the things its <code class="docutils literal notranslate"><span class="pre">to</span></code> filter takes, and
@@ -1855,20 +1866,31 @@ newest accepted one: a contested claim is never in force nor a base value; it
 is named “contested, not in force” beside the value in force, alone it makes
 the row and its cell “contested” with no value, and a contested curve is not
 drawn. The calibration block is the
-<code class="docutils literal notranslate"><span class="pre">calibration-strip</span></code>. <code class="docutils literal notranslate"><span class="pre">no_cards.csv</span></code> (class, under, devices,
-owner_relation, owner_direction, owner_to, and the optional when and
-attribute) names devices that get no card: <code class="docutils literal notranslate"><span class="pre">class</span></code> <code class="docutils literal notranslate"><span class="pre">*</span></code> matches any
-class, <code class="docutils literal notranslate"><span class="pre">when</span></code> is <code class="docutils literal notranslate"><span class="pre">no-channel</span></code> (the device has no channel),
-<code class="docutils literal notranslate"><span class="pre">no-recipe</span></code> (no card recipe holds it) or both joined by <code class="docutils literal notranslate"><span class="pre">;</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">attribute</span></code> is <code class="docutils literal notranslate"><span class="pre">name=value</span></code>, a value the device’s <code class="docutils literal notranslate"><span class="pre">attributes</span></code> map
-states (a list value matches each of its items). Every condition a row
-states must hold, and the first row that takes a device wins; the device is
-drawn on its owner’s card (the thing the stated relation names), a link to
-it opens that card, and <code class="docutils literal notranslate"><span class="pre">index.json</span></code> lists it under <code class="docutils literal notranslate"><span class="pre">drawn_on</span></code> with the
-owner’s screen. A row with no owner relation, or a device whose owner is not
-found, gets no screen and no entry: a related card names it as a block or a
-row that opens nothing. <code class="docutils literal notranslate"><span class="pre">check</span></code> counts both, and how many devices each row
-takes. A device card is drawn:
+<code class="docutils literal notranslate"><span class="pre">calibration-strip</span></code>. A device with no place of its own and an accepted
+<code class="docutils literal notranslate"><span class="pre">part_of</span></code> to a placed whole stands where the whole is: in its crumbs, on
+strips at the whole’s position, and its card says “in &lt;place&gt; by its whole
+&lt;whole&gt;”. A device that is an endpoint of channels another device holds (a
+family’s shared supply) shows that supply’s value roles read-only under
+“shared supply &lt;id&gt;”, with a link to the supply’s card; the supply’s presses
+stay on its own card. A device gets a card when it has a channel its card shows (one on it, one it
+is an endpoint of, or one a <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row walks to from it) or a
+drawing (a <code class="docutils literal notranslate"><span class="pre">card_recipes.csv</span></code> row or a <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code> row that applies to
+it); a pose or a relation alone gives none. <code class="docutils literal notranslate"><span class="pre">cards.csv</span></code> (action, class,
+under, devices, attribute, when, owner_relation, owner_direction, owner_to,
+reason, source) holds the exceptions: <code class="docutils literal notranslate"><span class="pre">action</span></code> <code class="docutils literal notranslate"><span class="pre">keep</span></code> gives the devices a
+row selects a card, <code class="docutils literal notranslate"><span class="pre">drop</span></code> takes theirs. <code class="docutils literal notranslate"><span class="pre">class</span></code> <code class="docutils literal notranslate"><span class="pre">*</span></code> matches any class,
+<code class="docutils literal notranslate"><span class="pre">under</span></code> holds a device whose place is it or lies within it, and a part by
+its whole’s place (a part with no place of its own sits where its whole sits), <code class="docutils literal notranslate"><span class="pre">devices</span></code> is an id pattern, <code class="docutils literal notranslate"><span class="pre">attribute</span></code> is <code class="docutils literal notranslate"><span class="pre">name=value</span></code>, a
+value the device’s <code class="docutils literal notranslate"><span class="pre">attributes</span></code> map states (a list value matches each of its
+items), and <code class="docutils literal notranslate"><span class="pre">when</span></code> is <code class="docutils literal notranslate"><span class="pre">no-channel</span></code> (no channel its card shows),
+<code class="docutils literal notranslate"><span class="pre">no-drawing</span></code> (no recipe, no picture) or both joined by <code class="docutils literal notranslate"><span class="pre">;</span></code>. Every selector a
+row states must hold, and the first row that selects a device decides. A
+<code class="docutils literal notranslate"><span class="pre">drop</span></code> row may name an owner by a relation and a direction (a <code class="docutils literal notranslate"><span class="pre">keep</span></code> row
+may not): the device is drawn on its owner’s card, a link to it opens that
+card, and <code class="docutils literal notranslate"><span class="pre">index.json</span></code> lists it under <code class="docutils literal notranslate"><span class="pre">drawn_on</span></code> with the owner’s screen. A
+device with no card and no owner found gets no screen and no entry: a related
+card names it without a link. <code class="docutils literal notranslate"><span class="pre">check</span></code> counts the devices with no card, those
+the default alone leaves without one, and how many devices each row decides. A device card is drawn:
 its title line, up to five key tiles (the <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code> rows of view
 <code class="docutils literal notranslate"><span class="pre">card</span></code> whose <code class="docutils literal notranslate"><span class="pre">level</span></code> names its recipe, else its roles; a tile’s measure is
 <code class="docutils literal notranslate"><span class="pre">value</span></code> or <code class="docutils literal notranslate"><span class="pre">word</span></code> of the role’s first channel, or over every channel of
