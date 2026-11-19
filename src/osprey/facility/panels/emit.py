@@ -54,13 +54,22 @@ import os
 import posixpath
 import re
 import warnings
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from osprey.facility.panels import layout
-from osprey.facility.panels.describe import describe, drawn_on, light, ring_arcs, targets
+from osprey.facility.panels.describe import (
+    NO_CLASS,
+    NOT_PLACED,
+    describe,
+    drawn_on,
+    light,
+    ring_arcs,
+    targets,
+    unset_groups,
+)
 from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
 from osprey.facility.panels.symbols import WIDTH_UNITS, near_state
@@ -147,8 +156,9 @@ class Problem:
             channels than one screen may have), ``unbound_probe`` (a note: a probe
             row of a device card names a signal no channel states), ``unbound_picture`` (a note: a
             pictures row's signal resolves to no channel on a device),
-            ``ambiguous_picture`` (a note: it matches channels of several devices) or
-            ``outside_set``.
+            ``ambiguous_picture`` (a note: it matches channels of several devices),
+            ``unset_group`` (a note: a family that is no set only because some of its
+            members are no device of a stated class) or ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -175,6 +185,9 @@ class Draw:
     colours: Mapping[str, str] = field(default_factory=dict)
     annotate: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     ring: tuple[str, ...] = ()
+    #: The places a write keeps to (:func:`write_scope`); empty: everything. The
+    #: screens do not depend on it, so it is no part of :attr:`digest`.
+    write_under: tuple[str, ...] = ()
 
     @property
     def digest(self) -> str:
@@ -209,7 +222,9 @@ def load_draw(path: Path) -> Draw:
     name to at most :data:`MAX_ANNOTATIONS` stated signals whose values a strip
     shows under its symbols) and ``ring`` (place ids whose roll-up draws their
     children on the ring as arcs; each must be a place with children on the
-    ring, which :func:`check_draw` holds against the graph). All are optional.
+    ring, which :func:`check_draw` holds against the graph) and ``write_under``
+    (place ids a write keeps to, :func:`write_scope`; each must be a place of the
+    graph). All are optional.
 
     Raises:
         EmitError: The file is missing or unreadable, is not JSON, holds a key
@@ -224,12 +239,13 @@ def load_draw(path: Path) -> Draw:
         raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
     if not isinstance(document, dict):
         raise EmitError(f"{path}: the file must hold one JSON object")
-    keys = {"rack_classes", "symbols", "above", "colours", "annotate", "ring"}
+    keys = {"rack_classes", "symbols", "above", "colours", "annotate", "ring", "write_under"}
     unknown = sorted(set(document) - keys)
     if unknown:
         raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
     racks = _strings(document.get("rack_classes", []), "rack_classes", path)
     ring = _strings(document.get("ring", []), "ring", path)
+    write_under = _strings(document.get("write_under", []), "write_under", path)
     above = _strings(document.get("above", []), "above", path)
     symbols = document.get("symbols", {})
     if not isinstance(symbols, dict) or not all(
@@ -272,6 +288,7 @@ def load_draw(path: Path) -> Draw:
         colours={name: colour.lower() for name, colour in colours.items()},
         annotate={name: tuple(signals) for name, signals in annotate.items()},
         ring=tuple(dict.fromkeys(ring)),
+        write_under=tuple(dict.fromkeys(write_under)),
     )
 
 
@@ -281,12 +298,21 @@ MIN_RING_ARCS = 2
 
 def check_draw(graph: PanelGraph, draw: Draw) -> None:
     """Hold the drawing settings to the graph: each place named in ``ring`` exists and
-    has at least :data:`MIN_RING_ARCS` children on the ring (:func:`describe.ring_arcs`).
+    has at least :data:`MIN_RING_ARCS` children on the ring (:func:`describe.ring_arcs`);
+    each place named in ``write_under`` exists.
 
     Raises:
         EmitError: A place named in ``ring`` is no place of the graph or has
-            too few children on the ring.
+            too few children on the ring, or one named in ``write_under`` is no
+            place of the graph.
     """
+    for place_id in draw.write_under:
+        try:
+            graph.thing(place_id, "place")
+        except KeyError:
+            raise EmitError(
+                f"write_under names {place_id}, which is no place of the facility"
+            ) from None
     for place_id in draw.ring:
         try:
             graph.thing(place_id, "place")
@@ -436,6 +462,69 @@ def under(graph: PanelGraph, place_id: str) -> Callable[[Target], bool]:
         return target.id in within
 
     return test
+
+
+@dataclass(frozen=True)
+class Scope:
+    """What a write kept to ``write_under`` holds (:func:`write_scope`)."""
+
+    places: frozenset[str]
+    devices: frozenset[str]
+    groups: frozenset[str]
+    #: The classes of the kept devices in no place.
+    loose_classes: frozenset[str]
+
+    def __call__(self, target: Target) -> bool:
+        if target.view == "home":
+            return target.by is None or target.system in self.loose_classes
+        if target.kind == "device":
+            return target.id in self.devices
+        if target.kind == "group":
+            return target.id in self.groups
+        if target.id == NOT_PLACED:
+            return bool(self.loose_classes)
+        return target.id in self.places
+
+    def holds(self, thing_id: str | None) -> bool:
+        """Whether a device or place of this id is kept."""
+        return thing_id in self.devices or thing_id in self.places
+
+
+def write_scope(graph: PanelGraph, places: Iterable[str]) -> Scope:
+    """What a write kept to *places* writes: the home screen; each place and the places
+    within it; the devices placed there (:meth:`PanelGraph.contents`); each device in no
+    place that one relation joins to a kept device, with the not-placed screens of its
+    class; and each group with a kept device as a member. The other screens are not
+    written; links to them still are, and the index lists them under ``outside``.
+
+    Raises:
+        KeyError: A place that is no place of the graph.
+    """
+    kept_places: set[str] = set()
+    placed: set[str] = set()
+    for place_id in places:
+        graph.thing(place_id, "place")
+        kept_places.add(place_id)
+        for thing in graph.contents(place_id):
+            (kept_places if thing.kind == "place" else placed).add(thing.id)
+    loose: set[str] = set()
+    classes: set[str] = set()
+    for thing in graph.unplaced():
+        joined = any(
+            edge.other_kind == "device" and edge.other in placed
+            for edges in graph.neighbours(thing.id, "device").values()
+            for edge in edges
+        )
+        if joined:
+            loose.add(thing.id)
+            classes.add(thing.cls or NO_CLASS)
+    devices = placed | loose
+    groups = {
+        thing.id
+        for thing in graph.things()
+        if thing.kind == "group" and any(m.id in devices for m in graph.members(thing.id))
+    }
+    return Scope(frozenset(kept_places), frozenset(devices), frozenset(groups), frozenset(classes))
 
 
 # -- drawing --------------------------------------------------------------------------
@@ -602,6 +691,10 @@ def write(
             (:func:`check_draw`).
     """
     check_draw(graph, draw)
+    if draw.write_under:
+        scope = write_scope(graph, draw.write_under)
+        given = only
+        only = scope if given is None else (lambda t: scope(t) and given(t))
     out = Path(out)
     previous = _read_index(out)
     if previous is None and out.exists() and any(out.iterdir()):
@@ -874,7 +967,9 @@ def check(
         graph: The panel graph.
         out: The output directory.
         max_bytes: A screen over this many bytes is an ``oversize`` problem.
-        draw: How a screen is described; the one ``write`` was given.
+        draw: How a screen is described; the one ``write`` was given. With
+            ``write_under``, a screen outside :func:`write_scope` may be absent,
+            and only the health rules of kept devices and places must be read.
 
     Returns:
         The problems, in file order. ``outside_set`` ones are notes
@@ -912,6 +1007,7 @@ def check(
     found = targets(graph, rack_classes=draw.rack_classes)
     ids = screen_ids(found)
     wanted = {_path(t, ids): t for t in found}
+    scope = write_scope(graph, draw.write_under) if draw.write_under else None
     listed = {e["file"]: e for e in index["screens"] if isinstance(e, dict) and "file" in e}
     outside = {e["file"] for e in index.get("outside", ()) if isinstance(e, dict) and "file" in e}
     problems.extend(
@@ -935,7 +1031,9 @@ def check(
 
     valid = {r for r in wanted if r in listed and readable(r)}
     for relative, target in wanted.items():
-        if relative in outside and relative not in listed:
+        if relative not in listed and (
+            relative in outside or (scope is not None and not scope(target))
+        ):
             continue
         if relative not in listed or not readable(relative):
             problems.append(
@@ -945,7 +1043,7 @@ def check(
     opened: set[str] = set()
     for relative in wanted:
         if relative not in valid:
-            if wanted[relative].view == "rollup":
+            if wanted[relative].view == "rollup" and (scope is None or scope(wanted[relative])):
                 rolled = None  # a roll-up is not on disk: what is read cannot be told
             continue
         problems.extend(
@@ -977,9 +1075,30 @@ def check(
                 f"{name} has a health rule and no roll-up screen, or screen one opens, reads it",
             )
             for name in ruled
-            if name not in rolled and _carried(graph, name)
+            if name not in rolled
+            and (scope is None or scope.holds(graph.channel(name).thing))
+            and _carried(graph, name)
         )
+    problems.extend(
+        Problem(
+            "unset_group",
+            INDEX,
+            f"{group} is no set: {_named(odd)} {'is' if len(odd) == 1 else 'are'} no device "
+            "of a stated class, while its other members share one",
+            note=True,
+        )
+        for group, odd in unset_groups(graph)
+    )
     return problems
+
+
+#: How many members an ``unset_group`` note names; the rest are counted.
+NAMED_MEMBERS = 8
+
+
+def _named(ids: tuple[str, ...]) -> str:
+    shown = ", ".join(ids[:NAMED_MEMBERS])
+    return shown + (f" and {len(ids) - NAMED_MEMBERS} more" if len(ids) > NAMED_MEMBERS else "")
 
 
 #: How many class names a ``pictures`` note names; the rest are counted.

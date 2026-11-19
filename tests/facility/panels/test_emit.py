@@ -329,6 +329,43 @@ def test_under_a_place_writes_what_is_within_it(panel_graph, tmp_path):
     assert _kinds(check(panel_graph, out)) <= {"outside_set"}
 
 
+def test_write_under_keeps_a_write_to_places_and_check_agrees(tmp_path):
+    from osprey.facility.panels.emit import Draw, write_scope
+
+    graph = graph_with_part(tmp_path)  # XR01:CARD1, in no place, part of a racked chassis
+    draw = Draw(write_under=("XR/XR01",))
+    assert draw.digest == Draw().digest  # the screens do not depend on it
+    scope = write_scope(graph, draw.write_under)
+    assert "XR01:CARD1" in scope.devices and "XR02:QF1" not in scope.devices
+    assert "XR/XR01/RK1" in scope.places and "XR/XR02" not in scope.places
+    out = tmp_path / "out"
+    write(graph, out, draw=draw)
+    index = json.loads((out / "index.json").read_text())
+    written = {(e["kind"], e["thing_kind"], e["thing"]) for e in index["screens"]}
+    assert ("home", "place", "facility") in written
+    assert ("card", "device", "XR01:CARD1") in written
+    assert ("card", "device", "XR02:QF1") not in written
+    assert any(e["thing"] == "XR02:QF1" for e in index["outside"])
+    problems = check(graph, out, draw=draw)
+    assert not [p for p in problems if p.failing], problems
+    # a screen the scope keeps must be there
+    (out / next(e["file"] for e in index["screens"] if e["thing"] == "XR01:QF1")).unlink()
+    assert "missing" in _kinds(check(graph, out, draw=draw))
+
+
+def test_write_under_a_place_that_is_not_there_is_refused(panel_graph, tmp_path):
+    from osprey.facility.panels.emit import Draw, load_draw
+
+    path = tmp_path / "draw.json"
+    path.write_text(json.dumps({"write_under": ["XR/XR01"]}))
+    assert load_draw(path).write_under == ("XR/XR01",)
+    path.write_text(json.dumps({"write_under": "XR/XR01"}))
+    with pytest.raises(EmitError, match="write_under must be a list"):
+        load_draw(path)
+    with pytest.raises(EmitError, match="no place of the facility"):
+        write(panel_graph, tmp_path / "out", draw=Draw(write_under=("XR/XR99",)))
+
+
 def test_a_later_subset_write_keeps_the_files_of_the_earlier_one(panel_graph, tmp_path):
     out = tmp_path / "out"
     write(panel_graph, out, only=lambda t: t.view == "card")
@@ -759,3 +796,30 @@ def test_under_a_place_writes_the_calibration_views_of_sets_with_a_member_there(
     assert not [t for t in targets(panel_graph) if t.view == "set" and test(t)]
     rack = under(panel_graph, "XR/XR01/RK1")  # no magnet in the rack
     assert not [t for t in targets(panel_graph) if t.view == "calibration" and rack(t)]
+
+
+def test_a_device_whose_card_lists_counts_has_a_paged_roll_up_that_reads_each_rule_once(
+    tmp_path, monkeypatch
+):
+    import importlib
+
+    from osprey.facility.panels.describe import device_rollup
+    from osprey.facility.panels.view import Node
+
+    describe_module = importlib.import_module("osprey.facility.panels.describe")
+    monkeypatch.setattr(describe_module, "DEVICE_PAGE", 50)
+    graph = graph_with_wide(tmp_path / "wide", 120)  # over the card's 60: counts only
+    pages = [t for t in targets(graph) if t.view == "rollup" and t.kind == "device"]
+    assert [t.system for t in pages] == [None, "2", "3"]  # 120 rules, 50 a page
+    read = [
+        channel
+        for target in pages
+        for section in device_rollup(graph, "XR01:WIDE1", int(target.system or 1)).sections
+        for item in section.items
+        if isinstance(item, Node)
+        for channel in item.channels
+    ]
+    assert sorted(read) == sorted(f"XR01-WIDE1:Sig{i}-Sts" for i in range(120))  # once each
+    emit.write(graph, tmp_path / "out")
+    problems = emit.check(graph, tmp_path / "out")
+    assert not [p for p in problems if p.kind in ("unrolled", "over_budget", "missing")]

@@ -529,7 +529,9 @@ def built_repo(tmp_path_factory) -> Path:
     ``seed_env=True`` because a repo with no ``.env`` cannot show that the
     contexts carry none: the secret has to exist to be kept out. A developer's
     own Claude Code files sit at the root for the same reason, so every context
-    below is read off a repo that has them.
+    below is read off a repo that has them. So do a regenerable log and byte-code
+    file under ``data/``, a fold input, which the build must drop before it
+    stamps (:func:`test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped`).
     """
     from tests.fixtures.lifecycle_repo import (
         EXEMPLAR_DIRNAME,
@@ -543,6 +545,11 @@ def built_repo(tmp_path_factory) -> Path:
     (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
     (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
     (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
+    data_root = repo / "data"
+    assert data_root.is_dir(), "the exemplar must have a data tree for the regenerable pin"
+    (data_root / "ingest.log").write_text("2026-01-01 loaded\n", encoding="utf-8")
+    (data_root / "__pycache__").mkdir(exist_ok=True)
+    (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
     with contextlib.chdir(repo), preserved_environ():
         result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
@@ -818,7 +825,7 @@ def test_the_hashed_profile_is_the_repos_own_and_the_recorded_one_is_the_render_
 
 @pytest.mark.slow
 def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
-    tmp_path_factory,
+    built_repo: Path,
 ) -> None:
     """What the ``.dockerignore`` excludes is gone from the context BEFORE the stamp.
 
@@ -834,26 +841,15 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     (so the image and the context hold the same tree), and the stamp still
     matches that tree (so the fingerprint was taken after the removal, not
     before). Reversing the order passes the first and fails the second.
+
+    The files are planted in :func:`built_repo` before its build; the repo's own
+    ``.dockerignore`` pin below keeps a build of its own, because a planted log
+    is folded into the repo's fingerprint and would move it off the stamp.
     """
     from osprey.deployment.staleness import DriftState, check_drift
-    from tests.fixtures.lifecycle_repo import (
-        EXEMPLAR_DIRNAME,
-        build_exemplar_repo,
-        preserved_environ,
-    )
 
-    repo = build_exemplar_repo(tmp_path_factory.mktemp("regenerable") / EXEMPLAR_DIRNAME)
-    data_root = repo / "data"
-    assert data_root.is_dir(), "the exemplar must have a data tree for this pin to mean anything"
-    (data_root / "ingest.log").write_text("2026-01-01 loaded\n", encoding="utf-8")
-    (data_root / "__pycache__").mkdir(exist_ok=True)
-    (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
-
-    with contextlib.chdir(repo), preserved_environ():
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    assert result.exit_code == 0, result.output
-
-    for name, context in _contexts(repo).items():
+    assert (built_repo / "data" / "ingest.log").is_file(), "the regenerable plant is gone"
+    for name, context in _contexts(built_repo).items():
         shipped = sorted(
             str(path.relative_to(context))
             for path in context.rglob("*")

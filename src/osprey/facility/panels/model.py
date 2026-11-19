@@ -157,6 +157,14 @@ def _join(edges: Iterable[Edge]) -> str | None:
     return None
 
 
+def _takes(pattern: str, thing_id: str) -> bool:
+    """Whether a ``devices`` pattern takes *thing_id*: a glob, or with ``!`` first every
+    id the rest does not match."""
+    if pattern.startswith("!"):
+        return not fnmatch.fnmatchcase(thing_id, pattern[1:])
+    return fnmatch.fnmatchcase(thing_id, pattern)
+
+
 def substitute(pattern: str, port: str | None) -> str | None:
     """*pattern* with ``{port}`` and ``{n}`` filled from a relation's object port.
 
@@ -214,6 +222,12 @@ class Thing:
     level: str | None = None
     short_name: str | None = None
     model: str | None = None
+    #: For a group: its kind as stated, ``family`` when absent (only a family is a
+    #: set); ``None`` for a device or a place.
+    group_kind: str | None = None
+    #: A device's attributes as ``(name, value)`` pairs, values as text (a list
+    #: value gives one pair per item), in name order; empty for a place or a group.
+    attributes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -422,6 +436,26 @@ def _value_key(value: object) -> str:
     return str(int(number)) if number.is_integer() else text
 
 
+#: The ``class`` of a ``no_cards.csv`` row that matches a device of any class.
+ANY_CLASS = "*"
+
+
+def _attribute_pairs(record: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    """A device record's ``attributes`` map as sorted ``(name, value)`` text pairs;
+    a list value gives one pair per item, a map value none."""
+    found = record.get("attributes")
+    if not isinstance(found, Mapping):
+        return ()
+    pairs: set[tuple[str, str]] = set()
+    for name, value in found.items():
+        for item in value if isinstance(value, list) else [value]:
+            if isinstance(item, bool):
+                pairs.add((str(name), "true" if item else "false"))
+            elif isinstance(item, (str, int, float)):
+                pairs.add((str(name), str(item)))
+    return tuple(sorted(pairs))
+
+
 class PanelGraph:
     """The things, channels, relations, poses and rules screens are drawn from.
 
@@ -588,6 +622,8 @@ class PanelGraph:
                     citations=self._citations(record),
                     level=_text(record.get("level")) if kind == "place" else None,
                     model=_text(record.get("model")) if kind == "device" else None,
+                    group_kind=(_text(record.get("kind")) or "family") if kind == "group" else None,
+                    attributes=_attribute_pairs(record) if kind == "device" else (),
                 )
         return things
 
@@ -992,12 +1028,19 @@ class PanelGraph:
     def pictures(self, device_class: str, device: str | None = None) -> list[PicturePart]:
         """The ``pictures.csv`` rows of a device class, in file order; with *device*,
         only those that apply to it: a row with no ``under``, or one whose ``under``
-        place holds the device (:meth:`contents`). A row under a place the graph
-        does not hold applies to no device."""
+        place holds the device (:meth:`contents`); and a row with no ``devices``, or
+        one whose ``devices`` pattern takes the device's id (``!`` first: every
+        device but those it matches). A row under a place the graph does not hold
+        applies to no device."""
         rows = list(self._pictures.get(device_class, ()))
         if device is None:
             return rows
-        return [r for r in rows if r.under is None or device in self._held(r.under)]
+        return [
+            r
+            for r in rows
+            if (r.under is None or device in self._held(r.under))
+            and (r.devices is None or _takes(r.devices, device))
+        ]
 
     def _held(self, place_id: str) -> frozenset[str]:
         """The ids of the devices in a place (:meth:`contents`), once per place."""
@@ -1306,21 +1349,32 @@ class PanelGraph:
         """The ``fronts.csv`` rows of *recipe*, by ``order``."""
         return list(self._fronts.get(recipe, ()))
 
+    def no_card_rows(self) -> tuple[NoCard, ...]:
+        """The ``no_cards.csv`` rows, in file order."""
+        return self._tables.no_cards
+
     def no_card(self, thing_id: str) -> NoCard | None:
-        """The ``no_cards.csv`` row that takes a device: the first whose class,
-        place (the device's place is it or within it) and id pattern match."""
+        """The ``no_cards.csv`` row that takes a device: the first whose class (``*``
+        matches any), place (the device's place is it or within it), id pattern,
+        attribute and conditions (``when``) all hold."""
         try:
             thing = self.thing(thing_id, "device")
         except KeyError:
             return None
         for row in self._tables.no_cards:
-            if row.cls != thing.cls:
+            if row.cls not in (ANY_CLASS, thing.cls):
                 continue
             if row.under and not (
                 thing.place == row.under or (thing.place or "").startswith(row.under + "/")
             ):
                 continue
             if row.devices and not fnmatch.fnmatchcase(thing.id, row.devices):
+                continue
+            if row.attribute is not None and row.attribute not in thing.attributes:
+                continue
+            if "no-channel" in (row.when or ()) and self.channels(thing.id, "device"):
+                continue
+            if "no-recipe" in (row.when or ()) and self.recipe(thing.id) is not None:
                 continue
             return row
         return None

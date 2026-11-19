@@ -155,6 +155,13 @@ __all__ = [
 #: The id of the screens of what is in no place (:meth:`PanelGraph.unplaced`):
 #: a roll-up and a checkout, addressed as a place that the graph does not hold.
 NOT_PLACED = "not placed"
+#: The id of the one home screen: the way in, above every top place.
+HOME = "facility"
+HOME_TARGET = Target("home", "place", HOME)
+HOME_LINK = Link("home", HOME_TARGET)
+#: The ``by`` of a home page that lists the devices of one class in no place.
+UNPLACED_BY = "unplaced"
+NO_CLASS = "no class stated"
 
 #: Section titles of a card's neighbours: relation kind -> (title on the
 #: subject's card, title on the object's card). A kind not listed is titled by
@@ -234,6 +241,13 @@ class _Index:
     owners: Mapping[str, tuple[str, ThingKind] | None] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    # a device whose card lists counts, not its channels, and has rule-bearing
+    # channels -> the pages of its own roll-up
+    paged: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    # a set over one page -> its pages
+    set_pages: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    # class -> the devices in no place of that class that get a card
+    loose: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
 
 
 _INDEXES: weakref.WeakKeyDictionary[PanelGraph, _Index] = weakref.WeakKeyDictionary()
@@ -280,15 +294,23 @@ def _build_index(graph: PanelGraph) -> _Index:
     set_class: dict[str, str] = {}
     sets_of: dict[str, list[str]] = {}
     owners: dict[str, tuple[str, ThingKind] | None] = {}
+    paged: dict[str, int] = {}
+    set_pages: dict[str, int] = {}
     for thing in graph.things():
         if thing.kind == "group":
             members = graph.members(thing.id)
             classes = {member.cls if member.kind == "device" else None for member in members}
-            if len(classes) == 1 and None not in classes:
+            # a set: a family (a section is things that belong together, never one),
+            # every member a device of one class
+            if thing.group_kind == "family" and len(classes) == 1 and None not in classes:
                 sets.add(thing.id)
                 set_class[thing.id] = next(iter(classes))  # type: ignore[assignment]
                 for member in members:
                     sets_of.setdefault(member.id, []).append(thing.id)
+                if len(members) > SET_PAGE:
+                    pages = len(_set_pages(graph, [m for m in members if m.kind == "device"]))
+                    if pages > 1:
+                        set_pages[thing.id] = pages
             continue
         channels = graph.channels(thing.id, thing.kind)
         for channel in channels:
@@ -308,6 +330,9 @@ def _build_index(graph: PanelGraph) -> _Index:
             # over the cap, or with driver-internal records: those are read only there
             if taken is None and (len(shown) > GRID_CAP or len(shown) < len(channels)):
                 listed.add(thing.id)
+                ruled_here = len(rule_channels(graph, thing.id, "device"))
+                if ruled_here:  # no card reads them all: a roll-up of its own does
+                    paged[thing.id] = -(-ruled_here // DEVICE_PAGE)
             if thing.place is not None:
                 place_views.add(thing.place)
         elif thing.place is not None:
@@ -346,13 +371,48 @@ def _build_index(graph: PanelGraph) -> _Index:
         MappingProxyType(set_class),
         MappingProxyType({device: tuple(found) for device, found in sets_of.items()}),
         MappingProxyType(_drawn_owners(owners)),
+        MappingProxyType(paged),
+        MappingProxyType(set_pages),
+        MappingProxyType(
+            {
+                cls: tuple(found)
+                for cls, found in sorted(_unplaced_carded(graph, frozenset(carded)).items())
+            }
+        ),
     )
+
+
+def unset_groups(graph: PanelGraph) -> list[tuple[str, tuple[str, ...]]]:
+    """The families that are no set only because some members are no device of a
+    stated class while the others share one: each with those members, in group
+    order. A family of several classes, or a section, is no set by design."""
+    found = []
+    for thing in graph.things():
+        if thing.kind != "group" or thing.group_kind != "family":
+            continue
+        members = graph.members(thing.id)
+        classes = {m.cls for m in members if m.kind == "device" and m.cls is not None}
+        odd = tuple(m.id for m in members if m.kind != "device" or m.cls is None)
+        if len(classes) == 1 and odd:
+            found.append((thing.id, odd))
+    return found
+
+
+def _unplaced_carded(graph: PanelGraph, carded: frozenset[str]) -> dict[str, list[str]]:
+    """The devices in no place that get a card, by class (:data:`NO_CLASS` for none)."""
+    found: dict[str, list[str]] = {}
+    for thing in graph.unplaced():
+        if thing.id in carded:
+            found.setdefault(thing.cls or NO_CLASS, []).append(thing.id)
+    return found
 
 
 def _owner(graph: PanelGraph, device: str, row: NoCard) -> tuple[str, ThingKind] | None:
     """The thing a ``no_cards.csv`` row's relation names at *device* (its ``owner_to``
     taking it, as a chain hop's ``to``): one thing, else ``None`` (none, or several:
-    no owner is stated)."""
+    no owner is stated, as when the row names no owner relation)."""
+    if row.owner_relation is None or row.owner_direction is None:
+        return None
     to = row.owner_to or None
     step = ChainStep(
         DEFAULT_RECIPE, "owner", 1, 0, row.owner_relation, row.owner_direction, to, None, None,
@@ -398,6 +458,13 @@ def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
     ]
 
 
+def no_card_takes(graph: PanelGraph) -> list[tuple[NoCard, int]]:
+    """Each ``no_cards.csv`` row, in file order, with how many devices it takes (a
+    device is taken by the first row that matches it)."""
+    taken = Counter(graph.no_card(device) for device in _index(graph).owners)
+    return [(row, taken[row]) for row in graph.no_card_rows()]
+
+
 def no_card_counts(graph: PanelGraph) -> tuple[int, int]:
     """How many devices get no card, and of them how many have no owner stated."""
     index = _index(graph)
@@ -419,6 +486,10 @@ def _has(
 ) -> bool:
     """Whether *target* is a screen of the graph."""
     view, kind, thing_id = target.view, target.kind, target.id
+    if view == "home":
+        if target.by == UNPLACED_BY:
+            return (kind, thing_id) == ("place", HOME) and target.system in index.loose
+        return target == HOME_TARGET
     if (kind, thing_id) == ("place", NOT_PLACED) and not _holds(graph, thing_id, "place"):
         if view == "rollup":
             return target.by == "place" and index.unplaced_ruled
@@ -428,12 +499,25 @@ def _has(
     if view == "channels":
         return kind == "device" and thing_id in index.listed
     if view == "set":
-        return kind == "group" and thing_id in index.sets
+        pages = index.set_pages.get(thing_id, 1)
+        page_ok = target.system is None or (
+            target.system.isdigit() and 2 <= int(target.system) <= pages
+        )
+        return kind == "group" and thing_id in index.sets and page_ok
     if view == "calibration":
         cls = index.set_class.get(thing_id) if kind == "group" else None
         return cls is not None and any(
             found.kind == target.system and _applies_in(graph, found, thing_id)
             for found in graph.calibration_kinds(cls)
+        )
+    if view == "rollup" and kind == "device":
+        pages = index.paged.get(thing_id, 0)
+        return target.by == "device" and (
+            target.system is None
+            and pages > 0
+            or target.system is not None
+            and target.system.isdigit()
+            and 2 <= int(target.system) <= pages
         )
     if kind != "place":
         return False
@@ -471,13 +555,14 @@ def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) ->
         The screens' addresses, each once.
     """
     index = _index(graph)
-    found: list[Target] = []
+    found: list[Target] = [HOME_TARGET, *(_unplaced_page(cls) for cls in index.loose)]
     for thing in graph.things():
         candidates = [Target("card", thing.kind, thing.id)]
         if thing.kind == "device":
             candidates.append(Target("channels", "device", thing.id))
+            candidates += device_rollup_pages(index, thing.id)
         if thing.kind == "group":
-            candidates.append(Target("set", "group", thing.id))
+            candidates += set_pages(index, thing.id)
             cls = index.set_class.get(thing.id)
             if cls is not None:
                 candidates += [
@@ -539,12 +624,13 @@ def _crumbs(
     view: ViewKind = "card",
     by: str | None = None,
 ) -> tuple[Link, ...]:
-    """Links to *place_id* and every place around it, outermost first."""
+    """The home screen, then links to *place_id* and every place around it,
+    outermost first."""
     chain: list[str] = []
     while place_id is not None:
         chain.append(place_id)
         place_id = graph.thing(place_id, "place").place
-    return tuple(
+    return (HOME_LINK,) + tuple(
         _place_link(graph, index, place, Target(view, "place", place, by=by))
         for place in reversed(chain)
     )
@@ -838,7 +924,7 @@ def _sources(thing: Thing) -> list[Item]:
 FOOT_DOCUMENTS = 4
 
 
-def _card_foot(thing: Thing, where: list[Item]) -> CardFoot:
+def _card_foot(thing: Thing, where: list[Item], sets: tuple[Link, ...] = ()) -> CardFoot:
     """Where the device is and what it is read from, one line each.
 
     The where line: each place a ``located_in`` claim names with its unit or units,
@@ -890,7 +976,7 @@ def _card_foot(thing: Thing, where: list[Item]) -> CardFoot:
         else "no source stated"
     )
     provenance = tuple(f"{c.document}: {_citation_text(c)}" for c in citations)
-    return CardFoot(tuple(segments), sources, provenance, tuple(where), tuple(citations))
+    return CardFoot(tuple(segments), sources, provenance, tuple(where), tuple(citations), sets)
 
 
 def device_card(
@@ -929,8 +1015,12 @@ def device_card(
             ("picture", _pictures(graph, thing, symbols)),
             ("calibration", _calibration(graph, index, thing)),
         ]
-        crumbs = _crumbs(graph, index, thing.place)
-        foot = _card_foot(thing, _where(graph, index, thing, rack_classes))
+        # up to the place's view where it has one: the way back to where it sits
+        crumbs = _crumbs(graph, index, thing.place, "place")
+        sets = tuple(
+            Link(group, Target("set", "group", group)) for group in index.sets_of.get(thing.id, ())
+        )
+        foot = _card_foot(thing, _where(graph, index, thing, rack_classes), sets)
         sections = _drawn_card(graph, index, thing, extra, [("foot", [foot])], symbols)
         return View(
             Target("card", "device", thing.id), thing.id, crumbs, sections, alias=thing.short_name
@@ -943,9 +1033,12 @@ def device_card(
         within = _within(graph, index, thing)
     elif thing.kind == "group":
         members = [_ref(graph, index, member) for member in graph.members(thing.id)]
-    health: list[Item] = [
-        light(graph, channel.name) for channel in channels if graph.rule(channel.name)
-    ]
+    ruled = [channel.name for channel in channels if graph.rule(channel.name)]
+    health: list[Item] = [light(graph, name) for name in ruled[:HEALTH_CAP]]
+    if len(ruled) > HEALTH_CAP:  # past one screen's rules: the roll-up reads them all
+        rest = Target("rollup", "place", thing.id, by="place")
+        more = _MORE_LIGHTS.format(len(ruled) - HEALTH_CAP)
+        health.append(Link(more, rest) if _has(graph, index, rest) else Fact("health", more))
     sources = _sources(thing)
     sections = _sections(
         [
@@ -963,7 +1056,7 @@ def device_card(
             ("sources", sources),
         ]
     )
-    crumbs = _crumbs(graph, index, thing.place) if thing.kind != "group" else ()
+    crumbs = _crumbs(graph, index, thing.place) if thing.kind != "group" else (HOME_LINK,)
     target = Target("card", thing.kind, thing.id)
     return View(target, thing.id, crumbs, sections, alias=thing.short_name)
 
@@ -1013,6 +1106,11 @@ GRID_CAP = 60
 #: record field, a driver's diagnostics): never offered on a card, nor listed in its grid.
 INTERNAL_ROLE = "internal"
 _NO_ACTIONS = "no operator actions stated"
+#: The most lights a place's or group's card draws for its own rule-bearing channels;
+#: the rest are counted, opening the roll-up. One light is a few rules; this many keep
+#: a card well inside one screen's rule budget.
+HEALTH_CAP = GRID_CAP
+_MORE_LIGHTS = "{} more with a health rule, in the roll-up"
 _INTERNAL_COUNT = "{} driver-internal"
 #: The ``many`` words of ``chains.csv`` that say a set of things is expected.
 MANY_WORDS = frozenset({"yes", "1"})
@@ -1265,6 +1363,56 @@ def _short_channel(channel: str, device: str) -> str:
     return channel[len(device) + 1 :] if channel.startswith(device + ":") else channel
 
 
+_SEGMENTS = re.compile(r"[:_]")
+
+
+def _apart(names: list[str]) -> list[str]:
+    """What tells *names* apart: each without the segments (split at ``:`` and
+    ``_``; a record's own suffix such as ``-SP`` stays) every one of them starts
+    and ends with; a name left empty, or two left alike, keep the whole name."""
+    split = [_SEGMENTS.split(name) for name in names]
+    if len(split) < 2:
+        return list(names)
+    head = 0
+    while all(len(parts) > head + 1 and parts[head] == split[0][head] for parts in split):
+        head += 1
+    tail = 0
+    while all(
+        len(parts) > head + tail + 1 and parts[-1 - tail] == split[0][-1 - tail] for parts in split
+    ):
+        tail += 1
+    cut = []
+    for name, parts in zip(names, split, strict=True):
+        kept = parts[head : len(parts) - tail]
+        cut.append(_rejoin(name, parts, head, len(parts) - tail) if kept else name)
+    return cut if len(set(cut)) == len(cut) else list(names)
+
+
+def _rejoin(name: str, parts: list[str], start: int, stop: int) -> str:
+    """The text of ``parts[start:stop]`` as it stands in *name*, its separators kept."""
+    at = sum(len(p) + 1 for p in parts[:start])
+    length = sum(len(p) for p in parts[start:stop]) + (stop - start - 1)
+    return name[at : at + length]
+
+
+def _told_apart(controls: list[Control], device: str, *, keep_word: bool) -> list[Control]:
+    """Controls whose labels repeat, each labelled by what tells its channel apart
+    from the others of that label (:func:`_apart`); with *keep_word*, after its
+    word ("Enable CH2"). Labels that are all distinct are kept."""
+    by_label: dict[str, list[int]] = {}
+    for n, control in enumerate(controls):
+        by_label.setdefault(control.label, []).append(n)
+    found = list(controls)
+    for label, places in by_label.items():
+        if len(places) < 2:
+            continue
+        names = [_short_channel(controls[n].channel, device) for n in places]
+        for n, part in zip(places, _apart(names), strict=True):
+            text = f"{label} {part}" if keep_word else part
+            found[n] = dataclasses.replace(controls[n], label=text)
+    return found
+
+
 def _as_number(text: str) -> float | None:
     try:
         return float(text)
@@ -1315,14 +1463,9 @@ def _operate(
                 used.add(hit.channel)
             if kind == "choice" and len(items) == 1:  # one segment is no choice
                 kind, items = _one_segment(graph, items[0])
-            if kind == "entry" and len({c.label for c in items}) < len(items):
-                # one word for several channels says nothing: each its own name
-                items = [
-                    dataclasses.replace(
-                        c, label=_short_channel(c.channel, thing.id).rsplit(":", 1)[-1]
-                    )
-                    for c in items
-                ]
+            if kind in ("entry", "action"):
+                # one word for several channels says nothing: each what tells it apart
+                items = _told_apart(items, thing.id, keep_word=kind == "action")
             if kind == "choice":
                 items = _distinct(items)
             if items:
@@ -1379,6 +1522,7 @@ def _operate(
             entries.append(Control(_short_channel(channel.name, thing.id), channel.name))
         used.add(channel.name)
     if actions:
+        actions = _told_apart(actions, thing.id, keep_word=True)
         groups.insert(
             0, ControlGroup("action", None, tuple(actions), _writes("action", actions, thing.id))
         )
@@ -2823,7 +2967,11 @@ def _drawn_card(
         (CARD_SECTIONS["tiles"], list(tiles)),
         *drawings,
         *extra,
-        (CARD_SECTIONS["operate"], [operate or Operate((), _NO_ACTIONS)] if every else []),
+        # a device whose presses all stand on its front has no operate block to say none
+        (
+            CARD_SECTIONS["operate"],
+            [operate or Operate((), _NO_ACTIONS)] if every and (operate or not on_front) else [],
+        ),
         (CARD_SECTIONS["channels"], listing),
         *after,
     ]
@@ -3064,11 +3212,11 @@ def calibration_overview(graph: PanelGraph, group_id: str, kind_id: str) -> View
         found = calibration_cell(graph, member.id, kind)
         return GridCell(_ref(graph, index, member), (), None, found, member.short_name)
 
-    grid = Grid(None, _member_rows(graph, members, cell), kind.title)
+    grid = Grid(None, _member_rows(_member_groups(graph, members), cell), kind.title)
     group_link = Link(group_id, Target("set", "group", group_id))
     sections = (Section("group", (group_link,)), Section("members", (grid,)))
     target = Target("calibration", "group", group_id, system=kind_id)
-    return View(target, _VIEW_TITLE.format(group_id, kind.title), (), sections)
+    return View(target, _VIEW_TITLE.format(group_id, kind.title), (HOME_LINK,), sections)
 
 
 # -- set overview ----------------------------------------------------------------
@@ -3121,7 +3269,7 @@ def _row_places(graph: PanelGraph, members: list[Thing]) -> dict[str, str | None
     return rows
 
 
-def set_overview(graph: PanelGraph, group_id: str) -> View:
+def set_overview(graph: PanelGraph, group_id: str, page: int = 1) -> View:
     """A group's devices as a grid: one row per place, the members in it in beam order.
 
     The row of a member is its nearest place (built, else the first a claim
@@ -3142,6 +3290,10 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
     index = _index(graph)
     members = [member for member in graph.members(group_id) if member.kind == "device"]
     signal = _primary_signal(graph, members)
+    pages = set_pages(index, group_id)
+    if not 1 <= page <= len(pages):
+        raise KeyError(f"the set {group_id} has no page {page}")
+    groups = _set_pages(graph, members)[page - 1] if len(pages) > 1 else None
 
     def cell(member: Thing) -> GridCell:
         pair = None
@@ -3151,11 +3303,24 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
                     pair = _value_row(graph, channel)
                     break
         channels = tuple(rule_channels(graph, member.id, "device"))
-        return GridCell(_ref(graph, index, member), channels, pair, short_name=member.short_name)
+        tile = None
+        if not channels and pair is None:  # no light, no pair: what its card shows first
+            tiles = _key_tiles(graph, member, graph.roles(member.id))
+            tile = next((t for t in tiles if t.channel is not None and not t.channels), None)
+        return GridCell(
+            _ref(graph, index, member), channels, pair, short_name=member.short_name, tile=tile
+        )
 
-    grid = Grid(signal, _member_rows(graph, members, cell))
+    grid = Grid(signal, _member_rows(groups or _member_groups(graph, members), cell))
     group_link = Link(group_id, Target("card", "group", group_id))
     sections: tuple[Section, ...] = (Section("group", (group_link,)),)
+    if len(pages) > 1:  # over one screen's budget: paged by its rows
+        sections += (
+            Section(
+                _PAGES,
+                tuple(Link(_PAGE.format(n, len(pages)), t) for n, t in enumerate(pages, 1)),
+            ),
+        )
     cls = index.set_class.get(group_id)
     views = [
         Link(
@@ -3168,13 +3333,13 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
     if views:
         sections += (Section("calibration", tuple(views)),)
     sections += (Section("members", (grid,)),)
-    return View(Target("set", "group", group_id), group_id, (), sections)
+    title = group_id if len(pages) == 1 else f"{group_id} · {_PAGE.format(page, len(pages))}"
+    return View(pages[page - 1], title, (HOME_LINK,), sections)
 
 
-def _member_rows(
-    graph: PanelGraph, members: list[Thing], cell: Callable[[Thing], GridCell]
-) -> tuple[GridRow, ...]:
-    """A set's members as grid rows (see :func:`set_overview`), each cell from *cell*."""
+def _member_groups(graph: PanelGraph, members: list[Thing]) -> list[tuple[str | None, list[Thing]]]:
+    """A set's members by row (see :func:`set_overview`): each row's place (``None``
+    for the members in no place, last) and its members in beam order."""
     rows_of = _row_places(graph, members)
 
     def beam(member: Thing) -> tuple[float, str]:
@@ -3186,13 +3351,56 @@ def _member_rows(
     for member in members:
         grouped.setdefault(rows_of[member.id], []).append(member)
     keys = sorted((k for k in grouped if k is not None), key=lambda k: order[k])
+    return [
+        (key, sorted(grouped[key], key=beam))
+        for key in ([*keys, None] if None in grouped else keys)
+    ]
+
+
+def _member_rows(
+    groups: list[tuple[str | None, list[Thing]]], cell: Callable[[Thing], GridCell]
+) -> tuple[GridRow, ...]:
+    """Grid rows of *groups* (from :func:`_member_groups`), each cell from *cell*."""
     rows: list[GridRow] = []
-    for key in [*keys, None] if None in grouped else keys:
+    for key, members in groups:
         label: Link | Fact = (
             Link(key, Target("card", "place", key)) if key is not None else Fact("row", _NOT_IN)
         )
-        rows.append(GridRow(label, tuple(cell(m) for m in sorted(grouped[key], key=beam))))
+        rows.append(GridRow(label, tuple(cell(m) for m in members)))
     return tuple(rows)
+
+
+#: The most members one page of a set view holds. Each cell is a light and, with a
+#: pair, its field and deviation light: a few rules; this many keep a page inside
+#: one screen's rule budget. A larger set is paged by its rows.
+SET_PAGE = 96
+
+
+def _set_pages(
+    graph: PanelGraph, members: list[Thing]
+) -> list[list[tuple[str | None, list[Thing]]]]:
+    """A set's rows in pages of at most :data:`SET_PAGE` members: whole rows while
+    they fit, a row longer than a page split across pages."""
+    pages: list[list[tuple[str | None, list[Thing]]]] = [[]]
+    held = 0
+    for key, row in _member_groups(graph, members):
+        while row:
+            room = SET_PAGE - held
+            if room <= 0 or (len(row) > room and held and len(row) <= SET_PAGE):
+                pages.append([])  # a row that fits a page of its own starts one
+                held, room = 0, SET_PAGE
+            take, row = row[:room], row[room:]
+            pages[-1].append((key, take))
+            held += len(take)
+    return pages if pages[0] else [[]]
+
+
+def set_pages(index: _Index, group_id: str) -> list[Target]:
+    """The pages of a set view, first to last."""
+    return [
+        Target("set", "group", group_id, system=None if n == 1 else str(n))
+        for n in range(1, index.set_pages.get(group_id, 1) + 1)
+    ]
 
 
 # -- place view ------------------------------------------------------------------
@@ -3326,7 +3534,9 @@ def place_view(
         if child.kind != "place":
             continue
         kind = _RACKS if child.id in index.racked else child.level or _OTHER
-        link = _place_link(graph, index, child.id, Target("place", "place", child.id))
+        # a rack opens its elevation, where its units are; any other place its view
+        view: ViewKind = "rack" if child.id in index.racked else "place"
+        link = _place_link(graph, index, child.id, Target(view, "place", child.id))
         short = child.id.removeprefix(place_id + "/")
         groups.setdefault(kind, []).append(
             _node(short, Link(short, link.target), rule_channels(graph, child.id, "place"))
@@ -3353,6 +3563,7 @@ def place_view(
             ("strip", [strip]),
             ("places within", within),
             (_BY_SYSTEM, systems),
+            (SETS_SECTION, _sets_within(index, _devices_in(graph, place_id))),
         ]
     )
     crumbs = _crumbs(graph, index, place.place, "place")
@@ -3478,10 +3689,63 @@ def _node(
 
 
 def _device_node(graph: PanelGraph, index: _Index, thing: Thing) -> Node:
-    ref = _ref(graph, index, thing)
+    """A device in a roll-up: its card, or, when its card cannot read its rule-bearing
+    channels (it lists counts), the first page of its own roll-up."""
+    ref: Link | Fact = _ref(graph, index, thing)
+    if thing.id in index.paged:
+        ref = Link(thing.id, Target("rollup", "device", thing.id, by="device"))
     return _node(
         thing.id, ref if isinstance(ref, Link) else None, rule_channels(graph, thing.id, "device")
     )
+
+
+#: The most rule-bearing channels one page of a device's roll-up reads. Its lights are
+#: drawn as parts, each one rule over as many channels as one rule holds; this many
+#: keep a page well inside one screen's rule budget.
+DEVICE_PAGE = 400
+_PAGES = "pages"
+_PAGE = "page {} of {}"
+
+
+def device_rollup_pages(index: _Index, device_id: str) -> list[Target]:
+    """The pages of a device's own roll-up, first to last; none for most devices."""
+    pages = index.paged.get(device_id, 0)
+    return [
+        Target("rollup", "device", device_id, by="device", system=None if n == 1 else str(n))
+        for n in range(1, pages + 1)
+    ]
+
+
+def device_rollup(graph: PanelGraph, device_id: str, page: int = 1) -> View:
+    """One page of a device's own roll-up: :data:`DEVICE_PAGE` of its rule-bearing
+    channels in name order, read by the root, which has no children (the layout draws
+    them as parts, one light per rule). Every rule-bearing channel of the device is on
+    exactly one page. With more than one page, a ``pages`` section links them all.
+
+    Raises:
+        KeyError: The device has no roll-up of its own, or no such page.
+    """
+    thing = graph.thing(device_id, "device")
+    index = _index(graph)
+    pages = device_rollup_pages(index, device_id)
+    if not 1 <= page <= len(pages):
+        raise KeyError(f"{device_id} has no roll-up page {page}")
+    ruled = sorted(rule_channels(graph, device_id, "device"))
+    part = ruled[(page - 1) * DEVICE_PAGE : page * DEVICE_PAGE]
+    label = device_id if len(pages) == 1 else f"{device_id} · {_PAGE.format(page, len(pages))}"
+    root = _node(label, None, part)
+    sections: tuple[Section, ...] = ()
+    if len(pages) > 1:
+        links = tuple(
+            Link(_PAGE.format(n, len(pages)), target) for n, target in enumerate(pages, 1)
+        )
+        sections += (Section(_PAGES, links),)
+    crumbs = (
+        *_crumbs(graph, index, thing.place, "rollup", "place"),
+        Link(device_id, Target("card", "device", device_id)),
+    )
+    target = pages[page - 1]
+    return View(target, f"{label} health", crumbs, (*sections, Section("roll-up", (root,))))
 
 
 def _unplaced_node(graph: PanelGraph, index: _Index) -> Node | None:
@@ -3576,7 +3840,24 @@ def _unplaced_rollup(graph: PanelGraph, index: _Index) -> View:
     tail = _node(_NO_THING, None, unheld) if unheld else None
     children = _ordered(graph, children, _UNPLACED_CHECKOUT, tail=tail)
     root = _node(NOT_PLACED, None, unplaced_channels(graph), tuple(children))
-    return View(_UNPLACED_ROLLUP, f"{NOT_PLACED} health", (), (Section("roll-up", (root,)),))
+    return View(
+        _UNPLACED_ROLLUP, f"{NOT_PLACED} health", (HOME_LINK,), (Section("roll-up", (root,)),)
+    )
+
+
+#: The section of a place view and a roll-up of one system that opens the sets.
+SETS_SECTION = "sets"
+
+
+def _sets_within(index: _Index, devices: Iterable[str]) -> list[Item]:
+    """A link to the set view of every set one of *devices* is a member of, in set id
+    order."""
+    found = {group for device in devices for group in index.sets_of.get(device, ())}
+    return [Link(group, Target("set", "group", group)) for group in sorted(found)]
+
+
+def _devices_in(graph: PanelGraph, place_id: str) -> list[str]:
+    return [thing.id for thing in graph.contents(place_id) if thing.kind == "device"]
 
 
 def _system_rollup(
@@ -3597,7 +3878,10 @@ def _system_rollup(
     )
     target = Target("rollup", "place", place.id, by="system", system=system)
     title = f"{place.id} {system} health"
-    return View(target, title, crumbs, (Section("roll-up", (root,)),))
+    # the sets of this system's devices here: a set's members, not its class name,
+    # since the draw settings may group classes into one system
+    sets = _sections([(SETS_SECTION, _sets_within(index, (n.label for n in devices)))])
+    return View(target, title, crumbs, (*sets, Section("roll-up", (root,))))
 
 
 def health_rollup(
@@ -3691,6 +3975,8 @@ def health_rollup(
         head += _sections([("calibration", _calibration_summary(graph, index, root_id))])
     if arcs:
         head += (Section(_RING, (Group(_RING, "ring", tuple(arcs)),)),)
+    if by == "system":  # the other way down: the sets of the place's devices
+        head += _sections([(SETS_SECTION, _sets_within(index, _devices_in(graph, root_id)))])
     if by == "place" and root_id in index.ruled:  # beside the places: the same by system
         *_band_, section = health_rollup(graph, root_id, "system").sections
         (system_root,) = section.items
@@ -3702,6 +3988,110 @@ def health_rollup(
         crumbs,
         (*head, Section("roll-up", (root,))),
     )
+
+
+# -- home ------------------------------------------------------------------------
+
+_TOP_PLACES = "places"
+_NOT_PLACED_SECTION = "not placed"
+_OTHER_GROUPS = "other groups"
+_MACHINES = "machines"
+_OTHER_PLACES = "other places"
+_BY_CLASS = "by class"
+
+
+def home(graph: PanelGraph) -> View:
+    """The one screen above every other: the ways down, by place and by system.
+
+    Sections, each left out when empty: ``places``, one chip per top place (a
+    place in no other), opening its place view, else its roll-up by place, else
+    its card, the machines first (a top place that holds a device of a model)
+    and the other places below them; ``sets``, one chip per set view, under its class, then
+    ``other groups``: each group with no set view (its members of several
+    classes, or no device), opening its card; ``not placed``, the roll-up of what is in no
+    place when there is one, then one chip per class of the devices in no place
+    that get a card, with their count, each opening that class's index
+    (:func:`unplaced_index`), which opens each card. A device in no place is
+    reached that way or from no screen at all.
+    """
+    index = _index(graph)
+    machines = _machine_places(graph)
+    tops: list[Node] = []
+    others: list[Node] = []
+    for thing in graph.things():
+        if thing.kind != "place" or thing.place is not None:
+            continue
+        link = None
+        for view, by in (("place", None), ("rollup", "place"), ("card", None)):
+            target = Target(view, "place", thing.id, by=by)  # type: ignore[arg-type]
+            if _has(graph, index, target):
+                link = Link(thing.id, target)
+                break
+        (tops if thing.id in machines or not machines else others).append(_node(thing.id, link, ()))
+    by_class: dict[str, list[Node]] = {}
+    for group in sorted(index.sets):
+        cls = index.set_class[group]
+        set_link = Link(group, Target("set", "group", group))
+        by_class.setdefault(cls, []).append(_node(group, set_link, ()))
+    # a group of several classes, or of no device, has no set view: its card
+    unset = sorted(t.id for t in graph.things() if t.kind == "group" and t.id not in index.sets)
+    groups = [_node(group, Link(group, Target("card", "group", group)), ()) for group in unset]
+    not_placed: list[Item] = []
+    if _has(graph, index, _UNPLACED_ROLLUP):
+        not_placed.append(Link(f"{NOT_PLACED} health", _UNPLACED_ROLLUP))
+    classes = [
+        _node(f"{cls} ({len(found)})", Link(cls, _unplaced_page(cls)), ())
+        for cls, found in index.loose.items()
+    ]
+    if classes:  # one index per class: every card of a device in no place is reached
+        not_placed.append(Group(_BY_CLASS, "chips", tuple(classes)))
+    places: list[Item] = []
+    if tops:
+        places.append(Group(_MACHINES if machines else _TOP_PLACES, "chips", tuple(tops)))
+    if others:
+        places.append(Group(_OTHER_PLACES, "chips", tuple(others)))
+    sets: list[Item] = [Group(cls, "chips", tuple(by_class[cls])) for cls in sorted(by_class)]
+    if groups:
+        sets.append(Group(_OTHER_GROUPS, "chips", tuple(groups)))
+    sections = _sections(
+        [(_TOP_PLACES, places), (SETS_SECTION, sets), (_NOT_PLACED_SECTION, not_placed)]
+    )
+    return View(HOME_TARGET, HOME, (), sections)
+
+
+def _machine_places(graph: PanelGraph) -> frozenset[str]:
+    """The top places that hold a device of a model (the facility's machines)."""
+    found: set[str] = set()
+    for thing in graph.things():
+        if thing.kind != "device" or thing.model is None or thing.place is None:
+            continue
+        top = thing.place
+        while (parent := graph.thing(top, "place").place) is not None:
+            top = parent
+        found.add(top)
+    return frozenset(found)
+
+
+def _unplaced_page(cls: str) -> Target:
+    return Target("home", "place", HOME, by=UNPLACED_BY, system=cls)
+
+
+def unplaced_index(graph: PanelGraph, cls: str) -> View:
+    """The devices of one class in no place that get a card: one chip each, opening it.
+
+    Raises:
+        KeyError: No device of that class is in no place with a card.
+    """
+    index = _index(graph)
+    if cls not in index.loose:
+        raise KeyError(f"no device of class {cls!r} is in no place with a card")
+    chips = tuple(
+        _node(device, Link(device, Target("card", "device", device)), ())
+        for device in index.loose[cls]
+    )
+    section = Section(_NOT_PLACED_SECTION, (Group(cls, "chips", chips),))
+    title = f"{cls} · {NOT_PLACED}"
+    return View(_unplaced_page(cls), title, (HOME_LINK,), (section,))
 
 
 # -- checkout --------------------------------------------------------------------
@@ -3768,7 +4158,7 @@ def checkout(graph: PanelGraph, place_id: str) -> View:
     if place_id == NOT_PLACED and not _holds(graph, place_id, "place"):
         found = _check_rows(graph, graph.unplaced())
         sections = _sections([("channels", list(found)), ("totals", [_totals(found)])])
-        return View(_UNPLACED_CHECKOUT, f"{NOT_PLACED} checkout", (), sections)
+        return View(_UNPLACED_CHECKOUT, f"{NOT_PLACED} checkout", (HOME_LINK,), sections)
     place = graph.thing(place_id, "place")
     found = _check_rows(graph, graph.contents(place_id))
     if place.place is None:
@@ -3807,6 +4197,10 @@ def describe(
         KeyError: The target's thing is not in the graph.
         ValueError: The target's view kind is unknown.
     """
+    if target.view == "home" and target.by == UNPLACED_BY:
+        return unplaced_index(graph, target.system or "")
+    if target.view == "home":
+        return home(graph)
     if target.view == "card":
         return device_card(
             graph, target.id, target.kind, rack_classes=rack_classes, symbols=symbols
@@ -3814,13 +4208,15 @@ def describe(
     if target.view == "channels":
         return channel_list(graph, target.id)
     if target.view == "set":
-        return set_overview(graph, target.id)
+        return set_overview(graph, target.id, int(target.system or 1))
     if target.view == "calibration":
         return calibration_overview(graph, target.id, target.system or "")
     if target.view == "place":
         return place_view(graph, target.id, symbols=symbols, above=above, annotate=annotate)
     if target.view == "rack":
         return rack_elevation(graph, target.id)
+    if target.view == "rollup" and target.kind == "device":
+        return device_rollup(graph, target.id, int(target.system or 1))
     if target.view == "rollup":
         return health_rollup(
             graph,

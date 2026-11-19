@@ -4,14 +4,13 @@ Each case imports a fixture tree's exports into a fresh ``data/facility/``
 under the tree's layer mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
 over the imported tree. The cases that only read a clean import of a whole
-tree share one import of it per module; a case that changes the facility
-works on its own copy.
+tree share the run's one import of it (``mml_imported``), and those that read
+its build the run's one build (``mml_built``); a case that changes the
+facility works on its own copy.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import shutil
 from collections import Counter
@@ -41,12 +40,17 @@ from tests.facility._mml_built import (
     BUILT,
     TREES,
     WIDENED,
+    BuiltModel,
+    MmlImport,
     export_files,
+    import_record,
+    load_yaml,
     mapped_facility,
+    read_yaml,
     widen,
 )
 
-#: The module's readers share one import per tree, which only holds on one worker.
+#: The module's readers share the parse of each import, which only holds on one worker.
 pytestmark = [
     pytest.mark.xdist_group("mml_layer_seed_once"),
     pytest.mark.usefixtures("entry_points_read_afresh"),
@@ -73,7 +77,8 @@ def _edited(root: Path, tree: str, stem: str, edit: Any) -> Path:
 
 
 def _load(path: Path) -> Any:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    """``path`` parsed once for every reader; the caller only reads it."""
+    return read_yaml(path)
 
 
 def _limits(facility: Path) -> dict[str, dict[str, Any]]:
@@ -109,12 +114,10 @@ class _Imported:
     changes a parsed record, so one import serves them all.
     """
 
-    def __init__(self, root: Path, tree: str) -> None:
-        self.facility = mapped_facility(root, tree)
-        printed = io.StringIO()
-        with contextlib.redirect_stdout(printed):
-            self.written = import_mml(export_files(tree), self.facility)
-        self.printed = printed.getvalue()
+    def __init__(self, imported: MmlImport) -> None:
+        self.facility = imported.facility
+        self.written = imported.written
+        self.printed = imported.printed
 
     @cached_property
     def wired(self) -> set[str]:
@@ -132,14 +135,13 @@ class _Imported:
 
 
 @pytest.fixture(scope="module")
-def imports(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], _Imported]:
-    """Each tree imported on its first request, then served to every reader."""
-    root = tmp_path_factory.mktemp("mml-imports")
+def imports(mml_imported: Callable[[str], MmlImport]) -> Callable[[str], _Imported]:
+    """Each tree's one import of the run, read on its first request, then served to every reader."""
     done: dict[str, _Imported] = {}
 
     def imported(tree: str) -> _Imported:
         if tree not in done:
-            done[tree] = _Imported(root / tree, tree)
+            done[tree] = _Imported(mml_imported(tree))
         return done[tree]
 
     return imported
@@ -218,21 +220,23 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
             assert (facility / name).read_text(encoding="utf-8") == text, name
 
 
-def test_an_existing_classes_file_gains_only_the_classes_it_lacks(tmp_path: Path) -> None:
-    facility = mapped_facility(tmp_path, "nsls2")
-    fresh = mapped_facility(tmp_path / "fresh", "nsls2")
-    import_mml(export_files("nsls2"), fresh)
-    derived = [row["class"] for row in _load(fresh / "classes.yaml")]
+def test_an_existing_classes_file_gains_only_the_classes_it_lacks(
+    tmp_path: Path, imports: Callable[[str], _Imported]
+) -> None:
+    # The classes a clean import of the tree derives, from the run's one import of it.
+    derived = [row["class"] for row in _load(imports("spear3").facility / "classes.yaml")]
+    assert len(derived) > 1
+    facility = mapped_facility(tmp_path, "spear3")
     held = f"# kept\n- {{class: {derived[-1]}, parent: Instrumentation}}\n"
     (facility / "classes.yaml").write_text(held, encoding="utf-8")
 
-    import_mml(export_files("nsls2"), facility)
+    import_mml(export_files("spear3"), facility)
 
     text = (facility / "classes.yaml").read_text(encoding="utf-8")
     assert text.startswith(held)
     rows = [row["class"] for row in _load(facility / "classes.yaml")]
     assert rows == [derived[-1], *derived[:-1]]
-    import_mml(export_files("nsls2"), facility)
+    import_mml(export_files("spear3"), facility)
     assert (facility / "classes.yaml").read_text(encoding="utf-8") == text
 
 
@@ -582,7 +586,7 @@ def test_the_import_seeds_no_kind_a_deployment_package_registers(
 
     install(monkeypatch)
     declaration = registered()[REGISTRY_KIND]
-    imported = _Imported(tmp_path / "spear3", "spear3")
+    imported = _Imported(import_record("spear3", tmp_path / "spear3"))
     document = _load(imported.facility / "measurement" / "StorageRing.yaml")
     named = set(document["groups"]) | set(document.get("instruments", {}))
 
@@ -699,10 +703,8 @@ def _served_and_model_readings(
 
 
 def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_position(
-    tmp_path: Path, imports: Callable[[str], _Imported]
+    mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
-    from osprey.facility.views.simulator import simulator_wiring
-
     va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text("utf-8"))
     stated = {
@@ -717,10 +719,9 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
     }
     assert sum(offset != 0 for _, offset in stated.values()) == 107
 
-    facility = imports("spear3").copy(tmp_path)
-    widen(facility, WIDENED["spear3"])
-    document = build_facility(facility, project_name="demo")
-    wiring = simulator_wiring(FacilityRecords(document), "StorageRing")
+    # The run's one spear3 build: its import, widened as named, built.
+    built = mml_built("spear3", "spear3.storagering")
+    facility, document, wiring = built.facility, built.document, built.wiring
     monitors = {
         record["address"]: record
         for record in wiring
@@ -836,7 +837,7 @@ def test_the_classes_of_the_storage_tree_land(spear3: Path) -> None:
 def test_a_declared_branch_is_a_row_ahead_of_the_classes_that_extend_it(tmp_path: Path) -> None:
     facility = mapped_facility(tmp_path, "synthetic")
     path = facility / MAPPING_FILE
-    document = _load(path)
+    document = load_yaml(path)
     document["branches"] = {
         "Trim": {"parent": "Steering", "description": None},
         "Steering": {"parent": "Corrector", "description": None},
@@ -941,7 +942,7 @@ POLARITY = tuple(f"LTB-MG{{Quad:{number}}}I:Sp1-SP" for number in (1, 3, 4, 6, 9
 
 
 def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarity(
-    imports: Callable[[str], _Imported],
+    imports: Callable[[str], _Imported], mml_built: Callable[[str, str], BuiltModel]
 ) -> None:
     facility, printed = imports("nsls2").facility, imports("nsls2").printed
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
@@ -971,7 +972,9 @@ def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarit
         assert record["calibration"]["curve"]["linear"]["gain"] > 0, address
         assert low <= stated[address] <= high, address
 
-    document = build_facility(facility, project_name="demo")
+    # The run's one nsls2 build is this import built: nsls2 widens no band.
+    assert not WIDENED["nsls2"]
+    document = mml_built("nsls2", "nsls2.ltb").document
     defaults = {
         record["address"]: record["default"]
         for model in document["models"]
@@ -981,9 +984,17 @@ def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarit
         assert defaults[address] == pytest.approx(stated[address], rel=1e-9), address
 
 
+def _files(facility: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(facility).as_posix(): path.read_bytes()
+        for path in sorted(facility.rglob("*"))
+        if path.is_file()
+    }
+
+
 @pytest.mark.parametrize("name", BUILT)
 def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_widened(
-    name: str, tmp_path: Path
+    name: str, tmp_path: Path, mml_built: Callable[[str, str], BuiltModel]
 ) -> None:
     facility = mapped_facility(tmp_path, name)
     exports = read_exports(export_files(name))
@@ -1010,6 +1021,6 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
 
     widen(facility, WIDENED[name])
 
-    document = build_facility(facility, project_name="demo")
-    assert document is not None
-    assert not run_stages(facility, project_name="demo", later=LATER_STAGES).errors
+    # The widened tree is, byte for byte, the run's one build of the tree, which
+    # ``build_facility`` built without a stop: the build reads nothing but the tree.
+    assert _files(facility) == _files(mml_built(name, TREES[name][0]).facility)

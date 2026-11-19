@@ -31,7 +31,8 @@ import pytest
 from osprey.deployment.web_terminals.artifacts import auth_env_digest
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL
-from tests._container_support import docker_cli_unavailable_reason_once
+from tests._container_support import docker_cli_unavailable_reason_once, ensure_image
+from tests.deployment.web_terminals._harness_image import NGINX_IMAGE
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
@@ -41,10 +42,22 @@ pytestmark = [
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
-# Already pulled by this directory's other dockerbuild tests, so no extra image
-# cost; `sleep` exists in the alpine base and keeps the container running with
-# no ports and no config of its own.
-_IMAGE = "nginx:1.31-alpine"
+# The perimeter tests' nginx, so a host that runs them holds it already; `sleep`
+# exists in the alpine base and keeps the container running with no ports and no
+# config of its own.
+_IMAGE = NGINX_IMAGE
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _image_present() -> None:
+    """Pull the image up front, under its own budget, if this host lacks it.
+
+    This module is not in the ``docker`` xdist group, so it can run before any
+    other test has pulled the image, and compose would then pull it inside the
+    timed ``up``, where a slow registry reads as a failed recreate.
+    """
+    ensure_image(_IMAGE)
+
 
 _ENV_VAR = "OSPREY_AUTH_SESSION_SECRET"  # variable NAME only; test values are dummies
 

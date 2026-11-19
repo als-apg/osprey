@@ -2,12 +2,15 @@
 
 The spear3 tree's mapping states a waveform block, ``MeasTune`` read on the
 planes x, y and s; each case imports the tree under that mapping, or under an
-edit of it, into a fresh ``data/facility/``.
+edit of it, into a fresh ``data/facility/``. The cases that read the tree as
+the mapping states it read the run's one import (``mml_imported``) and build
+(``mml_built``) of it.
 """
 
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +26,7 @@ from osprey.facility.layers.mml.mapping import (
     parse_mapping,
     read_mapping,
 )
-from osprey.facility.records import FacilityRecords
+from tests.facility._mml_built import BuiltModel, MmlImport, load_yaml, read_yaml
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 SPEAR3 = FIXTURES / "spear3"
@@ -38,14 +41,16 @@ def _facility(root: Path, tune: Any = None) -> Path:
     if tune is None:
         shutil.copyfile(SPEAR3 / MAPPING_FILE, target)
         return facility
-    document = yaml.safe_load((SPEAR3 / MAPPING_FILE).read_text(encoding="utf-8"))
+    document = load_yaml(SPEAR3 / MAPPING_FILE)
     document["models"][MODEL]["tune"] = tune
     target.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     return facility
 
 
 def _rows(facility: Path, name: str) -> list[dict[str, Any]]:
-    return yaml.safe_load((facility / LAYER_DIR / name).read_text(encoding="utf-8"))
+    """The layer's record file ``name``, parsed once; the caller only reads it."""
+    rows: list[dict[str, Any]] = read_yaml(facility / LAYER_DIR / name)
+    return rows
 
 
 def _wiring(facility: Path) -> dict[str, dict[str, Any]]:
@@ -58,10 +63,15 @@ def _channels(facility: Path) -> dict[str, dict[str, Any]]:
 
 
 @pytest.fixture(scope="module")
-def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    facility = _facility(tmp_path_factory.mktemp("spear3-tune"))
-    import_mml([EXPORT], facility)
-    return facility
+def spear3(mml_imported: Callable[[str], MmlImport]) -> Path:
+    """The run's one import of the spear3 tree, whose one export is ``EXPORT``."""
+    return mml_imported("spear3").facility
+
+
+@pytest.fixture
+def built(mml_built: Callable[[str, str], BuiltModel]) -> BuiltModel:
+    """The storage ring of the run's one spear3 build: its import, widened as named, built."""
+    return mml_built("spear3", EXPORT.name.removesuffix(".ao.json"))
 
 
 def test_the_spear3_mapping_reads_measured_tune_as_one_waveform() -> None:
@@ -120,82 +130,51 @@ def test_a_tune_address_a_family_wires_stops_the_import(tmp_path: Path) -> None:
     ],
 )
 def test_a_tune_block_off_its_shape_is_refused(tune: dict[str, Any], message: str) -> None:
-    document = yaml.safe_load((SPEAR3 / MAPPING_FILE).read_text(encoding="utf-8"))
+    document = load_yaml(SPEAR3 / MAPPING_FILE)
     document["models"][MODEL]["tune"] = tune
     with pytest.raises(MappingError, match=message.replace("[", r"\[").replace("]", r"\]")):
         parse_mapping(document)
 
 
-def test_the_built_spear3_tree_serves_measured_tune_as_the_deck_s_tunes(tmp_path: Path) -> None:
-    from osprey.facility.build import build_facility
-    from osprey.facility.views.simulator import simulator_wiring
+def test_the_built_spear3_tree_serves_measured_tune_as_the_deck_s_tunes(built: BuiltModel) -> None:
     from osprey.simulation.engines import pyat as engine
-    from tests.facility._mml_built import WIDENED, widen
 
-    facility = _facility(tmp_path)
-    import_mml([EXPORT], facility)
-    widen(facility, WIDENED["spear3"])
-    document = build_facility(facility, project_name="demo")
-    (model,) = [entry for entry in document["models"] if entry["name"] == MODEL]
-    wiring = simulator_wiring(FacilityRecords(document), MODEL)
-    deck = facility / model["deck"]
+    assert built.name == MODEL
+    engine_model = engine.build(MODEL, built.wiring, built.deck, built.settings)
+    served = engine_model.get(["MeasTune"])["MeasTune"]
 
-    built = engine.build(MODEL, wiring, deck, model.get("settings"))
-    served = built.get(["MeasTune"])["MeasTune"]
-
-    assert built.supported_variables["MeasTune"].read_only
-    expected = at.get_optics(built.lattice.deepcopy(), get_chrom=False)[1].tune
+    assert engine_model.supported_variables["MeasTune"].read_only
+    expected = at.get_optics(engine_model.lattice.deepcopy(), get_chrom=False)[1].tune
     assert served.shape == (3,) == expected.shape
     assert served == pytest.approx(expected, abs=1e-12)
 
 
-def test_the_built_measured_tune_starts_from_a_waveform_of_its_shape(tmp_path: Path) -> None:
-    from osprey.facility.build import build_facility
-    from osprey.facility.views.simulator import simulator_wiring
-    from tests.facility._mml_built import WIDENED, widen
+def test_the_built_measured_tune_starts_from_a_waveform_of_its_shape(built: BuiltModel) -> None:
+    from osprey_connectors.simulation import values
 
-    values = pytest.importorskip("osprey_connectors.simulation.values")
-    facility = _facility(tmp_path)
-    import_mml([EXPORT], facility)
-    widen(facility, WIDENED["spear3"])
-    document = build_facility(facility, project_name="demo")
-    (record,) = [
-        r for r in simulator_wiring(FacilityRecords(document), MODEL) if r["address"] == "MeasTune"
-    ]
+    (record,) = [r for r in built.wiring if r["address"] == "MeasTune"]
 
     assert record["default"] == [0.0, 0.0, 0.0]
     assert values.coerce(record["default"], "waveform", None, [3]) is not None
 
 
 async def test_the_in_process_simulator_serves_measured_tune_as_the_deck_s_tunes(
-    tmp_path: Path,
+    tmp_path: Path, built: BuiltModel
 ) -> None:
     import numpy as np
 
-    from osprey.facility.build import build_facility
     from osprey.facility.render import render_facility_outputs
-    from osprey.facility.views.simulator import simulator_wiring
     from osprey.simulation.engines import pyat as engine
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
     from osprey_connectors.simulation.composite import STATUS_OK
-    from tests.facility._mml_built import WIDENED, widen
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config
 
-    facility = _facility(tmp_path)
-    import_mml([EXPORT], facility)
-    widen(facility, WIDENED["spear3"])
-    document = build_facility(facility, project_name="demo")
+    # The render writes only under its own directory; the shared build is read.
     render = tmp_path / "build"
     render.mkdir()
-    render_facility_outputs(render, document, IN_PROCESS_RENDER_CONFIG, facility)
-    (model,) = [entry for entry in document["models"] if entry["name"] == MODEL]
-    built = engine.build(
-        MODEL,
-        simulator_wiring(FacilityRecords(document), MODEL),
-        facility / model["deck"],
-        model.get("settings"),
-    )
-    expected = at.get_optics(built.lattice.deepcopy(), get_chrom=False)[1].tune
+    render_facility_outputs(render, built.document, IN_PROCESS_RENDER_CONFIG, built.facility)
+    engine_model = engine.build(MODEL, built.wiring, built.deck, built.settings)
+    expected = at.get_optics(engine_model.lattice.deepcopy(), get_chrom=False)[1].tune
 
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(render / "data" / "simulator", response_delay_ms=0))

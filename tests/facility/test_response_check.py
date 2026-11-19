@@ -97,6 +97,29 @@ def _facility(repo: Path) -> Path:
     return repo / "data" / "facility"
 
 
+#: The columns of NSLS-II's storage-ring export the check sweeps, the same in
+#: every block: one corrector of each of the six positions of a cell, in six
+#: cells spread round the ring.
+NSLS2_SR_COLUMNS = tuple(range(0, 180, 31))
+
+
+def _keep_columns(path: Path, columns: tuple[int, ...]) -> None:
+    """Cut a kept response export down to ``columns`` of every block."""
+    response = json.loads(path.read_text(encoding="utf-8"))
+    for block in response["blocks"]:
+        actuator = block["actuator"]
+        for key in ("device_list", "status", "data"):
+            actuator[key] = [actuator[key][column] for column in columns]
+        block["actuator_delta"] = [block["actuator_delta"][column] for column in columns]
+        block["data"] = [[row[column] for column in columns] for row in block["data"]]
+    path.write_text(json.dumps(response), encoding="utf-8")
+
+
+def _model(document: dict[str, Any], name: str) -> dict[str, Any]:
+    model: dict[str, Any] = next(model for model in document["models"] if model["name"] == name)
+    return model
+
+
 def _snapshot(root: Path) -> dict[str, bytes | None]:
     return {
         path.relative_to(root).as_posix(): None if path.is_dir() else path.read_bytes()
@@ -123,7 +146,14 @@ def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def nsls2(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _repo(tmp_path_factory.mktemp("nsls2"), "nsls2")
+    """The nsls2 tree, its storage ring's export cut to :data:`NSLS2_SR_COLUMNS`.
+
+    The whole export sweeps 180 correctors a block, each by two closed-orbit
+    solves of a 3,510-element ring; the LTB's eight are kept whole.
+    """
+    repo = _repo(tmp_path_factory.mktemp("nsls2"), "nsls2")
+    _keep_columns(_facility(repo) / LAYER_DIR / "StorageRing.response.json", NSLS2_SR_COLUMNS)
+    return repo
 
 
 @pytest.fixture(scope="module")
@@ -132,18 +162,51 @@ def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def nsls2_checks(nsls2: Path) -> list[ModelCheck]:
-    """The nsls2 tree's checks, run once: the storage ring sweeps 360 correctors."""
+def nsls2_run(nsls2: Path) -> tuple[list[ModelCheck], dict[str, tuple[Block, ...]]]:
+    """The nsls2 tree's checks, run once, with the blocks each model's check judged.
+
+    The storage ring sweeps 12 correctors.
+    """
     facility = _facility(nsls2)
-    return check_responses(facility, build_facility(facility, project_name="scratch"))
+    document = build_facility(facility, project_name="scratch")
+    judged: dict[str, tuple[Block, ...]] = {}
+
+    def recording(
+        facility_dir: Path, document: dict[str, Any], model: dict[str, Any]
+    ) -> tuple[Block, ...]:
+        blocks = compare(facility_dir, document, model)
+        judged[str(model["name"])] = blocks
+        return blocks
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(response_check, "compare", recording)
+        checks = check_responses(facility, document)
+    return checks, judged
 
 
 @pytest.fixture(scope="module")
-def spear3_blocks(spear3: Path) -> tuple[Block, ...]:
-    facility = _facility(spear3)
+def nsls2_checks(
+    nsls2_run: tuple[list[ModelCheck], dict[str, tuple[Block, ...]]],
+) -> list[ModelCheck]:
+    return nsls2_run[0]
+
+
+@pytest.fixture(scope="module")
+def spear3_document(spear3: Path) -> dict[str, Any]:
+    """The spear3 tree's facility file; no case that reads it changes it."""
+    return build_facility(_facility(spear3), project_name="scratch")
+
+
+@pytest.fixture(scope="module")
+def spear3_blocks(spear3: Path, spear3_document: dict[str, Any]) -> tuple[Block, ...]:
+    return compare(_facility(spear3), spear3_document, _model(spear3_document, "StorageRing"))
+
+
+@pytest.fixture(scope="module")
+def synthetic_blocks(synthetic: Path) -> tuple[Block, ...]:
+    facility = _facility(synthetic)
     document = build_facility(facility, project_name="scratch")
-    model = next(model for model in document["models"] if model["name"] == "StorageRing")
-    return compare(facility, document, model)
+    return compare(facility, document, _model(document, "SR"))
 
 
 # --- the verb -----------------------------------------------------------------------
@@ -177,9 +240,46 @@ def test_a_model_derived_export_prints_one_line_and_exits_0(
     assert _snapshot(synthetic) == before
 
 
-def test_a_model_derived_export_passes_block_by_block(nsls2_checks: list[ModelCheck]) -> None:
-    assert [check.line for check in nsls2_checks] == NSLS2_LINES
-    assert all(check.passed for check in nsls2_checks)
+#: Each nsls2 model's blocks: whether each is judged, and how many entries it compared.
+NSLS2_BLOCKS: dict[str, list[tuple[str, bool, int]]] = {
+    "LTB": [
+        ("BPMx/HCM", True, 48),
+        ("BPMx/VCM", False, 48),
+        ("BPMy/HCM", False, 48),
+        ("BPMy/VCM", True, 48),
+    ],
+    "StorageRing": [
+        ("BPMx/HCM", True, 1080),
+        ("BPMx/VCM", False, 1080),
+        ("BPMy/HCM", False, 1080),
+        ("BPMy/VCM", True, 1080),
+    ],
+}
+
+
+def test_a_model_derived_export_passes_block_by_block(
+    nsls2_run: tuple[list[ModelCheck], dict[str, tuple[Block, ...]]],
+) -> None:
+    """Every judged block of each model's export passes on its own verdict."""
+    checks, judged = nsls2_run
+
+    assert [check.line for check in checks] == NSLS2_LINES
+    assert all(check.passed for check in checks)
+    assert {
+        name: [(block.name, block.judged, block.full.compared) for block in blocks]
+        for name, blocks in judged.items()
+    } == NSLS2_BLOCKS
+    assert {
+        name: [ModelCheck(name, judge([block])).line for block in blocks if block.judged]
+        for name, blocks in judged.items()
+    } == {
+        name: [
+            f"response check {name}: model {block} inside band 1.000 (pass at 0.99)"
+            for block, is_judged, _ in blocks
+            if is_judged
+        ]
+        for name, blocks in NSLS2_BLOCKS.items()
+    }
 
 
 def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(
@@ -195,20 +295,15 @@ def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(
 
 
 def test_one_judged_block_scaled_by_a_tenth_exits_1(
-    nsls2: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    synthetic: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The LTB's block, scaled.
-
-    The storage ring's export is dropped, so its 360-corrector sweep is not run:
-    a model without a kept export is not checked.
-    """
-    repo = tmp_path / "nsls2"
-    shutil.copytree(nsls2, repo)
-    (_facility(repo) / LAYER_DIR / "StorageRing.response.json").unlink()
-    path = _facility(repo) / LAYER_DIR / "LTB.response.json"
+    """The first block, scaled; the other judged block still passes, and the line names the first."""
+    repo = tmp_path / "synthetic"
+    shutil.copytree(synthetic, repo)
+    path = _facility(repo) / LAYER_DIR / "SR.response.json"
     response = json.loads(path.read_text(encoding="utf-8"))
     block = response["blocks"][0]
-    assert (block["monitor"]["family"], block["actuator"]["family"]) == ("BPMx", "HCM")
+    assert (block["monitor"]["family"], block["actuator"]["family"]) == ("BPMx", "HC")
     assert block["origin"] == "model"
     block["data"] = [[1.10 * value for value in row] for row in block["data"]]
     path.write_text(json.dumps(response), encoding="utf-8")
@@ -219,26 +314,26 @@ def test_one_judged_block_scaled_by_a_tenth_exits_1(
     assert result.exit_code == 1, result.output
     assert (result.stdout, result.stderr) == (
         "",
-        "response check LTB: model BPMx/HCM inside band 0.458 (fail at 0.99)\n",
+        "response check SR: model BPMx/HC inside band 0.000 (fail at 0.99)\n",
     )
     assert _snapshot(repo) == before
 
 
-def test_a_tree_without_a_kept_export_checks_nothing(spear3: Path, tmp_path: Path) -> None:
-    repo = tmp_path / "spear3"
-    shutil.copytree(spear3, repo)
+def test_a_tree_without_a_kept_export_checks_nothing(synthetic: Path, tmp_path: Path) -> None:
+    repo = tmp_path / "synthetic"
+    shutil.copytree(synthetic, repo)
     facility = _facility(repo)
-    (facility / LAYER_DIR / "StorageRing.response.json").unlink()
+    (facility / LAYER_DIR / "SR.response.json").unlink()
 
     assert check_responses(facility, build_facility(facility, project_name="scratch")) == []
 
 
 def test_an_unreadable_export_exits_1_without_a_traceback(
-    spear3: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    synthetic: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    repo = tmp_path / "spear3"
-    shutil.copytree(spear3, repo)
-    (_facility(repo) / LAYER_DIR / "StorageRing.response.json").write_text("{", encoding="utf-8")
+    repo = tmp_path / "synthetic"
+    shutil.copytree(synthetic, repo)
+    (_facility(repo) / LAYER_DIR / "SR.response.json").write_text("{", encoding="utf-8")
 
     result = _validate(repo, monkeypatch)
 
@@ -487,7 +582,7 @@ def test_a_column_half_flipped_is_not_reversed() -> None:
 
 
 def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
-    spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
+    synthetic: Path, synthetic_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The first sweep's solve is refused; every other column is still judged."""
     from lume_pyat.exceptions import OrbitSolveError
@@ -503,11 +598,10 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
         return original(self)
 
     monkeypatch.setattr(PyATSimulator, "solve", solve)
-    facility = _facility(spear3)
+    facility = _facility(synthetic)
     document = build_facility(facility, project_name="scratch")
-    model = next(model for model in document["models"] if model["name"] == "StorageRing")
 
-    blocks = compare(facility, document, model)
+    blocks = compare(facility, document, _model(document, "SR"))
 
     def measured(block: Block, unsolved: str = "") -> list[tuple[str, str, float]]:
         return [
@@ -516,19 +610,19 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
             if entry.actuator_address != unsolved
         ]
 
-    unsolved = spear3_blocks[0].entries[0].actuator_address
-    assert [block.name for block in blocks] == [block.name for block in spear3_blocks]
-    for block, whole in zip(blocks, spear3_blocks, strict=True):
+    unsolved = synthetic_blocks[0].entries[0].actuator_address
+    assert [block.name for block in blocks] == [block.name for block in synthetic_blocks]
+    for block, whole in zip(blocks, synthetic_blocks, strict=True):
         assert measured(block) == measured(whole, unsolved), block.name
-    assert len(measured(blocks[0])) < len(measured(spear3_blocks[0]))
-    assert ModelCheck("StorageRing", judge(blocks)).line.startswith(
-        "response check StorageRing: measured BPMx/HCM median ratio "
+    assert len(measured(blocks[0])) < len(measured(synthetic_blocks[0]))
+    assert ModelCheck("SR", judge(blocks)).line.startswith(
+        "response check SR: model BPMx/HC inside band "
     )
     assert sum((block.left_out for block in blocks), LeftOut()) == LeftOut(unsolved=2)
 
 
 def test_a_model_is_swept_in_one_engine_call(
-    spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
+    synthetic: Path, synthetic_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Every corrector of the model is stepped in one call of the engine."""
     from osprey.simulation.engines import pyat
@@ -541,11 +635,10 @@ def test_a_model_is_swept_in_one_engine_call(
         return original(deck, wiring, settings, correctors, step)
 
     monkeypatch.setattr(pyat, "response_matrix", recording)
-    facility = _facility(spear3)
+    facility = _facility(synthetic)
     document = build_facility(facility, project_name="scratch")
-    model = next(model for model in document["models"] if model["name"] == "StorageRing")
 
-    blocks = compare(facility, document, model)
+    blocks = compare(facility, document, _model(document, "SR"))
 
     def measured(block: Block) -> list[tuple[str, str, float]]:
         return [
@@ -555,19 +648,21 @@ def test_a_model_is_swept_in_one_engine_call(
 
     assert len(calls) == 1
     assert len(calls[0]) == len(set(calls[0]))
-    assert [measured(block) for block in blocks] == [measured(block) for block in spear3_blocks]
+    assert [measured(block) for block in blocks] == [measured(block) for block in synthetic_blocks]
 
 
 def test_of_two_correctors_only_the_one_with_no_solve_is_left_out(
-    spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
+    spear3: Path,
+    spear3_document: dict[str, Any],
+    spear3_blocks: tuple[Block, ...],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A refused step drops its own corrector; the other's response is a clean run's."""
     from lume_pyat.exceptions import OrbitSolveError
     from lume_pyat.simulator import PyATSimulator
 
     facility = _facility(spear3)
-    document = build_facility(facility, project_name="scratch")
-    model = next(model for model in document["models"] if model["name"] == "StorageRing")
+    model = _model(spear3_document, "StorageRing")
     first, second = list(
         dict.fromkeys(entry.actuator_address for entry in spear3_blocks[0].entries)
     )[:2]
@@ -602,13 +697,16 @@ def test_of_two_correctors_only_the_one_with_no_solve_is_left_out(
     assert failing[(second, width)] == clean[(second, width)]
 
 
-def test_a_corrector_the_engine_refuses_stays_loud(spear3: Path) -> None:
+def test_a_corrector_the_engine_refuses_stays_loud(
+    spear3: Path, spear3_document: dict[str, Any]
+) -> None:
     """A corrector the model cannot step stops the check; it is never a column left out."""
     facility = _facility(spear3)
-    document = build_facility(facility, project_name="scratch")
-    model = next(model for model in document["models"] if model["name"] == "StorageRing")
+    model = _model(spear3_document, "StorageRing")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, match="corrector NOT:A:SETPOINT is not a wired setpoint on an element"
+    ):
         response_check._responses(
             response_check._engine("pyat"),
             facility / model["deck"],
@@ -619,7 +717,7 @@ def test_a_corrector_the_engine_refuses_stays_loud(spear3: Path) -> None:
 
 
 def test_a_solve_error_the_engine_does_not_declare_stays_loud(
-    spear3: Path, monkeypatch: pytest.MonkeyPatch
+    spear3: Path, spear3_document: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The catch follows what the engine declares; it names no engine type."""
     from lume_pyat.exceptions import OrbitSolveError
@@ -638,12 +736,9 @@ def test_a_solve_error_the_engine_does_not_declare_stays_loud(
 
     monkeypatch.setattr(PyATSimulator, "solve", solve)
     monkeypatch.setattr(pyat, "SOLVE_ERRORS", ())
-    facility = _facility(spear3)
-    document = build_facility(facility, project_name="scratch")
-    model = next(model for model in document["models"] if model["name"] == "StorageRing")
 
     with pytest.raises(OrbitSolveError):
-        compare(facility, document, model)
+        compare(_facility(spear3), spear3_document, _model(spear3_document, "StorageRing"))
 
 
 def test_a_monitor_with_a_table_calibration_is_left_out_and_counted(synthetic: Path) -> None:

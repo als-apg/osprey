@@ -14,6 +14,7 @@ from osprey.facility.panels.view import (
     Target,
     View,
 )
+from tests.facility.panels._fixture import PANELS_DIR
 from tests.facility.panels._views import nodes, printed, stub_render
 
 
@@ -345,3 +346,95 @@ def test_a_group_whose_members_share_a_unit_states_it_after_its_heading(tmp_path
         assert stated["geometry"]["y"] == head["geometry"]["y"]
         assert stated["geometry"]["x"] > head["geometry"]["x"]
     assert not [n for n in nodes(doc) if n["type"] == "pv-label"]  # the viewer would add it
+
+
+def test_a_member_with_no_light_shows_the_value_its_card_shows_first(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from tests.facility.panels.test_card import ROLES_HEADER
+
+    def unpaired(document) -> None:
+        for record in document["channels"]:
+            record.pop("pair", None)  # no primary pair: the cell has no readback field
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Quadrupole,current,*:Current-RB,device,value,,,,,stated,S,1,l\n"
+    )
+    health = (tables / "health.csv").read_text().splitlines(keepends=True)
+    kept = [line for line in health if "-Q" not in line.split(",", 1)[0]]  # no magnet rule
+    (tables / "health.csv").write_text("".join(kept))
+    pairs = (tables / "pairs.csv").read_text().splitlines(keepends=True)
+    (tables / "pairs.csv").write_text(pairs[0])  # nor a pair the tables state
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", unpaired), tables)
+    view = set_overview(graph, "XR-QUAD")
+    cells = [c for s in view.sections for g in s.items if hasattr(g, "rows") for r in g.rows for c in r.cells]  # fmt: skip
+    assert cells and all(c.channels == () and c.pair is None for c in cells)
+    assert {c.tile.channel for c in cells} == {
+        "XR01-QF1:Current-RB", "XR01-QD1:Current-RB", "XR02-QF1:Current-RB", "XR02-QD1:Current-RB"
+    }  # fmt: skip
+    doc = stub_render(view, graph)
+    shown = {n["props"]["pv"] for n in nodes(doc) if n["type"] == "pv-label"}
+    assert "XR01-QF1:Current-RB" in shown  # drawn in the cell, not an empty box
+
+
+def _grouped(tmp_path, *groups):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    def change(document) -> None:
+        document["devices"].append({"id": "XR01:ODD1", "place": "XR/XR01"})  # no class
+        document["groups"].extend(groups)
+
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), PANELS_DIR)
+
+
+def test_a_section_is_never_a_set_and_a_family_needs_one_class(tmp_path) -> None:
+    from osprey.facility.panels.describe import targets
+
+    graph = _grouped(
+        tmp_path,
+        {"id": "XR-ZONE", "kind": "section", "members": ["XR01:QF1"]},
+        {"id": "XR-FAM", "members": ["XR01:QF1", "XR02:QF1"]},  # a family when absent
+    )
+    sets = {t.id for t in targets(graph) if t.view == "set"}
+    assert "XR-FAM" in sets and "XR-ZONE" not in sets
+
+
+def test_check_names_a_family_that_is_no_set_for_want_of_a_members_class(tmp_path) -> None:
+    from osprey.facility.panels import emit
+
+    graph = _grouped(tmp_path, {"id": "XR-HALF", "members": ["XR01:QF1", "XR02:QF1", "XR01:ODD1"]})
+    emit.write(graph, tmp_path / "out")
+    (note,) = [p for p in emit.check(graph, tmp_path / "out") if p.kind == "unset_group"]
+    assert note.note and note.detail.startswith("XR-HALF is no set: XR01:ODD1 is no device")
+
+
+def test_a_set_over_one_page_is_paged_by_whole_rows_and_each_page_links_the_others(
+    tmp_path, monkeypatch, panel_facility
+) -> None:
+    import importlib
+
+    from osprey.facility.panels import emit, load_graph
+    from osprey.facility.panels.describe import targets
+    from osprey.facility.panels.view import Grid, Target
+
+    described = importlib.import_module("osprey.facility.panels.describe")
+    monkeypatch.setattr(described, "SET_PAGE", 3)  # two sector rows of two: one a page
+    graph = load_graph(panel_facility, PANELS_DIR)  # a fresh graph: its index is built now
+    pages = [t for t in targets(graph) if t.view == "set" and t.id == "XR-QUAD"]
+    assert [t.system for t in pages] == [None, "2"]
+    rows = []
+    for n, target in enumerate(pages, 1):
+        view = set_overview(graph, "XR-QUAD", n)
+        assert view.id == target
+        links = [i.target for s in view.sections if s.title == "pages" for i in s.items]
+        assert links == pages
+        (grid,) = [i for s in view.sections for i in s.items if isinstance(i, Grid)]
+        rows += [(r.label.label, len(r.cells)) for r in grid.rows]
+    assert rows == [("XR/XR01", 2), ("XR/XR02", 2)]  # each row whole, each member once
+    assert pages[0] == Target("set", "group", "XR-QUAD")  # links elsewhere open page 1
+    emit.write(graph, tmp_path / "out")
+    assert not [
+        p for p in emit.check(graph, tmp_path / "out") if p.kind in ("missing", "over_budget")
+    ]

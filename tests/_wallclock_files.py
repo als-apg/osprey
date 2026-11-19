@@ -78,9 +78,15 @@ def _scanned(relative: str, roots: Iterable[str]) -> bool:
     return under and not any(relative == d or relative.startswith(f"{d}/") for d in EXCLUDED)
 
 
+#: The literal every match of :data:`MARK_RE` spells; a file without it is
+#: skipped before the regex runs.
+_MARK_LITERAL = b"pytest.mark." + MARKER.encode()
+
+
 def carries_marker(path: Path) -> bool:
     """Whether the source of *path* applies the marker, as the scan reads it."""
-    return MARK_RE.search(path.read_bytes()) is not None
+    data = path.read_bytes()
+    return _MARK_LITERAL in data and MARK_RE.search(data) is not None
 
 
 def marked_files(root: Path = REPO_ROOT, roots: Iterable[str] | None = None) -> list[str]:

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from jinja2 import BytecodeCache, Environment, Template
+from jinja2 import Environment, Template
 
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
@@ -78,60 +78,6 @@ from tests.deployment.web_terminals._nginx import (
     nginx_terminals_part,
     render_nginx,
 )
-
-
-class _InMemoryBytecodeCache(BytecodeCache):
-    """Jinja's own compiled-template cache, held in memory for this module."""
-
-    def __init__(self) -> None:
-        self._store: dict[str, bytes] = {}
-
-    def load_bytecode(self, bucket) -> None:  # type: ignore[no-untyped-def]
-        data = self._store.get(bucket.key)
-        if data is not None:
-            bucket.bytecode_from_string(data)
-
-    def dump_bytecode(self, bucket) -> None:  # type: ignore[no-untyped-def]
-        self._store[bucket.key] = bucket.bytecode_to_string()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def _render_reuses_parsed_templates_and_tokens():
-    """Parse each template and load the token tree once per module, not per render.
-
-    Every render builds two fresh Jinja Environments and re-reads the packaged
-    design tokens three times, and those reparses are most of this module's
-    time. The Environments stay fresh -- a new one per render, with fresh
-    Template objects, so a test that wraps a template's ``render`` touches only
-    its own -- they just share a bytecode cache, one per ``autoescape`` setting
-    since that changes the compiled code. Jinja keys each entry by template and
-    checks it against the source's checksum, so an edited template recompiles.
-    The token tree is memoized for the packaged ``tokens/`` directory only.
-    """
-    from osprey.interfaces.design_system.generator import model
-    from osprey.interfaces.design_system.generator.build import DEFAULT_TOKENS_DIR
-
-    caches: dict[object, _InMemoryBytecodeCache] = {}
-
-    def environment(*args, **kwargs):  # type: ignore[no-untyped-def]
-        cache = caches.setdefault(kwargs.get("autoescape", False), _InMemoryBytecodeCache())
-        return Environment(*args, bytecode_cache=cache, **kwargs)
-
-    real_load_token_tree = model.load_token_tree
-    packaged: list = []
-
-    def load_token_tree(tokens_dir):  # type: ignore[no-untyped-def]
-        if Path(tokens_dir) != Path(DEFAULT_TOKENS_DIR):
-            return real_load_token_tree(tokens_dir)
-        if not packaged:
-            packaged.append(real_load_token_tree(tokens_dir))
-        return packaged[0]
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(render_module, "Environment", environment)
-        mp.setattr(model, "load_token_tree", load_token_tree)
-        yield
-
 
 # The four classic config-set families; the effective per-family base set the
 # render actually allocates from also carries every registry default
@@ -347,7 +293,7 @@ def test_nginx_image_defaults_when_config_omits_it() -> None:
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
     # Assert
-    assert compose["services"]["nginx"]["image"] == "nginx:1.31-alpine"
+    assert compose["services"]["nginx"]["image"] == "nginx:1.31.9-alpine"
 
 
 def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
@@ -355,7 +301,7 @@ def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
     only from a private mirror point it at their own registry."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
-    custom = "registry.example.com:5050/mirrors/nginx:1.31-alpine"
+    custom = "registry.example.com:5050/mirrors/nginx:1.31.9-alpine"
     config["modules"]["web_terminals"]["nginx_image"] = custom
 
     # Act
@@ -377,7 +323,7 @@ def test_the_default_nginx_image_comes_from_the_base_registry(
     compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
 
     assert compose["services"]["nginx"]["image"] == (
-        "mirror.example.org/dockerhub/library/nginx:1.31-alpine"
+        "mirror.example.org/dockerhub/library/nginx:1.31.9-alpine"
     )
 
 

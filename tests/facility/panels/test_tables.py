@@ -43,7 +43,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["excluded.csv"]) == "kind,id,reason,source,revision,locator"
     assert ",".join(COLUMNS["pictures.csv"]) == (
         "device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator,"
-        "w_mm,h_mm,angle_deg,signal,under"
+        "w_mm,h_mm,angle_deg,signal,under,devices"
     )
     assert ",".join(COLUMNS["names.csv"]) == (
         "thing,short_name,scheme,basis,document,version,state,locator"
@@ -76,7 +76,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "class,under,devices,recipe,description,channels_cols,source"
     )
     assert ",".join(COLUMNS["no_cards.csv"]) == (
-        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source"
+        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source,when,attribute"
     )
     assert ",".join(COLUMNS["fronts.csv"]) == (
         "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"

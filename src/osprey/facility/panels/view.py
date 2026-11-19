@@ -68,10 +68,13 @@ __all__ = [
     "ViewKind",
 ]
 
-ViewKind = Literal["card", "channels", "set", "calibration", "place", "rack", "rollup", "checkout"]
+ViewKind = Literal[
+    "home", "card", "channels", "set", "calibration", "place", "rack", "rollup", "checkout"
+]
 
 #: Every view kind, in the order screens of one thing are listed.
 VIEW_KINDS: tuple[ViewKind, ...] = (
+    "home",
     "card",
     "channels",
     "set",
@@ -96,6 +99,8 @@ class Target:
         system: For a roll-up by ``system``, the one system it shows within
             the place; ``None`` for the roll-up of every system. For a
             ``calibration`` view, the calibration kind it shows over the set.
+            For a device's roll-up (``by`` ``device``) or a ``set`` view, its page
+            past the first (``"2"``, ``"3"``, ...); ``None`` for the first.
     """
 
     view: ViewKind
@@ -221,6 +226,8 @@ class GridCell:
         calibration: In a calibration view, what the member's records say of
             the view's kind; ``None`` in a set overview.
         short_name: The member's stated short name (``names.csv``), or ``None``.
+        tile: For a member with no light and no pair, the first key tile of its
+            card that shows a channel: its value stands in the cell; else ``None``.
     """
 
     member: Link | Fact
@@ -228,6 +235,7 @@ class GridCell:
     pair: ValueRow | None = None
     calibration: CalibrationCell | None = None
     short_name: str | None = None
+    tile: KeyTile | None = None
 
 
 @dataclass(frozen=True)
@@ -636,8 +644,8 @@ class CalibrationTallies:
 
 @dataclass(frozen=True)
 class CardFoot:
-    """A drawn card's last two muted lines: where the device is and what it is read
-    from, each one line; the full provenance on hover.
+    """A drawn card's last muted lines: where the device is, the sets it is in (when
+    any), and what it is read from, each one line; the full provenance on hover.
 
     Attributes:
         where: The where line in pieces, each its text and the screen it opens (or
@@ -647,6 +655,8 @@ class CardFoot:
         claims: What the where line is made of: the place, each ``located_in``
             claim (:class:`Placement`), each pose (:class:`Fact`).
         citations: The statements the sources line counts.
+        sets: The set views of the sets the device is a member of, one link each,
+            drawn on a line of their own between the two.
     """
 
     where: tuple[tuple[str, Link | None], ...]
@@ -654,6 +664,7 @@ class CardFoot:
     provenance: tuple[str, ...]
     claims: tuple[Item, ...] = ()
     citations: tuple[Citation, ...] = ()
+    sets: tuple[Link, ...] = ()
 
 
 @dataclass(frozen=True)

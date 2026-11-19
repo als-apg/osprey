@@ -34,7 +34,7 @@ pytestmark = [
 
 # Already pulled by this directory's other dockerbuild tests; `sleep` keeps the
 # container running with no ports and no config of its own.
-_IMAGE = "nginx:1.31-alpine"
+_IMAGE = "nginx:1.31.9-alpine"
 
 _THEIRS = "0123456789ab"
 
@@ -59,6 +59,14 @@ def _compose_up(workdir: Path, project: str, repo_id: str) -> list[str]:
     return base
 
 
+def _compose_down(base: list[str]) -> None:
+    """Remove the project at once: ``sleep`` runs as PID 1 with no SIGTERM
+    handler, so the default stop waits out compose's 10 s grace for nothing."""
+    subprocess.run(
+        [*base, "down", "-v", "--timeout", "0"], capture_output=True, text=True, timeout=300
+    )
+
+
 def test_the_probe_partitions_real_containers_by_the_baked_label(tmp_path):
     token = uuid.uuid4().hex[:8]
     project = f"ospreyclaim-{token}"
@@ -80,7 +88,7 @@ def test_the_probe_partitions_real_containers_by_the_baked_label(tmp_path):
         mine = host_claim(project, _THEIRS, probe=probe)
         assert not mine.foreign and [r.name for r in mine.containers.ours] == [f"{project}-keep-1"]
     finally:
-        subprocess.run([*base, "down", "-v"], capture_output=True, text=True, timeout=300)
+        _compose_down(base)
 
 
 def test_a_moved_checkout_is_the_other_copy_gone_case(tmp_path):
@@ -101,4 +109,4 @@ def test_a_moved_checkout_is_the_other_copy_gone_case(tmp_path):
         assert claim.held_elsewhere
         assert claim.other_copy_gone
     finally:
-        subprocess.run([*base, "down", "-v"], capture_output=True, text=True, timeout=300)
+        _compose_down(base)

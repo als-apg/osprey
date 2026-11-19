@@ -10,6 +10,7 @@ they always had.
 
 from __future__ import annotations
 
+import functools
 import re
 from pathlib import Path
 from typing import Any
@@ -344,10 +345,13 @@ _RAW_USERS_READ = re.compile(
 )
 
 
+@functools.cache
 def _offenders() -> dict[str, list[str]]:
+    """Each product file's raw roster reads, scanned once per process."""
     found: dict[str, list[str]] = {}
     for path, text in product_sources(REPO_ROOT):
-        if path == _HELPER_MODULE:
+        # Exact: every branch of the pattern spells ``users``.
+        if path == _HELPER_MODULE or "users" not in text:
             continue
         for number, line in enumerate(text.splitlines(), start=1):
             code = line.split("#", 1)[0]

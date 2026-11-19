@@ -104,18 +104,19 @@ def strip_machine(repo: Path) -> None:
     assert stated.exit_code == 0, stated.output
 
 
-def run_build(repo: Path) -> Result:
+def run_build(repo: Path, *extra: str) -> Result:
     """Run ``osprey build --skip-deps`` on a repo.
 
     Args:
         repo: The repo.
+        extra: Further ``osprey build`` arguments, such as ``--skip-lifecycle``.
 
     Returns:
         The CliRunner result.
     """
     from osprey.cli.build_cmd import build
 
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps"])
+    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", *extra])
 
 
 class RenderOutputs(NamedTuple):

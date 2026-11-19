@@ -56,15 +56,15 @@ The deployed sidecar image (``templates/modules/web_terminals/auth_sidecar/Docke
 installs the whole ``osprey-framework`` distribution — scipy, playwright,
 accelerator-toolbox and the rest — which is a multi-minute, multi-hundred-MB
 build this file cannot afford: it runs in the ordinary unit lane. The harness
-image below installs only the part of that dependency set the sidecar's import
+image (``_harness_image.py``) installs only the part of that dependency set the sidecar's import
 closure actually needs, plus the repository's own ``src/`` bind-mounted.
 
 The one property that distinction endangers is ``python-multipart``: Starlette
 requires it for EVERY form body, urlencoded included, so a sidecar image
 missing it serves a login page whose form can never be submitted, and no unit
 test would notice. The harness therefore installs nothing of its own choosing —
-:func:`_declared_specs` takes each package's requirement *specifier from the
-distribution's own metadata*, the same declaration ``pip install
+``declared_specs`` in ``_harness_image.py`` takes each package's requirement
+*specifier from the distribution's own metadata*, the same declaration ``pip install
 osprey-framework`` resolves for the real image, and fails loudly if one is not
 declared. Drop ``python-multipart`` from ``pyproject.toml`` and this harness
 loses it exactly as the deployed image would, and
@@ -76,25 +76,21 @@ to that Dockerfile would reach a deployment without a test noticing.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import socket
 import subprocess
-import textwrap
 import time
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from importlib.metadata import requires as distribution_requires
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 import yaml
-from packaging.requirements import Requirement
 
 from osprey.agent_record.credentials import ensure_agent_record_credentials
 from osprey.deployment.web_terminals.artifacts import (
@@ -135,6 +131,7 @@ from tests._container_support import (
     runtime_command,
 )
 from tests._renders import tier_render
+from tests.deployment.web_terminals._harness_image import build_harness_image
 from tests.deployment.web_terminals._sidecar_http import wait_for_http
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
@@ -173,30 +170,6 @@ is what proves it arrived. Unreachable by construction (``.invalid`` is
 reserved): password-mode serving makes no outbound request, so the value is
 only ever read back, never dialled."""
 
-_PACKAGES = (
-    "fastapi",
-    "uvicorn",
-    "authlib",
-    "itsdangerous",
-    "python-multipart",
-    "httpx",
-    "jinja2",
-    "ruamel.yaml",
-    "pyyaml",
-    "click",
-    "rich",
-)
-"""The sidecar's import closure, by distribution name.
-
-The app itself needs ``fastapi``, ``uvicorn``, ``authlib``, ``itsdangerous`` and
-``python-multipart``; the route modules add ``httpx`` (the OIDC client) and
-``jinja2`` (the login page); ``pyyaml``, ``ruamel.yaml`` and ``rich`` arrive
-through :mod:`osprey.utils`, which :mod:`osprey.interfaces.web_auth` imports;
-``click`` through ``httpx``'s and uvicorn's command-line entries. The *versions*
-are never named here — see :func:`_declared_specs`.
-"""
-
-
 # Probed once at import, where the module-level skip needs the answer. The
 # reason carries the cause: a probe that timed out on a loaded host must read
 # differently from a host with no engine (#820).
@@ -210,86 +183,6 @@ pytestmark = [
     pytest.mark.xdist_group("docker"),
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
-
-
-# ---------------------------------------------------------------------------
-# Harness image
-# ---------------------------------------------------------------------------
-
-
-def _canonical(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def _declared_specs() -> tuple[str, ...]:
-    """The requirement specifiers ``osprey-framework`` declares for :data:`_PACKAGES`.
-
-    Read from the *installed distribution's* metadata rather than written out
-    here, so the harness image can only contain what a deployment's
-    ``pip install osprey-framework`` would also install. That is what keeps
-    :func:`test_login_post_parses_its_form_body_in_the_container` honest about
-    ``python-multipart``: the harness has it because the distribution declares
-    it, not because this file asked for it.
-
-    Raises:
-        AssertionError: If the distribution does not declare one of them. That
-            is a real defect rather than a harness problem — the sidecar imports
-            the package, so the deployed image would be missing it too.
-    """
-    declared: dict[str, str] = {}
-    for raw in distribution_requires("osprey-framework") or ():
-        requirement = Requirement(raw)
-        # Extras (``; extra == "dev"``) are not in a default install, so they
-        # are not in the deployed image either.
-        if requirement.marker is not None and not requirement.marker.evaluate({"extra": ""}):
-            continue
-        declared[_canonical(requirement.name)] = str(requirement)
-
-    missing = [name for name in _PACKAGES if _canonical(name) not in declared]
-    assert not missing, (
-        f"osprey-framework does not declare {missing}, which the auth sidecar imports. "
-        "The deployed sidecar image installs the distribution's declared dependencies "
-        "and would be missing them too."
-    )
-    return tuple(declared[_canonical(name)] for name in _PACKAGES)
-
-
-def _harness_dockerfile() -> str:
-    specs = " ".join(f'"{spec}"' for spec in _declared_specs())
-    return textwrap.dedent(
-        f"""\
-        FROM python:3.11-slim
-        RUN pip install --no-cache-dir {specs}
-        ENV PYTHONPATH=/src:/connectors-src PYTHONDONTWRITEBYTECODE=1
-        """
-    )
-
-
-def _build_harness_image(tmp_path: Path) -> str:
-    """Build (or reuse) the image the sidecar and the stub upstream run from.
-
-    The tag carries a digest of the Dockerfile, so a dependency-declaration
-    change produces a new tag instead of silently reusing a stale layer — and
-    two sessions running concurrently share a tag only when they would have
-    built identical content.
-    """
-    dockerfile = _harness_dockerfile()
-    tag = f"osprey-auth-serving-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
-
-    if runtime_command("image", "inspect", tag, capture_output=True).returncode == 0:
-        return tag
-
-    context = tmp_path / "harness"
-    context.mkdir()
-    (context / "Dockerfile").write_text(dockerfile)
-    result = subprocess.run(
-        ["docker", "build", "-t", tag, str(context)],
-        capture_output=True,
-        text=True,
-        timeout=900,
-    )
-    assert result.returncode == 0, f"harness image build failed:\n{result.stdout}\n{result.stderr}"
-    return tag
 
 
 #: Registry pulls are retried this many times before the stack gives up. The
@@ -652,7 +545,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     published port, and the two client-credential lines in ``.env.auth``.
     """
     require_container_runtime()
-    image = _build_harness_image(tmp_path)
+    image = build_harness_image(tmp_path)
     auth_method = "oidc" if oidc else "password"
 
     # `.env.auth` is written by the production credential functions, not
@@ -1572,7 +1465,7 @@ def test_login_post_parses_its_form_body_in_the_container(stack: Stack) -> None:
     included, so an image built from a narrower dependency set than the dev venv
     serves a login page whose form 500s on submission with a fully green unit
     suite behind it. The harness image installs only what the distribution
-    declares (see :func:`_declared_specs`), so this passes because the
+    declares (see ``declared_specs`` in ``_harness_image.py``), so this passes because the
     declaration is there — not because the test asked for the package.
     """
     # Act

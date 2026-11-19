@@ -24,7 +24,6 @@ from urllib.parse import urlsplit
 import httpx
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.agent_record.config import parse_agent_record_block
 from osprey.build.claude_code_telemetry import record_telemetry_env
@@ -34,9 +33,10 @@ from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.health.core.ariel import ariel
 from osprey.port_layout import resolve_port_base
 from osprey.registry.web import resolve_web_server_address
+from tests._builds import BuiltProject
 
-#: The T4 fixture drives a real ``osprey init`` + ``osprey build`` — seconds,
-#: not milliseconds, exactly like tests/deployment/test_render_e2e.py.
+#: The T4 fixture reads a real ``osprey init`` + ``osprey build`` — seconds,
+#: not milliseconds, for the worker that builds it.
 pytestmark = pytest.mark.slow
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1"}
@@ -73,24 +73,15 @@ def _service_env(service: dict) -> dict[str, str | None]:
 
 
 @pytest.fixture(scope="module")
-def built_render_stack(tmp_path_factory) -> Path:
-    """The demo hosting preset built once, renders included.
+def built_render_stack(built_demo: BuiltProject) -> Path:
+    """The demo hosting preset built, renders included: the run's shared,
+    read-only build (``tests/_builds.py``).
 
-    Same pattern as ``tests/cli/test_tier_app_presets.py::_build_render_stack``:
-    one real ``osprey init --preset demo`` + ``osprey build``
-    renders the host project at ``build/`` and one attached project per catalog
-    render beside it at ``build/<repo>-<render>``.
+    One real ``osprey init --preset demo`` + ``osprey build`` renders the host
+    project at ``build/`` and one attached project per catalog render beside it
+    at ``build/<repo>-<render>``. Nothing here writes to it.
     """
-    from osprey.cli.build_cmd import build
-    from osprey.cli.init_cmd import init
-
-    repo = tmp_path_factory.mktemp("render-reach") / "my-facility"
-    runner = CliRunner()
-    created = runner.invoke(init, [str(repo), "--preset", "demo", "--no-git"])
-    assert created.exit_code == 0, created.output
-    built = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    assert built.exit_code == 0, built.output
-    return repo
+    return built_demo.repo
 
 
 def test_host_networked_render_telemetry_targets_loopback(built_render_stack: Path) -> None:

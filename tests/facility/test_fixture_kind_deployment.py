@@ -128,6 +128,39 @@ def _stop(tmp_path: Path, tree: dict[str, Any]) -> str:
 Deploy = Callable[..., tuple["BuiltProject", Result]]
 
 
+def _deploy(
+    parent: Path,
+    tree: dict[str, Any],
+    dependencies: list[str] | None = None,
+    *,
+    mounted: bool = False,
+) -> tuple[BuiltProject, Result]:
+    """Init a repo under *parent* holding *tree* and the package's source, and build it."""
+    from tests._builds import BuiltProject, init_project, run_build
+    from tests.facility._synthetic_trees import write_tree
+
+    repo = init_project(parent, "hello-world", "demo")
+    facility = repo / "data" / "facility"
+    shutil.rmtree(facility)
+    write_tree(repo / MACHINE_DIR if mounted else facility, copy.deepcopy(tree))
+    if mounted:
+        (repo / MACHINE_DIR / "identity.yaml").write_text("code: fixture\n", encoding="utf-8")
+    source = repo / SOURCE
+    shutil.copytree(
+        PACKAGE_DIR / "fixture_kind_deployment",
+        source / "fixture_kind_deployment",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    (source / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
+    profile = repo / "profile.yml"
+    document = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    document["dependencies"] = [SOURCE] if dependencies is None else dependencies
+    if mounted:
+        document["machine"] = MACHINE_DIR
+    profile.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
+    return BuiltProject(repo), run_build(repo)
+
+
 @pytest.fixture
 def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
     """``osprey build`` of a repo holding a tree and the package's source under ``kinds/``.
@@ -137,44 +170,62 @@ def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
     facts into a machine root the profile mounts.
     """
     from osprey.deployment import wheel_build
-    from tests._builds import BuiltProject, init_project, run_build
-    from tests.facility._synthetic_trees import write_tree
 
     monkeypatch.setattr(wheel_build, "_build_wheel", fake_wheel)
 
     def build(
         tree: dict[str, Any], dependencies: list[str] | None = None, *, mounted: bool = False
     ) -> tuple[BuiltProject, Result]:
-        repo = init_project(tmp_path, "hello-world", "demo")
-        facility = repo / "data" / "facility"
-        shutil.rmtree(facility)
-        write_tree(repo / MACHINE_DIR if mounted else facility, copy.deepcopy(tree))
-        if mounted:
-            (repo / MACHINE_DIR / "identity.yaml").write_text("code: fixture\n", encoding="utf-8")
-        source = repo / SOURCE
-        shutil.copytree(
-            PACKAGE_DIR / "fixture_kind_deployment",
-            source / "fixture_kind_deployment",
-            ignore=shutil.ignore_patterns("__pycache__"),
-        )
-        (source / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
-        profile = repo / "profile.yml"
-        document = yaml.safe_load(profile.read_text(encoding="utf-8"))
-        document["dependencies"] = [SOURCE] if dependencies is None else dependencies
-        if mounted:
-            document["machine"] = MACHINE_DIR
-        profile.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
-        return BuiltProject(repo), run_build(repo)
+        return _deploy(tmp_path, tree, dependencies, mounted=mounted)
 
     return build
 
 
-@pytest.fixture
-def built(installed: kinds.KindDeclaration, deploy: Deploy) -> BuiltProject:
-    """The fixture deployment, built, with the package installed."""
-    del installed
-    project, result = deploy(fixture_tree())
+class _Captured(logging.Handler):
+    """The message of each record at WARNING or above logged while it is attached."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(record.getMessage())
+
+
+@pytest.fixture(scope="module")
+def built_once(tmp_path_factory: pytest.TempPathFactory) -> tuple[BuiltProject, str]:
+    """The fixture deployment built once for the module, and what its build logged at WARNING.
+
+    The package is installed and the wheel build stood in for only while it builds, as
+    ``deploy`` does for one test; the session's reading of the entry points is dropped
+    before and after. Its readers only read the build.
+    """
+    from osprey.deployment import wheel_build
+    from tests.facility._fixture_kind import read_entry_points_afresh
+
+    captured = _Captured()
+    root_logger = logging.getLogger()
+    with pytest.MonkeyPatch.context() as patch:
+        install(patch, PACKAGE_DIR)
+        patch.setattr(wheel_build, "_build_wheel", fake_wheel)
+        level = root_logger.level
+        root_logger.setLevel(logging.WARNING)
+        root_logger.addHandler(captured)
+        try:
+            project, result = _deploy(tmp_path_factory.mktemp("built"), fixture_tree())
+        finally:
+            root_logger.removeHandler(captured)
+            root_logger.setLevel(level)
+    read_entry_points_afresh()
     assert result.exit_code == 0, result.output
+    return project, "\n".join(captured.lines)
+
+
+@pytest.fixture
+def built(installed: kinds.KindDeclaration, built_once: tuple[BuiltProject, str]) -> BuiltProject:
+    """The fixture deployment, built, with the package installed for the test."""
+    del installed
+    project, _logged = built_once
     return project
 
 
@@ -194,14 +245,11 @@ def test_osprey_build_validates_and_renders_the_deployments_kind(built) -> None:
 
 
 def test_the_package_source_under_kinds_is_no_unrecognized_root_entry(
-    installed: kinds.KindDeclaration, deploy: Deploy, caplog: pytest.LogCaptureFixture
+    built_once: tuple[BuiltProject, str],
 ) -> None:
-    del installed
-    with caplog.at_level(logging.WARNING):
-        _project, result = deploy(fixture_tree())
+    _project, logged = built_once
 
-    assert result.exit_code == 0, result.output
-    assert "unrecognized top-level" not in caplog.text, caplog.text
+    assert "unrecognized top-level" not in logged, logged
 
 
 def test_the_built_in_orm_goes_through_the_same_registry(built) -> None:
