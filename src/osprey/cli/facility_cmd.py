@@ -1484,6 +1484,8 @@ def panels_check(
     report(f"  by default (no channel, no drawing): {by_default} devices")
     for number, (row, n) in enumerate(card_rule_counts(graph), start=1):
         report(f"  cards.csv row {number}, {row.action} ({_card_rule_terms(row)}): {n} devices")
+    for table, n in sorted(graph.redundant_rows().items()):
+        report(f"redundant: {table}: {n} rows restate the facility file or the default")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

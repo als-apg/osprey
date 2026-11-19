@@ -1449,12 +1449,23 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    400 rule-bearing channels, which its node in the place roll-up opens: every
    rule-bearing channel is read by exactly one roll-up page.
 
-   The rule tables are CSV files, each held to its header: ``positions.csv``
-   (where a thing sits), ``record_types.csv`` (each channel's record type and
-   how a screen draws it), ``pairs.csv`` (the readback a setpoint is shown
-   beside) and ``panels/health.csv`` (the state a channel's value means: ``normal``,
+   The rule tables are CSV files, each held to its header, and each may be
+   absent. What the facility file states is the default, and a table states
+   only what it does not: a setpoint's readback is its channel's ``pair``
+   (``pairs.csv`` names others), a thing's short name its ``label`` (``names.csv``
+   names others), a channel is drawn by its ``role`` (a setpoint as an entry
+   beside its readback, a readback as a value; ``record_types.csv`` names its
+   record type and any other drawing), and a channel on a device that states a
+   ``signal`` plays that signal as its role on the device's card, shown as an
+   entry, a word or a value by how it is drawn (``channel_roles.csv`` names
+   walked scopes, labels, presses and channels with no signal). ``check``
+   prints one ``redundant: <table>: <n> rows`` line per table whose rows only
+   restate the facility file or these defaults, so a deployment can delete them.
+   The tables: ``positions.csv``
+   (where a thing sits), ``record_types.csv``, ``pairs.csv``,
+   ``panels/health.csv`` (the state a channel's value means: ``normal``,
    ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
-   sources give two states is ``disagree``) must be there;
+   sources give two states is ``disagree``),
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
    ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv``,
    ``calibration_curves.csv``, ``state_labels.csv`` (the word each value of a
@@ -1475,7 +1486,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    shows its roles in the block; a hop that reaches nothing is a dashed "not
    stated" block, two answers are stacked as contested) and ``symbols.csv`` (how
    a card's strip draws a device of a class: a symbol and a lane above, on or
-   below the beam pipe) may be absent. A strip section draws the devices of its
+   below the beam pipe). A strip section draws the devices of its
    classes within its window of the device along the beam, to scale, each with
    the value of the section's role (a window of 3 m either side when the section
    states none); a device placed only by a place around it is drawn in a dashed

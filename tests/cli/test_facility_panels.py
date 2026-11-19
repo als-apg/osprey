@@ -269,3 +269,31 @@ def test_every_view_kind_of_the_engine_can_be_chosen(facility_file, tmp_path):
     assert written.exit_code == 0, written.output
     assert "calibration:" in written.output
     assert list((out / "calibration").iterdir())
+
+
+def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_path):
+    import shutil
+
+    tables = tmp_path / "panels"
+    shutil.copytree(PANELS_DIR, tables)
+    from osprey.facility.panels.tables import COLUMNS
+
+    (tables / "channel_roles.csv").write_text(  # a row stating what its signal gives anyway
+        ",".join(COLUMNS["channel_roles.csv"])
+        + "\nQuadrupole,current_readback,*:Current-RB,device,value,,,,,stated,S,1,l\n"
+    )
+
+    def run(verb: str, *args: str) -> Result:
+        return CliRunner().invoke(
+            cli,
+            ["facility", "panels", verb, "--facility", str(facility_file), "--tables", str(tables)]
+            + list(args),
+        )
+
+    out = str(tmp_path / "out")
+    assert run("write", "--out", out).exit_code == 0
+    result = run("check", "--out", out)
+    assert "redundant: channel_roles.csv: 1 rows restate the facility file or the default" in (
+        result.output
+    )
+    assert "redundant: pairs.csv: 2 rows" in result.output

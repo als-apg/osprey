@@ -204,6 +204,7 @@ def test_a_derived_pose_carries_its_assumption_as_a_caveat(panel_graph):
 def test_card_sections_come_in_their_fixed_order(panel_graph):
     assert _titles(device_card(panel_graph, "XR01:QF1")) == [
         "head",
+        "tiles",  # its channels' signals are its roles: key tiles by default
         "relations",
         "picture",
         "calibration",
@@ -213,6 +214,7 @@ def test_card_sections_come_in_their_fixed_order(panel_graph):
     ]
     assert _titles(device_card(panel_graph, "XR01:IP1")) == [
         "head",
+        "tiles",
         "relations",
         "operate",  # it says no operator action is stated
         "all channels",
@@ -241,6 +243,7 @@ def test_a_card_with_every_section_has_them_in_order(tmp_path):
     view = device_card(load_graph(facility, tables), "XR01:QD1")
     assert _titles(view) == [
         "head",
+        "tiles",
         "relations",
         "picture",
         "calibration",
@@ -524,7 +527,11 @@ def test_the_primary_pair_is_keyed_on_the_stated_signal_never_the_name(panel_gra
         unit="A",
         readback_unit="A",
     )
-    assert cells["XR01:QD1"].pair is None  # its setpoint is in no pair of the table
+    # no pairs.csv row: the pair the facility file states (the build pairs by signal)
+    assert (cells["XR01:QD1"].pair.channel, cells["XR01:QD1"].pair.readback) == (
+        "XR01-QD1:Current-SP",
+        "XR01-QD1:Current-RB",
+    )
 
 
 def test_a_set_member_with_no_place_is_in_a_last_row(tmp_path):
@@ -831,11 +838,11 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
         has_rule=True,
         has_source=True,
     )
-    assert rows["XR01-CH1:Temp-RB"] == CheckRow(
-        "XR01-CH1:Temp-RB", "XR01:CH1", True, False, False, False
+    assert rows["XR01-CH1:Temp-RB"] == CheckRow(  # typed by its role: a readback is a value
+        "XR01-CH1:Temp-RB", "XR01:CH1", True, True, False, False
     )
     # sourced by its health rows alone
-    assert (rows["XR01-PS1:On-Sts"].typed, rows["XR01-PS1:On-Sts"].has_source) == (False, True)
+    assert (rows["XR01-PS1:On-Sts"].typed, rows["XR01-PS1:On-Sts"].has_source) == (True, True)
     (totals,) = _section(view, "totals").items
     assert totals == Totals(
         channels=len(rows),
@@ -844,7 +851,7 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
         has_rule=sum(row.has_rule for row in rows.values()),
         has_source=sum(row.has_source for row in rows.values()),
     )
-    assert (totals.channels, totals.typed, totals.has_rule) == (13, 4, 2)
+    assert (totals.channels, totals.typed, totals.has_rule) == (13, 13, 2)  # all by role at least
 
 
 def test_describe_refuses_a_rollup_with_no_grouping(panel_graph):

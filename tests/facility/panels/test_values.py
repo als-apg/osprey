@@ -514,10 +514,10 @@ def test_a_channel_compared_by_equality_with_whole_values_is_a_state_a_threshold
             handle.write(f"XR01-PS1:On-Sts,{value},{state},screen,stated,xr-screens,4d5e6f7,ps:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
     doc = stub_render(device_card(graph, "XR01:PS1"), graph)
-    (on,) = [
+    shown = [
         n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == "XR01-PS1:On-Sts"
     ]
-    assert on["props"]["precision"] == 0
+    assert shown and all(on["props"]["precision"] == 0 for on in shown)
     doc = stub_render(device_card(graph, "XR02:IP1"), graph)
     pressures = [
         n for n in nodes(doc)

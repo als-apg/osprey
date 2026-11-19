@@ -898,7 +898,8 @@ def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_gra
     for member in ("XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1"):
         assert labels.count(member) == 1
     values = [printed(doc, n) for n in _by_type(doc, "text-label") if printed(doc, n)]
-    assert values == ["XR01-QF1:Current-RB"]  # a number held to its cell: a formula's text
+    # each paired member's readback, a number held to its cell: a formula's text
+    assert values[0] == "XR01-QF1:Current-RB" and "XR01-QD1:Current-RB" in values
     assert not _by_type(doc, "pv-label")
     read = [bound(doc, n) for n in _by_type(doc, "polygon") if n.get("rules")]
     assert ("XR01-QF1:Current-SP", "XR01-QF1:Current-RB") in read  # the deviation light

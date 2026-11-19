@@ -493,6 +493,7 @@ def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tm
     assert [(h.role.role, h.channel, h.owner, h.port) for h in hits] == [
         ("pressure", "XR01-CH2:IP2:P", "XR01:CH2", "CH2"),
         ("state", "XR01-IP1:State-Sts", "XR01:IP1", None),
+        ("vacuum_readback", "XR01-IP1:Pressure-RB", "XR01:IP1", None),  # its signal, by default
     ]
     from osprey.facility.panels.view import ChannelGrid
 
@@ -637,7 +638,8 @@ def test_the_device_s_block_shows_no_role_several_of_its_channels_play(tmp_path)
     graph = load_graph(write_fixture_facility(tmp_path / "g.json", statuses), tables)
     device = _chain_of(device_card(graph, "XR01:IP1")).blocks[0]
     assert [r.channel for r in device.rows] == [
-        "XR01-IP1:Pressure-RB"
+        "XR01-IP1:Pressure-RB",
+        "XR01-IP1:State-Sts",  # its signal, a role by default
     ]  # one per connector: not here
 
 
@@ -649,7 +651,10 @@ def test_a_recipe_chain_walks_its_hops_and_says_where_one_is_not_stated(tmp_path
     assert "Signal chain" in [s.title for s in view.sections]
     assert "relations" not in [s.title for s in view.sections]  # the recipe's chain instead
     device, readout, supply, further = _chain_of(view).blocks
-    assert device.focus and [r.channel for r in device.rows] == ["XR01-IP1:Pressure-RB"]
+    assert device.focus and [r.channel for r in device.rows] == [
+        "XR01-IP1:Pressure-RB",
+        "XR01-IP1:State-Sts",  # no row names it: its signal is its role
+    ]
     assert device.arrow == "CH2"  # the read-out's object port, on the arrow into it
     assert readout.title == "Read-out  XR01:CH2" and readout.link.target.id == "XR01:CH2"
     assert [(r.label, r.channel) for r in readout.rows] == [("temperature", "XR01-CH2:Temp-RB")]
@@ -2385,7 +2390,8 @@ def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _interlocked), tables)
     # the device's card shows its own point by the stated relation
     hits = [(h.role.role, h.channel, h.owner, h.port) for h in graph.roles("XR01:IP1")]
-    assert hits == [("interlock", "XR01-CH3:In1-Sts", "XR01:CH3", "IN1")]
+    assert hits[0] == ("interlock", "XR01-CH3:In1-Sts", "XR01:CH3", "IN1")
+    assert all(h[2] == "XR01:IP1" for h in hits[1:])  # then its own signals, by default
     assert graph.card_channels("XR01:IP2")
     # the interlock's card carries the point of each device it interlocks
     chain = next(

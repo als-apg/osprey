@@ -29,8 +29,8 @@ line, the schema this module holds them to:
 - ``chains.csv``: the hops of a recipe's chains;
 - ``symbols.csv``: how a card's strip draws a device of a class: its symbol and lane.
 
-``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
-must be there; every other file may be absent, which reads as empty. Across
+Every file may be absent, which reads as empty: what the facility file states
+(pairs, labels, roles by signal) is the default. Across
 the calibration files, a claim's kind must be a stated kind, a claim's
 ``supersedes`` a stated claim, and a curve's ``id`` a claim whose value is a
 curve. A header must name exactly the file's columns (in
@@ -379,27 +379,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
-OPTIONAL_FILES = frozenset(
-    {
-        PICTURES,
-        EXCLUDED,
-        NAMES,
-        METRICS,
-        CALIBRATION_KINDS,
-        CALIBRATIONS,
-        CALIBRATION_CURVES,
-        PROBE_PICTURES,
-        STATE_LABELS,
-        UNITS,
-        CHANNEL_ROLES,
-        CARD_RECIPES,
-        CARD_SECTIONS,
-        CHAINS,
-        STRIP_SYMBOLS,
-        FRONTS,
-        CARDS,
-    }
-)
+OPTIONAL_FILES = frozenset(TABLE_FILES)
 
 Basis = Literal["stated", "inferred"]
 DrawnAs = Literal["value", "setpoint", "state", "command", "text", "waveform", "untyped"]
@@ -899,8 +879,8 @@ class ChannelRole:
     """One row of ``channel_roles.csv``: on a device of class ``cls``, the channels
     whose name matches ``signal`` (a pattern with ``*``, ``?`` and ``[``, matched
     against the whole name), looked for where ``scope`` says, play ``role`` and are
-    shown as ``shown_as``. In the scopes ``read_out_by`` and ``controlled_by`` the
-    pattern may hold ``{port}`` (the relation's object port) and ``{n}`` (that
+    shown as ``shown_as``. In a relation scope (``read_out_by``, ``interlocked_by``,
+    ...) the pattern may hold ``{port}`` (the relation's object port) and ``{n}`` (that
     port's trailing number). A ``choice`` or ``action`` row is one press:
     ``label`` is the word on it, ``press_value`` what it writes (``None``: the
     value whose state word is ``label``). ``unit`` and ``scale`` (a divisor) win
