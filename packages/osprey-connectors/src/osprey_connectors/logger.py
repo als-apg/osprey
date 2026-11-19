@@ -36,7 +36,9 @@ from typing import NamedTuple, TypeAlias
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
+from osprey_connectors.config_sections import Unreadable
+from osprey_connectors.errors import ConfigurationError
 
 __all__ = [
     "ComponentLogger",
@@ -318,24 +320,39 @@ _settings_warning_given = False
 def _read_handler_settings() -> tuple[_HandlerSettings, Exception | None]:
     """Read the handler's settings from the configuration this process resolves.
 
+    The loaded config's ``logging`` section, each switch read by
+    :func:`~osprey_connectors.config.config_flag`'s rule, so a quoted
+    ``'false'`` is off. A switch that spells neither on nor off is not read as
+    absent: it renders by its default and is reported.
+
     Returns:
         The settings, and what kept them from being read: the defaults and the
-        exception when the configuration is unavailable, else ``None``.
+        exception when the configuration is unavailable, the defaults for the
+        unreadable switches and the refusal of the first of them, else ``None``.
     """
     try:
-        # Read for their truth, as RichHandler reads them.
-        return (
-            _HandlerSettings(
-                rich_tracebacks=bool(get_config_value("logging.rich_tracebacks", True)),
-                show_traceback_locals=bool(
-                    get_config_value("logging.show_traceback_locals", False)
-                ),
-                show_full_paths=bool(get_config_value("logging.show_full_paths", False)),
-            ),
-            None,
-        )
+        section = current_config().logging
     except Exception as exc:
         return _DEFAULT_HANDLER_SETTINGS, exc
+    problem: Exception | None = None
+
+    def switch(value: bool | Unreadable, default: bool) -> bool:
+        nonlocal problem
+        if isinstance(value, Unreadable):
+            if problem is None:
+                problem = ConfigurationError(
+                    f"{value.key} must be true or false, got {value.raw!r}", key=value.key
+                )
+            return default
+        return value
+
+    defaults = _DEFAULT_HANDLER_SETTINGS
+    settings = _HandlerSettings(
+        rich_tracebacks=switch(section.rich_tracebacks, defaults.rich_tracebacks),
+        show_traceback_locals=switch(section.show_traceback_locals, defaults.show_traceback_locals),
+        show_full_paths=switch(section.show_full_paths, defaults.show_full_paths),
+    )
+    return settings, problem
 
 
 def _apply_handler_settings(handler: RichHandler, settings: _HandlerSettings) -> None:

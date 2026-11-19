@@ -24,9 +24,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig, freshness_max_age_s
-from osprey.services.pv_directory._connectors import service_targets
+from osprey.services.pv_directory._connectors import DIRECTORY_CONNECTORS_AVAILABLE, service_table
 from osprey_connectors.archiver_selection import resolve_archiver_type
-from osprey_connectors.config_sections import ControlSystemSection
+from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.connector_types import MONGODB_ARCHIVER, TARGET_VA
 from osprey_connectors.simulation.archive import SeedKnobs
 from osprey_connectors.targets import configured_targets
@@ -49,18 +49,17 @@ def history_targets(config: Mapping[str, Any]) -> frozenset[str]:
     The archive row of the connectors' ``service_targets``, without the mock;
     none on a connectors release without the PV directory modules.
     """
-    if service_targets is None:
+    if not DIRECTORY_CONNECTORS_AVAILABLE:
         return frozenset()
-    held: frozenset[str] = service_targets(config).history_targets()
+    held: frozenset[str] = service_table(config).history_targets()
     return held
 
 
 def own_store(config: Mapping[str, Any], target: str) -> bool:
     """Whether *target*'s archive is the deployment's own store (the VA's recorder)."""
-    archiver = config.get("archiver")
     return (
         target == TARGET_VA
-        and resolve_archiver_type(archiver) == MONGODB_ARCHIVER
+        and resolve_archiver_type(ArchiverSection.read(config.get("archiver"))) == MONGODB_ARCHIVER
         and target in history_targets(config)
     )
 
@@ -72,7 +71,9 @@ def deployed_configuration(config: Mapping[str, Any], target: str) -> dict[str, 
     ``va_archiver`` knobs the seed and the recorder read. Nothing that says
     where the store is or how to log in.
     """
-    shown: dict[str, Any] = {"archiver": {"type": resolve_archiver_type(config.get("archiver"))}}
+    shown: dict[str, Any] = {
+        "archiver": {"type": resolve_archiver_type(ArchiverSection.read(config.get("archiver")))}
+    }
     if not own_store(config, target):
         return shown
     knobs = _knobs(config)

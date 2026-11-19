@@ -41,6 +41,11 @@ def _serve(monkeypatch, tmp_path: Path, section: dict[str, Any]) -> None:
         json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
     )
 
+    limits = section.get("limits_checking")
+    if isinstance(limits, dict):
+        # The database path is a line of the deployment-wide block.
+        section = {**section, "limits_checking": {**limits, "database_path": str(database)}}
+
     def get_config_value(key: str, default: Any = None) -> Any:
         if key == "control_system":
             return section

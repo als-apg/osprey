@@ -72,7 +72,11 @@ from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.config_sections import GatewayRow
-from osprey_connectors.control_system._base import ChannelValue, ConnectorContext, ConnectorSettings
+from osprey_connectors.control_system._base import (
+    ChannelValue,
+    ConnectorContext,
+    ControlSystemSettings,
+)
 from osprey_connectors.control_system._epics_connector import EpicsSettings
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
 from osprey_connectors.errors import ChannelNotFoundError, ChannelUnreachableError, LimitsViolation
@@ -634,7 +638,7 @@ class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
     last_config: Mapping[str, Any] | None = None
-    settings_model = ConnectorSettings
+    settings_model = ControlSystemSettings
 
     async def connect(self, context: ConnectorContext) -> None:
         type(self).last_config = context.settings.model_extra
@@ -715,7 +719,9 @@ class TestSandboxEndpointMatchesTheDerivation:
         # The port is unset in config and filled from the deployed service, so
         # the block is put through the connector's own filler — the same helper
         # the derivation used — before the two endpoints are compared.
-        rows = EpicsSettings.from_block(block, connector_type="virtual_accelerator").gateways
+        rows = EpicsSettings.from_block(
+            block, key="control_system.connector.virtual_accelerator"
+        ).gateways
         gateway = fill_gateway_ports(rows)[derivation.selected_role]
         assert isinstance(gateway, GatewayRow)
         assert (gateway.address, gateway.port, gateway.mode) == (

@@ -15,7 +15,7 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from osprey_connectors import archiver_selection, call_timeout, connector_types, factory, targets
+from osprey_connectors import call_timeout, config_sections, connector_types, factory, targets
 from osprey_connectors.connector_types import BuiltinConnector
 
 
@@ -50,7 +50,7 @@ def test_the_private_tables_keep_their_values() -> None:
         "tango": "tango",
     }
     assert targets._BASELINE_TARGETS == {"virtual_accelerator": "va", "live_standin": "standin"}
-    assert archiver_selection._CLI_ARCHIVER_TYPES == [
+    assert list(config_sections._ARCHIVER_TYPES) == [
         "mock_archiver",
         "epics_archiver",
         "mongodb_archiver",

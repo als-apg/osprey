@@ -62,8 +62,8 @@ from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
-    ConnectorSettings,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
     _settings_as,
     values_match,
@@ -305,7 +305,7 @@ def _mark(document: _JournalDocument | None, text: str) -> int | str:
     return (text or 0) if document is None else document.seq
 
 
-class VAInProcessSettings(ConnectorSettings):
+class VAInProcessSettings(ControlSystemSettings):
     """The ``virtual_accelerator`` block, as the simulator in process reads it."""
 
     #: Simulated response delay, in milliseconds.
@@ -331,7 +331,7 @@ class VAInProcessConnector(ControlSystemConnector):
         >>> value = await connector.read_channel("SR:DIAG:BPM:01:POSITION:X")
     """
 
-    settings_model: ClassVar[type[ConnectorSettings]] = VAInProcessSettings
+    settings_model: ClassVar[type[ControlSystemSettings]] = VAInProcessSettings
 
     def __init__(self) -> None:
         self._connected = False
@@ -353,7 +353,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._holds_writes = False
 
     @override
-    async def _open(self, settings: ConnectorSettings) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """Build the composite of the simulator view and start the tick.
 
         Args:

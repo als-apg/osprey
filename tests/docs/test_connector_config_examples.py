@@ -36,7 +36,7 @@ from osprey_connectors.archiver_selection import archiver_settings_errors
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.limits_posture import incomplete_limits_blocks
-from osprey_connectors.service_targets import service_targets
+from osprey_connectors_tests._service_table import table_of
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "docs/source/how-to/control-systems/examples"
@@ -173,16 +173,16 @@ def test_the_factory_builds_the_control_system_connector(path):
         if block is not None:
             # The factory reads the block the page shows into the type's model.
             model = type(context.settings)
-            assert context.settings == model.from_block(block, connector_type=section["type"]), (
-                label
-            )
+            assert context.settings == model.from_block(
+                block, key=f"control_system.connector.{section['type']}"
+            ), label
 
 
 def test_the_archiver_appliance_settings_build():
     """The one archive whose constructor reads its settings without the server."""
 
     async def build(config: Mapping[str, Any]) -> None:
-        spec = service_targets(config).archive["live"]
+        spec = table_of(config).archive["live"]
         assert spec is not None
         archive = await ConnectorFactory.create_service(spec)
         await archive.aclose()

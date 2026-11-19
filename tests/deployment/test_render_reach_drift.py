@@ -141,7 +141,9 @@ def _dial_port_va(layer_dir: Path, render_cfg: dict, monkeypatch) -> int:
     reset_config_cache()
     try:
         va_block = render_cfg["control_system"]["connector"]["virtual_accelerator"]
-        rows = EpicsSettings.from_block(va_block, connector_type="virtual_accelerator").gateways
+        rows = EpicsSettings.from_block(
+            va_block, key="control_system.connector.virtual_accelerator"
+        ).gateways
         ports = {getattr(row, "port", None) for row in fill_gateway_ports(rows).values()}
         assert len(ports) == 1, f"gateways disagree on the VA port: {sorted(ports)}"
         return int(ports.pop())

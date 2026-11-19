@@ -66,7 +66,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
-    "osprey_connectors.connection.Login": "a connector author declares how it logs in",
+    "osprey_connectors.connection.ServiceLogin": (
+        "a connector author names either login a connection block declares"
+    ),
+    "osprey_connectors.connection.TokenLogin": (
+        "a connector author tells a bearer-token login from a password one"
+    ),
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
     "osprey_connectors.connector_types.BuiltinConnector": (
         "the framework reads each built-in's fields in this type"
@@ -77,7 +82,7 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connector_types.SERVED": "a word of the serving vocabulary a config states",
     "osprey_connectors.connector_types.Serving": "resolve_serving answers the simulator's venue in this type",
     "osprey_connectors.connector_types.TANGO": "a word of the type-name vocabulary a config states",
-    "osprey_connectors.control_system.ConnectorSettings": (
+    "osprey_connectors.control_system.ControlSystemSettings": (
         "a connector author subclasses it for the settings its type reads"
     ),
     "osprey_connectors.control_context.ReachableState": (

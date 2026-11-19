@@ -51,7 +51,15 @@ from typing_extensions import override
 from osprey_connectors import yaml_loader
 from osprey_connectors._config_read import config_flag, is_unresolved_placeholder
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.config_sections import ControlSystemSection, SystemSection
+from osprey_connectors.config_sections import (
+    AgentDataSection,
+    ArchiverSection,
+    ControlSystemSection,
+    LoggingSection,
+    PvDirectorySection,
+    SimulationSection,
+    SystemSection,
+)
 from osprey_connectors.errors import (
     ConfigLoadError,
     ConfigNotFoundError,
@@ -378,15 +386,29 @@ class LoadedConfig(FrozenModel):
         control_system: The ``control_system`` section, read once at load
             (never refused there: what a reader refuses, it refuses where it
             reads). The reference monitor and the write-path readers judge by it.
+        archiver: The ``archiver`` section, read once at load: the selected
+            archiver and its settings block (a block the archive cannot be
+            built from is refused where it is resolved, never here).
+        pv_directory: The ``pv_directory`` section, read once at load: one
+            block per service kind.
         system: The ``system`` section the package reads: the facility clock
             ``system.timezone`` names.
+        logging: The ``logging`` section's three switches, read once at load.
+        simulation: The ``simulation`` section's periods and state directory,
+            read once at load.
+        agent_data: The ``agent_data`` section's ``base_dir``, read once at load.
     """
 
     path: Path
     repo_root: Path
     unresolved: FrozenTuple[UnresolvedRef] = ()
     control_system: ControlSystemSection
+    archiver: ArchiverSection
+    pv_directory: PvDirectorySection
     system: SystemSection
+    logging: LoggingSection
+    simulation: SimulationSection
+    agent_data: AgentDataSection
 
     _tree: dict[str, object] = PrivateAttr()
     _unexpanded: dict[str, object] = PrivateAttr()
@@ -513,7 +535,12 @@ def _loaded(
         repo_root=repo_root,
         unresolved=tuple(_unresolved_refs(resolved)),
         control_system=ControlSystemSection.read(resolved.get("control_system")),
+        archiver=ArchiverSection.read(resolved.get("archiver")),
+        pv_directory=PvDirectorySection.read(resolved.get("pv_directory")),
         system=SystemSection.read(resolved.get("system")),
+        logging=LoggingSection.read(resolved.get("logging")),
+        simulation=SimulationSection.read(resolved.get("simulation")),
+        agent_data=AgentDataSection.read(resolved.get("agent_data")),
     )
     loaded._tree = resolved
     loaded._unexpanded = unexpanded

@@ -13,10 +13,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
-from pydantic import AwareDatetime, ConfigDict, ValidationError, field_validator
+from pydantic import AwareDatetime, ConfigDict, ValidationError, field_validator, model_validator
 from typing_extensions import override
 
 from osprey_connectors.alarm_state._contract import (
@@ -34,6 +36,7 @@ from osprey_connectors.alarm_state._fold import (
     state_record,
     state_rows,
 )
+from osprey_connectors.config_sections import ConnectorSettings, Unreadable
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, parse_instant
 from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
@@ -47,6 +50,36 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class ReplayAlarmStateSettings(ConnectorSettings):
+    """The alarm replay's block, read: the file it replays.
+
+    Reading it refuses nothing: a replay with no file, or one written as
+    something that is not a path, answers ``misconfigured`` when it is asked.
+
+    Attributes:
+        replay_file: The file as written (a path-like value as its text);
+            ``None`` when unset or empty, :class:`~osprey_connectors.config_sections.Unreadable`
+            when it is not a path.
+    """
+
+    replay_file: str | Unreadable | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        value = data.get("replay_file")
+        replay_file: str | Unreadable | None
+        if not value:
+            replay_file = None
+        elif isinstance(value, str | os.PathLike):
+            replay_file = str(os.fspath(value))
+        else:
+            replay_file = Unreadable(key="alarm_state.replay_file", raw=value)
+        return {**data, "replay_file": replay_file}
+
+
 class ReplayAlarmState(AlarmState):
     """Answer from one replay file, loaded once by :meth:`start`.
 
@@ -57,10 +90,14 @@ class ReplayAlarmState(AlarmState):
     read during the load waits for it up to its deadline.
     """
 
+    settings_model: ClassVar[type[ConnectorSettings]] = ReplayAlarmStateSettings
+    SETTINGS_KEY: ClassVar[str] = "pv_directory.alarm_state.settings"
+
     def __init__(
         self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
+        self._replay_file = self._settings(ReplayAlarmStateSettings).replay_file
         self._task: asyncio.Task[None] | None = None
         self._snapshot: FeedSnapshot | None = None
         self._stopped = False
@@ -152,14 +189,14 @@ class ReplayAlarmState(AlarmState):
         )
 
     def _replay_path(self) -> Path | Unavailable:
-        value = self.spec.settings.get("replay_file")
-        if not value:
+        value = self._replay_file
+        if value is None:
             return Unavailable(cause="misconfigured", reason="alarm_state.replay_file is not set")
-        if not isinstance(value, str | os.PathLike):
+        if isinstance(value, Unreadable):
             return Unavailable(
                 cause="misconfigured", reason="alarm_state.replay_file is not a path"
             )
-        if str(value).startswith("demo:"):
+        if value.startswith("demo:"):
             return Unavailable(
                 cause="misconfigured", reason=f"alarm replay {value} was not resolved to a file"
             )

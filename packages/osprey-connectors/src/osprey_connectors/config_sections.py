@@ -32,7 +32,7 @@ from collections.abc import Mapping
 from typing import Literal, Self, TypeAlias
 from zoneinfo import ZoneInfo
 
-from pydantic import Field
+from pydantic import ConfigDict, Field, ValidationError, ValidationInfo
 
 from osprey_connectors._config_read import coerce_port, config_flag, is_unresolved_placeholder
 from osprey_connectors.connector_types import (
@@ -50,6 +50,7 @@ __all__ = [
     "AgentDataSection",
     "ArchiverSection",
     "ConnectorBlock",
+    "ConnectorSettings",
     "ControlSystemSection",
     "FacilityZone",
     "GatewayMode",
@@ -65,6 +66,7 @@ __all__ = [
     "SystemSection",
     "TierWord",
     "Unreadable",
+    "settings_key",
 ]
 
 # -- closed sets the sections are written in ---------------------------------
@@ -126,6 +128,78 @@ def _dict(value: object) -> dict[object, object] | None:
 def _str_keyed(value: dict[object, object]) -> dict[str, object]:
     """The items of *value* whose key is a string, deep-copied."""
     return {key: copy.deepcopy(item) for key, item in value.items() if isinstance(key, str)}
+
+
+# -- the settings a connector or service backend reads -------------------------
+
+#: The validation-context key the block's dotted key travels under.
+_BLOCK_KEY = "block_key"
+
+
+class ConnectorSettings(FrozenModel):
+    """One connector's or service backend's own block, read: the base of every settings model.
+
+    A control-system connector's block (``control_system.connector.<type>``), an
+    archive's (``archiver.settings``) and a service backend's
+    (``pv_directory.settings`` and its kinds' ``settings``) are each read into a
+    subclass of this, the ``settings_model`` its class declares, with a field
+    for every key it reads. Every key is also kept as written, so a connector or
+    backend that declares no model of its own reads its keys from
+    :attr:`~pydantic.BaseModel.model_extra`, and a key the package reads
+    elsewhere stays there too. Reading a block into this base refuses nothing.
+
+    Read with :meth:`from_block` (or :meth:`read`), which names the block in a
+    refusal.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    @classmethod
+    def from_block(cls, block: Mapping[str, object], *, key: str) -> Self:
+        """*block* read into this model, as the block under the dotted *key*.
+
+        Raises:
+            ConfigurationError: A key the model reads is written as something it
+                cannot use: the refusal a validator raised, words and key as it
+                spelled them, or one naming the first key at fault.
+        """
+        try:
+            return cls.model_validate(dict(block), context={_BLOCK_KEY: key})
+        except ValidationError as error:
+            raise _settings_refusal(error, key) from None
+
+    @classmethod
+    def read(cls, settings: ConnectorSettings | Mapping[str, object], *, key: str) -> Self:
+        """*settings* as this model: itself when it is one, else its keys read by :meth:`from_block`.
+
+        Raises:
+            ConfigurationError: As :meth:`from_block`.
+        """
+        if isinstance(settings, cls):
+            return settings
+        written = settings if isinstance(settings, Mapping) else settings.model_dump()
+        return cls.from_block(written, key=key)
+
+
+def settings_key(info: ValidationInfo[object]) -> str | None:
+    """The dotted key of the block a settings validation reads, as :meth:`ConnectorSettings.from_block` gave it."""
+    context = info.context
+    key = context.get(_BLOCK_KEY) if isinstance(context, Mapping) else None
+    return key if isinstance(key, str) else None
+
+
+def _settings_refusal(error: ValidationError, key: str) -> ConfigurationError:
+    """The :class:`ConfigurationError` one failed settings validation is refused with.
+
+    A validator that raised one is the refusal, words and key as it spelled
+    them; any other failure names the first key at fault under *key*.
+    """
+    first = error.errors()[0]
+    raised = (first.get("ctx") or {}).get("error")
+    if isinstance(raised, ConfigurationError):
+        return raised
+    at = ".".join([key, *(str(part) for part in first["loc"])])
+    return ConfigurationError(f"{at}: {first['msg']}", key=at)
 
 
 # -- control_system ----------------------------------------------------------
@@ -485,10 +559,13 @@ class ArchiverSection(FrozenModel):
 
     ``settings_home`` is where the selected archiver's settings are written:
     ``settings`` (``archiver.settings``), ``own_name`` (``archiver.<type>``, for
-    a short-named archiver), or ``None`` for neither. ``problems`` names every
-    block no archiver reads and every refusal
+    a short-named archiver), or ``None`` for neither. ``settings`` is that
+    block, ``{}`` when absent or a bare ``settings:``, and :class:`Unreadable`
+    when it cannot be the archiver's settings: both spellings are written, or
+    the block is not a mapping. Its ``problem`` is the refusal
     :func:`~osprey_connectors.archiver_selection.resolve_archiver_settings`
-    raises, in the build lint's words.
+    raises. ``problems`` names every block no archiver reads and that refusal,
+    in the build lint's words.
     """
 
     type: str | None = None
@@ -501,19 +578,31 @@ class ArchiverSection(FrozenModel):
     @classmethod
     def read(cls, value: object) -> Self:
         """The section *value*. Never raises."""
+        if isinstance(value, cls):
+            return value
         section = _dict(value) or {}
         selected = _type_word(section.get("type")) or MOCK_ARCHIVER
         homes = _archiver_homes(section, selected)
         home: Literal["settings", "own_name"] | None = None
         settings: ReadOnlyMapping[str, object] | Unreadable = {}
-        if homes:
+        if len(homes) > 1:
+            second = homes[1][0]
+            home = "settings"
+            settings = Unreadable(
+                key=f"archiver.{second}", raw=homes[1][1], problem=_two_archiver_homes(second)
+            )
+        elif homes:
             name, written = homes[0]
             home = "settings" if name == _ARCHIVER_SETTINGS_LEAF else "own_name"
             mapping = _dict(written)
             if mapping is not None:
                 settings = _str_keyed(mapping)
             elif written is not None:
-                settings = Unreadable(key=f"archiver.{name}", raw=written)
+                settings = Unreadable(
+                    key=f"archiver.{name}",
+                    raw=written,
+                    problem=_not_an_archiver_block(name, written),
+                )
         points: int | Unreadable | None = None
         if section.get("auto_bin_points") is not None:
             written_points = section["auto_bin_points"]
@@ -557,6 +646,20 @@ def _archiver_homes(section: Mapping[object, object], selected: str) -> list[tup
     return homes
 
 
+def _two_archiver_homes(own: str) -> str:
+    return (
+        f"`archiver.settings` and `archiver.{own}` both configure {own}; keep one "
+        "— `archiver.settings` is the spelling for every archiver"
+    )
+
+
+def _not_an_archiver_block(key: str, value: object) -> str:
+    return (
+        f"`archiver.{key}` is {value!r}, not a block; it holds the selected "
+        "archiver's settings as a mapping"
+    )
+
+
 def _archiver_problems(
     section: Mapping[object, object], selected: str, homes: list[tuple[str, object]]
 ) -> list[str]:
@@ -570,13 +673,9 @@ def _archiver_problems(
         if isinstance(value, dict) and key not in known
     ]
     if len(homes) > 1:
-        problems.append(
-            f"`archiver.settings` and `archiver.{homes[1][0]}` both configure {homes[1][0]}; "
-            "keep one — `archiver.settings` is the spelling for every archiver"
-        )
+        problems.append(_two_archiver_homes(homes[1][0]))
     problems.extend(
-        f"`archiver.{key}` is {value!r}, not a block; it holds the selected "
-        "archiver's settings as a mapping"
+        _not_an_archiver_block(key, value)
         for key, value in homes
         if value is not None and not isinstance(value, dict)
     )

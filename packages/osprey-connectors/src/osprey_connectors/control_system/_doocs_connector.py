@@ -20,8 +20,8 @@ from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
-    ConnectorSettings,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
 )
 from osprey_connectors.control_system._limits_validator import (
@@ -79,7 +79,7 @@ class DOOCSConnector(ControlSystemConnector):
         self._doocs4py: _Doocs4py | None = None
 
     @override
-    async def _open(self, settings: ConnectorSettings) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Configure DOOCS environment and test connection.
 

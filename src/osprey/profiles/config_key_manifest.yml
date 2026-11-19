@@ -1861,7 +1861,7 @@ keys:
   # ── Archiver ────────────────────────────────────────────────────────
   # Evidenced by the archive row's reader of the section, which builds every
   # target's archive spec from it.
-  archiver: {evidence: '_ARCHIVER_SECTION_KEY = "archiver"', default: {}}
+  archiver: {evidence: 'archiver=ArchiverSection\.read\(resolved\.get\("archiver"\)\)', default: {}}
   # Evidenced by the pairing rule's own spelling of the key, not by the name
   # of whichever connector happens to be the default. The literal 'mock_archiver'
   # used to serve here and stopped describing the key the moment the
@@ -1930,7 +1930,7 @@ keys:
     default: {}
   archiver.doocs_archiver.avg_window:
     rendered: false
-    evidence: 'config\.get\("avg_window"\)'
+    evidence: 'avg_window: float \| None = None'
     note: >-
       Centered moving average, in seconds, applied to the samples a read
       returns. Unset returns the raw samples.
@@ -2565,12 +2565,12 @@ keys:
   pv_directory.alarm_state.settings: {rendered: false, covered-by: pv_directory.alarm_state, default: {}}
   pv_directory.alarm_state.settings.bootstrap_servers:
     rendered: false
-    evidence: 'settings\.get\("bootstrap_servers"\)'
+    evidence: '_servers\(data\.get\("bootstrap_servers"\)\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
   pv_directory.alarm_state.settings.topic:
     rendered: false
-    evidence: 'settings\.get\("topic"\)'
+    evidence: 'topic = data\.get\("topic"\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
   pv_directory.alarm_state.replay_file:

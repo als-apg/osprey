@@ -14,11 +14,11 @@ loaded config's.
 `TierWord`, `LimitsMode`, `GatewayRole`, `SelectedRole`, `GatewayMode` and
 `GatewaysDeclared` are now `osprey_connectors.config_sections`' (`gateways`
 still re-exports the gateway words).
-`ConnectorContext.settings` is a `ConnectorSettings` (`osprey_connectors.control_system`):
+`ConnectorContext.settings` is a `ControlSystemSettings` (`osprey_connectors.control_system`):
 the factory reads the type's block into the connector class's `settings_model`
 (`EPICSConnector`, `TangoConnector` and the in-process simulator declare one),
 and `_open(settings)` receives it. An out-of-tree connector reads its own keys
-from `settings.model_extra`, or declares a `ConnectorSettings` subclass as its
+from `settings.model_extra`, or declares a `ControlSystemSettings` subclass as its
 `settings_model`. A mapping handed to `ConnectorContext(settings=...)` is still
 accepted and read for the context's type.
 A block the settings model cannot read fails the build with a
@@ -27,7 +27,7 @@ at all: a bad `timeout_s`, a `fresh_reads` that spells neither true nor false,
 `pva_channels` that is not a glob or a list of them, and a gateway whose
 `address` is not a non-blank string, whose `port` is not an integer (a numeric
 string is read as its number) or whose `use_name_server` spells neither true nor
-false. `derive_endpoints` refuses those gateways the same way, and
+false. `derive_endpoints` refuses the selected role's gateway the same way, and
 `Endpoint.host` is a `str` and `Endpoint.port` an `int | None`.
 `write_authorization.Login` is now `osprey_connectors.model.Login`, and a
 connection block's `auth.username` with space around it is refused rather than

@@ -31,6 +31,7 @@ from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey_connectors.archive_store import field_name, mongo_client_kwargs
 from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.config import facility_timezone, load_config
+from osprey_connectors.config_sections import ArchiverSection
 from osprey_connectors.connector_types import MONGODB_ARCHIVER
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import resolve_relative_timestamp
@@ -817,8 +818,7 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         when the project's archiver is not the MongoDB archiver, or when that
         function finds no store to connect to.
     """
-    archiver = config.get("archiver") or {}
-    if resolve_archiver_type(archiver) != MONGODB_ARCHIVER:
+    if resolve_archiver_type(ArchiverSection.read(config.get("archiver"))) != MONGODB_ARCHIVER:
         return None
     return archiver_store_connection(config, project_dir)
 

@@ -11,7 +11,7 @@ import pytest
 
 import osprey_connectors
 from osprey_connectors import archiver_selection, call_timeout, connection, connector_types, factory
-from osprey_connectors.config_sections import ControlSystemSection
+from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.errors import (
     AlreadyApprovedError,
     ConfigurationError,
@@ -163,7 +163,9 @@ def test_the_write_path_errors_carry_their_context(tmp_path):
             connector_types.SERVING_KEY,
         ),
         (
-            lambda: archiver_selection.resolve_archiver_settings({"settings": 3}),
+            lambda: archiver_selection.resolve_archiver_settings(
+                ArchiverSection.read({"settings": 3})
+            ),
             "archiver.settings",
         ),
         (

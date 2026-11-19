@@ -48,10 +48,10 @@ words every outcome exactly as every other one does. ``connect()`` is final
 too: implement ``_open(settings)``, which receives your connector's own block
 (``control_system.connector.<type>``) read into the class's ``settings_model``.
 A connector that reads keys of its own declares a subclass of
-``ConnectorSettings`` with a field for each and names it in ``settings_model``;
+``ControlSystemSettings`` with a field for each and names it in ``settings_model``;
 the factory reads the block into it when it builds the connector, so a key
 written as something the model refuses fails the build, naming the key. A
-connector that declares none gets ``ConnectorSettings`` itself, which reads
+connector that declares none gets ``ControlSystemSettings`` itself, which reads
 ``timeout_s`` and keeps every other key in ``settings.model_extra``.
 ``connect()`` takes the ``ConnectorContext`` the factory builds, and it builds
 the limits validator from the deployment's loaded config before it calls

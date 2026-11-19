@@ -1929,9 +1929,9 @@ def _archiver_settings_errors(render_dir: Path) -> list[str]:
     Returns:
         One line per block no archiver reads; nothing for a runnable section.
     """
-    from osprey_connectors.archiver_selection import archiver_settings_errors
+    from osprey_connectors.config_sections import ArchiverSection
 
-    return archiver_settings_errors(_rendered_config(render_dir).get("archiver") or {})
+    return list(ArchiverSection.read(_rendered_config(render_dir).get("archiver")).problems)
 
 
 def _template_host_config(

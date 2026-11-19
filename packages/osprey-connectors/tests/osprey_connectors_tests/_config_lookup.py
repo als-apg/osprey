@@ -32,6 +32,9 @@ _GET_CONFIG_VALUE = "osprey_connectors.config.get_config_value"
 _CURRENT_CONFIG = "osprey_connectors.config.current_config"
 
 
+#: What a lookup answers for a key it does not hold, told apart from a ``None``.
+_ABSENT = object()
+
 #: The real process default, captured before any test patches it.
 _real_current_config = config_module.current_config
 
@@ -53,6 +56,11 @@ def config_from_lookup(lookup: ConfigLookup) -> LoadedConfig:
     else:
         tree, path = base.raw_tree(), base.path
     tree["control_system"] = section
+    # The path anchor a relative limits database resolves against, as the
+    # lookup answers it: a top-level key, read from the loaded config.
+    project_root = lookup("project_root", _ABSENT)
+    if project_root is not _ABSENT:
+        tree["project_root"] = project_root
     return config_of(tree, path=path, environ={})
 
 

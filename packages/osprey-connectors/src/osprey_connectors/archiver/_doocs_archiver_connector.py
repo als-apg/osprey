@@ -11,14 +11,14 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol, TypedDict
+from typing import ClassVar, Protocol, TypedDict
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from pydantic import model_validator
 from typing_extensions import override
 
-from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiveCoverage, ChannelArchive
 from osprey_connectors.archiver._timerange import (
     ProcessingMode,
@@ -26,7 +26,8 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.connection import read_connection_settings
+from osprey_connectors.config_sections import ConnectorSettings
+from osprey_connectors.connection import ConnectionSettings, read_connection_settings
 from osprey_connectors.logger import get_logger
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
@@ -68,6 +69,37 @@ class _History(TypedDict):
     data: npt.NDArray[np.float64]
 
 
+class DoocsArchiverSettings(ConnectorSettings):
+    """The DOOCS archive's block, ``archiver.settings``, read; every key optional.
+
+    Attributes:
+        connection: ``timeout_s``; ``auth`` and ``tls`` are refused, because
+            doocs4py takes no login and no CA.
+        avg_window: The centered moving-average window in seconds; ``None``
+            for no smoothing.
+    """
+
+    connection: ConnectionSettings
+    avg_window: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        connection = read_connection_settings(
+            data,
+            where="archiver.settings",
+            logins=frozenset(),
+            tls=False,
+            unsupported_because=(
+                "the DOOCS archiver reaches the ENS through doocs4py, which takes no "
+                "login and no CA"
+            ),
+        )
+        return {**data, "connection": connection}
+
+
 class DOOCSArchiverConnector(ChannelArchive):
     """
     DOOCS local history connector.
@@ -102,22 +134,14 @@ class DOOCSArchiverConnector(ChannelArchive):
         >>> )
     """
 
+    settings_model: ClassVar[type[ConnectorSettings]] = DoocsArchiverSettings
+    SETTINGS_KEY: ClassVar[str] = "archiver.settings"
+
     def __init__(
         self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
-        # The settings block is the archive's extension contract; this backend reads its keys unchecked.
-        config: Mapping[str, ContractAny] = spec.settings
-        connection = read_connection_settings(
-            config,
-            where="archiver.settings",
-            logins=frozenset(),
-            tls=False,
-            unsupported_because=(
-                "the DOOCS archiver reaches the ENS through doocs4py, which takes no "
-                "login and no CA"
-            ),
-        )
+        config = self._settings(DoocsArchiverSettings)
         # Import doocs4py here and give clear error if not installed
         try:
             import doocs4py
@@ -128,8 +152,8 @@ class DOOCSArchiverConnector(ChannelArchive):
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
-        self._avg_window: float | None = config.get("avg_window")
-        self._timeout: float = connection.timeout_or(60)
+        self._avg_window: float | None = config.avg_window
+        self._timeout: float = config.connection.timeout_or(60)
         logger.debug("DOOCS archiver connector initialized")
 
     @override

@@ -11,12 +11,24 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
+from osprey_connectors._service_http import (
+    LOGIN_PAGE_REASON,
+    HttpServiceSettings,
+    ReadOnlyTransport,
+)
 from osprey_connectors.alarm_log import AlarmLogEntry
 from osprey_connectors.alarm_log._phoebus import PhoebusAlarmLogger
 from osprey_connectors.alarm_state import AlarmConfiguration, AlarmSeverity
 from osprey_connectors.errors import NaiveDatetimeError
 from osprey_connectors.service_answers import BackendSpec, Unavailable
+
+
+def _transport(settings, allowed, *, where):
+    """The transport a backend builds over the connection block *settings*, read under *where*."""
+    return ReadOnlyTransport(
+        HttpServiceSettings.from_block(settings, key=where).connection, allowed
+    )
+
 
 DEADLINE = 6.0
 PV = "DEMO:RF1:CAV:Temp-I"
@@ -470,7 +482,7 @@ async def test_search_over_the_real_transport_reaches_the_service(loopback: Any)
 
 
 async def test_the_allowed_requests_admit_the_routes_and_refuse_a_walk():
-    transport = ReadOnlyTransport(
+    transport = _transport(
         {"url": "https://alarm-logger.demo.lab/"},
         PhoebusAlarmLogger.ALLOWED_REQUESTS,
         where="pv_directory.alarm_log.settings",

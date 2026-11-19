@@ -28,13 +28,20 @@ import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import ConfigDict, OnErrorOmit, TypeAdapter
 from typing_extensions import override
 
-from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
+from osprey_connectors._service_http import (
+    MALFORMED,
+    HttpServiceSettings,
+    ReadOnlyTransport,
+    Transport,
+)
 from osprey_connectors.alarm_log._contract import AlarmLog, AlarmLogEntry
 from osprey_connectors.alarm_state import AlarmConfiguration, AlarmSeverity
+from osprey_connectors.config_sections import ConnectorSettings
 from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
@@ -119,8 +126,15 @@ class _ConfigBody(FrozenModel):
 _ROWS = TypeAdapter(list[OnErrorOmit[_LoggedRow]])
 
 
+class PhoebusAlarmLogSettings(HttpServiceSettings):
+    """The Phoebus alarm logger's block, ``pv_directory.alarm_log.settings``, read."""
+
+
 class PhoebusAlarmLogger(AlarmLog):
     """The logged alarm events and last logged alarm configuration of one PV."""
+
+    settings_model: ClassVar[type[ConnectorSettings]] = PhoebusAlarmLogSettings
+    SETTINGS_KEY: ClassVar[str] = _SETTINGS_KEY
 
     #: The root is exact because the front end answers 503 without its trailing slash.
     ALLOWED_REQUESTS = (("GET", "/"), ("GET", "/search/*"))
@@ -135,7 +149,9 @@ class PhoebusAlarmLogger(AlarmLog):
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         if transport is None:
-            transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_SETTINGS_KEY)
+            transport = ReadOnlyTransport(
+                self._settings(PhoebusAlarmLogSettings).connection, self.ALLOWED_REQUESTS
+            )
         self._transport = transport
 
     @override

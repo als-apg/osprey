@@ -37,8 +37,8 @@ from typing import Any
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
-    ConnectorSettings,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
@@ -72,7 +72,7 @@ class FakeConnector(ControlSystemConnector):
 
     # -- lifecycle -----------------------------------------------------------
 
-    async def _open(self, config: ConnectorSettings) -> None:
+    async def _open(self, config: ControlSystemSettings) -> None:
         """Connect.
 
         Args:

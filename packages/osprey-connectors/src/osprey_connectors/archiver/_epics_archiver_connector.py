@@ -15,9 +15,10 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 import pandas as pd
-from pydantic import ConfigDict, Field, ValidationError, field_validator
+from pydantic import ConfigDict, Field, ValidationError, field_validator, model_validator
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
@@ -30,13 +31,55 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.connection import read_connection_settings, urllib_opener
-from osprey_connectors.errors import ArchiveQueryError
+from osprey_connectors.config_sections import ConnectorSettings
+from osprey_connectors.connection import ConnectionSettings, read_connection_settings, urllib_opener
+from osprey_connectors.errors import ArchiveQueryError, ConfigurationError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 logger = get_logger("epics_archiver_connector")
+
+#: The block every archive reads its settings from, named in a refusal.
+_WHERE = "archiver.settings"
+
+#: Where a bare Archiver Appliance mounts its retrieval servlet.
+_DEFAULT_RETRIEVAL_PATH = "/retrieval"
+
+
+class EpicsArchiverSettings(ConnectorSettings):
+    """The EPICS Archiver Appliance's block, ``archiver.settings``, read.
+
+    Attributes:
+        connection: ``url`` (required), ``timeout_s``, ``auth`` and ``tls``,
+            read by :func:`~osprey_connectors.connection.read_connection_settings`.
+        retrieval_path: The prefix the retrieval servlet is reached under, with
+            one leading slash and none trailing; ``/retrieval`` when unset.
+    """
+
+    connection: ConnectionSettings
+    retrieval_path: str = _DEFAULT_RETRIEVAL_PATH
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        connection = read_connection_settings(data, where=_WHERE)
+        if not connection.url:
+            raise ConfigurationError(
+                "archiver URL is required for EPICS archiver", key=f"{_WHERE}.url"
+            )
+        retrieval_path = data.get("retrieval_path") or _DEFAULT_RETRIEVAL_PATH
+        if not isinstance(retrieval_path, str):
+            raise ConfigurationError(
+                f"`{_WHERE}.retrieval_path` must be a string", key=f"{_WHERE}.retrieval_path"
+            )
+        return {
+            **data,
+            "connection": connection,
+            "retrieval_path": "/" + retrieval_path.strip("/"),
+        }
 
 
 class _Sample(FrozenModel):
@@ -137,8 +180,10 @@ class EPICSArchiverConnector(ChannelArchive):
     - tls: ``ca_bundle``, the absolute path of the CA file the appliance's
       certificate is checked against.
 
+    The settings are read into :class:`EpicsArchiverSettings`.
+
     Raises:
-        ValueError: If URL is not provided, or the block breaks the shape
+        ConfigurationError: If URL is not provided, or the block breaks the shape
         ConnectionError: If the variable a login names is unset
 
     Example:
@@ -154,30 +199,27 @@ class EPICSArchiverConnector(ChannelArchive):
     """
 
     #: Where a bare Archiver Appliance mounts its retrieval servlet.
-    DEFAULT_RETRIEVAL_PATH = "/retrieval"
+    DEFAULT_RETRIEVAL_PATH = _DEFAULT_RETRIEVAL_PATH
+
+    settings_model: ClassVar[type[ConnectorSettings]] = EpicsArchiverSettings
+    SETTINGS_KEY: ClassVar[str] = _WHERE
 
     def __init__(
         self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
-        config: Mapping[str, object] = spec.settings
+        settings = self._settings(EpicsArchiverSettings)
+        connection = settings.connection
         # The login's key and variable name, for messages; never the secret.
         self._login_key: str | None = None
         self._login_env: str | None = None
-        settings = read_connection_settings(config, where="archiver.settings")
-        if not settings.url:
-            raise ValueError("archiver URL is required for EPICS archiver")
-
-        self._url = settings.url.rstrip("/")
-        self._timeout = settings.timeout_or(60)
-        retrieval_path = config.get("retrieval_path") or self.DEFAULT_RETRIEVAL_PATH
-        if not isinstance(retrieval_path, str):
-            raise ValueError("`archiver.settings.retrieval_path` must be a string")
-        self._retrieval_path = "/" + retrieval_path.strip("/")
-        self._opener: urllib.request.OpenerDirector = urllib_opener(settings)
-        if settings.login is not None:
-            self._login_key = settings.login.env_key
-            (self._login_env,) = settings.login.env_names
+        self._url = (connection.url or "").rstrip("/")
+        self._timeout = connection.timeout_or(60)
+        self._retrieval_path = settings.retrieval_path
+        self._opener: urllib.request.OpenerDirector = urllib_opener(connection)
+        if connection.login is not None:
+            self._login_key = connection.login.secret_key
+            self._login_env = connection.login.secret_env
 
         logger.debug(
             f"EPICS Archiver connector initialized: {self._url} (retrieval at {self._retrieval_path})"

@@ -179,10 +179,12 @@ def derive_endpoints(
             unknown, or is ``live`` on a deployment that has never named its real
             machine; and a
             :class:`~osprey_connectors.errors.ConfigurationError` naming the key
-            when a gateway (or ``pva_channels``) is written as something no
-            connection can be made through: an address that is not a non-blank
-            string, a port that is not an integer, a ``use_name_server`` that
-            spells neither true nor false.
+            when the selected role's gateway (or the PVA gateway, or
+            ``pva_channels``) is written as something no connection can be made
+            through: an address that is not a non-blank string, a port that is
+            not an integer, a ``use_name_server`` that spells neither true nor
+            false. A malformed row of the role not selected refuses nothing and
+            derives no endpoint.
             :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_eligibility`
             is where that becomes a reason rather than an exception.
     """
@@ -223,12 +225,20 @@ def derive_endpoints(
 
         gateways = fill_gateway_ports(gateways, config_path)
 
+    selected_role = _selected_role(
+        gateways, writes_enabled=bool(writes_enabled), readonly_run=bool(readonly_run)
+    )
     endpoints: dict[GatewayRole, Endpoint] = {}
     role: SelectedRole
     for role in ("read_only", "write_access"):
         row = gateways.get(role)
-        if row is not None:
-            endpoints[role] = _endpoint(row, _DEFAULT_CA_PORT)
+        if row is None:
+            continue
+        if isinstance(row, Unreadable) and role != selected_role:
+            # A row the child never connects through refuses nothing: only the
+            # selected role's row configures the process.
+            continue
+        endpoints[role] = _endpoint(row, _DEFAULT_CA_PORT)
 
     # PVA is derived only under the same conjunction connect() requires: routing
     # globs AND a gateway. Globs without a gateway import p4p but touch no PVA
@@ -249,9 +259,7 @@ def derive_endpoints(
         target=target,
         connector_type=connector_type,
         endpoints=endpoints,
-        selected_role=_selected_role(
-            gateways, writes_enabled=bool(writes_enabled), readonly_run=bool(readonly_run)
-        ),
+        selected_role=selected_role,
         transport=transport,
         gateways_declared=block.declared_gateways,
     )

@@ -25,7 +25,6 @@ from types import MappingProxyType
 
 import pytest
 
-from osprey_connectors.archiver_selection import resolve_archiver_settings, resolve_archiver_type
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     DOOCS_ARCHIVER,
@@ -44,8 +43,8 @@ from osprey_connectors.service_targets import (
     _STORE_ARCHIVERS,
     _STORE_TARGETS,
     APPLIANCE_TARGETS,
-    service_targets,
 )
+from osprey_connectors_tests._service_table import table_of
 
 # -- the old answers, verbatim, as the oracle ----------------------------------
 
@@ -77,6 +76,42 @@ _OLD_STORE_TARGETS: frozenset[ControlTarget] = frozenset({TARGET_VA})
 
 #: No archive for any target.
 _OLD_NO_TARGETS: frozenset[ControlTarget] = frozenset()
+
+#: The block every archiver's settings are read from.
+_OLD_ARCHIVER_SETTINGS_LEAF = "settings"
+
+
+def resolve_archiver_type(section: object) -> str:
+    """The archiver a section selects, read from the raw section by the old rule."""
+    value = section.get("type") if isinstance(section, dict) else None
+    return str(value) if value else MOCK_ARCHIVER
+
+
+def _old_archiver_settings_homes(section: object) -> list[tuple[str, object]]:
+    """Every block in *section* that configures the selected archiver, in order, by the old rule."""
+    if not isinstance(section, dict):
+        return []
+    homes: list[tuple[str, object]] = []
+    if _OLD_ARCHIVER_SETTINGS_LEAF in section:
+        homes.append((_OLD_ARCHIVER_SETTINGS_LEAF, section[_OLD_ARCHIVER_SETTINGS_LEAF]))
+    selected = resolve_archiver_type(section)
+    own = None if "." in selected else selected
+    if own is not None and own != _OLD_ARCHIVER_SETTINGS_LEAF and own in section:
+        homes.append((own, section[own]))
+    return homes
+
+
+def resolve_archiver_settings(section: object) -> dict[str, object]:
+    """The settings block the selected archiver was handed, from the raw section by the old rule."""
+    homes = _old_archiver_settings_homes(section)
+    if len(homes) > 1:
+        raise ValueError(f"both archiver.settings and archiver.{homes[1][0]}")
+    if not homes or homes[0][1] is None:
+        return {}
+    key, value = homes[0]
+    if not isinstance(value, dict):
+        raise ValueError(f"archiver.{key} is not a block")
+    return dict(value)
 
 
 def _old_archive_targets(config: object) -> frozenset[ControlTarget]:
@@ -164,7 +199,7 @@ def _old_names_an_address(archiver_type: str, settings: Mapping[str, object]) ->
 
 def archive_targets(config: object) -> frozenset[ControlTarget]:
     """The table's history targets, after both equivalences are asserted for *config*."""
-    table = service_targets(config)
+    table = table_of(config)
     for target in CONTROL_TARGETS:
         assert (table.archive[target] is None) == _old_archive_withheld(config, target), target
     held = table.history_targets()
@@ -175,7 +210,7 @@ def archive_targets(config: object) -> frozenset[ControlTarget]:
 def archive_withheld(config: object, target: ControlTarget) -> bool:
     """Whether the table holds no archive for *target*, pinned to the oracle."""
     archive_targets(config)
-    return service_targets(config).archive[target] is None
+    return table_of(config).archive[target] is None
 
 
 STANDIN_PORT = 5074
@@ -452,7 +487,7 @@ class TestTheArchiveRow:
 
     def test_the_appliance_spec_carries_the_block_and_marks_the_rehearsal(self) -> None:
         settings = {"url": APPLIANCE_URL}
-        table = service_targets(facility_config(block(EPICS_ARCHIVER, settings)))
+        table = table_of(facility_config(block(EPICS_ARCHIVER, settings)))
         live, standin = table.archive[TARGET_LIVE], table.archive[TARGET_STANDIN]
         assert live is not None and standin is not None
         assert (live.kind, live.type, live.target, live.rehearsal) == (
@@ -466,23 +501,23 @@ class TestTheArchiveRow:
         assert table.archive[TARGET_VA] is None
 
     def test_the_mock_is_opened_on_every_target_and_holds_no_history(self) -> None:
-        table = service_targets(va_config(block(MOCK_ARCHIVER, {"sample_rate_hz": 2})))
+        table = table_of(va_config(block(MOCK_ARCHIVER, {"sample_rate_hz": 2})))
         specs = [table.archive[target] for target in CONTROL_TARGETS]
         assert all(spec is not None and spec.type == MOCK_ARCHIVER for spec in specs)
         assert table.history_targets() == _NO_TARGETS
 
     def test_no_block_is_the_mock_with_no_settings(self) -> None:
-        spec = service_targets({}).archive[TARGET_VA]
+        spec = table_of({}).archive[TARGET_VA]
         assert spec is not None
         assert (spec.type, dict(spec.settings)) == (MOCK_ARCHIVER, {})
 
     def test_the_row_is_the_archive_field(self) -> None:
-        table = service_targets(va_config(block(MONGODB_ARCHIVER, MONGO_SETTINGS)))
+        table = table_of(va_config(block(MONGODB_ARCHIVER, MONGO_SETTINGS)))
         assert table.row("archive") == table.archive
 
     def test_a_spec_never_aliases_the_config(self) -> None:
         config = facility_config(block(EPICS_ARCHIVER, {"url": APPLIANCE_URL}))
-        spec = service_targets(config).archive[TARGET_LIVE]
+        spec = table_of(config).archive[TARGET_LIVE]
         assert spec is not None
         config["archiver"]["settings"]["url"] = "https://elsewhere.example.org"
-        assert spec.settings["url"] == APPLIANCE_URL
+        assert spec.settings.model_dump()["url"] == APPLIANCE_URL

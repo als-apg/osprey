@@ -308,8 +308,8 @@ class ConnectorFactory:
             config: The ``control_system`` section, read
                 (:meth:`~osprey_connectors.config_sections.ControlSystemSection.read`),
                 or None to read the section of the config this process loads
-                (see :func:`osprey_connectors.config.get_config_value`). Its
-                keys:
+                (:func:`osprey_connectors.config.current_config`'s
+                ``control_system``). Its keys:
 
                 - type: Connector type (e.g., 'epics', 'virtual_accelerator').
                   Defaults to the simulator served in process, with a warning,
@@ -426,7 +426,7 @@ class ConnectorFactory:
                 key=block_key,
             )
         settings = connector_class.settings_model.from_block(
-            {} if block is None else block.settings, connector_type=connector_type
+            {} if block is None else block.settings, key=block_key
         )
 
         # The write posture and the limits posture are both per connector type,

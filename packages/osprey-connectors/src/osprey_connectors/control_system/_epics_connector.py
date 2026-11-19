@@ -60,8 +60,8 @@ from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
-    ConnectorSettings,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
     _batch_send_verdict,
     _settings_as,
@@ -706,7 +706,7 @@ def _block_key(info: ValidationInfo[object]) -> str:
     return f"control_system.connector.{_settings_type(info) or '<type>'}"
 
 
-class EpicsSettings(ConnectorSettings):
+class EpicsSettings(ControlSystemSettings):
     """The ``epics`` block, and every block an EPICS-family connector reads.
 
     The gateways are read by
@@ -958,7 +958,7 @@ class EPICSConnector(ControlSystemConnector):
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
     """
 
-    settings_model: ClassVar[type[ConnectorSettings]] = EpicsSettings
+    settings_model: ClassVar[type[ControlSystemSettings]] = EpicsSettings
 
     def __init__(self) -> None:
         self._connected = False
@@ -1016,7 +1016,7 @@ class EPICSConnector(ControlSystemConnector):
         self._write_executor_lock = threading.Lock()
 
     @override
-    async def _open(self, settings: ConnectorSettings) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Configure EPICS environment and test connection.
 

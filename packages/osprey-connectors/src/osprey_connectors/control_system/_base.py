@@ -34,7 +34,6 @@ from pydantic import (
     AwareDatetime,
     ConfigDict,
     Field,
-    ValidationError,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -44,13 +43,16 @@ from typing_extensions import override
 from osprey_connectors import write_authorization, write_switch
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY, call_timeout_s
-from osprey_connectors.config_sections import ControlSystemSection
+from osprey_connectors.config_sections import (
+    ConnectorSettings,
+    ControlSystemSection,
+    settings_key,
+)
 from osprey_connectors.connector_types import Transport
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import (
     ChannelError,
     ChannelReadFailedError,
-    ConfigurationError,
     LimitsViolation,
 )
 from osprey_connectors.execution_mode import is_readonly_run
@@ -686,20 +688,28 @@ _MCP_SERVER_PACKAGE_PARTS = ("osprey", "mcp_server")
 ReadonlyWording: TypeAlias = Literal["script", "deployment"]
 
 
-class ConnectorSettings(FrozenModel):
+#: The dotted key of every control-system connector block, ahead of its type.
+_CONNECTOR_BLOCK_PREFIX = "control_system.connector."
+
+
+def connector_block_key(connector_type: str | None) -> str:
+    """The dotted key of *connector_type*'s block; ``<type>`` stands in for no type."""
+    return f"{_CONNECTOR_BLOCK_PREFIX}{connector_type or '<type>'}"
+
+
+class ControlSystemSettings(ConnectorSettings):
     """A control-system connector's own block, ``control_system.connector.<type>``, read.
 
-    The base every connector type's
+    The settings every connector type's
     :attr:`ControlSystemConnector.settings_model` extends: it reads
     ``timeout_s``, the call bound every connector has, and keeps every other key
     as written, so an out-of-tree connector that declares no model of its own
     reads its keys from :attr:`~pydantic.BaseModel.model_extra`. Keys the
     package reads elsewhere (``limits_checking``, ``serving``) stay there too.
 
-    Read with :meth:`from_block`, which names the type in a refusal.
+    Read with :meth:`from_block` under :func:`connector_block_key`, which names
+    the type in a refusal.
     """
-
-    model_config = ConfigDict(extra="allow")
 
     #: The seconds one call is given when it names no bound of its own
     #: (:func:`~osprey_connectors.call_timeout.call_timeout_s`'s rule; the
@@ -713,46 +723,20 @@ class ConnectorSettings(FrozenModel):
             return data
         return {**data, TIMEOUT_KEY: call_timeout_s(data, _settings_type(info))}
 
-    @classmethod
-    def from_block(cls, block: Mapping[str, object], *, connector_type: str | None) -> Self:
-        """*block* read into this model, for a connector of *connector_type*.
-
-        Raises:
-            ConfigurationError: A key the model reads is written as something it
-                cannot use; ``key`` is the dotted key at fault.
-        """
-        try:
-            return cls.model_validate(dict(block), context={"connector_type": connector_type})
-        except ValidationError as error:
-            raise _settings_refusal(error, connector_type) from None
-
 
 def _settings_type(info: ValidationInfo[object]) -> str | None:
-    """The connector type a settings validation was given, for a refusal's key."""
-    context = info.context
-    connector_type = context.get("connector_type") if isinstance(context, Mapping) else None
-    return connector_type if isinstance(connector_type, str) else None
+    """The connector type a settings validation's block key names, for a refusal's key."""
+    key = settings_key(info)
+    if key is None or not key.startswith(_CONNECTOR_BLOCK_PREFIX):
+        return None
+    connector_type = key.removeprefix(_CONNECTOR_BLOCK_PREFIX)
+    return None if connector_type == "<type>" else connector_type
 
 
-def _settings_refusal(error: ValidationError, connector_type: str | None) -> ConfigurationError:
-    """The :class:`ConfigurationError` one failed settings validation is refused with.
-
-    A validator that raised one is the refusal, words and key as it spelled
-    them; any other failure names the first key at fault.
-    """
-    first = error.errors()[0]
-    raised = (first.get("ctx") or {}).get("error")
-    if isinstance(raised, ConfigurationError):
-        return raised
-    block = f"control_system.connector.{connector_type or '<type>'}"
-    key = ".".join([block, *(str(part) for part in first["loc"])])
-    return ConfigurationError(f"{key}: {first['msg']}", key=key)
+_Settings = TypeVar("_Settings", bound=ControlSystemSettings)
 
 
-_Settings = TypeVar("_Settings", bound=ConnectorSettings)
-
-
-def _settings_as(settings: ConnectorSettings, model: type[_Settings]) -> _Settings:
+def _settings_as(settings: ControlSystemSettings, model: type[_Settings]) -> _Settings:
     """*settings* as the model its connector declares, which ``connect()`` made it.
 
     Raises:
@@ -790,7 +774,7 @@ class ConnectorContext(FrozenModel):
     #: :attr:`ControlSystemConnector.settings_model`. A mapping given here is read
     #: into the base model, and ``connect()`` reads it into the connector's own
     #: before :meth:`ControlSystemConnector._open` is handed it.
-    settings: ConnectorSettings = Field(default_factory=ConnectorSettings)
+    settings: ControlSystemSettings = Field(default_factory=ControlSystemSettings)
     #: How a readonly refusal on this connector is worded. Only the remedy
     #: sentence changes; the refusal is the same either way.
     readonly_wording: ReadonlyWording = "script"
@@ -802,9 +786,9 @@ class ConnectorContext(FrozenModel):
         if not isinstance(data, Mapping) or not isinstance(data.get("settings"), Mapping):
             return data
         connector_type = data.get("connector_type")
-        settings = ConnectorSettings.from_block(
+        settings = ControlSystemSettings.from_block(
             data["settings"],
-            connector_type=connector_type if isinstance(connector_type, str) else None,
+            key=connector_block_key(connector_type if isinstance(connector_type, str) else None),
         )
         return {**data, "settings": settings}
 
@@ -1322,9 +1306,9 @@ class ControlSystemConnector(ABC):
     #: ``control_system.connector.<type>`` into it, and :meth:`connect` reads a
     #: context's settings into it when they are another model. A connector type
     #: that reads keys of its own declares a subclass of
-    #: :class:`ConnectorSettings`; one that declares none reads them from
+    #: :class:`ControlSystemSettings`; one that declares none reads them from
     #: :attr:`~pydantic.BaseModel.model_extra`.
-    settings_model: ClassVar[type[ConnectorSettings]] = ConnectorSettings
+    settings_model: ClassVar[type[ControlSystemSettings]] = ControlSystemSettings
 
     #: What this connector was built for, set by :meth:`connect`. A connector
     #: nobody connected holds the empty context: no type, no target, no wire.
@@ -1535,8 +1519,8 @@ class ControlSystemConnector(ABC):
         validator = LimitsValidator.from_config(connector_type=context.connector_type)
         settings = context.settings
         if not isinstance(settings, self.settings_model):
-            settings = self.settings_model.from_block(
-                settings.model_dump(), connector_type=context.connector_type
+            settings = self.settings_model.read(
+                settings, key=connector_block_key(context.connector_type)
             )
             context = evolve(context, settings=settings)
         self._context = context
@@ -1544,7 +1528,7 @@ class ControlSystemConnector(ABC):
         await self._open(settings)
 
     @abstractmethod
-    async def _open(self, settings: ConnectorSettings) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """Establish the connection to the control system.
 
         Called by :meth:`connect` once the context is stored, so

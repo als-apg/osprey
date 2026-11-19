@@ -35,7 +35,7 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ConnectorContext,
-    ConnectorSettings,
+    ControlSystemSettings,
     WriteOutcome,
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
@@ -134,7 +134,7 @@ class _FirstContextConnector:
     """A connector whose client keeps the first context the process created."""
 
     disconnected: list["_FirstContextConnector"] = []
-    settings_model = ConnectorSettings
+    settings_model = ControlSystemSettings
 
     async def connect(self, context: ConnectorContext) -> None:
         self._control_target = context.control_target

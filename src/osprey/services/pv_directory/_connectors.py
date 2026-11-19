@@ -31,7 +31,7 @@ try:
         AlarmState,
         AlarmStates,
     )
-    from osprey_connectors.deployment.simulator import has_simulator
+    from osprey_connectors.deployment.simulator import has_simulator, virtual_accelerator_port
     from osprey_connectors.directory import (
         ChannelDirectory,
         DirectoryDetail,
@@ -46,7 +46,7 @@ try:
         Source,
         Unavailable,
     )
-    from osprey_connectors.service_targets import APPLIANCE_TARGETS, service_targets
+    from osprey_connectors.service_targets import APPLIANCE_TARGETS, ServiceTable, service_targets
     from osprey_connectors.simulation.view import (
         ENGINEER,
         IOC_HEALTH_SIGNALS,
@@ -78,10 +78,12 @@ except ImportError:
     PutLog = None  # type: ignore[assignment,misc]
     PutLogEntry = None  # type: ignore[assignment,misc]
     SERVED_SIGNAL_PROPERTY = None  # type: ignore[assignment]
+    ServiceTable = None  # type: ignore[assignment,misc]
     Source = None  # type: ignore[assignment,misc]
     Unavailable = None  # type: ignore[assignment,misc]
     has_simulator = None  # type: ignore[assignment]
     service_targets = None  # type: ignore[assignment]
+    virtual_accelerator_port = None  # type: ignore[assignment]
 
 __all__ = [
     "APPLIANCE_TARGETS",
@@ -117,9 +119,28 @@ __all__ = [
     "has_simulator",
     "logbook_source",
     "served_instant",
-    "service_targets",
+    "service_table",
     "unavailable_payload",
 ]
+
+
+def service_table(config: Mapping[str, Any]) -> ServiceTable:
+    """The connectors' service table of a rendered config the framework holds as a mapping.
+
+    The framework edge of
+    :func:`~osprey_connectors.service_targets.service_targets`: the
+    ``pv_directory`` and ``archiver`` sections read, and whether the
+    deployment built a simulator, from the same mapping.
+    """
+    from osprey_connectors.config_sections import ArchiverSection, PvDirectorySection
+
+    return service_targets(
+        PvDirectorySection.read(config.get("pv_directory")),
+        ArchiverSection.read(config.get("archiver")),
+        simulator_port=virtual_accelerator_port(config),
+        built_simulator=has_simulator(config),
+    )
+
 
 #: The reason every service answers when the installed connectors lack the modules.
 FLOOR_REASON = "installed osprey-connectors has no PV directory support (upgrade it)"

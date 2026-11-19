@@ -29,6 +29,7 @@ def _patch_config(monkeypatch, db_file, mode: str = "exclusive"):
             "limits_checking": {
                 "enabled": True,
                 "mode": mode,
+                "database_path": str(db_file),
             },
         },
         "control_system.limits_checking.enabled": True,

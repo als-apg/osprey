@@ -29,7 +29,11 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
+from osprey_connectors._service_http import (
+    LOGIN_PAGE_REASON,
+    HttpServiceSettings,
+    ReadOnlyTransport,
+)
 from osprey_connectors.alarm_state import (
     AlarmCondition,
     AlarmConfiguration,
@@ -46,9 +50,17 @@ from osprey_connectors.directory import (
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec as Spec
 from osprey_connectors.service_answers import LogPage, NotListed, Unavailable
-from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
+from osprey_connectors_tests._service_table import table_of
 from osprey_connectors_tests.directory.test_simulator_directory import _write_view
+
+
+def _transport(settings, allowed, *, where):
+    """The transport a backend builds over the connection block *settings*, read under *where*."""
+    return ReadOnlyTransport(
+        HttpServiceSettings.from_block(settings, key=where).connection, allowed
+    )
+
 
 DEADLINE = 6.0
 PV = "DEMO:RF1:CAV:Temp-I"
@@ -330,7 +342,7 @@ class Built:
     def assert_read_only(self) -> None:
         if self.transport is not None:
             assert self.transport.violations == []
-            allowed = ReadOnlyTransport(
+            allowed = _transport(
                 {"url": URL}, type(self.backend).ALLOWED_REQUESTS, where="settings"
             )
             assert all(allowed._allows(sent.method, sent.path) for sent in self.transport.sent)
@@ -825,7 +837,7 @@ async def test_the_configured_description_property_reaches_the_channelfinder_req
             "description_property": "pvDescription",
         }
     }
-    spec = service_targets(config).directory["live"]
+    spec = table_of(config).directory["live"]
     transport = RecordingTransport(_HTTP_ANSWERS["channelfinder"]["recorded"])
 
     backend = await ConnectorFactory.create_service(spec, transport=transport)

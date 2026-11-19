@@ -28,8 +28,8 @@ from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
-    ConnectorSettings,
     ControlSystemConnector,
+    ControlSystemSettings,
     SendReport,
     _settings_as,
 )
@@ -177,7 +177,7 @@ def _enum_label_for(labels: tuple[str, ...] | None, index: object) -> str | None
     return None
 
 
-class TangoSettings(ConnectorSettings):
+class TangoSettings(ControlSystemSettings):
     """The ``tango`` block."""
 
     #: Overrides the ``TANGO_HOST`` environment for this connector's proxies,
@@ -195,7 +195,7 @@ class TangoConnector(ControlSystemConnector):
     there is no client-side monitor cache for a confirming read to bypass.
     """
 
-    settings_model: ClassVar[type[ConnectorSettings]] = TangoSettings
+    settings_model: ClassVar[type[ControlSystemSettings]] = TangoSettings
 
     def __init__(self) -> None:
         self._connected: bool = False
@@ -208,7 +208,7 @@ class TangoConnector(ControlSystemConnector):
         self._tango_host: str | None = None
 
     @override
-    async def _open(self, settings: ConnectorSettings) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Import PyTango and verify the TANGO database is reachable.
 

@@ -41,7 +41,7 @@ LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
 _PROJECT_ROOT_CONFIG_KEY = "project_root"
 
 #: The signature every ``config_lookup`` here has: that of
-#: :func:`osprey_connectors.config.get_config_value`.
+#: :meth:`osprey_connectors.config.LoadedConfig.get`.
 ConfigLookup = Callable[[str, object], object]
 
 #: The signature of the fresh-read primitive :meth:`LimitsValidator.validate`
@@ -191,10 +191,10 @@ def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
 
 
 def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
-    """A ``get_config_value``-shaped lookup over an already-loaded config.
+    """A :meth:`~osprey_connectors.config.LoadedConfig.get`-shaped lookup over a config held as a dict.
 
-    For the callers that hold the config as a dict rather than through the
-    live configurable -- the build reading a render's ``config.yml``, the
+    For the callers that hold the config as a dict rather than as the
+    process's loaded config -- the build reading a render's ``config.yml``, the
     roster reading the project config it was handed -- so they resolve the
     limits database through the same path as the runtime instead of walking
     the segments themselves.
@@ -360,9 +360,9 @@ class LimitsValidator:
 
         Args:
             config_lookup: Where the key is read from, with the signature of
-                :func:`osprey_connectors.config.get_config_value`. Defaults to
-                that function, which reads the live configurable; pass
-                :func:`mapping_config_lookup` for a config held as a dict.
+                :meth:`osprey_connectors.config.LoadedConfig.get`. Defaults to
+                the process config's (:func:`osprey_connectors.config.current_config`);
+                pass :func:`mapping_config_lookup` for a config held as a dict.
             config_path: The config file the lookup answers from, which is the
                 anchor a relative path resolves against (see
                 :meth:`resolve_database_path`). Defaults to the path of
@@ -374,17 +374,17 @@ class LimitsValidator:
             The resolved path as a string, or ``None``.
         """
         if config_lookup is None:
-            from osprey_connectors.config import active_config, get_config_value
+            from osprey_connectors.config import active_config, current_config
 
-            # Bound through a ConfigLookup, so the lookup answers ``object``.
-            live_lookup: ConfigLookup = get_config_value
-            config_lookup = live_lookup
             if config_path is None:
                 # Read before the lookup below loads anything, as the anchor
                 # always was: a process that has loaded no config yet falls
                 # back on OSPREY_CONFIG and project_root.
                 active = active_config()
                 config_path = str(active.path) if active is not None else None
+            # Bound through a ConfigLookup, so the lookup answers ``object``.
+            live_lookup: ConfigLookup = current_config().get
+            config_lookup = live_lookup
 
         raw = config_lookup(LIMITS_DATABASE_CONFIG_KEY, None)
         if not isinstance(raw, str) or not raw.strip():

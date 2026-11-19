@@ -11,6 +11,7 @@ Covers two contracts:
    guards against re-introducing a fail-open path.)
 """
 
+import copy
 import json
 from pathlib import Path
 
@@ -235,6 +236,20 @@ def _nested_control_system(values: dict) -> dict:
     return section
 
 
+def _merged(section: object, dotted: dict) -> object:
+    """*section* with the nested lines *dotted* spells written into a copy of it."""
+    if not isinstance(section, dict) or not dotted:
+        return section
+    merged = copy.deepcopy(section)
+    for key, value in dotted.items():
+        merged[key] = (
+            _merged(merged[key], value)
+            if isinstance(value, dict) and isinstance(merged.get(key), dict)
+            else value
+        )
+    return merged
+
+
 def _patch_config(
     monkeypatch,
     values: dict,
@@ -255,7 +270,13 @@ def _patch_config(
     branches testable in isolation.
     """
     if "control_system" in values:
-        section = values["control_system"]
+        # The dotted keys beside an explicit section are lines of that section:
+        # the database path is read from the loaded config, where it sits in
+        # the deployment-wide block.
+        section = _merged(
+            values["control_system"],
+            _nested_control_system({k: v for k, v in values.items() if k != "control_system"}),
+        )
     else:
         section = _nested_control_system(values) or None
 

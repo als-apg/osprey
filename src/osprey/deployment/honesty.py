@@ -80,7 +80,7 @@ from __future__ import annotations
 from typing_extensions import override
 
 from osprey_connectors.archiver_selection import resolve_archiver_type
-from osprey_connectors.config_sections import ControlSystemSection
+from osprey_connectors.config_sections import ArchiverSection, ControlSystemSection
 from osprey_connectors.connector_types import (
     INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,
@@ -200,7 +200,8 @@ def pairing_in_profile(config: object) -> ArchiverPairing:
         for serving_value in serving or [_ABSENT]
     )
     is_mock = not archiver or any(
-        resolve_archiver_type({"type": value}) == MOCK_ARCHIVER for value in archiver
+        resolve_archiver_type(ArchiverSection.read({"type": value})) == MOCK_ARCHIVER
+        for value in archiver
     )
 
     return ArchiverPairing(
@@ -293,7 +294,7 @@ def _rendered_pairing(config: object, invented: bool) -> ArchiverPairing:
     """The verdict on a rendered config, given whether the control system to
     judge it against — the one it selects, or the one a target would select —
     has no recorded past."""
-    archiver_type = resolve_archiver_type(_sections(config).get("archiver"))
+    archiver_type = resolve_archiver_type(ArchiverSection.read(_sections(config).get("archiver")))
 
     return ArchiverPairing(
         is_invented_history=invented and archiver_type == MOCK_ARCHIVER,

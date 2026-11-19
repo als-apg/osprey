@@ -44,7 +44,7 @@ from osprey.services.pv_directory._connectors import (
     NotListed,
     Unavailable,
     as_payload,
-    service_targets,
+    service_table,
     unavailable_payload,
 )
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
@@ -320,7 +320,7 @@ class DirectoryService:
                 return {}
             return {"pv_directory": unavailable_payload(FLOOR_REASON, target=target)}
         wanted = _KINDS if kinds is None else tuple(kinds)
-        table = service_targets(self._config)
+        table = service_table(self._config)
         asked = [kind for kind in _KINDS if kind in wanted and any(_row(table, kind).values())]
         answers = await asyncio.gather(*(self._probe(kind, target) for kind in asked))
         return dict(zip(asked, answers, strict=True))
@@ -398,11 +398,11 @@ class DirectoryService:
         return built
 
     async def _build(self, kind: str, target: str) -> tuple[Any, Any, str | None]:
-        table = service_targets(self._config)
+        table = service_table(self._config)
         spec: Any = _row(table, kind)[target]
         if spec is None:
             return None, None, NO_SOURCE_REASON
-        if kind == "alarm_state" and spec.settings.get("replay_file"):
+        if kind == "alarm_state" and spec.settings.model_dump().get("replay_file"):
             spec = self._with_replay_path(spec)
         try:
             backend = await ConnectorFactory.create_service(spec, project_dir=self._project_dir)
@@ -413,18 +413,19 @@ class DirectoryService:
 
     def _with_replay_path(self, spec: Any) -> Any:
         """*spec* with its ``replay_file`` resolved: ``demo:<name>`` to the packaged file."""
-        value = spec.settings["replay_file"]
+        written = spec.settings.model_dump()
+        value = written["replay_file"]
         try:
             path = resolve_replay_file(value, self._project_dir)
         except ValueError:
             return spec  # the replay backend answers an unresolved name as unavailable
-        return evolve(spec, settings={**spec.settings, "replay_file": str(path)})
+        return evolve(spec, settings={**written, "replay_file": str(path)})
 
     async def _probe(self, kind: str, target: str) -> dict[str, Any]:
         backend, source, reason = await self._resolve(kind)
         if backend is None:
             return unavailable_payload(reason or NO_SOURCE_REASON, target=target)
-        deadline = _seconds(backend.spec.settings.get("timeout_s"), self._timeout())
+        deadline = _seconds(backend.spec.settings.model_dump().get("timeout_s"), self._timeout())
         if kind == "alarm_state":
             snapshot = await self.snapshot()
             if snapshot is None:  # the target moved during the build
@@ -494,7 +495,7 @@ class DirectoryService:
 
     async def _build_archive(self, at: tuple[str, int] | None) -> tuple[Any, Any, str | None]:
         target = at[0] if at else self._position()[0]
-        spec: Any = _row(service_targets(self._config), "archive")[target]
+        spec: Any = _row(service_table(self._config), "archive")[target]
         try:
             archive = await ConnectorFactory.create_service(spec, project_dir=self._project_dir)
         except Exception as failure:

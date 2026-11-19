@@ -47,7 +47,9 @@ PRESET_PATH = "profiles/presets/demo.yml"
 
 def _rows(block: dict[str, Any]) -> dict[str, GatewayRow]:
     """*block*'s gateways, read as the virtual accelerator's settings read them."""
-    return dict(EpicsSettings.from_block(block, connector_type="virtual_accelerator").gateways)
+    return dict(
+        EpicsSettings.from_block(block, key="control_system.connector.virtual_accelerator").gateways
+    )
 
 
 def _filled(block: dict[str, Any]) -> dict[str, GatewayRow]:

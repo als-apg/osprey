@@ -15,7 +15,7 @@ from typing_extensions import override
 from osprey_connectors._config_read import coerce_port
 from osprey_connectors.config_sections import GatewayRow, Unreadable
 from osprey_connectors.connector_types import DEFAULT_VA_PORT
-from osprey_connectors.control_system._base import ConnectorSettings, _settings_as
+from osprey_connectors.control_system._base import ControlSystemSettings, _settings_as
 from osprey_connectors.control_system._epics_connector import EPICSConnector, EpicsSettings
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
@@ -143,7 +143,7 @@ class VirtualAcceleratorConnector(EPICSConnector):
     """
 
     @override
-    async def _open(self, settings: ConnectorSettings) -> None:
+    async def _open(self, settings: ControlSystemSettings) -> None:
         """
         Configure the EPICS environment against the deployed Virtual Accelerator.
 

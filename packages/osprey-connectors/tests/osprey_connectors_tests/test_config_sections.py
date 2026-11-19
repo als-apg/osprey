@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.archiver_selection import archiver_settings_errors
 from osprey_connectors.config_sections import (
     AgentDataSection,
     ArchiverSection,
@@ -25,7 +24,8 @@ from osprey_connectors.config_sections import (
     SimulationSection,
     Unreadable,
 )
-from osprey_connectors.control_system import ConnectorContext, ConnectorSettings
+from osprey_connectors.connector_types import BUILTIN_CONNECTORS, MOCK_ARCHIVER
+from osprey_connectors.control_system import ConnectorContext, ControlSystemSettings
 from osprey_connectors.control_system._epics_connector import EPICSConnector, EpicsSettings
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.factory import ConnectorFactory
@@ -201,6 +201,44 @@ class TestRefusedAtDerivation:
             derive_endpoints(config, "live", writes_enabled=False, readonly_run=False)
         assert raised.value.key == key
 
+    def test_only_the_selected_roles_row_is_refused_and_it_names_that_role(self):
+        """Writes armed select ``write_access``: its bad row is refused, naming it."""
+        config = {
+            "control_system": {
+                "type": "epics",
+                "connector": {
+                    "epics": {
+                        "gateways": {
+                            "read_only": {"address": "", "port": 5064},
+                            "write_access": {"address": "gw", "port": "x"},
+                        }
+                    }
+                },
+            }
+        }
+        with pytest.raises(ConfigurationError) as raised:
+            derive_endpoints(config, "live", writes_enabled=True, readonly_run=False)
+        assert raised.value.key == "control_system.connector.epics.gateways.write_access"
+
+    def test_a_bad_row_of_the_role_not_selected_refuses_nothing(self):
+        """Behaviour change: a malformed unselected row derives no endpoint and refuses nothing."""
+        config = {
+            "control_system": {
+                "type": "epics",
+                "connector": {
+                    "epics": {
+                        "gateways": {
+                            "read_only": {"address": "gw", "port": 5064},
+                            "write_access": {"address": "", "port": 5065},
+                        }
+                    }
+                },
+            }
+        }
+        derivation = derive_endpoints(config, "live", writes_enabled=False, readonly_run=False)
+        assert derivation.selected_role == "read_only"
+        assert set(derivation.endpoints) == {"read_only"}
+
     def test_a_name_server_spelled_neither_true_nor_false_keeps_the_flag_reader_words(self):
         config = {
             "control_system": {
@@ -289,15 +327,15 @@ class TestHandBuiltContexts:
 
     def test_an_out_of_tree_connector_reads_its_keys_from_the_extras(self):
         context = ConnectorContext(settings={"site_key": [1, 2]})
-        assert type(context.settings) is ConnectorSettings
+        assert type(context.settings) is ControlSystemSettings
         assert context.settings.model_extra == {"site_key": [1, 2]}
 
     def test_connect_reads_the_settings_into_the_connectors_model(self):
-        settings = ConnectorSettings.from_block(
-            {"gateways": {"read_only": GATEWAY}}, connector_type="epics"
+        settings = ControlSystemSettings.from_block(
+            {"gateways": {"read_only": GATEWAY}}, key="control_system.connector.epics"
         )
         assert EPICSConnector.settings_model.from_block(
-            settings.model_dump(), connector_type="epics"
+            settings.model_dump(), key="control_system.connector.epics"
         ).gateways == {"read_only": GatewayRow(address="cagw.example", port=5064)}
 
 
@@ -315,6 +353,62 @@ ARCHIVER_SECTIONS: list[object] = [
     {"auto_bin_points": 500},
     {"auto_bin_points": "500"},
 ]
+
+
+# -- the build lint over ``archiver:`` before the section held it, as the oracle --
+
+_OLD_ARCHIVER_TYPES = [row.name for row in BUILTIN_CONNECTORS if row.kind == "archiver"]
+_OLD_SETTINGS_LEAF = "settings"
+_OLD_SECTION_LEAVES = ("type", _OLD_SETTINGS_LEAF, "auto_bin_points")
+
+
+def _old_resolve_type(section: object) -> str:
+    value = section.get("type") if isinstance(section, dict) else None
+    return str(value) if value else MOCK_ARCHIVER
+
+
+def _old_own_name_block(connector_type: str) -> str | None:
+    return None if "." in connector_type else connector_type
+
+
+def _old_homes(section: object) -> list[tuple[str, object]]:
+    if not isinstance(section, dict):
+        return []
+    homes: list[tuple[str, object]] = []
+    if _OLD_SETTINGS_LEAF in section:
+        homes.append((_OLD_SETTINGS_LEAF, section[_OLD_SETTINGS_LEAF]))
+    own = _old_own_name_block(_old_resolve_type(section))
+    if own is not None and own != _OLD_SETTINGS_LEAF and own in section:
+        homes.append((own, section[own]))
+    return homes
+
+
+def archiver_settings_errors(section: object) -> list[str]:
+    """The build lint as ``archiver_selection.archiver_settings_errors`` spelled it at H2."""
+    if not isinstance(section, dict):
+        return []
+    selected = _old_resolve_type(section)
+    own = _old_own_name_block(selected)
+    known = {*_OLD_SECTION_LEAVES, *_OLD_ARCHIVER_TYPES, *([own] if own else [])}
+    errors = [
+        f"`{key}:` under `archiver:` is a block no archiver reads; the selected "
+        f"archiver, {selected}, takes its settings from `archiver.settings`"
+        for key, value in section.items()
+        if isinstance(value, dict) and key not in known
+    ]
+    homes = _old_homes(section)
+    if len(homes) > 1:
+        errors.append(
+            f"`archiver.settings` and `archiver.{homes[1][0]}` both configure {homes[1][0]}; "
+            f"keep one — `archiver.settings` is the spelling for every archiver"
+        )
+    errors.extend(
+        f"`archiver.{key}` is {value!r}, not a block; it holds the selected "
+        f"archiver's settings as a mapping"
+        for key, value in homes
+        if value is not None and not isinstance(value, dict)
+    )
+    return errors
 
 
 @pytest.mark.parametrize("section", ARCHIVER_SECTIONS)

@@ -7,10 +7,12 @@ async and takes the keyword ``timeout_s``, the seconds this call may spend; the 
 the overall budget and hands the same figure to calls it runs concurrently.
 
 Backends are built as ``Backend(spec, *, project_dir=None, **seams)``. The
-constructor does no I/O and there is no connect step, so building one answers
-nothing about the service; ``probe`` does. Out-of-tree classes follow the same
-signature. A seam the class does not take is ignored, because the factory
-passes the same keywords to every backend of a kind.
+constructor reads ``spec.settings`` into the class's ``settings_model`` (so a
+block its type refuses raises there, in the backend's words), does no I/O, and
+there is no connect step, so building one answers nothing about the service;
+``probe`` does. Out-of-tree classes follow the same signature. A seam the class
+does not take is ignored, because the factory passes the same keywords to every
+backend of a kind.
 
 The records are frozen pydantic models, validated when built, and stay plain so
 one conversion makes their JSON: a list, a mapping or a string stays what the
@@ -27,18 +29,22 @@ exception to "never raises".
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Generic, Literal, TypeVar
+from typing import Annotated, ClassVar, Generic, Literal, TypeVar
 
 from pydantic import (
+    Field,
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
+    model_validator,
 )
 
+from osprey_connectors.config_sections import ConnectorSettings
 from osprey_connectors.connector_types import ControlTarget
-from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, parse_instant
+from osprey_connectors.model import FrozenModel, FrozenTuple, parse_instant
 
 #: The row record a :class:`Page` holds.
 _RowT = TypeVar("_RowT")
@@ -169,13 +175,27 @@ class Source(FrozenModel):
 
 
 class BackendSpec(FrozenModel):
-    """One backend to build; ``service_targets`` makes these from the config."""
+    """One backend to build; ``service_targets`` makes these from the config.
+
+    ``settings`` is the backend's block. A mapping given here is read into the
+    base :class:`~osprey_connectors.config_sections.ConnectorSettings`, which
+    keeps every key as written and refuses nothing; the backend reads it into
+    its own ``settings_model`` when it is built.
+    """
 
     kind: ServiceKind
     type: str
     target: ControlTarget
-    settings: ReadOnlyMapping[str, object]
+    settings: ConnectorSettings = Field(default_factory=ConnectorSettings)
     rehearsal: bool
+
+    @model_validator(mode="before")
+    @classmethod
+    def _settings_as_written(cls, data: object) -> object:
+        """Settings given as a mapping keep every key, as the base settings model reads it."""
+        if not isinstance(data, Mapping) or not isinstance(data.get("settings"), Mapping):
+            return data
+        return {**data, "settings": ConnectorSettings.model_validate(dict(data["settings"]))}
 
 
 #: How a page of rows ended: rows matched, or none did.
@@ -207,18 +227,47 @@ class LogPage(Page[_RowT], Generic[_RowT]):
     retention_known: bool = False
 
 
+#: A backend's settings model.
+_SettingsT = TypeVar("_SettingsT", bound=ConnectorSettings)
+
+
 class _Backend:
     """The construction, the lifecycle and the source every backend kind shares.
 
-    :meth:`start` and :meth:`aclose` do nothing here; a kind whose backends
-    hold something open between calls overrides them.
+    The constructor keeps the spec as it was handed and reads its settings
+    into :attr:`settings_model` as :attr:`settings`, naming :attr:`SETTINGS_KEY`
+    in a refusal. :meth:`start` and :meth:`aclose` do nothing here; a kind
+    whose backends hold something open between calls overrides them.
     """
+
+    #: The model this backend's block is read into. A backend that declares
+    #: none reads its keys from the base model's
+    #: :attr:`~pydantic.BaseModel.model_extra`.
+    settings_model: ClassVar[type[ConnectorSettings]] = ConnectorSettings
+    #: The dotted key of the block, named in a refusal of it.
+    SETTINGS_KEY: ClassVar[str] = "settings"
 
     def __init__(
         self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> None:
         self.spec = spec
+        #: ``spec.settings`` read into :attr:`settings_model`.
+        self.settings: ConnectorSettings = self.settings_model.read(
+            spec.settings, key=self.SETTINGS_KEY
+        )
         self.project_dir = project_dir
+
+    def _settings(self, model: type[_SettingsT]) -> _SettingsT:
+        """:attr:`settings` as *model*, the backend's :attr:`settings_model`.
+
+        Raises:
+            TypeError: The class names another model: a subclass overrode
+                :attr:`settings_model` with one that is not *model*'s.
+        """
+        settings = self.settings
+        if not isinstance(settings, model):
+            raise TypeError(f"{model.__name__} expected, got {type(settings).__name__}")
+        return settings
 
     async def start(self) -> None:
         """Begin whatever the backend keeps open between calls; nothing by default."""

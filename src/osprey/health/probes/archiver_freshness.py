@@ -54,8 +54,8 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from osprey.health.models import CheckResult, Status
+from osprey.services.pv_directory._connectors import service_table
 from osprey_connectors.service_answers import Unavailable
-from osprey_connectors.service_targets import service_targets
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -119,9 +119,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     start = now - timedelta(seconds=window_s)
 
     # The first target's archive: a health run has no session to pick one.
-    archive_spec = next(
-        (s for s in service_targets(config).archive.values() if s is not None), None
-    )
+    archive_spec = next((s for s in service_table(config).archive.values() if s is not None), None)
     if archive_spec is None:
         return CheckResult(
             name,
