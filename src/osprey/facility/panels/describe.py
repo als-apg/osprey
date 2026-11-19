@@ -63,6 +63,7 @@ from osprey.facility.panels.tables import (
     ChannelRole,
     FrontRow,
     Pose,
+    RecordType,
 )
 from osprey.facility.panels.view import (
     ENTRIES_IN_ONE_COLUMN,
@@ -4323,12 +4324,18 @@ def _check_rows(graph: PanelGraph, things: Iterable[Thing]) -> list[CheckRow]:
     return list(rows.values())
 
 
+def _typed(row: RecordType | None) -> bool:
+    """Whether a ``record_types.csv`` row types the channel: it states a record type
+    whose drawing (stated, or its role's when left empty) is not ``untyped``."""
+    return row is not None and row.drawn_as != "untyped"
+
+
 def _check_row(graph: PanelGraph, channel: Channel, thing: str | None) -> CheckRow:
     return CheckRow(
         channel=channel.name,
         thing=thing,
         on_device=thing is not None,
-        typed=channel.drawn_as is not None and channel.drawn_as != "untyped",
+        typed=_typed(graph.record_type(channel.name)),
         has_rule=bool(graph.rule(channel.name)),
         has_source=_sourced(graph, channel.name),
     )
@@ -4347,8 +4354,8 @@ def _totals(found: list[CheckRow]) -> Totals:
 def checkout(graph: PanelGraph, place_id: str) -> View:
     """One row per channel of the devices a place holds (:meth:`PanelGraph.contents`), with totals.
 
-    A row says whether the channel is on a device, typed (``drawn_as``
-    other than ``untyped``), rule-bearing, and sourced (a record type, pair
+    A row says whether the channel is on a device, typed (a ``record_types.csv``
+    row states its record type, not drawn ``untyped``), rule-bearing, and sourced (a record type, pair
     or health row names a source). Sections: ``channels``, ``totals``, then
     ``places within``: links to each child place's checkout (its card when it
     has none), so a table cut on screen leaves no row unreachable. A root

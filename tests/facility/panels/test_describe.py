@@ -834,11 +834,11 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
         has_rule=True,
         has_source=True,
     )
-    assert rows["XR01-CH1:Temp-RB"] == CheckRow(  # typed by its role: a readback is a value
-        "XR01-CH1:Temp-RB", "XR01:CH1", True, True, False, False
+    assert rows["XR01-CH1:Temp-RB"] == CheckRow(  # drawn by its role, no record type stated
+        "XR01-CH1:Temp-RB", "XR01:CH1", True, False, False, False
     )
     # sourced by its health rows alone
-    assert (rows["XR01-PS1:On-Sts"].typed, rows["XR01-PS1:On-Sts"].has_source) == (True, True)
+    assert (rows["XR01-PS1:On-Sts"].typed, rows["XR01-PS1:On-Sts"].has_source) == (False, True)
     (totals,) = _section(view, "totals").items
     assert totals == Totals(
         channels=len(rows),
@@ -847,7 +847,8 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
         has_rule=sum(row.has_rule for row in rows.values()),
         has_source=sum(row.has_source for row in rows.values()),
     )
-    assert (totals.channels, totals.typed, totals.has_rule) == (13, 13, 2)  # all by role at least
+    # typed: a record type a source states, not the drawing a role defaults to
+    assert (totals.channels, totals.has_rule) == (13, 2) and 0 < totals.typed < 13
 
 
 def test_describe_refuses_a_rollup_with_no_grouping(panel_graph):
