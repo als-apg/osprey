@@ -394,27 +394,23 @@ def test_starting_shape_tree_names_the_index_file_and_the_example_directories() 
     assert top_dirs == {path.name for path in _EXAMPLE_BUNDLE.iterdir() if path.is_dir()}
 
 
-def test_images_example_embeds_the_shipped_figure_three_ways() -> None:
+def test_images_example_embeds_the_shipped_figure() -> None:
     figure = "devices/figures/bpm-button-pickups.png"
     text = _block(OKF_PAGE, "markdown", "bpm-button-pickups.png")
     # The block reads as written on a page of ``devices/``, as the page says.
     source_dir = concept_dir(_EXAMPLE_BUNDLE, "devices/bpm")
     embeds = scan_image_embeds(text, source_dir)
-    assert [embed.target for embed in embeds] == [
-        "figures/bpm-button-pickups.png",
-        "figures/bpm-button-pickups.png",
-        f"/{figure}",
-    ], "inline, reference-style and <img>, in that order"
-    assert text.lstrip().startswith("![")
-    assert "][pickups]" in text and "<img " in text
-    for embed in embeds:
-        assert (embed.outcome, embed.path) == ("bundle", figure)
-        assert embed.alt
+    assert [embed.target for embed in embeds] == ["figures/bpm-button-pickups.png"]
+    (embed,) = embeds
+    assert (embed.outcome, embed.path) == ("bundle", figure)
+    assert embed.alt
     assert lookup_asset(_EXAMPLE_BUNDLE, figure).type == "png"
 
-    # The page names the example concept that embeds this figure, and it does.
+    # The page names the example concept and the path the target resolves to,
+    # and that concept embeds the figure.
     page = _folded(_page_text(OKF_PAGE))
-    assert f"``devices/bpm`` concept embeds ``{figure}``" in page
+    assert "``devices/bpm`` concept embeds a figure" in page
+    assert f"here to ``{figure}``" in page
     bpm = OKFDocument.parse((_EXAMPLE_BUNDLE / "devices" / "bpm.md").read_text(encoding="utf-8"))
     assert figure in {embed.path for embed in scan_image_embeds(bpm.body, source_dir)}
 
