@@ -11,9 +11,8 @@ from typing import Any
 
 import pytest
 
-from osprey.services.channel_directory import _connectors, demo, resolve
+from osprey.services.channel_directory import demo, resolve
 from osprey.services.channel_directory.resolve import (
-    FLEET_CANNOT_LIST,
     KAFKA_CLIENT_MISSING,
     NO_SOURCE_WARNING,
     PREDICATES,
@@ -159,17 +158,6 @@ class TestValidSections:
         assert resolved is not None
         assert resolved.warnings == ()
 
-    def test_floor_connectors_warn_once_without_consulting_the_simulator(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(_connectors, "DIRECTORY_CONNECTORS_AVAILABLE", False)
-        monkeypatch.setattr(_connectors, "has_simulator", None)
-
-        resolved = resolve_section(_config({}, _NO_SIMULATOR))
-
-        assert resolved is not None
-        assert resolved.warnings == (f"channel_directory: {_connectors.FLOOR_REASON}",)
-
 
 class TestFleet:
     """The ``fleet`` sub-block: the predicate, the listing warning, a refusal."""
@@ -194,36 +182,6 @@ class TestFleet:
         assert resolved.fleet is not None
         assert predicates(resolved)["channel_directory_fleet"] is True
         assert resolved.warnings == ()
-
-    def test_predicate_is_a_function_of_config_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Connectors that cannot list keep the predicate on and only warn."""
-        monkeypatch.setattr(_connectors, "DIRECTORY_LISTING_AVAILABLE", False)
-
-        resolved = resolve_section(_config({"fleet": {}}))
-
-        assert resolved is not None
-        assert predicates(resolved)["channel_directory_fleet"] is True
-        assert resolved.warnings == (f"channel_directory.fleet: {FLEET_CANNOT_LIST}",)
-
-    def test_cannot_list_does_not_warn_without_the_sub_block(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(_connectors, "DIRECTORY_LISTING_AVAILABLE", False)
-
-        resolved = resolve_section(_config({}))
-
-        assert resolved is not None
-        assert resolved.warnings == ()
-
-    def test_floor_warning_alone_on_floor_connectors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(_connectors, "DIRECTORY_CONNECTORS_AVAILABLE", False)
-        monkeypatch.setattr(_connectors, "DIRECTORY_LISTING_AVAILABLE", False)
-
-        resolved = resolve_section(_config({"fleet": {}}))
-
-        assert resolved is not None
-        assert resolved.warnings == (f"channel_directory: {_connectors.FLOOR_REASON}",)
-        assert predicates(resolved)["channel_directory_fleet"] is True
 
     @pytest.mark.parametrize(
         ("fleet", "key"),

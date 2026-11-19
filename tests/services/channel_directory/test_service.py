@@ -10,12 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import importlib
 import json
-import sys
 from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -31,20 +28,6 @@ from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, Alarm
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
 from tests._service_factory import patch_create_service
-
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 
 VA_BUILD = {"type": "virtual_accelerator"}
 LIVE_BUILD = {"type": "epics"}
@@ -1314,63 +1297,3 @@ async def test_aclose_leaves_no_task(tmp_path: Path) -> None:
     others = {t for t in asyncio.all_tasks() if t is not asyncio.current_task()}
     assert not [t for t in others if t.get_name().startswith("alarm-state-")]
     assert snapshot._task is None
-
-
-# -- the connectors floor -----------------------------------------------------
-
-
-@pytest.fixture
-def floor() -> Iterator[ModuleType]:
-    """The service re-imported over a shim whose channel directory modules are unimportable."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        yield importlib.reload(service)
-    importlib.reload(_connectors)
-    importlib.reload(service)
-
-
-async def test_modules_blocked_every_read_answers_the_floor(
-    tmp_path: Path, floor: ModuleType
-) -> None:
-    directory = floor.DirectoryService(
-        _config(tmp_path, LIVE_BUILD, FACILITY), project_dir=tmp_path
-    )
-    expected = _connectors.unavailable_payload(
-        _connectors.FLOOR_REASON, target="live", words={"live": EPICS_WORDS}
-    )
-
-    assert await directory.search(words="SR") == _no_source_page(expected)
-    assert await directory.count() == {**expected, "total": None}
-    described = await directory.describe("SR:BPM1")
-    assert {key: described[key] for key in expected} == expected
-    assert await directory.backend("channel_directory") == (None, None, _connectors.FLOOR_REASON)
-    assert await directory.snapshot() is None
-    assert await directory.probes() == {"channel_directory": expected}
-    await directory.aclose()
-
-
-def test_modules_blocked_the_framework_takes_only_listed_names(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tests.connectors import test_public_api
-
-    for name in _NEW_MODULES:
-        monkeypatch.setitem(sys.modules, name, None)
-    test_public_api._framework_imports.cache_clear()
-    try:
-        taken = [
-            (module, name)
-            for where, module, name in test_public_api._framework_imports()
-            if where.startswith("src/osprey/services/channel_directory/service.py")
-        ]
-        test_public_api.test_the_framework_takes_only_listed_names()
-    finally:
-        test_public_api._framework_imports.cache_clear()
-
-    assert taken
-    assert all(
-        not any(module == new or module.startswith(new + ".") for new in _NEW_MODULES)
-        for module, _ in taken
-    )

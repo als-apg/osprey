@@ -3,10 +3,8 @@
 :class:`DirectoryService` follows the session's control target: the target of the
 control-context record, or the deployment's baseline when there is none. For that
 target it builds each backend ``service_targets`` names, through the
-connectors' factory, and answers searches, counts and records as plain payloads,
-on every connectors release: without the channel directory modules every read answers
-``unavailable`` with the upgrade reason, and a section with no source on the
-current target answers the no-source form.
+connectors' factory, and answers searches, counts and records as plain payloads;
+a section with no source on the current target answers the no-source form.
 
 A search runs the page, the count and the facets concurrently under one deadline
 (``settings.timeout_s``); a part that misses it is listed in ``partial``. Facets and
@@ -36,8 +34,6 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from osprey.services.channel_directory._connectors import (
-    DIRECTORY_CONNECTORS_AVAILABLE,
-    FLOOR_REASON,
     NO_SOURCE_REASON,
     SERVED_FIELD,
     DirectoryPage,
@@ -332,18 +328,9 @@ class DirectoryService:
 
         *kinds* limits the answer to those kinds. The ``alarm_state`` probe starts
         the feed through :meth:`snapshot` and waits for catch-up up to the
-        deadline. Without the channel directory modules the answer is the one
-        ``channel_directory`` floor entry, whatever *kinds* asks.
+        deadline.
         """
         target = await self._sync()
-        if not DIRECTORY_CONNECTORS_AVAILABLE:
-            if self._config.get(_SECTION_KEY) is None:
-                return {}
-            return {
-                "channel_directory": unavailable_payload(
-                    FLOOR_REASON, target=target, words=self._words
-                )
-            }
         wanted = _KINDS if kinds is None else tuple(kinds)
         table = service_targets(self._config)
         asked = [
@@ -413,8 +400,6 @@ class DirectoryService:
 
     async def _resolve(self, kind: str) -> tuple[Any, Any, str | None]:
         """``(backend, source, None)``, or ``(None, None, reason)`` when there is none."""
-        if not DIRECTORY_CONNECTORS_AVAILABLE:
-            return None, None, FLOOR_REASON
         at = self._at
         if kind in self._built:
             return self._built[kind]
@@ -472,14 +457,10 @@ class DirectoryService:
 
     def _has_archive(self) -> bool:
         """Whether the deployment's archive serves the current target."""
-        if not DIRECTORY_CONNECTORS_AVAILABLE:
-            return False
         target = self._at[0] if self._at else self._position()[0]
         return target in archive_targets(self._config)
 
     async def _archive_connector(self, *, fresh: bool = False) -> tuple[Any, Any, str | None]:
-        if not DIRECTORY_CONNECTORS_AVAILABLE:
-            return None, None, FLOOR_REASON
         if not self._has_archive():
             return None, None, NO_SOURCE_REASON
         at = self._at

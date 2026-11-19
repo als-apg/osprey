@@ -1,10 +1,9 @@
 """Applying a scenario that stops an IOC the render cannot stop is refused.
 
 The simulator view keeps the name of an IOC whose model the render does not serve
-out of the scenario's ``stopped_servers`` and lists it under ``inactive_servers``,
-and does the same with every name when the osprey-connectors it was built with
-cannot stop a simulated IOC; ``apply_scenarios`` refuses the scenario rather than
-activate it without the stop it describes, and writes no state.
+out of the scenario's ``stopped_servers`` and lists it under ``inactive_servers``;
+``apply_scenarios`` refuses the scenario rather than activate it without the
+stop it describes, and writes no state.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.facility.views.simulator import INACTIVE_UNSTOPPABLE
 from osprey.simulation.apply import apply_scenarios
 from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 from osprey_connectors.workspace import resolve_simulation_state_dir
@@ -30,11 +28,6 @@ def project(tmp_path: Path) -> Path:
                 "description": "Stops an IOC whose model this render does not serve.",
                 "stopped_servers": [],
                 "inactive_servers": {"line-ioc": "model not served"},
-            },
-            "ioc-unstoppable": {
-                "description": "Stops an IOC on connectors that cannot stop one.",
-                "stopped_servers": [],
-                "inactive_servers": {"ring-ioc": INACTIVE_UNSTOPPABLE},
             },
             "ioc-served": {
                 "description": "Stops an IOC this render serves.",
@@ -56,20 +49,6 @@ def test_applying_a_scenario_stopping_an_unserved_server_is_refused(project: Pat
     ):
         apply_scenarios(project, ["ioc-down"], seed_logbook=False, seed_archive=False)
 
-    assert not _state_file(project).exists()
-
-
-def test_applying_a_scenario_built_on_connectors_that_cannot_stop_a_server_is_refused(
-    project: Path,
-) -> None:
-    with pytest.raises(ValueError) as stop:
-        apply_scenarios(project, ["ioc-unstoppable"], seed_logbook=False, seed_archive=False)
-
-    assert str(stop.value) == (
-        "Scenario 'ioc-unstoppable' stops IOC(s) ring-ioc, which needs an osprey-connectors "
-        "release that can stop a simulated IOC; "
-        "upgrade osprey-connectors and run 'osprey build' to apply it."
-    )
     assert not _state_file(project).exists()
 
 

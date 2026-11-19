@@ -31,12 +31,12 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
-from osprey.facility.views.simulator import INACTIVE_UNSERVED, INACTIVE_UNSTOPPABLE
+from osprey.facility.views.simulator import INACTIVE_UNSERVED
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import (
-    IOC_HEALTH_SIGNALS,
     SCENARIOS_SCHEMA,
     SEEDS_SCHEMA,
+    SERVER_HEALTH_SIGNALS,
     SimulatorView,
 )
 from tests._builds import init_project
@@ -150,12 +150,12 @@ def test_addresses_are_the_facility_file_channels_and_the_served_status(
     assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BTS", "LINE", "LTB", "SR")]
 
 
-def test_every_served_model_lists_its_ioc_health_addresses_texture_last(
+def test_every_served_model_lists_its_server_health_addresses_texture_last(
     built_demo: BuiltProject,
 ) -> None:
     addresses = json.loads((built_demo.build_dir / ADDRESSES).read_bytes())
 
-    assert addresses["ioc_health"] == [
+    assert addresses["server_health"] == [
         f"ca:SIM:{name}:{signal}"
         for name in ("BTS", "LINE", "LTB", "SR", TEXTURE)
         for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
@@ -173,15 +173,15 @@ def test_a_render_with_a_channel_directory_section_lists_the_same_server_health_
     assert (with_directory / ADDRESSES).read_bytes() == (plain / ADDRESSES).read_bytes()
 
 
-def test_the_reader_groups_the_written_ioc_health_addresses_by_model(
+def test_the_reader_groups_the_written_server_health_addresses_by_model(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     render_dir = _render(tmp_path, built_demo, {"simulation": {"models": ["SR"]}})
 
     view = SimulatorView.open(render_dir / "data" / "simulator")
 
-    assert view.ioc_health_by_model() == {
-        name: {signal: f"ca:SIM:{name}:{signal}" for signal in IOC_HEALTH_SIGNALS}
+    assert view.server_health_by_model() == {
+        name: {signal: f"ca:SIM:{name}:{signal}" for signal in SERVER_HEALTH_SIGNALS}
         for name in ("SR", TEXTURE)
     }
 
@@ -219,7 +219,7 @@ def test_no_physics_serves_texture_alone_and_keeps_the_deck(
     addresses = json.loads((render_dir / ADDRESSES).read_bytes())
     assert served["models"] == [TEXTURE]
     assert addresses["status"] == []
-    assert addresses["ioc_health"] == [
+    assert addresses["server_health"] == [
         f"ca:SIM:{TEXTURE}:{signal}" for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
     ]
     assert (render_dir / DECK).read_bytes() == (built_demo.build_dir / DECK).read_bytes()
@@ -1218,47 +1218,3 @@ def test_a_default_scenario_stopping_an_unserved_models_ioc_is_refused_at_render
     assert "`sim-SR`, which this render does not serve" in stop.value.detail
     assert "`sim-texture`" in stop.value.remedy
     assert "`simulation.default_scenarios`" in stop.value.remedy
-
-
-def test_stopped_servers_are_all_inactive_on_connectors_that_cannot_stop_a_server(
-    tmp_path: Path, built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from osprey.facility.views import simulator
-
-    monkeypatch.setattr(simulator, "served_servers", None)
-    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
-
-    (entry,) = [
-        e for e in _rendered_scenarios(tmp_path, built_demo, [scenario]) if e["name"] == "sr-down"
-    ]
-    assert entry == {
-        "name": "sr-down",
-        "stopped_servers": [],
-        "inactive_servers": {
-            "sim-SR": INACTIVE_UNSTOPPABLE,
-            "sim-texture": INACTIVE_UNSTOPPABLE,
-        },
-    }
-
-
-def test_a_default_scenario_stopping_a_server_is_refused_on_connectors_that_cannot(
-    tmp_path: Path, built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from osprey.facility.views import simulator
-
-    monkeypatch.setattr(simulator, "served_servers", None)
-    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR"]}
-    config = {"simulation": {"default_scenarios": ["sr-down"]}}
-
-    with pytest.raises(FacilityBuildError) as stop:
-        _rendered_scenarios(tmp_path, built_demo, [scenario], config)
-
-    assert stop.value.kind == "value-invalid"
-    assert stop.value.record_id == "sr-down"
-    assert stop.value.detail == (
-        "default scenario `sr-down`'s `stopped_servers` needs an osprey-connectors "
-        "release that can stop a simulated IOC"
-    )
-    assert stop.value.remedy == (
-        "upgrade osprey-connectors, or drop `sr-down` from `simulation.default_scenarios`"
-    )

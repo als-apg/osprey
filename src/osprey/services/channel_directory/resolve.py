@@ -7,16 +7,12 @@ the panel and health all use; none of them computes these keys itself.
 A malformed section raises :class:`SectionError` naming the key, which the build
 turns into a refusal. A section that is valid but cannot serve everything it
 names resolves with :attr:`ResolvedSection.warnings`: no ``type`` on a build
-without a simulator, a Kafka feed without its client, connectors without PV
-directory support, a fleet on connectors that cannot list. ``None`` means no
+without a simulator, a Kafka feed without its client. ``None`` means no
 section: absent, or set to ``null``.
 
 The ``fleet`` sub-block resolves into
 :class:`~osprey.services.channel_directory.fleet.settings.FleetSettings`, held on
 :attr:`ResolvedSection.fleet`.
-
-The connectors are reached through the shim inside functions only, so this
-module imports on every connectors release.
 """
 
 from __future__ import annotations
@@ -34,7 +30,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ALARM_REPLAY",
-    "FLEET_CANNOT_LIST",
     "INTERNAL_TYPES",
     "KAFKA_ALARM_STATE",
     "KAFKA_CLIENT_MISSING",
@@ -67,11 +62,6 @@ KAFKA_CLIENT_MISSING = (
 NO_SOURCE_WARNING = (
     "channel_directory has no type and the build has no simulator: "
     "every section answers 'not available for this target'"
-)
-
-FLEET_CANNOT_LIST = (
-    "the installed osprey-connectors cannot list a directory's servers: "
-    "the server fleet view answers 'cannot list' on every target"
 )
 
 #: The context keys, in the order every consumer lists them.
@@ -189,7 +179,7 @@ def resolve_section(
         replay_file=replay_file,
         put_log=put_log,
         fleet=fleet,
-        warnings=_warnings(config, directory_type, alarm_state, fleet=fleet is not None),
+        warnings=_warnings(config, directory_type, alarm_state),
     )
 
 
@@ -202,24 +192,11 @@ def _fleet(config: Mapping[str, Any], block: Any) -> FleetSettings | None:
 
 
 def _warnings(
-    config: Mapping[str, Any],
-    directory_type: str | None,
-    alarm_state: str | None,
-    *,
-    fleet: bool = False,
+    config: Mapping[str, Any], directory_type: str | None, alarm_state: str | None
 ) -> tuple[str, ...]:
-    from osprey.services.channel_directory._connectors import (
-        DIRECTORY_CONNECTORS_AVAILABLE,
-        DIRECTORY_LISTING_AVAILABLE,
-        FLOOR_REASON,
-        has_simulator,
-    )
+    from osprey.services.channel_directory._connectors import has_simulator
 
-    if not DIRECTORY_CONNECTORS_AVAILABLE:
-        return (f"{SECTION_KEY}: {FLOOR_REASON}",)
     warnings: list[str] = []
-    if fleet and not DIRECTORY_LISTING_AVAILABLE:
-        warnings.append(f"{SECTION_KEY}.{_FLEET_BLOCK}: {FLEET_CANNOT_LIST}")
     if directory_type is None and not has_simulator(config):
         warnings.append(NO_SOURCE_WARNING)
     if alarm_state == KAFKA_ALARM_STATE and not _kafka_client_installed():

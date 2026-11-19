@@ -11,7 +11,6 @@ import asyncio
 import importlib
 import json
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -28,19 +27,6 @@ KAFKA = {
     "type": "phoebus_alarm_server",
     "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator", "timeout_s": 0.2},
 }
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 
 
 @pytest.fixture
@@ -279,35 +265,3 @@ async def test_the_replay_on_va_answers_at_once(tmp_path: Path) -> None:
     assert rows[0].value.endswith("messages from the replay file")
     assert rows[0].details == "alarm_replay on va"
     assert _alarm_tasks() == []
-
-
-# -- the connectors floor -------------------------------------------------------
-
-
-@pytest.fixture
-def floor() -> Iterator[None]:
-    """The directory service re-imported over a shim without the channel directory modules."""
-    from osprey.services.channel_directory import _connectors, service
-
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        importlib.reload(service)
-        yield
-    importlib.reload(_connectors)
-    importlib.reload(service)
-
-
-@pytest.mark.usefixtures("floor")
-async def test_modules_blocked_one_row_names_the_upgrade(tmp_path: Path) -> None:
-    from osprey.services.channel_directory._connectors import FLOOR_REASON
-
-    config = _config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
-
-    rows = await channel_directory(config, cwd=tmp_path)()
-    feed = await channel_directory_alarm_feed(config, cwd=tmp_path)()
-
-    assert [(r.name, r.status) for r in rows] == [("channel_directory.directory", Status.WARNING)]
-    assert rows[0].message == f"directory: {FLOOR_REASON}"
-    assert feed == []

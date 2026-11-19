@@ -9,10 +9,8 @@ from __future__ import annotations
 
 import ast
 import fnmatch
-import importlib
 import inspect
 import json
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,7 +26,6 @@ from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
 from osprey.interfaces.channel_finder import directory_pages_api
-from osprey.services.channel_directory import _connectors, service
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import (
     AlarmConfigRecord,
@@ -43,19 +40,6 @@ from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 _NO_SOURCE = "not available for this target"
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -436,29 +420,6 @@ def test_the_logbook_follows_a_target_move(start, tmp_path: Path, record: _Recor
         assert client.get("/api/directory/logbook/availability").json()["available"] is True
         record.move("va", 1)
         assert client.get("/api/directory/logbook/availability").json()["available"] is False
-
-
-@pytest.fixture()
-def floor() -> Iterator[None]:
-    """The shim, the service and this route module re-imported without the new modules."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        importlib.reload(service)
-        importlib.reload(directory_pages_api)
-        yield
-    importlib.reload(_connectors)
-    importlib.reload(service)
-    importlib.reload(directory_pages_api)
-
-
-@pytest.mark.usefixtures("floor")
-def test_on_the_floor_the_logbook_answers_the_upgrade_reason(start, tmp_path: Path) -> None:
-    with start(_with_ariel(_config(tmp_path, LIVE_BUILD, FACILITY))) as (_app, client):
-        answer = client.get("/api/directory/logbook/availability").json()
-
-    assert answer == {"available": False, "source": None, "reason": _connectors.FLOOR_REASON}
 
 
 def test_no_ariel_client_is_reachable_from_the_module() -> None:

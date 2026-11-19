@@ -11,11 +11,6 @@ import pytest
 pytest.importorskip("osprey_connectors.safety_file")
 pytest.importorskip("osprey_connectors.service_answers")
 
-from osprey.services.channel_directory._connectors import DIRECTORY_LISTING_AVAILABLE
-
-if not DIRECTORY_LISTING_AVAILABLE:  # pragma: no cover - an older connectors package
-    pytest.skip("the installed connectors package cannot list", allow_module_level=True)
-
 from osprey.runtime import raw_put_block
 from osprey.services.channel_directory.fleet import refresher as refresher_module
 from osprey.services.channel_directory.fleet.memory import FleetMemory

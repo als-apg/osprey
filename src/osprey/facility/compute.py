@@ -261,13 +261,13 @@ def _model_conflicts(run: _Run) -> None:
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
-    from osprey.facility.views.simulator import ioc_health_addresses, status_address
+    from osprey.facility.views.simulator import server_health_addresses, status_address
 
     code = run.document["identity"]["code"]
     physics = [model["name"] for model in models if str(model["name"]).casefold() != TEXTURE]
     served = {status_address(code, name): (name, "status") for name in physics}
     for name in (*physics, TEXTURE):
-        for address in ioc_health_addresses(code, name):
+        for address in server_health_addresses(code, name):
             served[address] = (name, "IOC health")
     for channel in run.document.get("channels", []):
         owner = served.get(channel["id"])

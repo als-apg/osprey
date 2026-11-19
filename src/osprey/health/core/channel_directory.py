@@ -10,8 +10,7 @@ Two categories share this module, split by cost class:
   carries the backend's probe words.
 
 A row is ``ok`` with the service's evidence as its value, ``warning`` with the
-reason when the service cannot answer (a connectors release without the PV
-directory modules included), and ``skip`` when the service has no source on the
+reason when the service cannot answer, and ``skip`` when the service has no source on the
 current target. With no ``channel_directory`` section, or no config, neither
 category has rows. Both build the service inside the call and close it before
 returning, so no feed task outlives the run.

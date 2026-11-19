@@ -686,9 +686,7 @@ async def _guarded(call: Awaitable[Any]) -> Any:
 
 def _is_unavailable(answer: Any) -> bool:
     """Whether *answer* is a reason, not a record: the connectors' ``Unavailable`` or ours."""
-    return isinstance(answer, _Reason) or (
-        Unavailable is not None and isinstance(answer, Unavailable)
-    )
+    return isinstance(answer, (_Reason, Unavailable))
 
 
 def _section(backend: Any, outcome: str, **fields: Any) -> dict[str, Any]:

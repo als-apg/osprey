@@ -57,9 +57,6 @@ from pathlib import Path
 from typing import Any
 
 from osprey.services.channel_directory._connectors import (
-    DIRECTORY_CONNECTORS_AVAILABLE,
-    DIRECTORY_LISTING_AVAILABLE,
-    FLOOR_REASON,
     DirectoryQuery,
     Unavailable,
     service_targets,
@@ -915,10 +912,6 @@ async def _build_connector(control_system: Any, target: str) -> Any:
 
 async def _build_directory(config: Mapping[str, Any], target: str, project_dir: Path | None):
     """``(directory, kind, no_directory_reason, problem)`` for *target*."""
-    if not DIRECTORY_CONNECTORS_AVAILABLE:
-        return None, "", FLOOR_REASON, None
-    if not DIRECTORY_LISTING_AVAILABLE:
-        return None, "", "the installed connectors package cannot list a directory's servers", None
     spec = service_targets(config)["directory"].get(target)
     if spec is None:
         return None, "", f"the target {target!r} has no channel directory", None

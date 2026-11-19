@@ -4,8 +4,7 @@ Two comparisons, both over every file of the rendered repo (see ``_off_render``)
 
 - Against the baseline ref, rendered live from a scratch worktree: the three
   configurations, the branch side with the section stripped from the config block of
-  every profile it renders and with the connectors modules newer than the floor blocked
-  from import. Only the allow-list below may differ. Once the baseline holds the
+  every profile it renders. Only the allow-list below may differ. Once the baseline holds the
   feature this skips, and the permanent guard holds it. The saved copy of what the
   presets produced (``.osprey/preset-base/``) is the preset as shipped, written before
   the strip, so it is compared without the section and the opt-out and otherwise whole.
@@ -23,8 +22,6 @@ import json
 import re
 import shutil
 import stat
-import subprocess
-import sys
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
@@ -59,32 +56,6 @@ SECTION = "channel_directory"
 #: A baseline holding this has the feature; the permanent guard then holds the Off render.
 #: The panel's directory routes: they kept their path when the section was renamed.
 LANDED = "src/osprey/interfaces/channel_finder/directory_api.py"
-#: The connectors modules newer than the connectors floor, blocked in every off render.
-NEW_CONNECTORS_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.put_log",
-)
-
-BLOCKER = f"""
-import sys
-
-BLOCKED = {NEW_CONNECTORS_MODULES!r}
-
-
-class _Blocked:
-    def find_spec(self, name, path=None, target=None):
-        if any(name == module or name.startswith(module + ".") for module in BLOCKED):
-            raise ModuleNotFoundError(f"No module named {{name!r}}", name=name)
-        return None
-
-
-sys.meta_path.insert(0, _Blocked())
-"""
 
 SOURCE_ZONE_MARK = "<source zone>"
 #: The repo's own profile and the image's copy of it, left out as source zone: the
@@ -99,9 +70,9 @@ _OPT_OUT_LINES = re.compile(
 _PROVENANCE_DIGEST = re.compile(r"((?:content hash|preset_hash): sha256:)[0-9a-f]{64}")
 
 
-def _without_ioc_health(text: str) -> str:
+def _without_server_health(text: str) -> str:
     document = json.loads(text)
-    document.pop("ioc_health", None)
+    document.pop("server_health", None)
     return json.dumps(document, sort_keys=True, indent=1)
 
 
@@ -167,7 +138,7 @@ ALLOW_LIST = (
     Allowed(
         ("**/data/simulator/addresses.json",),
         "the simulator view lists the IOC health PVs the VA serves",
-        _without_ioc_health,
+        _without_server_health,
     ),
     Allowed(
         (
@@ -343,33 +314,6 @@ def switch_section_off(repo: Path) -> None:
     _rewrite_config(repo / "profile.yml", lambda config: {**stripped(config), SECTION: None})
 
 
-def blocked_environment(blocker: Path) -> Callable[[Path], dict[str, str]]:
-    """``render_environment`` with a ``sitecustomize`` that blocks the new modules."""
-    plain = _off_render.render_environment
-
-    def environment(source: Path) -> dict[str, str]:
-        env = plain(source)
-        env["PYTHONPATH"] = f"{blocker}:{env['PYTHONPATH']}"
-        return env
-
-    return environment
-
-
-@pytest.fixture(scope="module")
-def blocker(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    path = tmp_path_factory.mktemp("blocker")
-    (path / "sitecustomize.py").write_text(BLOCKER, encoding="utf-8")
-    return path
-
-
-@pytest.fixture(scope="module", autouse=True)
-def blocked(blocker: Path) -> Iterator[None]:
-    """Every render of this module runs with the new connectors modules blocked."""
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(_off_render, "render_environment", blocked_environment(blocker))
-        yield
-
-
 @pytest.mark.parametrize(
     ("relative", "glob", "expected"),
     [
@@ -417,21 +361,6 @@ def test_the_saved_copys_rules_take_out_only_the_stated_keys() -> None:
     assert yaml.safe_load(_without_saved_opt_out(on)) == {"config": {OPT_OUT_KEY: True}}
     off = f"config:\n  x: 1\n  {OPT_OUT_KEY}: false\n"
     assert yaml.safe_load(_without_saved_opt_out(off)) == {"config": {"x": 1}}
-
-
-def test_the_blocker_refuses_exactly_the_new_modules(blocker: Path) -> None:
-    env = blocked_environment(blocker)(ROOT)
-    probe = (
-        "import importlib, osprey_connectors.workspace\n"
-        f"for name in {NEW_CONNECTORS_MODULES!r}:\n"
-        "    try:\n"
-        "        importlib.import_module(name)\n"
-        "    except ModuleNotFoundError:\n"
-        "        continue\n"
-        "    raise SystemExit(f'{name} imported')\n"
-    )
-    done = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
 
 
 @pytest.fixture(scope="module")

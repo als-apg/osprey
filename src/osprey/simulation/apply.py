@@ -331,24 +331,14 @@ def _refuse_inactive_stops(
 
     The view keeps the name of an IOC whose model the render does not serve out
     of the scenario's ``stopped_servers`` and lists it under ``inactive_servers``
-    instead, and does the same with every name when the osprey-connectors it was
-    built with cannot stop a simulated IOC. Either way the scenario would apply
-    without the stop it describes. Applying it is refused rather than run half-way.
+    instead, so the scenario would apply without the stop it describes. Applying
+    it is refused rather than run half-way.
 
     Raises:
         ValueError: A requested scenario lists an inactive IOC.
     """
-    from osprey.facility.views.simulator import INACTIVE_UNSTOPPABLE
-
     for name in names:
         inactive = (scenarios.get(name) or {}).get("inactive_servers") or {}
-        unstoppable = sorted(ioc for ioc, why in inactive.items() if why == INACTIVE_UNSTOPPABLE)
-        if unstoppable:
-            raise ValueError(
-                f"Scenario {name!r} stops IOC(s) {', '.join(unstoppable)}, which needs an "
-                "osprey-connectors release that can stop a simulated IOC; "
-                "upgrade osprey-connectors and run 'osprey build' to apply it."
-            )
         if inactive:
             listed = ", ".join(f"{ioc} ({why})" for ioc, why in sorted(inactive.items()))
             raise ValueError(

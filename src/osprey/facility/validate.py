@@ -55,15 +55,8 @@ from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_error
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
+from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
 from osprey_connectors.simulation.values import is_waveform
-
-try:
-    from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
-except ImportError:  # an osprey-connectors release older than scenario ``stopped_servers``
-    from osprey_connectors.simulation import GATED_TYPES as _FLOOR_STAND_IN  # noqa: F401
-
-    TEXTURE_SERVER = None  # type: ignore[assignment]
-    served_servers = None  # type: ignore[assignment]
 
 __all__ = [
     "FACILITY_HEADER",
@@ -2237,24 +2230,18 @@ class _Records:
 
         Which models a render serves is the render's to know, so a name of a
         model it leaves unserved is refused there (``views/simulator.py``).
-        The names are the connectors' to know: on an osprey-connectors release
-        that cannot stop a simulated IOC only the shape is checked here, and
-        the view carries every name as inactive.
         """
         if block is None:
             return
         if not isinstance(block, list) or not all(isinstance(ioc, str) for ioc in block):
-            texture = f" or `[{TEXTURE_SERVER}]`" if TEXTURE_SERVER is not None else ""
             yield self._error(
                 "value-invalid",
                 "scenario",
                 name,
                 files,
                 f"`stopped_servers` is {block!r}, not a list of simulated IOC names",
-                f"write `stopped_servers: [sim-<model>, ...]`{texture}",
+                f"write `stopped_servers: [sim-<model>, ...]` or `[{TEXTURE_SERVER}]`",
             )
-            return
-        if served_servers is None:
             return
         known = served_servers(
             model_name

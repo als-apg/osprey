@@ -15,7 +15,6 @@ import json
 import sys
 from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 from urllib.parse import unquote
 
@@ -29,7 +28,7 @@ import osprey.channel_roster as channel_roster
 from osprey.mcp_server.channel_directory import server
 from osprey.mcp_server.channel_directory.tools import properties, search
 from osprey.registry.mcp import FRAMEWORK_SERVERS
-from osprey.services.channel_directory import _connectors, facts, service
+from osprey.services.channel_directory import _connectors
 from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
@@ -37,20 +36,6 @@ from osprey_connectors.directory import DirectoryPage, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
 from tests._service_factory import patch_create_service
 from tests.mcp_server.conftest import assert_raises_error
-
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 
 LIVE_BUILD = {"type": "epics"}
 FACILITY = {"type": "channelfinder", "settings": {"url": "http://cf.example", "timeout_s": 0.3}}
@@ -499,38 +484,3 @@ def test_a_gated_module_registers_its_tool_from_the_server_alone(tool: str) -> N
 
 
 # -- connectors without the directory modules ---------------------------------
-
-
-@pytest.fixture
-def floor() -> Iterator[ModuleType]:
-    """The service re-imported over a shim whose channel directory modules are unimportable."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        yield importlib.reload(service)
-    importlib.reload(_connectors)
-    importlib.reload(service)
-
-
-async def test_modules_blocked_both_tools_refuse_with_the_upgrade_reason(
-    tmp_path: Path, floor: ModuleType
-) -> None:
-    config = _config(tmp_path, FACILITY)
-    directory = floor.DirectoryService(config, project_dir=tmp_path)
-    server.set_tool_context(
-        server.ToolContext(
-            predicates={}, service=directory, channel_facts=facts.Facts(directory, config)
-        )
-    )
-
-    with assert_raises_error(error_type="not_supported") as searched:
-        await search.directory_search(words="SR")
-    with assert_raises_error(error_type="not_supported") as listed:
-        await properties.directory_properties("iocName")
-
-    expected = _connectors.unavailable_payload(
-        _connectors.FLOOR_REASON, target="live", words={"live": EPICS_WORDS}
-    )
-    assert searched["envelope"]["details"] == _no_source_page(expected)
-    assert listed["envelope"]["details"]["reason"] == _connectors.FLOOR_REASON

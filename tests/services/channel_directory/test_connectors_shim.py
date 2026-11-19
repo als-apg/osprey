@@ -1,44 +1,20 @@
-"""Tests for the connectors shim, with the channel directory modules present and blocked.
-
-Blocking is the connectors floor: a release without those modules. The shim then
-binds every contract name to ``None`` and its payload helpers still answer. The
-middle release has the directory but cannot list its servers: the directory's
-names are bound and only the listing's are ``None``.
-"""
+"""Tests for the connectors shim: the names it binds and its payload helpers."""
 
 from __future__ import annotations
 
-import importlib
-import sys
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
-from types import ModuleType
 
 import pytest
 
-from osprey.services.channel_directory import _connectors, resolve
+from osprey.services.channel_directory import _connectors
 from osprey.services.channel_directory.vocabulary import EPICS_WORDS, NEUTRAL_WORDS
-
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 
 _CONTRACT_NAMES = (
     "APPLIANCE_TARGETS",
     "ENGINEER",
-    "IOC_HEALTH_SIGNALS",
     "SERVED_SIGNAL_PROPERTY",
+    "SERVER_HEALTH_SIGNALS",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
     "AlarmLog",
@@ -61,26 +37,6 @@ _CONTRACT_NAMES = (
     "has_simulator",
     "service_targets",
 )
-
-
-@pytest.fixture
-def floor() -> Iterator[ModuleType]:
-    """The shim re-imported with the channel directory modules unimportable."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        yield importlib.reload(_connectors)
-    importlib.reload(_connectors)
-
-
-@pytest.fixture
-def no_listing() -> Iterator[ModuleType]:
-    """The shim re-imported against a directory namespace that lacks ``ServerRow``."""
-    directory = pytest.importorskip("osprey_connectors.directory")
-    with pytest.MonkeyPatch.context() as patch:
-        patch.delattr(directory, "ServerRow")
-        yield importlib.reload(_connectors)
-    importlib.reload(_connectors)
 
 
 class _Kind(StrEnum):
@@ -137,7 +93,6 @@ def test_with_the_modules_every_name_is_bound() -> None:
     from osprey_connectors import service_answers, simulator
     from osprey_connectors.simulation import view
 
-    assert _connectors.DIRECTORY_CONNECTORS_AVAILABLE is True
     assert _connectors.Source is service_answers.Source
     assert _connectors.SERVED_SIGNAL_PROPERTY is view.SERVED_SIGNAL_PROPERTY
     assert _connectors.has_simulator is simulator.has_simulator
@@ -147,15 +102,7 @@ def test_with_the_modules_every_name_is_bound() -> None:
 def test_with_the_modules_the_listing_is_bound() -> None:
     directory = pytest.importorskip("osprey_connectors.directory")
 
-    assert _connectors.DIRECTORY_LISTING_AVAILABLE is True
     assert _connectors.ServerRow is directory.ServerRow
-
-
-def test_a_directory_without_the_listing_keeps_the_directory(no_listing: ModuleType) -> None:
-    assert no_listing.DIRECTORY_CONNECTORS_AVAILABLE is True
-    assert all(getattr(no_listing, name) is not None for name in _CONTRACT_NAMES)
-    assert no_listing.DIRECTORY_LISTING_AVAILABLE is False
-    assert no_listing.ServerRow is None
 
 
 def test_as_payload_of_a_contract_record() -> None:
@@ -223,35 +170,3 @@ def test_rows_are_served_under_the_epics_words() -> None:
         "host": None,
         "last_announced": None,
     }
-
-
-def test_floor_binds_every_contract_name_to_none(floor: ModuleType) -> None:
-    assert floor.DIRECTORY_CONNECTORS_AVAILABLE is False
-    assert {name: getattr(floor, name) for name in _CONTRACT_NAMES} == dict.fromkeys(
-        _CONTRACT_NAMES
-    )
-
-
-def test_floor_has_no_listing(floor: ModuleType) -> None:
-    assert floor.DIRECTORY_LISTING_AVAILABLE is False
-    assert floor.ServerRow is None
-
-
-def test_floor_payload_helpers_still_work(floor: ModuleType) -> None:
-    payload = floor.unavailable_payload(floor.FLOOR_REASON, target="live")
-
-    assert payload["source"]["service"] == "none"
-    assert (
-        payload["reason"]
-        == "installed osprey-connectors has no channel directory support (upgrade it)"
-    )
-    assert floor.as_payload(_Inner(kind=_Kind.ROW, names=())) == {"kind": "row", "names": []}
-
-
-def test_floor_section_resolves_with_one_warning(floor: ModuleType) -> None:
-    resolved = resolve.resolve_section(
-        {"control_system": {"type": "epics"}, "channel_directory": {}}
-    )
-
-    assert resolved is not None
-    assert resolved.warnings == (f"channel_directory: {floor.FLOOR_REASON}",)

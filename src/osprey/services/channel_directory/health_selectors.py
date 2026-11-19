@@ -20,7 +20,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from osprey.services.channel_directory._connectors import IOC_HEALTH_SIGNALS, SERVED_SIGNAL_PROPERTY
+from osprey.services.channel_directory._connectors import (
+    SERVED_SIGNAL_PROPERTY,
+    SERVER_HEALTH_SIGNALS,
+)
 
 __all__ = [
     "SIMULATED_SIGNALS",
@@ -44,7 +47,7 @@ def role_of(signal: str) -> str:
 
 
 #: Each IOC health role a simulator serves, and the signal its rows are marked with.
-SIMULATED_SIGNALS = {role_of(signal): signal for signal in IOC_HEALTH_SIGNALS or ()}
+SIMULATED_SIGNALS = {role_of(signal): signal for signal in SERVER_HEALTH_SIGNALS}
 
 
 @dataclass(frozen=True)

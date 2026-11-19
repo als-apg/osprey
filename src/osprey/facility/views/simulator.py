@@ -4,7 +4,7 @@ Written into ``<render>/data/simulator/``::
 
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...],
-                          ioc_health: [...]}
+                          server_health: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/4, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
@@ -44,10 +44,7 @@ plus ``inactive: model not served`` when the render does not serve it;
 ``stopped_servers`` keeps only the IOCs this render serves, and each named IOC of
 a model the render does not serve moves to ``inactive_servers``, mapped to
 ``model not served``, and stops nothing; such a name is refused only when its
-scenario is one of the render's ``simulation.default_scenarios``; on an
-osprey-connectors release that cannot stop a simulated IOC every named IOC moves
-there, mapped to ``osprey-connectors cannot stop a simulated IOC``, under the
-same rule;
+scenario is one of the render's ``simulation.default_scenarios``;
 ``still`` is the sorted list of float addresses its ``all``, addresses and
 selections resolve to; a scenario named ``still`` that stills every float
 reading is listed when no file defines one. Each
@@ -74,12 +71,14 @@ from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
+from osprey_connectors.simulation.servers import served_servers
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
     DECKS_DIR,
+    IOC_HEALTH_SIGNALS,
     SCENARIOS_DIR,
     SCENARIOS_FILE,
     SCENARIOS_SCHEMA,
@@ -93,28 +92,11 @@ from osprey_connectors.simulation.view import (
     SimulatorView,
 )
 
-try:
-    from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS
-except ImportError:  # a connectors release whose view names no IOC health signals
-    from osprey_connectors.simulation.view import ADDRESSES_FILE as _FLOOR_STAND_IN  # noqa: F401
-
-    IOC_HEALTH_SIGNALS = ()  # type: ignore[assignment]
-
-try:
-    from osprey_connectors.simulation.servers import served_servers
-except ImportError:  # an osprey-connectors release older than scenario ``stopped_servers``
-    from osprey_connectors.simulation.view import (
-        ADDRESSES_FILE as _SERVERS_FLOOR_STAND_IN,  # noqa: F401
-    )
-
-    served_servers = None  # type: ignore[assignment]
-
 __all__ = [
     "ADDRESSES_FILE",
     "ADDRESSES_SCHEMA",
     "DECKS_DIR",
     "INACTIVE_UNSERVED",
-    "INACTIVE_UNSTOPPABLE",
     "SCENARIOS_DIR",
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
@@ -124,9 +106,9 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
-    "ioc_health_addresses",
     "resolved_still",
     "served_deck_path",
+    "server_health_addresses",
     "simulator_wiring",
     "status_address",
     "withdraw_scenarios",
@@ -136,10 +118,6 @@ __all__ = [
 
 #: The mark a scenario's faults carry for a model the render does not serve.
 INACTIVE_UNSERVED = "model not served"
-
-#: The mark a scenario's stopped IOCs carry on an osprey-connectors release that
-#: cannot stop a simulated IOC.
-INACTIVE_UNSTOPPABLE = "osprey-connectors cannot stop a simulated IOC"
 
 #: The channel keys ``variables.json`` carries only when the record states them.
 _CHANNEL_OPTIONAL_KEYS = ("options", "shape", "precision")
@@ -271,7 +249,10 @@ def status_address(code: str, model: str) -> str:
     return f"{code}:SIM:{model}:STATUS"
 
 
-def ioc_health_addresses(code: str, model: str) -> list[str]:
+# ``IOC_HEALTH_SIGNALS`` is the name the connectors first released
+# ``SERVER_HEALTH_SIGNALS`` under. The connectors' public-names check counts
+# this import as that name's user, so it stays until the check lists the name.
+def server_health_addresses(code: str, model: str) -> list[str]:
     """The IOC health addresses the simulator serves for one model, texture included.
 
     Args:
@@ -280,7 +261,7 @@ def ioc_health_addresses(code: str, model: str) -> list[str]:
 
     Returns:
         ``<code>:SIM:<model>:<signal>`` for each signal of the view's
-        ``IOC_HEALTH_SIGNALS``; none with a connectors release that names none.
+        ``IOC_HEALTH_SIGNALS``.
     """
     return [f"{code}:SIM:{model}:{signal}" for signal in IOC_HEALTH_SIGNALS]
 
@@ -448,30 +429,14 @@ def _split_stopped_servers(
     when the scenario is one of the render's default scenarios, which would
     otherwise come up stopping nothing.
 
-    An osprey-connectors release that cannot stop a simulated IOC stops none of
-    the names, so every one of them follows the same rule under its own mark.
-
     Raises:
         FacilityBuildError: ``value-invalid``: a default scenario names an IOC
-            this render does not serve, or one the installed osprey-connectors
-            cannot stop.
+            this render does not serve.
     """
     from osprey.facility.errors import FacilityBuildError
     from osprey.simulation.apply import resolve_default_scenarios
 
     name = str(scenario["name"])
-    if served_servers is None:
-        if name in resolve_default_scenarios(inputs.rendered_config):
-            raise FacilityBuildError(
-                "value-invalid",
-                name,
-                [f"{SCENARIOS_DIR}/{name}.yaml"],
-                f"upgrade osprey-connectors, or drop `{name}` from `simulation.default_scenarios`",
-                record_kind="scenario",
-                detail=f"default scenario `{name}`'s `stopped_servers` needs an "
-                "osprey-connectors release that can stop a simulated IOC",
-            )
-        return [], dict.fromkeys(map(str, scenario["stopped_servers"]), INACTIVE_UNSTOPPABLE)
     physics = [
         str(model["name"])
         for model in inputs.records.document.get("models", [])
@@ -572,8 +537,8 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
             "schema": ADDRESSES_SCHEMA,
             "channels": sorted(str(channel["id"]) for channel in doc.get("channels", [])),
             "status": [status_address(code, name) for name in physics],
-            "ioc_health": [
-                address for name in inputs.served for address in ioc_health_addresses(code, name)
+            "server_health": [
+                address for name in inputs.served for address in server_health_addresses(code, name)
             ],
         },
         VARIABLES_FILE: _variables_document(inputs),

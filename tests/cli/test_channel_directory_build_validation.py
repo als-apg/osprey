@@ -17,15 +17,9 @@ import yaml
 from osprey.cli import build_profile_model, output
 from osprey.cli.build_profile import _parse_profile, load_profile
 from osprey.services.channel_directory import resolve
-from osprey.services.channel_directory._connectors import DIRECTORY_CONNECTORS_AVAILABLE
 from osprey_connectors.errors import BuildProfileError
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-needs_directory = pytest.mark.skipif(
-    not DIRECTORY_CONNECTORS_AVAILABLE,
-    reason="the installed connectors have no channel directory modules",
-)
 
 _URL = {"url": "https://directory.example/api"}
 _KAFKA = {"type": "phoebus_alarm_server", "settings": {"bootstrap_servers": "kafka:9092"}}
@@ -95,7 +89,6 @@ def test_a_section_error_and_an_unrelated_error_share_one_message(tmp_path: Path
     assert "deploy_services must be a boolean" in message
 
 
-@needs_directory
 def test_the_kafka_warning_is_printed_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, printed: list[str]
 ) -> None:
@@ -109,7 +102,6 @@ def test_the_kafka_warning_is_printed_once(
     assert printed == [f"channel_directory.alarm_state: {resolve.KAFKA_CLIENT_MISSING}"]
 
 
-@needs_directory
 def test_a_replay_prints_no_warning(tmp_path: Path, printed: list[str]) -> None:
     _profile({"channel_directory.alarm_state.replay_file": "replays/alarms.ndjson"}).validate(
         tmp_path
@@ -118,7 +110,6 @@ def test_a_replay_prints_no_warning(tmp_path: Path, printed: list[str]) -> None:
     assert printed == []
 
 
-@needs_directory
 def test_a_typeless_section_on_epics_warns_only_without_a_simulator(
     tmp_path: Path, printed: list[str]
 ) -> None:

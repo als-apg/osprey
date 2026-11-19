@@ -107,7 +107,7 @@ class TestAddresses:
     def test_every_replay_channel_is_served_by_the_example_va(self, example_view: SimulatorView):
         served = set(example_view.channels())
         served.update(example_view.status_addresses().values())
-        for signals in example_view.ioc_health_by_model().values():
+        for signals in example_view.server_health_by_model().values():
             served.update(signals.values())
 
         assert _replay_channels() - served == set()
@@ -115,7 +115,7 @@ class TestAddresses:
     def test_the_replay_covers_an_ioc_health_address(self, example_view: SimulatorView):
         health = {
             address
-            for signals in example_view.ioc_health_by_model().values()
+            for signals in example_view.server_health_by_model().values()
             for address in signals.values()
         }
 

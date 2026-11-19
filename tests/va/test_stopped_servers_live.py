@@ -4,7 +4,7 @@ A simulated IOC a scenario stops withholds every one of its channels, as a
 stopped IOC does: a held Channel Access client sees its channel disconnect
 and a fresh one finds nothing, a PVAccess read times out -- both *no answer*,
 never a refusal and never a frozen value. Removing the scenario serves them
-again, without a restart. The in-process half is ``tests/va/test_stopped_servers.py``.
+again, without a restart. The in-process half is the connectors package's own ``test_stopped_servers.py``.
 
 The server, its clients and the stub view are the model runner seam's
 (``tests/va/test_lume_pva_seam.py``), imported so the two suites serve the
@@ -160,7 +160,7 @@ def stop_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Server]:
     scenarios.write_text(json.dumps(document), encoding="utf-8")
     addresses = view_dir / "addresses.json"
     listed = json.loads(addresses.read_text(encoding="utf-8"))
-    listed["ioc_health"] = [M_UPTIME]
+    listed["server_health"] = [M_UPTIME]
     addresses.write_text(json.dumps(listed), encoding="utf-8")
     state_dir = root / "state"
     state_dir.mkdir()

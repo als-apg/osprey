@@ -18,7 +18,11 @@ _MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {
     "addresses.json": {
         "channels": [],
         "status": [],
-        "ioc_health": ["T:SIM:texture:HEARTBEAT", "T:SIM:texture:UPTIME", "T:SIM:texture:ENGINEER"],
+        "server_health": [
+            "T:SIM:texture:HEARTBEAT",
+            "T:SIM:texture:UPTIME",
+            "T:SIM:texture:ENGINEER",
+        ],
     },
     "variables.json": {
         "code": "T",
@@ -161,7 +165,7 @@ def write_texture_view(
         "addresses.json": {
             "channels": sorted(channels),
             "status": [f"T:SIM:{name}:STATUS" for name in names],
-            "ioc_health": [
+            "server_health": [
                 f"T:SIM:{name}:{signal}"
                 for name in (*names, "texture")
                 for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")

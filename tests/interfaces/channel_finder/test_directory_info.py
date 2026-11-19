@@ -7,10 +7,8 @@ a malformed section is today's panel with a warning.
 
 from __future__ import annotations
 
-import importlib
 import json
 import logging
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -37,19 +35,6 @@ from osprey_connectors.service_answers import Source
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 
 VA_BUILD = {"type": "virtual_accelerator"}
 LIVE_BUILD = {"type": "epics"}
@@ -321,29 +306,6 @@ def test_ariel_needs_the_panel_and_a_section(start) -> None:
     assert descriptor["configured_services"] == ["logbook"]
     assert _info(start, not_selected)["directory"]["ariel"] is False
     assert _info(start, no_section)["directory"]["ariel"] is False
-
-
-# -- the floor -----------------------------------------------------------------
-
-
-@pytest.fixture()
-def floor() -> Iterator[None]:
-    """The shim and the service re-imported with the channel directory modules unimportable."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        importlib.reload(service)
-        yield
-    importlib.reload(_connectors)
-    importlib.reload(service)
-
-
-@pytest.mark.usefixtures("floor")
-def test_on_the_floor_the_label_is_all_channels(start) -> None:
-    with start(_config(VA_BUILD, {})) as (app, client):
-        assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
-        assert _directory_paths(app) == ["/api/directory/probe"]
 
 
 # -- the shared routes fixture -------------------------------------------------

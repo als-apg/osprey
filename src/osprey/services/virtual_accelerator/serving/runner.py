@@ -103,9 +103,9 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
     event_addresses,
     fast_addresses,
-    ioc_health_addresses,
     pass_readback,
     periodic_addresses,
+    server_health_addresses,
     write_records,
 )
 
@@ -253,7 +253,7 @@ class ModelRunner(Runner):
         self._health_file = health_file
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
-        self._ioc_health = ioc_health_addresses(view)
+        self._server_health = server_health_addresses(view)
         texture_reach = getattr(composite, "texture_reach", None)
         self._setting_records = write_records(
             view, texture_reach() if callable(texture_reach) else {}
@@ -883,7 +883,7 @@ class ModelRunner(Runner):
         channel keeps the char array.
         """
         super()._add_pv(pv, var, ro, prefix, handler)
-        if var.name in self._ioc_health and isinstance(var, StrVariable) and pv in self.pvdb:
+        if var.name in self._server_health and isinstance(var, StrVariable) and pv in self.pvdb:
             self.pvdb[pv] = {"type": "string", "asyn": True}
 
     def _create_model_info(self) -> None:

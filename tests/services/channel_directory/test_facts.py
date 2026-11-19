@@ -10,13 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
-import importlib
 import json
-import sys
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -26,7 +23,6 @@ pytest.importorskip("osprey_connectors.service_answers")
 import osprey.channel_roster as channel_roster
 from osprey.services.channel_directory import _connectors, facts, service
 from osprey.services.channel_directory.alarm_snapshot import AlarmSnapshot
-from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_log import AlarmHistoryRow
 from osprey_connectors.alarm_state import (
@@ -60,20 +56,6 @@ from tests._service_factory import patch_create_service
 SIGNAL = SERVED_SIGNAL_PROPERTY
 
 _REAL_CREATE = ConnectorFactory.create_service
-
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 
 VA_BUILD = {"type": "virtual_accelerator"}
 LIVE_BUILD = {"type": "epics"}
@@ -1575,37 +1557,3 @@ async def test_above_the_filter_cap_the_summary_gives_the_caps_reason(
 
 
 # -- connectors without the channel directory modules -------------------------------
-
-
-@pytest.fixture
-def floor() -> Iterator[tuple[ModuleType, ModuleType]]:
-    """The service and facts re-imported over a shim whose new modules are unimportable."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        yield importlib.reload(service), importlib.reload(facts)
-    importlib.reload(_connectors)
-    importlib.reload(service)
-    importlib.reload(facts)
-
-
-async def test_modules_blocked_every_section_answers_the_floor(
-    tmp_path: Path, floor: tuple[ModuleType, ModuleType]
-) -> None:
-    floor_service, floor_facts = floor
-    config = _config(tmp_path, LIVE_BUILD, EVERY_SERVICE)
-    page = floor_facts.Facts(floor_service.DirectoryService(config, project_dir=tmp_path), config)
-    expected = _connectors.unavailable_payload(
-        _connectors.FLOOR_REASON, target="live", words={"live": EPICS_WORDS}
-    )
-
-    sections = _sections(await page.channel_facts("SR:BPM1"))
-    ioc = await page.server_facts("ioc-a")
-
-    assert len(sections) == 5
-    for key, section in sections.items():
-        assert {field: section[field] for field in expected} == expected, key
-        assert section["caveats"] == [], key
-    assert {field: ioc[field] for field in expected} == expected
-    assert ioc["health_channels"] == []
