@@ -325,11 +325,16 @@ def test_an_included_preset_file_is_a_bundled_file(block: Block) -> None:
 def test_the_mapping_fragments_hold_keys_the_mapping_reads() -> None:
     from osprey.facility.layers.mml import mapping
 
-    families = _block(MML_PAGE, "families:").data["families"]
-    for raw, body in families.items():
-        path = f"families.{raw}"
-        assert set(body) <= mapping._FAMILY_REQUIRED | mapping._FAMILY_OPTIONAL, path
-        mapping._devices(body, path)
+    blocks = [block for block in _blocks(MML_PAGE) if block.first == "families:"]
+    assert blocks, f"{MML_PAGE.name}: no block opens with 'families:'"
+    for block in blocks:
+        for raw, body in block.data["families"].items():
+            path = f"families.{raw}"
+            assert set(body) <= mapping._FAMILY_REQUIRED | mapping._FAMILY_OPTIONAL, path
+            if "devices" in body:
+                mapping._devices(body, path)
+            if "fields" in body:
+                mapping._fields(body["fields"], f"{path}.fields")
 
     models = _block(MML_PAGE, "models:").data["models"]
     for raw, body in models.items():

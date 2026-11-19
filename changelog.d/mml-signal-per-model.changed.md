@@ -1,0 +1,1 @@
+MML import: a family field's signal may differ per model. `by_model` in the mapping answers the signal for the models that differ, `null` for none. The draft reads each model's units on its own and lists only the models that differ. The import stops when a field gives a current signal to a model whose units for it are not a current, and names the answer to add.
