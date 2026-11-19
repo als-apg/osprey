@@ -1844,8 +1844,10 @@ class _Page:
             return None
 
     def own_kind(self, channel: str) -> str | None:
-        """How *channel* is drawn: the ``drawn_as`` ``record_types.csv`` states, else
-        its role's default; ``None`` for a channel the graph does not hold."""
+        """How *channel*'s ``record_types.csv`` row draws it: the ``drawn_as`` it
+        states, else its role's default; ``None`` with no row (its kind unknown)."""
+        if self.graph.record_type(channel) is None:
+            return None
         try:
             return self.graph.channel(channel).drawn_as
         except KeyError:
