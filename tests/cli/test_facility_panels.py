@@ -300,16 +300,6 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
     assert "redundant: channel_roles.csv: 1 rows restate the facility file or the default" in (
         result.output
     )
-    # the fixture's pairs rows each state a source or an inferred basis, read on the
-    # screens: none restates the facility file; one with neither does
-    assert "redundant: pairs.csv" not in result.output
-    with (tables / "pairs.csv").open("a") as handle:
-        handle.write("XR02-QF1:Current-SP,XR02-QF1:Current-RB,hardware,stated,,,\n")
-    assert run("write", "--out", out).exit_code == 0
-    result = run("check", "--out", out)
-    assert "redundant: pairs.csv: 1 rows restate the facility file or the default" in (
-        result.output
-    )
     # a record type is read: only the drawn_as that is the role's may go
     assert "redundant: record_types.csv:" not in result.output
     assert "redundant: record_types.csv drawn_as: " in result.output
@@ -317,8 +307,6 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
     from osprey.facility.panels import load_graph
 
     graph = load_graph(facility_file, tables)
-    lines = (tables / "pairs.csv").read_text().splitlines()
-    (tables / "pairs.csv").write_text("\n".join(lines[:-1]) + "\n")
     rows = (tables / "record_types.csv").read_text().splitlines()
     kept = [rows[0]]
     for line in rows[1:]:
@@ -335,7 +323,6 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
     again = str(tmp_path / "again")
     assert run("write", "--out", again).exit_code == 0
     result = run("check", "--out", again)
-    assert "redundant: pairs.csv" not in result.output
     assert "redundant: record_types.csv" not in result.output
     assert "redundant: channel_roles.csv" not in result.output
 

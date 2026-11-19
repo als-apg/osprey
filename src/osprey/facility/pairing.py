@@ -21,6 +21,9 @@ READ_WORDS = ("readback", "status")
 
 _SAME_SLOTS = ("value_type", "options", "shape")
 
+#: The rule :func:`derive_pairs` applies, named where a derived pair is shown.
+PAIR_RULE = "the one readback of the same quantity where the setpoint sits"
+
 
 def signal_quantity(signal: str | None, role: str) -> str | None:
     """The quantity a signal names on a channel of ``role``.

@@ -31,7 +31,7 @@ from osprey.facility.panels.describe import (
     targets,
 )
 from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.tables import HealthRule, Pair, PanelTables, Pose, RecordType
+from osprey.facility.panels.tables import HealthRule, PanelTables, Pose, RecordType
 from osprey.facility.panels.view import (
     CardHead,
     CheckRow,
@@ -519,7 +519,7 @@ def test_the_primary_pair_is_keyed_on_the_stated_signal_never_the_name(panel_gra
         unit="A",
         readback_unit="A",
     )
-    # no pairs.csv row: the pair the facility file states (the build pairs by signal)
+    # the pair the facility file states
     assert (cells["XR01:QD1"].pair.channel, cells["XR01:QD1"].pair.readback) == (
         "XR01-QD1:Current-SP",
         "XR01-QD1:Current-RB",
@@ -874,7 +874,7 @@ def _big_graph(devices: int) -> PanelGraph:
         "groups": [{"id": f"G{n}", "members": []} for n in range(90)],
         "relations": [],
     }
-    poses, types, health, pairs = [], [], [], []
+    poses, types, health = [], [], []
     for n in range(devices):
         device = f"D{n}"
         document["devices"].append(
@@ -885,9 +885,9 @@ def _big_graph(devices: int) -> PanelGraph:
             channel = {"id": f"{device}:{suffix}", "on": {"device": device}}
             if role:
                 channel["role"] = role
+                channel["pair"] = f"{device}:RB"
             document["channels"].append(channel)
             types.append(RecordType(f"{device}:{suffix}", "ai", "value", "stated", "s", "r", "l"))
-        pairs.append(Pair(f"{device}:SP", f"{device}:RB", "e", "stated", "s", "r", "l"))
         health.append(HealthRule(f"{device}:St", "1", "bad", "e", "stated", "s", "r", "l"))
         if n:
             document["relations"].append(
@@ -920,7 +920,7 @@ def _big_graph(devices: int) -> PanelGraph:
                 None,
             )
         )
-    tables = PanelTables(tuple(poses), tuple(types), tuple(pairs), tuple(health), (), ())
+    tables = PanelTables(tuple(poses), tuple(types), tuple(health), (), ())
     return PanelGraph(FacilityRecords(document), tables)
 
 

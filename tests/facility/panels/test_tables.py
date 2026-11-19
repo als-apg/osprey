@@ -35,9 +35,6 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["record_types.csv"]) == (
         "channel,record_type,drawn_as,basis,source,revision,locator"
     )
-    assert ",".join(COLUMNS["pairs.csv"]) == (
-        "setpoint,readback,evidence,basis,source,revision,locator"
-    )
     assert ",".join(COLUMNS["health.csv"]) == (
         "channel,value,state,evidence,basis,source,revision,locator"
     )
@@ -91,7 +88,6 @@ def test_the_fixture_tables_read(panel_tables: Path) -> None:
     tables = read_tables(panel_tables)
     assert len(tables.positions) == 13
     assert len(tables.record_types) == 6
-    assert len(tables.pairs) == 3
     assert len(tables.health) == 17
     assert len(tables.excluded) == 3
     assert len(tables.pictures) == 2
@@ -102,9 +98,6 @@ def test_the_fixture_tables_read(panel_tables: Path) -> None:
     pump = next(pose for pose in tables.positions if pose.thing == "XR01:IP1")
     assert pump.ax_rad is None
     assert pump.derived_assumes is None
-    inferred = next(pair for pair in tables.pairs if pair.setpoint == "XR01-PS1:On-Cmd")
-    assert inferred.basis == "inferred"
-    assert inferred.revision is None
     assert {rule.value for rule in tables.health} >= {"0", "1", "!=0"}
 
 
@@ -121,13 +114,13 @@ def test_a_missing_optional_file_is_empty(tmp_path: Path) -> None:
 
 def test_an_empty_directory_reads_as_empty_tables(tmp_path: Path) -> None:
     tables = read_tables(tmp_path)
-    assert tables.positions == () and tables.pairs == () and tables.health == ()
+    assert tables.positions == () and tables.record_types == () and tables.health == ()
 
 
 def test_an_extra_column_is_refused_at_line_one(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
-    _edit(directory, "pairs.csv", [_header("pairs.csv") + ",note"])
-    with pytest.raises(PanelTableError, match=r"pairs\.csv line 1.*note") as raised:
+    _edit(directory, "record_types.csv", [_header("record_types.csv") + ",note"])
+    with pytest.raises(PanelTableError, match=r"record_types\.csv line 1.*note") as raised:
         read_tables(directory)
     assert raised.value.line == 1
 
@@ -148,7 +141,7 @@ def test_a_missing_column_is_refused_at_line_one(tmp_path: Path) -> None:
         ("health.csv", "XR01-IP1:State-Sts,0,bad,screen,stated,s,r", "fields"),
         ("health.csv", "XR01-IP1:State-Sts,0,bad,screen,stated,s,r,l,extra", "fields"),
         ("record_types.csv", "XR01:X,ai,gauge,stated,s,r,l", "drawn_as"),
-        ("pairs.csv", "XR01:X-SP,XR01:X-RB,hardware,guessed,s,r,l", "basis"),
+        ("record_types.csv", "XR01:X,ai,value,guessed,s,r,l", "basis"),
         ("excluded.csv", "cable,XR01:X,reason,s,r,l", "kind"),
         ("pictures.csv", "Quadrupole,top,pole 1,pole,1,2,3,d,v,s,l", "view"),
         ("pictures.csv", "Quadrupole,end,pole 1,pole,one,2,3,d,v,s,l", "x_mm"),
@@ -173,25 +166,24 @@ def test_a_malformed_row_is_refused_naming_file_and_line(
 
 def test_the_line_counts_a_quoted_field_spanning_two_lines(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
-    header = _header("pairs.csv")
+    header = _header("record_types.csv")
     _edit(
         directory,
-        "pairs.csv",
+        "record_types.csv",
         [
             header,
-            'XR01:A-SP,XR01:A-RB,hardware,stated,s,r,"two',
+            'XR01:A-SP,ao,setpoint,stated,s,r,"two',
             'lines"',
-            "XR01:B-SP,XR01:B-RB,hardware,maybe,s,r,l",
+            "XR01:B-SP,ao,setpoint,maybe,s,r,l",
         ],
     )
-    with pytest.raises(PanelTableError, match=r"pairs\.csv line 4\b"):
+    with pytest.raises(PanelTableError, match=r"record_types\.csv line 4\b"):
         read_tables(directory)
 
 
 @pytest.mark.parametrize(
     ("name", "row"),
     [
-        ("pairs.csv", "XR01-QF1:Current-SP,XR01-QD1:Current-RB,hardware,stated,s,r,l"),
         ("record_types.csv", "XR01-QF1:Current-SP,ao,setpoint,stated,s,r,l"),
         (
             "positions.csv",

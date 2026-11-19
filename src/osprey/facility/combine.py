@@ -61,8 +61,8 @@ import yaml
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
-from osprey.facility.pairing import derive_pairs
-from osprey.facility.provenance import add_defaults, build_provenance
+from osprey.facility.pairing import PAIR_RULE, derive_pairs
+from osprey.facility.provenance import Stating, add_defaults, build_provenance
 from osprey.facility.sources import (
     AUTHORED,
     COMPUTED_SLOTS,
@@ -154,15 +154,15 @@ class _Record:
     kind: str
     id: str
     values: dict[str, list[_Value]] = field(default_factory=dict)
-    sources: list[tuple[str, str, list[str]]] = field(default_factory=list)
+    sources: list[Stating] = field(default_factory=list)
     set_fields: dict[str, _Value] = field(default_factory=dict)
     fix: _Fix | None = None
 
     def layers(self) -> set[str]:
-        return {layer for layer, _file, _fields in self.sources}
+        return {stating.layer for stating in self.sources}
 
     def files(self) -> list[str]:
-        return sorted({file for _layer, file, _fields in self.sources})
+        return sorted({stating.file for stating in self.sources})
 
     def current(self, name: str) -> list[Any]:
         """Every value the field holds once the sets have applied."""
@@ -418,18 +418,29 @@ class _Combiner:
         return self.records[key]
 
     def _state(
-        self, record: _Record, layer: str | None, file: str | None, fields: dict[str, Any]
+        self,
+        record: _Record,
+        layer: str | None,
+        file: str | None,
+        fields: dict[str, Any],
+        basis: str | None = None,
+        rule: str | None = None,
     ) -> None:
         for name, raw in fields.items():
             value, filled = _normalize(record.kind, name, raw)
             record.values.setdefault(name, []).append(_Value(layer, file, value, filled))
         if layer is not None and file is not None:
-            record.sources.append((layer, file, list(fields)))
+            record.sources.append(Stating(layer, file, tuple(fields), basis, rule))
 
     def _collect(self) -> None:
         for source in self.sources.records:
             self._state(
-                self._record(source.kind, source.id), source.layer, source.file, source.fields
+                self._record(source.kind, source.id),
+                source.layer,
+                source.file,
+                source.fields,
+                source.basis,
+                source.rule,
             )
 
     def _attach_seeds_and_measurement(self) -> None:
@@ -847,10 +858,16 @@ class _Combiner:
         return fields, defaults
 
     def _emit_record(
-        self, record: _Record, fields: dict[str, Any], defaults: Iterable[str]
+        self,
+        record: _Record,
+        fields: dict[str, Any],
+        defaults: Iterable[str],
+        rules: Iterable[tuple[str, Iterable[str]]] = (),
     ) -> dict[str, Any]:
         fixes = [(record.fix.op, record.fix.why)] if record.fix is not None else []
-        provenance = build_provenance(sources=record.sources, fixes=fixes, defaults=defaults)
+        provenance = build_provenance(
+            sources=record.sources, fixes=fixes, defaults=defaults, rules=rules
+        )
         return {_id_key(record.kind): record.id, **fields, "provenance": provenance}
 
     def _emit(self) -> dict[str, Any]:
@@ -866,6 +883,7 @@ class _Combiner:
             if kind == "channel" and fields["role"] == "setpoint" and "pair" not in fields:
                 fields["pair"] = derived.get(rid, rid)
                 defaults.add("pair")
+        rules = {("channel", rid): [(PAIR_RULE, ("pair",))] for rid in derived}
         for (kind, rid), (fields, defaults) in merged.items():
             if kind == "wiring":
                 channel = merged.get(("channel", rid.partition("/")[2]))
@@ -873,7 +891,7 @@ class _Combiner:
                 device = on.get("device") if isinstance(on, dict) else None
                 _slice_devices(device, fields, defaults)
         emitted = {
-            key: self._emit_record(self.records[key], fields, defaults)
+            key: self._emit_record(self.records[key], fields, defaults, rules.get(key, ()))
             for key, (fields, defaults) in merged.items()
         }
         document: dict[str, Any] = {}
@@ -1025,7 +1043,7 @@ class _Combiner:
         record = self.records[("model", model)]
         if "settings" in record.set_fields:
             return [FIXES_FILE]
-        stated = sorted({file for _layer, file, fields in record.sources if "settings" in fields})
+        stated = sorted({s.file for s in record.sources if "settings" in s.fields})
         return stated or record.files()
 
     # --- errors -----------------------------------------------------------------

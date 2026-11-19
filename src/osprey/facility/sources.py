@@ -48,6 +48,8 @@ from osprey_connectors import yaml_loader
 
 __all__ = [
     "AUTHORED",
+    "CLAIM_BASES",
+    "CLAIM_WORDS",
     "COMPUTED_SLOTS",
     "KEYED_SETS",
     "KIND_CLASS",
@@ -86,6 +88,16 @@ LAYER_OWN_FILES: frozenset[str] = frozenset({"mapping.yaml"})
 #: The table the relations importer always copies into its layer; a layer
 #: directory holding it is a relations layer.
 RELATIONS_MARK = "relations.csv"
+
+#: The words a record of a layer may carry about the fields it states, per kind:
+#: ``basis`` (absent: stated) and, with basis ``inferred``, the ``rule`` that derived
+#: them. They are no fields of the record: the build keeps them in its provenance.
+#: A relation claim carries its own ``basis`` and ``rule`` as fields.
+CLAIM_WORDS: dict[str, tuple[str, str]] = dict.fromkeys(
+    ("place", "device", "channel", "group"), ("basis", "rule")
+)
+#: The bases a record may state.
+CLAIM_BASES: tuple[str, ...] = ("stated", "inferred")
 
 #: The slots the build alone writes, per record kind.
 COMPUTED_SLOTS: dict[str, frozenset[str]] = {
@@ -458,6 +470,9 @@ class SourceRecord:
         file: The file it came from, relative to ``data/facility/``.
         fields: The slots the layer states, without the id and, for a model,
             without its wiring.
+        basis: What the stated fields rest on: ``inferred`` when the record says
+            a named rule derived them, ``None`` (stated) otherwise.
+        rule: The rule, with basis ``inferred``.
     """
 
     kind: str
@@ -465,6 +480,8 @@ class SourceRecord:
     layer: str
     file: str
     fields: dict[str, Any]
+    basis: str | None = None
+    rule: str | None = None
 
 
 @dataclass
@@ -742,7 +759,9 @@ class _Reader:
         if rid is None:
             return
         row = citation_dates(kind, row)
-        self._check_keys(row, KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
+        words = CLAIM_WORDS.get(kind, ())
+        stated = {k: v for k, v in row.items() if k not in words}
+        self._check_keys(stated, KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
         if kind == "channel":
             on = row.get("on")
             if isinstance(on, dict) and "device" in on and "place" in on:
@@ -766,8 +785,46 @@ class _Reader:
                     f"`{slot}` states two contents for key {key}",
                     f"keep one entry per key in `{slot}` in {rel}",
                 )
-        fields = {k: v for k, v in row.items() if k != "id"}
-        self.sources.records.append(SourceRecord(kind, rid, layer, rel, fields))
+        basis, rule = self._claim_basis(row, kind, rid, rel)
+        fields = {k: v for k, v in stated.items() if k != "id"}
+        self.sources.records.append(SourceRecord(kind, rid, layer, rel, fields, basis, rule))
+
+    def _claim_basis(
+        self, row: Mapping[str, Any], kind: str, rid: str, rel: str
+    ) -> tuple[str | None, str | None]:
+        """A record's ``basis`` and ``rule``: ``(inferred, rule)``, or ``(None, None)``
+        for a stated record; an error for a rule without basis ``inferred`` or an
+        inferred basis without a rule."""
+        if kind not in CLAIM_WORDS:
+            return None, None
+        basis, rule = row.get("basis"), row.get("rule")
+        if basis is None and rule is None:
+            return None, None
+        if basis not in CLAIM_BASES:
+            self._error(
+                "source-invalid",
+                kind,
+                rid,
+                rel,
+                f"`basis` {basis!r} is none of {', '.join(CLAIM_BASES)}",
+                f"write `basis: inferred` with its `rule`, or leave `basis` out in {rel}",
+            )
+            return None, None
+        if basis == "inferred" and isinstance(rule, str) and rule.strip():
+            return basis, rule
+        if basis == "inferred":
+            detail = "basis `inferred` names no `rule`"
+        else:
+            detail = "a `rule` without basis `inferred`"
+        self._error(
+            "source-invalid",
+            kind,
+            rid,
+            rel,
+            detail,
+            f"name the rule the fields rest on with `basis: inferred` in {rel}, or leave both out",
+        )
+        return None, None
 
     def _read_model(self, layer: str, rel: str, index: int, row: Any) -> None:
         name = self._record_id(row, "name", rel, index)

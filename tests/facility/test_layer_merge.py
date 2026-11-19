@@ -450,3 +450,100 @@ class TestProvenance:
         assert set_place_from(block, "span")["place_from"] == "span"
         with pytest.raises(ValueError, match="place_from"):
             set_place_from(block, "guess")
+
+
+class TestClaimBasis:
+    """A layer record may say what the fields it states rest on: ``basis`` and ``rule``."""
+
+    def test_an_inferred_record_s_fields_carry_its_basis_and_rule(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [
+                    {"id": "SR:A-SP", "role": "setpoint", "on": {"device": "D1"}},
+                    {"id": "SR:A-RB", "on": {"device": "D1"}, "unit": "A"},
+                ],
+                "imported/names/channels.yaml": [
+                    {
+                        "id": "SR:A-SP",
+                        "pair": "SR:A-RB",
+                        "signal": "current_setpoint",
+                        "basis": "inferred",
+                        "rule": "-SP pairs with -RB",
+                    }
+                ],
+            },
+        )
+        assert result.errors == []
+        channel = _record(result, "channels", "SR:A-SP")
+        assert channel["pair"] == "SR:A-RB" and "basis" not in channel and "rule" not in channel
+        assert channel["provenance"]["sources"] == [
+            {"layer": "authored", "file": "records/channels.yaml", "fields": ["on", "role"]},
+            {
+                "layer": "names",
+                "file": "imported/names/channels.yaml",
+                "fields": ["pair", "signal"],
+                "basis": "inferred",
+                "rule": "-SP pairs with -RB",
+            },
+        ]
+        assert "pair" not in channel["provenance"]["defaults"]
+
+    def test_a_pair_the_build_derives_names_the_build_s_rule(self, tmp_path: Path) -> None:
+        from osprey.facility.pairing import PAIR_RULE
+
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [
+                    {"id": "SR:C-SP", "role": "setpoint", "signal": "current_setpoint"},
+                    {"id": "SR:C-RB", "signal": "current_readback"},
+                    {"id": "SR:D-SP", "role": "setpoint"},
+                ],
+            },
+        )
+        derived = _record(result, "channels", "SR:C-SP")["provenance"]
+        assert derived["rules"] == [{"fields": ["pair"], "rule": PAIR_RULE}]
+        assert "pair" in derived["defaults"]
+        alone = _record(result, "channels", "SR:D-SP")["provenance"]  # its own pair: no rule
+        assert "rules" not in alone and "pair" in alone["defaults"]
+
+    @pytest.mark.parametrize(
+        ("row", "says"),
+        [
+            ({"basis": "inferred"}, "`rule`"),
+            ({"basis": "stated", "rule": "r"}, "`rule`"),
+            ({"rule": "r"}, "`rule`"),
+            ({"basis": "guessed", "rule": "r"}, "`basis`"),
+            ({"basis": "inferred", "rule": ""}, "`rule`"),
+        ],
+    )
+    def test_a_basis_without_its_rule_or_a_rule_without_inferred_is_refused(
+        self, tmp_path: Path, row: dict[str, Any], says: str
+    ) -> None:
+        rows = [{"id": "SR:E", "unit": "mm", **row}]
+        err = _one(_load_errors(tmp_path, {"records/channels.yaml": rows}))
+        assert (err.kind, err.record_id) == ("source-invalid", "SR:E")
+        assert says in err.format_message()
+
+    def test_a_relation_claim_keeps_its_own_basis_and_rule(self, tmp_path: Path) -> None:
+        loaded = load_sources(
+            _write(
+                tmp_path,
+                {
+                    "records/relations.yaml": [
+                        {
+                            "id": "r1",
+                            "type": "cabled_to",
+                            "subject": {"device": "A"},
+                            "object": {"device": "B"},
+                            "basis": "inferred",
+                            "rule": "r",
+                        }
+                    ]
+                },
+            )
+        )
+        (record,) = [r for r in loaded.sources.records if r.kind == "relation"]
+        assert (record.fields["basis"], record.fields["rule"]) == ("inferred", "r")
+        assert (record.basis, record.rule) == (None, None)

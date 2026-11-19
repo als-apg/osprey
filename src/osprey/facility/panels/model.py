@@ -19,9 +19,8 @@ What the graph leaves out, everywhere:
 - a channel ``excluded.csv`` lists (``kind`` ``channel``) and a channel whose
   name starts with ``VA:`` (simulation only), with their record types, pairs
   and health rules; a pair whose readback is left out is left out;
-- a pair ``pairs.csv`` does not state: the table is the one source of pairs;
 - what a document ``excluded.csv`` lists (``kind`` ``document``) is the
-  source of: a citation, a relation claim, a pose, a health row, a pair, a
+  source of: a citation, a relation claim, a pose, a health row, a
   record type;
 - a ``superseded`` relation claim. ``accepted`` and ``contested`` claims are
   edges, their standing on the edge. A relation kind the framework does not
@@ -37,10 +36,8 @@ attributes field that is no mapping, members that are no list) never stops
 the graph: the row is kept without it, or with it as text where it is shown
 as text, and :attr:`PanelGraph.unread` counts such values.
 
-The ring frame is the frame of ``positions.csv`` that carries the most rows
-with an empty ``derived_assumes`` (on a
-tie, the rows name no ring frame: :func:`load_graph` refuses and asks for
-one), unless :func:`load_graph` is told which.
+Each model has its own beam frame: the frame of ``positions.csv`` in which most
+of its devices' rows state an ``s_m`` and assume nothing (see :func:`_beam_frames`).
 """
 
 from __future__ import annotations
@@ -64,10 +61,10 @@ from osprey.facility.panels.tables import (
     CONTROLS,
     CURVE_PREFIX,
     NAMES,
-    PAIRS,
     RECORD_TYPES,
     TABLE_FILES,
     WALKED_RELATIONS,
+    Basis,
     Calibration,
     CalibrationKind,
     CardRecipe,
@@ -81,7 +78,6 @@ from osprey.facility.panels.tables import (
     FrontRow,
     HealthRule,
     Metric,
-    Pair,
     PanelTables,
     PicturePart,
     Pose,
@@ -102,6 +98,7 @@ __all__ = [
     "Channel",
     "Citation",
     "Edge",
+    "Pair",
     "PanelGraph",
     "RoleHit",
     "Thing",
@@ -129,6 +126,26 @@ _Key = tuple[str, str]
 
 
 @dataclass(frozen=True)
+class Pair:
+    """The readback a setpoint is shown beside, as the facility file pairs them.
+
+    Attributes:
+        setpoint: The setpoint.
+        readback: Its pair.
+        basis: ``inferred`` when the build derived the pair, or the layer that
+            states it says a named rule did; ``stated`` otherwise.
+        rule: For an inferred pair, the rule that formed it.
+        source: The layer file that states the pair; ``None`` for one the build derived.
+    """
+
+    setpoint: str
+    readback: str
+    basis: Basis
+    rule: str | None = None
+    source: str | None = None
+
+
+@dataclass(frozen=True)
 class RoleHit:
     """A channel that plays a ``channel_roles.csv`` role for a device.
 
@@ -149,6 +166,30 @@ class RoleHit:
     owner: str
     port: str | None = None
     join: str | None = None
+
+
+def _facility_pair(setpoint: str, readback: str, record: Mapping[str, Any]) -> Pair:
+    """The pair a setpoint's record names, with what it rests on: stated when a layer
+    states ``pair`` outright, inferred by its rule when every layer that states it
+    says a rule derived it, or by the build's rule when the build derived it."""
+    provenance = record.get("provenance") or {}
+    for derived in provenance.get("rules") or ():
+        if "pair" in (derived.get("fields") or ()):
+            return Pair(setpoint, readback, "inferred", rule=_text(derived.get("rule")))
+    stating = [s for s in provenance.get("sources") or () if "pair" in (s.get("fields") or ())]
+    stated = [s for s in stating if s.get("basis") != "inferred"]
+    if stated or not stating:  # one layer stating it outright is enough
+        return Pair(
+            setpoint, readback, "stated", source=_text(stated[-1].get("file")) if stated else None
+        )
+    source = stating[-1]
+    return Pair(
+        setpoint,
+        readback,
+        "inferred",
+        rule=_text(source.get("rule")),
+        source=_text(source.get("file")),
+    )
 
 
 def _join(edges: Iterable[Edge]) -> str | None:
@@ -469,8 +510,6 @@ def _number_or_none(value: Any) -> float | None:
 _ROLE_DRAWN: Mapping[str, DrawnAs] = MappingProxyType({"setpoint": "setpoint", "readback": "value"})
 #: The ``record_types.csv`` column an empty value of which means the role's drawing.
 _DRAWN_AS_COLUMN = f"{RECORD_TYPES} drawn_as"
-#: The evidence of a pair the facility file states (a setpoint channel's ``pair``).
-FACILITY_PAIR = "the facility file"
 
 #: How a channel's default role (:func:`signal_role`) is shown, by how it is drawn;
 #: a command or a channel drawn as text or a waveform plays no default role.
@@ -605,7 +644,7 @@ class PanelGraph:
         for rule in tables.health:
             if rule.channel in self._channel and rule.source not in self._excluded_documents:
                 self._rules.setdefault(rule.channel, []).append(rule)
-        self._read_pairs(tables)
+        self._read_pairs()
         self._pictures: dict[str, list[PicturePart]] = {}
         self._held_by: dict[str, frozenset[str]] = {}
         for part in tables.pictures:
@@ -765,7 +804,7 @@ class PanelGraph:
             if row.source not in self._excluded_documents
         }
         self._types: dict[str, RecordType] = {}
-        self._stated_pairs: dict[str, str] = {}
+        self._stated_pairs: dict[str, Pair] = {}
         self._channel: dict[str, Channel] = {}
         self._channels: dict[_Key, list[Channel]] = {}
         self._unheld: list[Channel] = []
@@ -792,7 +831,7 @@ class PanelGraph:
                 )
             paired = _text(record.get("pair"))
             if paired is not None and paired != name and record.get("role") == "setpoint":
-                self._stated_pairs[name] = paired
+                self._stated_pairs[name] = _facility_pair(name, paired, record)
             channel = Channel(
                 name=name,
                 drawn_as=row.drawn_as if row is not None and row.drawn_as else default,
@@ -951,23 +990,12 @@ class PanelGraph:
         for poses in self._poses.values():
             poses.sort(key=lambda pose: not pose.is_beam_position)
 
-    def _read_pairs(self, tables: PanelTables) -> None:
+    def _read_pairs(self) -> None:
         self._pairs: dict[str, Pair] = {
-            setpoint: Pair(setpoint, readback, FACILITY_PAIR, "stated", None, None, None)
-            for setpoint, readback in self._stated_pairs.items()
-            if readback in self._channel
+            setpoint: pair
+            for setpoint, pair in self._stated_pairs.items()
+            if pair.readback in self._channel
         }
-        for pair in tables.pairs:
-            if (
-                self._stated_pairs.get(pair.setpoint) == pair.readback
-                and pair.basis == "stated"
-                and not pair.source
-            ):  # its basis and source are read (inferred mark, sourced): only then
-                self.redundant[PAIRS] = self.redundant.get(PAIRS, 0) + 1
-            if pair.source in self._excluded_documents:
-                continue
-            if pair.setpoint in self._channel and pair.readback in self._channel:
-                self._pairs[pair.setpoint] = pair
 
     # -- reading --------------------------------------------------------------
 
@@ -1672,9 +1700,7 @@ class PanelGraph:
 
     def redundant_rows(self) -> dict[str, int]:
         """Per table, how many rows only restate what the facility file says, no
-        column of them read for anything else: a ``pairs.csv`` row its channel's
-        ``pair`` states, of basis ``stated`` and with no source; a ``names.csv``
-        short name that is the record's ``label``; and a ``channel_roles.csv`` row
+        column of them read for anything else: a ``names.csv`` short name that is the record's ``label``; and a ``channel_roles.csv`` row
         without which every device it matches plays the same roles, in the same
         order, with all a card reads of them the same (:func:`_role_reading`): a
         press, which no default gives, never is. A deployment can delete them. A
@@ -1761,7 +1787,8 @@ class PanelGraph:
         return self._labels.get((channel, _value_key(value)))
 
     def pair(self, setpoint: str) -> Pair | None:
-        """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
+        """The readback the facility file pairs *setpoint* with, or ``None`` when it
+        is its own pair, is no setpoint, or its pair is left out."""
         return self._pairs.get(setpoint)
 
 
