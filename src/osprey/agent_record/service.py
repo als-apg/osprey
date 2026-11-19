@@ -380,11 +380,11 @@ def _stopped_after(env: Mapping[str, str]) -> timedelta | None:
 
 
 def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
+    from osprey.utils.config_paths import repo_root_of
     from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
-    from osprey_connectors.workspace import resolve_project_root
 
     record = parse_agent_record_block(config)
-    root = resolve_project_root(config)
+    root = repo_root_of(config)
     verifier: Mapping[str, str] | None = None
     secrets: tuple[str, ...] = ()
     problem = ""

@@ -37,7 +37,7 @@ from typing import Final, Literal, get_args
 from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
-from osprey_connectors.workspace import resolve_shared_data_root
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 logger = logging.getLogger("osprey_connectors._control_state")
 
@@ -188,10 +188,28 @@ def _agent_data_root() -> Path | None:
     if stamped is not None:
         return stamped
     try:
-        return resolve_shared_data_root()
+        return _config_agent_data_root()
     except Exception:  # an unresolvable root is "no record", not a crash
         logger.debug("Could not resolve the shared data root for the control state", exc_info=True)
         return None
+
+
+def _config_agent_data_root() -> Path:
+    """The process config's shared agent-data root; without a config, the default under the repo.
+
+    A config that does not load still has a root: ``var/agent_data`` under the
+    repo the process stands in (:func:`~osprey_connectors.workspace.locate_repo_root`).
+    """
+    # Looked up at the call, so a suite that diverts the no-config ladder
+    # reaches this caller too.
+    from osprey_connectors import workspace
+    from osprey_connectors.config import current_config
+
+    try:
+        config = current_config()
+    except Exception:  # a config that does not load, for any reason, names no root of its own
+        return (workspace.locate_repo_root() / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
+    return config.agent_data_root
 
 
 def bound_state_dir() -> Path | None:

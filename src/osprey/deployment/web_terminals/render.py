@@ -1186,7 +1186,7 @@ def render_web_terminals(
                 # Read from `agent_data.base_dir` through the shared helper
                 # rather than spelled as a literal here, because the container
                 # resolves its own agent-data root from that key
-                # (workspace.resolve_agent_data_root, anchored on the config's
+                # (LoadedConfig.agent_data_root, anchored on the config's
                 # project_root, which in-container is container_project_dir).
                 # A literal here silently decouples the two: the volume mounts
                 # at one path while memory, sessions and artifacts are written

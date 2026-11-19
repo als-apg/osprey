@@ -80,7 +80,7 @@ def initialize_workspace_singletons() -> None:
     that read the shared ``var/agent_data/`` root. Session isolation is handled
     at the index level via ``ArtifactEntry.session_id`` — never in the store
     path. Rooting the store at the session-relocated path
-    (``resolve_agent_data_root`` appends ``sessions/<id>/`` when
+    (``session_agent_data_root`` appends ``sessions/<id>/`` when
     ``OSPREY_SESSION_ID`` is set) would make a session's artifacts invisible
     to the gallery.
 

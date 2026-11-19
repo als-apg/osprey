@@ -501,7 +501,7 @@ async def put_config(body: ConfigUpdate, request: Request):
         children come back unprotected. ``artifacts.hooks`` is covered anyway by
         the ``artifacts.*`` family beside it. ``simulation.state_dir`` names a
         *path*, and it cannot be made to point somewhere by planting a block
-        there: it is read through ``dotted_config_str``, which answers ``None``
+        there: its reader (``LoadedConfig.simulation_state_dir``) answers ``None``
         for anything that is not a non-empty string. A block there reads as
         unset, so the runtime takes its default.
 

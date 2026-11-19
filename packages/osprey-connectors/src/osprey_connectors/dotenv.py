@@ -407,6 +407,6 @@ def load_project_dotenv() -> None:
 
 
 def _clear_process_state() -> None:
-    """Forget the shell-override record and the shell-only warnings (see ``workspace.reset_config_cache``)."""
+    """Forget the shell-override record and the shell-only warnings (see ``testing.clear_config_state``)."""
     _shell_only_reported.clear()
     _shell_overrides.clear()

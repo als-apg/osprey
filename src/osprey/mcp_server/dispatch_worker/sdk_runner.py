@@ -481,7 +481,7 @@ async def run_dispatch(
     # Attribute every artifact this run saves to the run, so the worker can
     # later report and serve exactly this run's plots. NOT OSPREY_SESSION_ID:
     # that variable relocates other session-scoped agent data (sandbox/session
-    # working dirs via resolve_agent_data_root) and tags artifacts with a
+    # working dirs via session_agent_data_root) and tags artifacts with a
     # session id — a dispatch run is not an interactive session.
     if run_id:
         sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id

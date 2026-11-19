@@ -29,7 +29,8 @@ ladder, used by every writer and every reader:
   the identity hop inside it would name a directory nobody binds;
 * otherwise the ``OSPREY_AGENT_DATA_ROOT`` stamp when it names a non-blank path —
   the stamp a session child carries — else
-  :func:`~osprey_connectors.workspace.resolve_shared_data_root`, the config
+  the process config's shared agent-data root
+  (:attr:`~osprey_connectors.config.LoadedConfig.agent_data_root`), the config
   derivation the state file has always used; and then the two fixed hops,
   :data:`CONTROL_STATE_DIR_NAME` and the acting identity.
 

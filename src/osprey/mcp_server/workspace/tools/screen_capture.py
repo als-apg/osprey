@@ -20,8 +20,8 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends import (
     WindowNotFoundError,
     get_backend,
 )
-from osprey.utils.config_paths import loaded_or_empty
-from osprey_connectors.workspace import agent_data_base_dir, anchored_path, resolve_project_root
+from osprey.utils.config_paths import loaded_or_empty, process_repo_root
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 logger = logging.getLogger("osprey.mcp_server.tools.screen_capture")
 
@@ -39,7 +39,7 @@ def _get_output_dir() -> Path:
     config = loaded_or_empty()
     configured = (config.get("screen_capture", {}) or {}).get("output_dir")
     relative = str(configured or f"{agent_data_base_dir(config)}/screenshots")
-    output_dir = anchored_path(relative, resolve_project_root(config))
+    output_dir = anchored_path(relative, process_repo_root())
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 

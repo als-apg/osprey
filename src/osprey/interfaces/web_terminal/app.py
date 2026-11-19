@@ -1813,23 +1813,15 @@ def _create_lifespan(
         # terminal started from anywhere but the repo root watches a directory
         # that does not exist and reports no sessions at all.
         #
-        # Deliberately NOT resolve_agent_data_root(): that applies
+        # Deliberately NOT session_agent_data_root(): that applies
         # OSPREY_SESSION_ID isolation, and this watcher's whole job is to see
         # EVERY session's directory rather than one.
         if config.get("watch_dir"):
             workspace_dir = Path(config["watch_dir"]).resolve()
         else:
-            from osprey.utils.config_paths import loaded_or_empty
-            from osprey_connectors.workspace import (
-                agent_data_base_dir,
-                anchored_path,
-                resolve_project_root,
-            )
+            from osprey.utils.config_paths import process_agent_data_root
 
-            _osprey_config = loaded_or_empty()
-            workspace_dir = anchored_path(
-                agent_data_base_dir(_osprey_config), resolve_project_root(_osprey_config)
-            ).resolve()
+            workspace_dir = process_agent_data_root()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
         app.state.workspace_base = workspace_dir  # alias for clarity
 
@@ -1918,7 +1910,7 @@ def _create_lifespan(
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir
         # set, the watched tree is somewhere else entirely and anything written
         # there would land outside the {user}-agent-data volume, where
-        # the host cannot reach it. Never resolve_agent_data_root() either — that
+        # the host cannot reach it. Never session_agent_data_root() either — that
         # appends sessions/<id>, and the store spans sessions: the sidecars'
         # start records. Feedback is not a store here: a submission is an entry
         # in the agent record.

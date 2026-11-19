@@ -62,8 +62,8 @@ from osprey.mcp_server.phoebus.tools.bridge_tools import (
     _bridge_error_message,
     _http_post_open,
 )
-from osprey.utils.config_paths import loaded_or_empty
-from osprey_connectors.workspace import agent_data_base_dir, anchored_path, resolve_project_root
+from osprey.utils.config_paths import loaded_or_empty, process_repo_root
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus_databrowser")
 
@@ -115,7 +115,7 @@ def _plot_dir() -> Path:
     config = loaded_or_empty()
     configured = (config.get("phoebus", {}) or {}).get("plot_dir")
     relative = str(configured or f"{agent_data_base_dir(config)}/plots")
-    out = anchored_path(relative, resolve_project_root(config))
+    out = anchored_path(relative, process_repo_root())
     out.mkdir(parents=True, exist_ok=True)
     return out
 

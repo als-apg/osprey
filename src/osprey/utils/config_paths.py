@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -59,6 +59,7 @@ __all__ = [
     "loaded_or_empty",
     "process_agent_data_root",
     "process_repo_root",
+    "repo_root_of",
     "session_agent_data_root",
     "resolve_config_dir",
     "resolve_config_relative_path",
@@ -106,6 +107,24 @@ def process_repo_root() -> Path:
 
     config = _process_config()
     return config.repo_root if config is not None else locate_repo_root()
+
+
+def repo_root_of(config: Mapping[str, Any]) -> Path:
+    """The repo root a config mapping belongs to, for a caller that holds the mapping only.
+
+    Its ``project_root`` when that names a directory here (a container's config
+    names the root it runs at), else
+    :func:`osprey_connectors.workspace.locate_repo_root`. Never raises. A caller
+    holding the process config uses :func:`process_repo_root`.
+    """
+    from osprey_connectors.workspace import locate_repo_root
+
+    configured = config.get("project_root")
+    if isinstance(configured, str) and configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_dir():
+            return candidate
+    return locate_repo_root()
 
 
 def process_agent_data_root() -> Path:

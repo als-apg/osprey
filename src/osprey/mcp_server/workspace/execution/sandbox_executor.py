@@ -480,8 +480,11 @@ async def execute_sandbox_code(
 
     # 2. Generate wrapper
     from osprey.mcp_server.python_executor.executor import resolve_secret_roots
-    from osprey.utils.config_paths import loaded_or_empty, session_agent_data_root
-    from osprey_connectors.workspace import resolve_project_root
+    from osprey.utils.config_paths import (
+        loaded_or_empty,
+        process_repo_root,
+        session_agent_data_root,
+    )
 
     workspace_root = session_agent_data_root()
     # Resolved directly, NOT as the parent of the agent-data root: that only
@@ -494,7 +497,7 @@ async def execute_sandbox_code(
     # subprocess `cwd` below, and it is what sandboxed user code is told its
     # project root is.
     osprey_config = loaded_or_empty()
-    project_root = resolve_project_root(osprey_config)
+    project_root = process_repo_root()
     wrapped_code = _create_sandbox_wrapper(
         code,
         execution_folder,

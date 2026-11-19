@@ -64,7 +64,6 @@ from osprey_connectors.workspace import (
     SIMULATION_STATE_DIR_CONFIG_KEY,
     agent_data_base_dir,
     anchored_path,
-    dotted_config_str,
     rendered_config_path,
     repo_root_for_config,
     resolve_simulation_state_dir,
@@ -268,8 +267,8 @@ def _runtime_write_paths_under_data(
     offenders: list[tuple[str, str]] = []
 
     for key in _RUNTIME_WRITE_PATH_KEYS:
-        value = dotted_config_str(config, key)
-        if value is None:
+        found, value = _walk(config, key)
+        if not found or not isinstance(value, str) or not value:
             continue
 
         resolved = anchored_path(value, project_root).resolve()
@@ -286,7 +285,7 @@ def _warn_on_runtime_write_paths_under_data(tree: "Mapping[str, object]", path: 
     ``osprey build`` wipes ``data/`` and takes the runtime state
     with it, so this warns rather than raising.
     """
-    configured_root = dotted_config_str(tree, "project_root")
+    configured_root = _configured_root(tree)
     project_root = (
         Path(configured_root) if configured_root else repo_root_for_config(path)
     ).expanduser()
@@ -317,6 +316,12 @@ def _walk(tree: object, key: str) -> tuple[bool, object]:
             return False, None
         value = value[part]
     return True, value
+
+
+def _configured_root(tree: "Mapping[str, object]") -> str | None:
+    """The ``project_root`` *tree* names, when it is a non-empty string."""
+    value = tree.get("project_root")
+    return value if isinstance(value, str) and value else None
 
 
 class UnresolvedRef(FrozenModel):
@@ -540,7 +545,7 @@ def _loaded(
 
     _warn_on_runtime_write_paths_under_data(resolved, path)
 
-    configured_root = dotted_config_str(resolved, "project_root")
+    configured_root = _configured_root(resolved)
     candidate = Path(configured_root).expanduser() if configured_root else None
     repo_root = (
         candidate if candidate is not None and candidate.is_dir() else repo_root_for_config(path)
@@ -768,24 +773,13 @@ def _load_and_cache(path: Path | None) -> LoadedConfig:
     return loaded
 
 
-def _cached_load(path: Path) -> LoadedConfig:
-    """*path* loaded by the lazy rule: cached until the file changes, the env chain applied first.
+def _lazy_default() -> LoadedConfig:
+    """The file :func:`locate_config` finds, cached until it changes, the env chain applied first.
 
     The working directory's env chain is applied before each load this makes,
     as every config load applied it before loads were explicit, so the
     ``${VAR}`` placeholders resolve against the deployment's ``.env``.
     """
-    from osprey_connectors.dotenv import load_project_dotenv
-
-    hit = _cache_hit(path)
-    if hit is not None:
-        return hit
-    load_project_dotenv()
-    return _load_and_cache(path)
-
-
-def _lazy_default() -> LoadedConfig:
-    """The file :func:`locate_config` finds, loaded by :func:`_cached_load`'s rule."""
     global _last_lazy
 
     from osprey_connectors.dotenv import load_project_dotenv
@@ -880,7 +874,7 @@ def using_config(config: "LoadedConfig | Path | str") -> Iterator[LoadedConfig]:
 def _clear_process_state() -> None:
     """Forget the process default, every lazy load and every warn-once latch.
 
-    For ``workspace.reset_config_cache``, between tests; the current
+    For :func:`osprey_connectors.testing.clear_config_state`, between tests; the current
     context's :func:`using_config` scope is cleared with them.
     """
     global _installed, _last_lazy, _no_zone_reported

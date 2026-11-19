@@ -5543,7 +5543,7 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
     directory the operator happened to be standing in.
 
     Both project shapes are covered by one rule, the same one
-    ``resolve_config_path`` applies to a working directory: the render one zone
+    ``locate_config`` applies to a working directory: the render one zone
     down in ``build/`` when it is there, and the project root itself otherwise —
     a container's project directory, or a legacy flat project, IS its own render.
     """

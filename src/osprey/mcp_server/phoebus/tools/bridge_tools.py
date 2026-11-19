@@ -115,13 +115,13 @@ from osprey.mcp_server.http import (
 )
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
-from osprey.utils.config_paths import loaded_or_empty
+from osprey.utils.config_paths import loaded_or_empty, process_repo_root
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import write_switch
 from osprey_connectors.config import locate_config
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import baseline_target
-from osprey_connectors.workspace import agent_data_base_dir, anchored_path, resolve_project_root
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus")
 
@@ -195,7 +195,7 @@ def _snapshot_dir() -> Path:
     config = loaded_or_empty()
     configured = (config.get("phoebus", {}) or {}).get("snapshot_dir")
     relative = str(configured or f"{agent_data_base_dir(config)}/screenshots")
-    out = anchored_path(relative, resolve_project_root(config))
+    out = anchored_path(relative, process_repo_root())
     out.mkdir(parents=True, exist_ok=True)
     return out
 
