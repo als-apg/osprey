@@ -168,29 +168,32 @@ Channel Directory
 
 Package: ``osprey.mcp_server.channel_directory``
 
-Reads the control system's own directory of channel addresses for the session's
-current control target. It is present only when the config has a
-``channel_directory`` section; the alarm and put-log tools are present only when
-that section configures their source. Every tool is a read and is pre-approved.
-The ``channel-finder`` shared login carries the server; the ``logbook`` and
-``knowledge`` logins switch it off. The directory is implemented for EPICS (a
-ChannelFinder service) and for the simulator, and the tool names use EPICS's
-words: a PV is a channel, an IOC the server process serving it. No TANGO or
-DOOCS backend ships. See :ref:`channel-finder-all-pvs`.
+Reads the control system's own directory of channels, and of the servers that
+serve them, for the session's current control target. The server is present
+only when the config has a ``channel_directory`` section, and its alarm and
+put-log tools only when that section configures their source. Every tool is a
+read and is pre-approved. The ``channel-finder`` shared login carries the
+server; the ``logbook`` and ``knowledge`` logins switch it off.
+
+The tool names are the same on every control system. The answers name
+channels and servers in the control system's own words, such as PV and IOC at
+an EPICS facility (:ref:`channel-directory-words`).
+:ref:`channel-finder-directory` describes the directory and the backends that
+ship with OSPREY.
 
 **Tools:**
 
 - ``directory_search`` -- Search the directory by words, name, property values and
   status, curated channels and announced ones alike, each row marked with its origin.
 - ``directory_properties`` -- List the values one directory property holds, such as
-  each IOC or host, spelled as the directory spells them.
+  each server or host, spelled as the directory spells them.
 - ``channel_record`` -- Look up channel addresses: the directory record and, where
   configured, alarm state, alarm configuration, alarm history, put history and
   archive facts.
-- ``server_record`` -- Look up one IOC: its host, ports, channel counts, engineer, the
-  addresses of its health channels and, with an alarm feed configured, its channels
-  in alarm. With ``channel_directory.fleet`` configured it adds the IOC's state from the
-  server fleet snapshot, with its read time.
+- ``server_record`` -- Look up one server: its host, ports, channel counts, engineer,
+  the addresses of its health channels and, with an alarm feed configured, its
+  channels in alarm. With ``channel_directory.fleet`` configured it adds the state of
+  the server from the server fleet snapshot, with its read time.
 - ``active_alarms`` -- List every channel in alarm now, with the counts per severity,
   from the alarm feed.
 - ``alarm_state`` -- Read the current alarm of each channel address from the alarm
@@ -200,7 +203,7 @@ DOOCS backend ships. See :ref:`channel-finder-all-pvs`.
 - ``alarm_config`` -- Look up one channel address in the alarm configuration: its
   path, guidance, displays, and whether its alarm is enabled and latching.
 - ``put_history`` -- List the writes the put log recorded for one channel address.
-- ``server_fleet`` -- List the IOCs of the current target with their liveness state
+- ``server_fleet`` -- List the servers of the current target with their liveness state
   and findings from the server fleet snapshot, filtered by state, finding, group, host
   or text; present only with ``channel_directory.fleet`` configured.
 

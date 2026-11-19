@@ -20,7 +20,7 @@ uses on a logbook database you run yourself (``ariel.database.readonly_uri``),
 how much of each logbook entry the agent reads (``ariel.entry_text``), whether
 the agent shows its thinking (``claude_code.thinking.display``), the Phoebus
 display bridge
-(``phoebus:``), where PV records, alarms and put history come from
+(``phoebus:``), where channel records, alarms and put history come from
 (``channel_directory:``), and the deployment keys that decide which container image each
 service runs and how ``${VAR}`` placeholders in the compose files are filled
 in. Settings that only
@@ -1173,15 +1173,22 @@ outrank their keys; see :doc:`environment-variables`.
 
 .. _config-channel-directory:
 
-``channel_directory:`` — PV records, alarms and put history
------------------------------------------------------------
+``channel_directory:`` — channel records, alarms and put history
+----------------------------------------------------------------
 
-This section feeds the Channels panel's All PVs view and the ``channel-directory``
-MCP server. Each source answers on the control targets it serves: ``type``
-and the three sub-blocks on ``live`` and ``standin``, the simulator and
-``alarm_state.replay_file`` on ``va``. The built-in sources are EPICS
-services and the simulator; no TANGO or DOOCS directory backend ships
-(:ref:`channel-finder-all-pvs`).
+This section names the services behind the channel directory: the control
+system's own record of every channel and of the server that serves it, and
+optionally its alarms and its put history. The directory view of the Channels
+panel and the ``channel-directory`` MCP server read them
+(:ref:`channel-finder-directory`).
+
+Each source answers on the control targets it serves. ``type`` and the three
+sub-blocks answer on ``live`` and ``standin``; the simulator and
+``alarm_state.replay_file`` answer on ``va``. The built-in sources read
+services that EPICS facilities run, and a facility with other services names
+its own backends (:ref:`channel-directory-backends`). The panel and the agent
+name channels and servers in the control system's own words, such as PV and
+IOC at an EPICS facility (:ref:`channel-directory-words`).
 
 .. list-table::
    :header-rows: 1
@@ -1190,8 +1197,8 @@ services and the simulator; no TANGO or DOOCS directory backend ships
    * - Key
      - What it does
    * - ``channel_directory.type``
-     - The facility's directory service; ``channelfinder`` (EPICS) is the
-       one built in, and a dotted path names a backend of your own. Absent,
+     - The directory service of the facility. ``channelfinder`` is the
+       built-in type, and a dotted path names a backend of your own. Absent,
        the section is simulator-only (below).
    * - ``channel_directory.settings.url``
      - The service URL. The build refuses a ``type`` without it.
@@ -1204,25 +1211,26 @@ services and the simulator; no TANGO or DOOCS directory backend ships
        terminal is handed each variable a block names and each CA file that is
        on the host.
    * - ``channel_directory.description_property``
-     - The directory property shown as a PV's description. Default
-       ``recordDesc``.
+     - The directory property shown as the description of a channel. Default
+       ``recordDesc``, the name ChannelFinder gives it.
    * - ``channel_directory.display.exact_properties``
      - Properties a search matches as whole values. Default
-       ``[pvStatus, recordType]``.
+       ``[pvStatus, recordType]``, two ChannelFinder properties.
    * - ``channel_directory.display.detail_properties``
-     - The properties a PV page shows. Unset, every property the record
-       carries.
+     - The properties the page of a channel shows. Unset, every property the
+       record carries.
    * - ``channel_directory.display.hidden_properties``
      - Properties never shown.
    * - ``channel_directory.display.filter_cap``
      - The largest result set fetched whole for facets, the origin filter and
        CSV export. Default ``5000``.
    * - ``channel_directory.display.server_health_suffixes``
-     - The record-name suffix of each IOC health role (``heartbeat``,
-       ``uptime``, ``engineer``). Default
+     - The name suffix of the channel that holds each health role of a server
+       (``heartbeat``, ``uptime``, ``engineer``). Default
        ``{heartbeat: HEARTBEAT, uptime: UPTIME}``.
    * - ``channel_directory.display.engineer_property``
-     - The directory property naming an IOC's engineer. Default ``Engineer``.
+     - The directory property that names the engineer of a server. Default
+       ``Engineer``.
    * - ``channel_directory.alarm_log``
      - Alarm history: ``type: phoebus_alarm_logger`` with ``settings.url``.
    * - ``channel_directory.alarm_state``
@@ -1246,11 +1254,10 @@ services and the simulator; no TANGO or DOOCS directory backend ships
    * - ``channel_directory.put_log``
      - Put history: ``type: caputlog`` with ``settings.url``.
    * - ``channel_directory.fleet``
-     - The IOCs view: present (``fleet: {}`` is enough), the view, the fleet
-       tool and the fleet service are on. Absent or ``null``, none of them
-       exists and nothing is read periodically. It lists the IOCs the
-       directory lists, so it has the directory's scope: EPICS and the
-       simulator.
+     - The server fleet (:ref:`channel-finder-server-fleet`). With the block
+       present (``fleet: {}`` is enough), the servers view, the
+       ``server_fleet`` tool and the fleet service are on. Absent or
+       ``null``, none of them exists and nothing is read periodically.
    * - ``channel_directory.fleet.targets``
      - The control targets refreshed, a list of ``live``, ``va`` and
        ``standin``; each must be configured. Default: the deployment's own
@@ -1260,14 +1267,14 @@ services and the simulator; no TANGO or DOOCS directory backend ships
        longest ``timeout_s`` of a refreshed target's connector, or the build
        fails. Default ``30``.
    * - ``channel_directory.fleet.retention_days``
-     - Days an IOC no longer listed is remembered after it goes quiet.
-       Default ``7``.
+     - Days a server that is no longer listed is remembered after it goes
+       quiet. Default ``7``.
    * - ``channel_directory.fleet.listing_deadline_s``
      - Seconds one listing of the directory may take. Default ``60``.
    * - ``channel_directory.fleet.group_by``
      - ``host``, ``class_name`` or ``group``. Default ``host``.
    * - ``channel_directory.fleet.classes``
-     - Named IOC classes, applied on ``live`` only (below). Default none.
+     - Named server classes, applied on ``live`` only (below). Default none.
    * - ``channel_directory.fleet.roster_sources``
      - ``module:attribute`` references to roster sources, read on ``live``
        only. Default none.
@@ -1290,18 +1297,20 @@ the directory. The Kafka client is the ``alarm-state`` extra
 is unavailable. A container gets it by setting ``OSPREY_PIP_SPEC`` to that
 requirement (:doc:`/how-to/deploy-project/project-image`).
 
-**IOC classes.** An IOC no roster source assigns a class has the default
-class: its liveness PV is the ``heartbeat`` of
-``channel_directory.display.server_health_suffixes``, judged as a counter, and it has
-no health PV, so it is never degraded. A named class gives ``liveness`` with
-a ``kind`` (``counter``: alive when it moves; ``status``: alive when it
-answers) and a list of ``health`` PVs, each with a ``good`` range
-``[low, high]`` where one side may be ``null``. Each PV is named by
-``suffix``, looked up among the IOC's PVs in the directory, or by
-``pattern``, the PV name with ``{server}`` standing for the IOC's name. The name
-``default`` is taken. Every invalid value fails the build naming its key.
-The states, findings and load per refresh are in
-:ref:`channel-finder-server-fleet`.
+**Server classes.** A class says which channel shows that a server is alive
+and which channels show its health. A server that no roster source assigns a
+class has the default class: its liveness channel is the ``heartbeat`` of
+``channel_directory.display.server_health_suffixes``, judged as a counter, and
+it has no health channel, so it is never degraded. A named class gives
+``liveness`` with a ``kind`` (``counter``: alive when it moves; ``status``:
+alive when it answers) and a list of ``health`` channels, each with a
+``good`` range ``[low, high]`` where one side may be ``null``. Each channel is
+named by ``suffix``, looked up among the channels the directory lists for the
+server, or by ``pattern``, the channel name with ``{server}`` standing for
+the name of the server. The class name ``default`` is reserved. Every invalid
+value fails the build, which names its key. The states, findings and load
+per refresh are in :ref:`channel-finder-server-fleet`. For example, an EPICS
+facility with a class for its VxWorks IOCs:
 
 .. code-block:: yaml
 
@@ -1321,9 +1330,10 @@ The states, findings and load per refresh are in
              - {suffix: ":CPU_LOAD", good: [0, 80]}
              - {pattern: "{server}:MEM_FREE", good: [1000000, null]}
 
-**Simulator-only form.** A section without ``type`` lists the simulator's channels
-and IOC health PVs on ``va``. A build with no simulator has nothing to list:
-it warns, and every section answers "not available for this target".
+**Simulator-only form.** A section without ``type`` lists the channels of the
+simulator, the health channels of its servers included, on ``va``. A build
+with no simulator has nothing to list: it warns, and every section answers
+"not available for this target".
 
 **Off.** ``osprey set config.channel_directory=null``, or ``channel_directory: null`` in
 a profile that extends a preset with the section, removes it. That spelling
@@ -1333,7 +1343,7 @@ never as dotted ``channel_directory.*`` keys. The shared logins
 server off
 (``claude_code.servers.channel-directory.enabled: false``).
 
-A facility with ChannelFinder, the Phoebus alarm services and caPutLog:
+An EPICS facility with ChannelFinder, the Phoebus alarm services and caPutLog:
 
 .. code-block:: yaml
 
@@ -1343,7 +1353,7 @@ A facility with ChannelFinder, the Phoebus alarm services and caPutLog:
      settings:
        url: https://channelfinder.example.org/ChannelFinder
      display:
-       # Shown first on a PV page.
+       # Shown first on the page of a channel.
        detail_properties: [recordDesc, iocName, hostName]
        server_health_suffixes: {heartbeat: HEARTBEAT, uptime: UPTIME}
      alarm_log:

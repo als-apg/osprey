@@ -18,10 +18,10 @@ channels as named to the channels as meant:
    :file: ../_diagrams/channel-finder-paradigms.html
 
 The pipelines search the *curated* channels: the ones the facility description
-declares and describes. A PV name met in an alarm, a script or a logbook entry
-is often not one of them. For those the Channel Finder also reads the control
-system's own directory, which lists every PV the control system announces: see
-:ref:`channel-finder-all-pvs`.
+declares and describes. A channel name met in an alarm, a script or a logbook
+entry is often not one of them. For those names the Channel Finder also reads
+the control system's own directory, which lists every channel the control
+system serves: see :ref:`channel-finder-directory`.
 
 .. seealso::
 
@@ -278,83 +278,147 @@ index rather than browsing a channel tree, and the device card reads the store.
 See `Web Interface`_ below.
 
 
-.. _channel-finder-all-pvs:
+.. _channel-finder-directory:
 
-All PVs: the Control System's Directory
-=======================================
+The Channel Directory
+=====================
 
-Whichever pipeline runs, it answers only for the curated channels. The
-directory answers for the rest. It is the control system's own record of every
-PV and IOC, such as a ChannelFinder service, or the virtual accelerator's PV
-list in the ``demo`` preset. Its names, descriptions and properties are shown
-as the control system records them; nothing in it is curated, and nothing that
-reads it can write.
+Whichever pipeline runs, it answers only for the curated channels. An operator
+who meets an unfamiliar name in an alarm or a script still wants to know what
+it is and which server serves it. The channel directory answers that question.
+It is the control system's own record of every channel it serves and of the
+server process behind each one. OSPREY shows the names, descriptions and
+properties exactly as the control system records them: nothing in the
+directory is curated, and nothing that reads it can write.
 
-The directory is implemented for EPICS, through a ChannelFinder service, and
-for the simulator, and its words are EPICS's. The contract behind it is
-control-system neutral: a PV is a channel, an IOC is the server process that
-serves it (:doc:`/reference/connectors-api/services`). No TANGO or DOOCS
-backend ships. A deployment on another control system needs a directory
-backend written against that contract and named by its dotted path in
-``channel_directory.type``; without one, All PVs has no source on the facility's
-machine.
+At an EPICS facility, for example, the channels are PVs, the servers are IOCs,
+and the directory is usually a ChannelFinder service. The ``demo`` preset
+needs no such service, because its directory lists what the virtual
+accelerator serves.
 
-The directory is on when ``config.yml`` has a ``channel_directory`` section; the
-``demo`` preset ships one. The same section can name an alarm server, an alarm
-log and a put log. :ref:`config-channel-directory` has the keys and how to switch
-the section off.
+The directory is on when ``config.yml`` has a ``channel_directory`` section, and
+the ``demo`` preset ships one. The same section can name an alarm server, an
+alarm log and a put log, so that the alarms and the recorded writes of a
+channel appear beside its record. :ref:`config-channel-directory` lists the keys
+and shows how to switch the section off.
 
-**For the agent** the section adds the ``channel-directory`` MCP server: search the
-directory, read a PV's or an IOC's record and, where their source is
-configured, the alarms and recorded writes. Every tool is a read and runs
-without an approval prompt. The agent's prompt tells it to check the curated
-channels first and to say when a name is the control system's own.
-:doc:`/architecture/mcp-servers` lists the tools.
+The section serves the agent and the operator from the same sources:
 
-**For the operator** it adds the All PVs, IOCs, Alarms and Archive views of
-the panel: see `All PVs, IOCs, Alarms and Archive`_.
+- The agent gains the ``channel-directory`` MCP server. With it the agent
+  searches the directory, reads the record of a channel or of a server and,
+  where their source is configured, reads alarms and recorded writes. Every
+  tool is a read and runs without an approval prompt. The agent's prompt tells
+  it to check the curated channels first and to say when a name is the control
+  system's own. :doc:`/architecture/mcp-servers` lists the tools.
+- The operator gains the directory view of the Channel Finder panel and, where
+  their service is configured, the servers, Alarms and Archive views. See
+  `The Directory, Servers, Alarms and Archive Views`_.
 
-Every answer comes from the machine the control-target chip shows: the
-simulator's own PVs and replayed alarm feed on *Simulator*, the facility's
-services on *Live* and *Rehearsal*. An answer with no source for the current
-target reads ``Not available for this target``.
-:doc:`/reference/connectors-api/services` has the table of sources per target.
+Every answer comes from the machine the control-target chip shows. On
+*Simulator* the answers are the simulator's own channels and its replayed
+alarm feed. On *Live* and *Rehearsal* they come from the facility's services.
+When the current target has no source for an answer, the answer reads
+``Not available for this target``. :doc:`/reference/connectors-api/services`
+has the table of sources per target.
+
+.. _channel-directory-words:
+
+The control system's words
+--------------------------
+
+Every control system has its own names for a channel and for the server that
+serves it, and the people who run the machine use those names. The panel and
+the agent's answers use them too. OSPREY takes the words from the connector of
+the control target an answer comes from:
+
+==========================  =========  =============  ==============  ==============
+Control system              A channel  A server       Directory view  Servers view
+==========================  =========  =============  ==============  ==============
+EPICS, simulator, stand-in  PV         IOC            All PVs         IOCs
+TANGO                       attribute  device server  Attributes      Device servers
+DOOCS                       property   server         Properties      Servers
+Any other                   channel    server         Channels        Servers
+==========================  =========  =============  ==============  ==============
+
+The simulator and the stand-in use the EPICS words because both serve their
+channels the way EPICS soft IOCs do. The words follow the target, so a TANGO
+facility reads about PVs and IOCs while a session is on the simulator, and
+about attributes and device servers on the live machine. Config keys, tool
+names and commands are the same on every control system, and this page calls
+the two views the directory view and the servers view.
+
+A facility that writes its own connector states its words on the connector
+class, in a ``channel_vocabulary`` attribute. The attribute is a mapping with
+the keys ``channel``, ``channels``, ``server`` and ``servers``, and optionally
+``directory`` and ``servers_view`` for the titles of the two views. A title
+that is left out is the plural with a capital first letter. A connector
+without the attribute gets the words of the last row.
+
+.. _channel-directory-backends:
+
+Directory backends
+------------------
+
+A directory backend reads one kind of directory service. Two ship with OSPREY:
+
+- ``channelfinder`` reads a ChannelFinder service, the directory that EPICS
+  facilities commonly run. Name it in ``channel_directory.type`` and give the
+  address of the service in ``channel_directory.settings.url``.
+- The simulator's backend lists every channel the virtual accelerator serves.
+  It needs no configuration: OSPREY uses it on the simulator target whenever
+  the section is present.
+
+A facility whose directory is another service, such as a TANGO database,
+writes a backend for it and names the class by its dotted path in
+``channel_directory.type``. The backend implements the ``ChannelDirectory``
+contract in :doc:`/reference/connectors-api/services`. The contract asks for a
+search, the record of one channel and the values of a property. Listing the
+servers is optional, and the server fleet depends on it. The alarm and
+put-log sources of the section work the same way, and that page lists their
+shipped backends too.
 
 
 .. _channel-finder-server-fleet:
 
-IOCs: the Fleet View
-====================
+The Server Fleet
+================
 
-The directory says which IOCs exist, not which of them are running. Answering
-that for a whole facility means reading every IOC's liveness PV, too many
-reads to repeat each time someone asks. The server fleet service reads them once
-per refresh period and keeps one snapshot per control target. The **IOCs**
-view of the panel, the agent's ``server_fleet`` tool and the IOC page all answer
-from that snapshot, so they agree and a liveness question costs the control
-system no read.
+The directory says which servers exist. It does not say which of them are
+running, and that is the first question when channels stop answering.
+Answering it for a whole facility means reading a liveness channel on every
+server, which is too many reads to repeat each time someone asks. The server
+fleet service therefore reads them once per refresh period and keeps one
+snapshot per control target. The servers view of the panel, the agent's
+``server_fleet`` tool and the page of each server all answer from that
+snapshot. The three always agree, and asking again costs the control system
+nothing.
 
-The fleet lists what the directory lists, so it has the directory's scope:
-EPICS with ChannelFinder, and the simulator
-(:ref:`channel-finder-all-pvs`). It reads liveness through the target's
-connector, not through EPICS calls of its own: what another control system
-lacks is a directory backend that lists its servers.
+At an EPICS facility the servers are IOCs, the liveness channel is the
+heartbeat PV of each IOC, and the panel titles the view **IOCs**
+(:ref:`channel-directory-words`). The fleet reads through the connector of
+each target and works with any directory backend that can list its servers,
+which both shipped backends can (:ref:`channel-directory-backends`).
 
-The service is off unless ``config.yml`` has ``channel_directory.fleet``
-(``fleet: {}`` is enough). The ``demo`` preset runs it with a 10 s period, and
-:doc:`/getting-started/demo` stops an IOC to show it.
-:ref:`config-channel-directory` has the keys.
+The service is off until ``config.yml`` has a ``channel_directory.fleet``
+block; an empty one (``fleet: {}``) is enough. The ``demo`` preset runs the
+service with a 10 s period, and :doc:`/getting-started/demo` stops a server
+to show how the view responds. :ref:`config-channel-directory` lists the keys.
 
-**The view.** The header gives the time the snapshot was taken and its age,
-the state of the read path, and the outcome of the directory and of each
-roster source. Below it is one tile per state and per finding with its count;
-a tile keeps only its rows, and so do words in the search box. The table has
-one row per IOC: IOC, Host, State, In state (how long), Findings, Directory
-and Sources. Rows come worst first: stalled, silent, unreached with a finding,
-alive with a finding, unknown, unreached, alive. **Group by** gathers them
-under the field ``group_by`` names.
+Reading the servers view
+------------------------
 
-Each IOC has one state:
+The header shows when the snapshot was taken and how old it is, whether the
+read path works, and the outcome of the directory listing and of each roster
+source. Below it, one tile per state and per finding carries its count.
+Selecting a tile keeps only its rows, and so do words typed into the search
+box. The table has one row per server: its name, its host, its state, how
+long it has been in that state, its findings, its status in the directory and
+the roster sources that name it. The worst rows come first: stalled, silent,
+unreached with a finding, alive with a finding, unknown, unreached, alive.
+**Group by** gathers the rows under the field that
+``channel_directory.fleet.group_by`` names.
+
+Each server has one state:
 
 .. list-table::
    :header-rows: 1
@@ -363,21 +427,22 @@ Each IOC has one state:
    * - State
      - Meaning
    * - ``alive``
-     - The liveness PV answered and, where it is a counter, moved since the
-       previous reading.
+     - The liveness channel answered and, where it is a counter, moved since
+       the previous reading.
    * - ``stalled``
-     - It answered and the counter has not moved.
+     - It answered, and the counter has not moved.
    * - ``silent``
-     - It gave no answer now and has answered before through this read path.
+     - It gives no answer now and has answered before through this read path.
    * - ``unreached``
      - It has never answered through this read path.
    * - ``unknown``
-     - The read failed, the read path is down, the IOC has no liveness PV, a
-       counter has only one reading so far, or the read path is unverified and
-       every IOC that answered last cycle went quiet at once.
+     - No state could be established. The read failed, the read path is down,
+       the server has no liveness channel, a counter has only one reading so
+       far, or the read path is unverified and every server that answered in
+       the last cycle went quiet at once.
 
-``unreached`` and ``unknown`` say that no state could be established, never
-that an IOC stopped. A finding may stand beside the state:
+Neither ``unreached`` nor ``unknown`` says that a server stopped: both mean
+that the service could not tell. A finding may stand beside the state:
 
 .. list-table::
    :header-rows: 1
@@ -386,102 +451,114 @@ that an IOC stopped. A finding may stand beside the state:
    * - Finding
      - Meaning
    * - ``degraded``
-     - Alive, and a health reading is outside its good range. An unread
-       health PV is not one.
+     - The server is alive and one of its health readings is outside its good
+       range. A health channel that could not be read does not count.
    * - ``expected_running_not_alive``
-     - A roster source expects it to run; it is stalled, silent or unreached.
+     - A roster source expects the server to run, and it is stalled, silent or
+       unreached.
    * - ``expected_stopped_alive``
-     - A roster source expects it stopped; it is alive.
+     - A roster source expects the server to be stopped, and it is alive.
    * - ``alive_unexpected``
-     - Alive, and no roster source expects it to run or to stop.
+     - The server is alive, and no roster source expects it to run or to stop.
 
-The three expectation findings exist only with a roster source configured.
-``unknown`` never carries a finding.
+The three expectation findings appear only when a roster source is
+configured (`Roster sources`_), and ``unknown`` never carries a finding.
 
-**When there is no state to show**, the view says why instead of listing IOCs,
-and every such statement ends "This says nothing about whether any IOC runs.":
+When the service has no state to show, the view says why instead of listing
+servers, and adds that this says nothing about whether any server runs:
 
 - *No snapshot yet*: the first refresh of the target has not completed.
-- *Target not refreshed*: the target is not in ``fleet.targets``, it is a
-  virtual accelerator served in process, or the service cannot connect to it.
-- *Cannot list the IOCs*: no listing of the target's directory has ever
-  succeeded, or the directory cannot list its IOCs.
-- *Snapshot stale*: the service stopped refreshing; the snapshot is older than
-  three refresh periods (or three cycle durations, when a cycle overruns).
+- *Target not refreshed*: the target is not in
+  ``channel_directory.fleet.targets``, it is a virtual accelerator served in
+  process, or the service cannot connect to it.
+- *Cannot list the servers*: no listing of the directory has succeeded so far,
+  or the directory backend cannot list its servers.
+- *Snapshot stale*: the service stopped refreshing, and the snapshot is older
+  than three refresh periods (or three cycles, when a cycle outlasts the
+  period).
 - *server fleet unavailable*: the service gave no usable answer.
 
-The ``server_fleet`` tool answers the agent from the same snapshot: the counts,
-the rows filtered by state, finding, group, host or text (100 by default), the
-meaning of each state and the same statements. On a stale snapshot it still
-returns the rows, marked as the states of that time.
+The ``server_fleet`` tool answers the agent from the same snapshot, with the
+counts, the meaning of each state and the rows that pass its filters for
+state, finding, group, host or text. It makes the same statements, except
+that it still returns the rows of a stale snapshot, marked as the states of
+that time.
 
-**Which IOCs are listed.** Each target lists the IOCs its own channel directory
-lists, including IOCs whose every PV is inactive, and reads their liveness
-from that target. On the stand-in that is the facility's directory, so an IOC
-whose liveness PV the stand-in does not serve shows ``unreached``. An IOC that
-left the directory and every roster source stays in the view, its Directory
-column reading ``not listed``, while it answers and for ``retention_days``
-after it goes quiet.
+Which servers are listed
+------------------------
 
-**The read path.** Each refresh first reads the target's probe channel, one PV
-the target always serves. Unanswered, every IOC is ``unknown`` and the header
-says the read path is down. A target without one is *unverified*.
+Each target lists the servers of its own directory, including a server whose
+channels are all inactive, and reads their liveness from that target. The
+stand-in uses the directory of the facility, so a server whose liveness
+channel the stand-in does not serve shows ``unreached``. A server that has
+left the directory and every roster source stays in the view, marked
+``not listed``, for as long as it answers and for
+``channel_directory.fleet.retention_days`` after it goes quiet.
 
-**The IOC page.** With the fleet on, an IOC page's state chip shows the
-snapshot's row: its state, findings and the time the liveness PV was read. The
-page no longer reads the heartbeat itself, so the answer can be up to one
-refresh period old. Without a fresh row the chip says why and that no state is
-known for the IOC. ``server_record`` answers the same way.
+Before it reads any server, each refresh reads the probe channel of the
+target, one channel that the target always serves. When the probe does not
+answer, a silent server proves nothing, so every server is ``unknown`` and
+the header reports the read path as down. A target with no probe channel is
+reported as *unverified*.
+
+With the fleet on, the page of a server and the ``server_record`` tool show
+the row of the snapshot: the state, the findings and the time the liveness
+channel was read. Neither makes a read of its own, so the answer can be up to
+one refresh period old. Without a fresh row they say why, and that no state
+is known for the server.
 
 Load per refresh
 ----------------
 
-Only the service reads liveness PVs, so this load does not grow with the
-number of users. Per refreshed target and refresh period:
+Only the service reads liveness channels, so the load on the control system
+does not grow with the number of users. For each refreshed target, one
+refresh costs:
 
-- **Channel reads**: one probe read, then one read of every liveness and health
-  PV, all concurrent, each on the connector's own timeout. No read when the
-  probe is unanswered.
-- **Audit records**: one, surface ``server_fleet``
-  (:doc:`/reference/contracts/audit-trail`).
-- **Directory queries**: one listing of the IOCs and one paged search per
-  liveness and health suffix, every ten refreshes, on the first refresh of
-  the service and after a failed attempt, each bounded by
-  ``listing_deadline_s``.
-- **Roster sources**: one read of each, on ``live``.
+- one read of the probe, then one concurrent read of every liveness and
+  health channel, or none when the probe does not answer;
+- one audit record on the ``server_fleet`` surface
+  (:doc:`/reference/contracts/audit-trail`);
+- one read of each roster source, on ``live`` only.
 
-A light source with about 1,600 liveness and health channels through one
-gateway, at the default 30 s, sees about 53 reads per second, 2,880 audit
-records per day, and a directory listing every five minutes.
+The directory is queried less often: on the first refresh, on every tenth
+after it and after a failed attempt. Each query lists the servers and runs
+one paged search per liveness and health suffix.
+
+As an example, take a light source with about 1,600 liveness and health
+channels behind one gateway. At the default period of 30 s the service makes
+about 53 reads per second, writes 2,880 audit records per day and lists the
+directory every five minutes.
 
 Roster sources
 --------------
 
-On its own the view knows only what answers. A roster source states what the
-facility expects of its IOCs, which is what turns a ``silent`` IOC into
-``expected_running_not_alive`` and gives each IOC its class and group. Roster
-sources and the named classes of ``channel_directory.fleet.classes`` apply on
-``live`` only: on the virtual accelerator and the stand-in every IOC is read
-by its directory heartbeat, is never ``degraded`` and carries no expectation
-finding.
+On its own the fleet knows only which servers answer. A roster source tells
+it what the facility expects: which servers should run, which should be
+stopped, and which class and group each belongs to. That expectation is what
+turns a ``silent`` server into the finding ``expected_running_not_alive``.
+Roster sources and the named classes of ``channel_directory.fleet.classes``
+apply on ``live`` only. On the virtual accelerator and the stand-in, every
+server is judged by the heartbeat channel that the directory lists for it.
 
-A source is any object with a ``name`` and a ``read(deadline)`` method
-returning a list of ``RosterRow(name, host, class_name, expected, group=None)``,
-where ``expected`` is ``"running"``, ``"stopped"`` or ``None``; ``read`` raises
-to report a failure. ``RosterRow`` is in ``osprey.services.channel_directory.roster``.
-The contract is public and not yet declared stable.
+A roster source is a small piece of Python that the facility writes: any
+object with a ``name`` and a ``read(deadline)`` method that returns a list of
+``RosterRow(name, host, class_name, expected, group=None)`` from
+``osprey.services.channel_directory.roster``. ``expected`` is ``"running"``,
+``"stopped"`` or ``None``, and ``read`` raises to report a failure. The
+contract is public and may still change between releases.
 
-``channel_directory.fleet.roster_sources`` lists ``module:attribute`` references to
-a source or to a zero-argument factory. Rows from every source merge into one
-per IOC naming each source; a failing source is shown unavailable with its
-reason and the others still count.
+``channel_directory.fleet.roster_sources`` lists the sources, each as a
+``module:attribute`` reference to a source object or to a function without
+arguments that returns one. The rows of all sources merge into one row per
+server. A source that fails is shown as unavailable with its reason, and the
+other sources still count.
 
-The example source ``StaticRoster`` reads a YAML list of IOCs; it is in
-``docs/source/how-to/control-systems/examples/roster/``, with
-``roster_static.yml`` beside it. With that directory importable,
-``roster_sources: ["roster_static:roster"]`` uses it. ``check_roster_source(source)``
-from the same module checks a source of your own: it returns one line per
-problem, none when the source conforms.
+``StaticRoster`` is an example to start from. It reads a YAML list of
+servers and sits in ``docs/source/how-to/control-systems/examples/roster/``
+with ``roster_static.yml`` beside it. With that directory importable,
+``roster_sources: ["roster_static:roster"]`` uses it. To check a source of
+your own, call ``check_roster_source(source)`` from the roster module: it
+returns one line per problem, and none when the source conforms.
 
 
 Web Interface
@@ -499,10 +576,11 @@ the search box in the panel toolbar (``/`` focuses it) and it keeps the
 channels that match all of them. Each word is matched against the address, the
 description, the device or signal name, and the name or synonyms of the
 device's class or any class above it. The view switch is at the toolbar's
-left: Explore, or Curated and All PVs when ``config.yml`` has a
-``channel_directory`` section, with IOCs, Alarms and Archive when their service is
-configured. There is no Feedback view: the graph keeps no saved hints, and
-its answers are not captured for review. The result count and the search box are at its right.
+left. It offers Explore alone, or Curated and the directory view when
+``config.yml`` has a ``channel_directory`` section, with the servers, Alarms
+and Archive views when their service is configured. There is no Feedback
+view: the graph keeps no saved hints, and its answers are not captured for
+review. The result count and the search box are at its right.
 
 The sidebar narrows further:
 
@@ -568,18 +646,20 @@ channel-suggestion typeahead in the web panels still works in graph mode:
 ``osprey build`` reads the channel names from the facility file and writes them
 into the snapshot the panels use.
 
-All PVs, IOCs, Alarms and Archive
----------------------------------
+The Directory, Servers, Alarms and Archive Views
+------------------------------------------------
 
-With a ``channel_directory`` section (:ref:`channel-finder-all-pvs`) the view switch
-gains **All PVs**, which searches the directory. In the ``demo`` preset:
+With a ``channel_directory`` section (:ref:`channel-finder-directory`) the view
+switch gains the directory view, which searches the directory. Its tab
+carries the control system's own title (:ref:`channel-directory-words`). The
+``demo`` preset runs on the simulator, so there the tab reads **All PVs**:
 
 1. Click **All PVs**, type ``cavity temperature`` into the search box and press
-   Enter. The rows are the PVs whose description holds both words, each with
-   its description, current value, alarm, record type and IOC.
-2. Click ``SR:RF:CAVITY:01:TEMPERATURE:RB`` to open its PV page. A banner
-   shows a latched alarm from the demo's replayed alarm feed, with its
-   guidance.
+   Enter. The rows are the channels whose description holds both words, each
+   with its description, current value, alarm, type and server.
+2. Click ``SR:RF:CAVITY:01:TEMPERATURE:RB`` to open the page of that channel.
+   A banner shows a latched alarm from the replayed alarm feed of the demo,
+   with its guidance.
 
 Words match descriptions first, and names only when no description matched;
 every word must match. A word holding ``*`` or ``?`` matches names as a glob,
@@ -588,30 +668,33 @@ and **show request** reveals the request that ran.
 
 Each row carries one of two marks:
 
-- ◆ **Curated**: the facility description declares the PV.
-- ◇ **Control system only**: the control system announces it and the facility
-  description does not.
+- ◆ **Curated**: the facility description declares the channel.
+- ◇ **Control system only**: the control system serves it and the facility
+  description does not declare it.
 
-The search words carry over from the Curated view: a ``Not here?`` line under
-its results opens All PVs with the same words, and a curated search with no
-hits offers to search the whole directory instead. The names of ticked rows
-can be copied, sent to the assistant or, when CANOPY serves Trace, plotted.
+The search words carry over from the Curated view. A ``Not here?`` line under
+its results opens the directory view with the same words, and a curated
+search with no hits offers to search the whole directory instead. The names
+of ticked rows can be copied, sent to the assistant or, when CANOPY serves
+Trace, plotted.
 
-A **PV page** has one card per answer: Value, Alarm, Put history, Directory,
-Archive and Logbook. A card whose service is not configured is one dashed
-line. Clicking an IOC opens its **IOC page**: its PVs, the alarms on it, its
-health PVs, and an alive chip that reads the heartbeat PV twice, 2 s apart.
-With ``channel_directory.fleet`` set the chip shows the server fleet's state instead
-(`IOCs: the Fleet View`_).
+The page of a channel has one card per answer: Value, Alarm, Put history,
+Directory, Archive and Logbook. A card whose service is not configured is one
+dashed line. Clicking a server opens the page of that server, with its
+channels, the alarms on it, its health channels and a chip that says whether
+it is alive. The chip reads the heartbeat channel twice, 2 s apart, or shows
+the state from the fleet snapshot when ``channel_directory.fleet`` is set
+(:ref:`channel-finder-server-fleet`).
 
-Three more views appear when their service is configured. None writes:
+Three more views appear when their service is configured, and none of them
+writes:
 
-- **IOCs** lists every IOC of the control target with its liveness state and
-  findings (`IOCs: the Fleet View`_).
+- The servers view lists every server of the control target with its liveness
+  state and findings (:ref:`channel-finder-server-fleet`).
 - **Alarms** lists what is in alarm now on the control target, worst first.
-  Acknowledge in the alarm server's own client.
-- **Archive** says what the control target's archive records: how many of the
-  directory's PVs, and its newest sample.
+  To acknowledge an alarm, use the client of the alarm server.
+- **Archive** says what the archive of the control target records: how many
+  of the channels in the directory, and its newest sample.
 
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to

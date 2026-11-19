@@ -125,8 +125,8 @@ Facility services
       :link-type: doc
 
       Search, filter, and explore control system channels using the Channel Finder
-      service and its web interface, including every PV the control system
-      announces.
+      service and its web interface, including the control system's own
+      directory of every channel and the fleet of servers behind them.
 
    .. grid-item-card:: Facility Knowledge
       :link: facility-knowledge/index
