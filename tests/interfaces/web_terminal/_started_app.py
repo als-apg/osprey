@@ -16,17 +16,18 @@ and every other keyword goes to ``create_app``.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
-from osprey_connectors.testing import config_of
-from osprey_connectors_tests._config_trees import config_tree, installed
+from osprey_connectors_tests._config_trees import config_tree
 
 
 @contextmanager
@@ -76,5 +77,12 @@ def started_client(
             absent, so no test inherits a value it did not set.
     """
     tree = config_tree({"web": dict(web or {}), **dict(config_values or {})})
-    with terminal_client(workspace_dir, installed(config_of(tree, environ={}))) as client:
+    # Written to a file OSPREY_CONFIG names: the lifespan drops any installed
+    # process default before it reads, and loads the file that variable names.
+    config_file = workspace_dir.parent / "started-app-config" / "config.yml"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(yaml.safe_dump(tree), encoding="utf-8")
+    with terminal_client(
+        workspace_dir, patch.dict(os.environ, {"OSPREY_CONFIG": str(config_file)})
+    ) as client:
         yield client

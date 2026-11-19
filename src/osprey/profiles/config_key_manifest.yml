@@ -2601,7 +2601,7 @@ keys:
   pv_directory.put_log.caveats: {rendered: false, covered-by: pv_directory.put_log, default: []}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
-  ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
+  ariel: {evidence: 'current_config\(\)\.get\("ariel", \{\}\)', default: {}}
   ariel.ingestion:
     rendered: false
     covered-by: ariel
@@ -2673,7 +2673,7 @@ keys:
   ariel.web.auto_launch: {rendered: false, covered-by: ariel.web, default: true}
   ariel.entry_url_template:
     rendered: false
-    evidence: 'get_config_value\("ariel\.entry_url_template"'
+    evidence: 'current_config\(\)\.get\("ariel\.entry_url_template"'
     note: >-
       The logbook's own URL for one entry, with a single `{entry_id}`
       placeholder filled with the URL-encoded id. Commented in the preset
@@ -3897,8 +3897,8 @@ keys:
       is refused with a warning and the default applies. Documented in
       reference/configuration/config.rst.
     default: 60.0
-  cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: {}}
-  cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: default}
+  cli: {evidence: 'config\.get\("cli\.theme", "default"\)', default: {}}
+  cli.theme: {evidence: 'config\.get\("cli\.theme", "default"\)', default: default}
 
   # ── Bluesky queue ───────────────────────────────────────────────────
   # No app template ever rendered these: the `bluesky:` posture has always been
