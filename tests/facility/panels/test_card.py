@@ -829,6 +829,43 @@ def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
     assert opens and opens[0]["props"]["actions"]
 
 
+def test_close_strip_members_keep_their_names_and_values_apart(tmp_path) -> None:
+    from osprey.facility.panels.view import CardStrip, StripMember
+
+    graph = _stripped(tmp_path)
+    view = device_card(graph, "XR01:IP1")
+    strip = next(i for s in view.sections for i in s.items if isinstance(i, CardStrip))
+    channel = strip.members[0].channel
+    crowd = tuple(
+        StripMember(f"XR01:M{i}", f"MEMBER{i}", 0.1 * i, "pump", lane, channel=channel)
+        for i, lane in enumerate(("below", "beam", "below", "beam", "above", "above"))
+    )
+    crowded = dataclasses.replace(strip, members=crowd)
+    sections = tuple(
+        dataclasses.replace(s, items=tuple(crowded if i is strip else i for i in s.items))
+        for s in view.sections
+    )
+    doc = stub_render(dataclasses.replace(view, sections=sections), graph)
+    boxes = [
+        n["geometry"]
+        for n in nodes(doc)
+        if n["type"] == "text-label"
+        and (str(n["props"].get("text", "")).startswith("MEMBER") or channel in json.dumps(n))
+    ]
+    assert len(boxes) >= 2 * len(crowd)
+
+    def apart(a, b) -> bool:
+        return (
+            a["x"] + a["width"] <= b["x"] + 0.01
+            or b["x"] + b["width"] <= a["x"] + 0.01
+            or a["y"] + a["height"] <= b["y"] + 0.01
+            or b["y"] + b["height"] <= a["y"] + 0.01
+        )
+
+    clashes = [(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1 :] if not apart(a, b)]
+    assert clashes == []
+
+
 def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by_none_says_so(
     tmp_path,
 ) -> None:

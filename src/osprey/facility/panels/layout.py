@@ -174,6 +174,7 @@ NAME_WIDTH = 260  # a checkout's first column
 CAL_COLUMNS = (0, 320, 560, 740, 830, 970)
 CAL_CHIP_WIDTH = 170
 CAL_CONDITION_LINES = 2  # the most lines a calibration's conditions take
+CAL_CELL_LINES = 3  # the most lines a calibration's date, source or history takes
 TITLE_LINE = 18  # each further line of a wrapped title at text size
 SIGNAL_NAME_LINES = 2  # a signal row's name wraps to this many lines before it is cut
 CHIP_INSET = 2  # a basis chip stands this far inside its row, above and below
@@ -199,6 +200,8 @@ STRIP_BELOW = STRIP_LABEL_TOP + 2 * STRIP_LABEL_STEP  # room under the axis
 LEADER_GAP = 8  # between the names and the leaders
 STRIP_VALUE_LANES = 2  # the most lanes of value blocks under a strip
 LEADER_DROP = 40  # the leaders' run down to the locator
+LOCATOR_PAD = 0.03  # a row's locator reaches this share of its stretch past each end
+LOCATOR_LEAST_M = 1.0  # a row's locator spans at least this, m
 LOCATOR_BAR = 1  # the to-scale bar: a line
 LOCATOR_MARK = 8  # how far a device's mark reaches above the bar
 LOCATOR_BIG = 12  # the mark of a magnet
@@ -285,6 +288,7 @@ CARD_TICK_LEAST = 40  # the least px between two labelled ticks
 CARD_LEAST_SPAN = 1e-9  # m: a window of no length is drawn as this
 CARD_ABOVE_ROOM = 2 * ROW + CARD_LANE  # over the pipe: a lane, a name, a value
 CARD_BELOW_ROOM = 3 * ROW + CARD_LANE  # under it: a lane, a name, a value
+_STRIP_TRIES = 200  # lines a strip's name or value moves out, at most, to clear the others
 #: The drawing kind of each strip symbol word ``symbols.csv`` may name.
 STRIP_KINDS: Mapping[str, str] = MappingProxyType(
     {
@@ -379,7 +383,7 @@ RING_OUTER = 185  # a ring roll-up's arcs: outer and inner radius
 RING_INNER = 120
 RING_GAP = 2  # degrees left free at each end of an arc
 TURN = 360  # degrees round the ring
-RING_PAD = 16  # above and below the ring
+RING_MARGIN = 16  # above and below a ring roll-up's ring
 RING_LABEL_WIDTH = 60  # an arc's name and mark, centred on the arc
 RING_MARK = 12  # the font size of an arc's mark, under its name
 SUMMARY_ROW = 36  # one row of a by-system summary
@@ -413,6 +417,7 @@ RACK_WIDTH = 420  # a chassis bar, the rack's inner width
 RACK_LABEL_WIDTH = 40  # the unit numbers, left of the rack
 RACK_PAD = 6  # the rack's frame round its chassis
 RACK_SOURCES = 8  # documents a rack names; the rest are counted
+RACK_LANE_LEAST = 120  # the narrowest bar a name is written in; narrower ones are listed
 RACK_COLUMN = RACK_LABEL_WIDTH + RACK_WIDTH + 2 * RACK_PAD + 2 * COLUMN_GAP  # the facts' x
 # The longest expression the formula engine takes. The viewer compiles each rule
 # of a light into one expression, with the light's screen formula inlined once
@@ -574,6 +579,7 @@ _LOOKS_LEGEND = (
     "fill = component type · red ring = fault · amber ring = warning · dashed = no health rule"
 )
 _LOCATOR_CAPTION = "to scale · position along the beam (m)"
+_LOCATOR_STRETCH = " · this row {:.0f} to {:.0f} of {:.0f} to {:.0f}"
 _NO_RULE_YET = "no health rule yet"
 _TRAY_TITLE = "in our lists, not placed"
 _NO_DATA = "no data yet"
@@ -592,6 +598,8 @@ _CROWDED = "{} not shown: open the card"
 _MORE_CHANNELS = "{} more {} channels not drawn"
 _MORE_ROWS = "{} more not drawn"
 _NOT_AT_A_UNIT = "not at a unit"
+_SIDE_BY_SIDE = "side by side at one unit"
+_SIDE_BY_SIDE_BAR = "{} devices side by side · listed under the rack"
 _BY_CLASS = "by class"
 _SOURCES = "sources"
 _RACK_COUNTS = "{} at a stated unit · {} not at a unit"
@@ -2059,7 +2067,7 @@ class _Page:
         root's id stands in the middle."""
         index = {node.label: i for i, node in enumerate(root.children)}
         cx = (self.x0 + self.right) / 2
-        cy = self.y + RING_PAD + RING_OUTER
+        cy = self.y + RING_MARGIN + RING_OUTER
         share = TURN / len(arcs.nodes)
         for number, node in enumerate(arcs.nodes):
             start, end = number * share + RING_GAP, (number + 1) * share - RING_GAP
@@ -2068,7 +2076,7 @@ class _Page:
             self.arc(cx, cy, start, end, node, root.label, plan)
         w = text_width(root.label, TITLE_SIZE)
         self.text(cx - w / 2, cy - ROW / 2, root.label, size=TITLE_SIZE, w=w)
-        self.y = cy + RING_OUTER + RING_PAD
+        self.y = cy + RING_OUTER + RING_MARGIN
 
     def arc(
         self, cx: float, cy: float, start: float, end: float, node: Node, parent: str, plan: str
@@ -2155,12 +2163,17 @@ class _Page:
             note = _TILE_OPEN.format(count)
         name = node.label.removeprefix(parent + "/")
         room = x + w - TILE_PAD - (right + GAP)
-        name = _cut(name, room, TEXT_SIZE)
-        if name:
-            self.text(right + GAP, top, name, w=min(text_width(name, TEXT_SIZE), room))
+        below = top + ROW
+        if text_width(name, TEXT_SIZE) <= room:
+            self.text(right + GAP, top, name, w=text_width(name, TEXT_SIZE))
+        else:  # too long for the line: small, in up to two lines broken at its separators
+            names = _wrap_label(name, room, SMALL_SIZE, TILE_LINES)
+            for i, line in enumerate(names):
+                self.small(right + GAP, top + i * SMALL_LINE, line)
+            below = max(below, top + len(names) * SMALL_LINE)
         lines = _wrap(note, w - 2 * TILE_PAD, SMALL_SIZE)
-        for i, line in enumerate(lines):
-            self.small(inner, top + ROW + i * SMALL_LINE, line, fg=MUTED_TEXT)
+        for i, line in enumerate(lines[: TILE_LINES if below == top + ROW else 1]):
+            self.small(inner, below + i * SMALL_LINE, line, fg=MUTED_TEXT)
         if node.link is not None:
             self.nav(x, y, w, h, replace(node.link, label=node.label))
 
@@ -2566,6 +2579,20 @@ class _Page:
         }
         self.s.widget("text-label", x, y, w, h, props, rules=[rule])
 
+    def _strip_nodes(self, member: Any, x: float, y: float, scale: float) -> list[dict[str, Any]]:
+        """A card strip member's symbol at (*x*, *y*): a dipole a box round the pipe
+        its stated length long, any other its symbol."""
+        if member.symbol != "dipole":
+            return symbols.draw(STRIP_KINDS[member.symbol], x, y, unit=CARD_SYMBOL_UNIT)
+        w, h = CARD_DIPOLE_M * scale, CARD_DIPOLE_HEIGHT
+        props: dict[str, Any] = {
+            "lineColor": symbols.FOCUS if member.focus else PAGE_TEXT,
+            "lineWidth": BLOCK_LINE,
+            "fill": False,
+        }
+        geometry = {"x": x - w / 2, "y": y - h / 2, "width": w, "height": h}
+        return [{"type": "rectangle", "props": props, "geometry": geometry}]
+
     def card_strip(self, strip: CardStrip) -> None:
         """The beam pipe across the card, to scale over the strip's window; each member
         as its symbol on the pipe or in its lane above or below it, its name and its
@@ -2577,7 +2604,57 @@ class _Page:
         def at(s_m: float) -> float:
             return self.x0 + (s_m - lo) * scale
 
-        axis = self.y + CARD_ABOVE_ROOM
+        # Every member's symbol, name and value, placed first with the pipe's axis at 0:
+        # a name or a value that would cover another's moves one line further out,
+        # so neighbours closer together than their names never draw over each other.
+        placed: list[tuple[float, float, float, float]] = []  # boxes taken: x0, y0, x1, y1
+
+        def clear(x0: float, y0: float, w: float, h: float) -> bool:
+            return all(x0 + w <= a or b <= x0 or y0 + h <= c or d <= y0 for a, c, b, d in placed)
+
+        def free(x0: float, y0: float, w: float, h: float, step: float) -> float:
+            for _ in range(_STRIP_TRIES):
+                if clear(x0, y0, w, h):
+                    break
+                y0 += step
+            placed.append((x0, y0, x0 + w, y0 + h))
+            return y0
+
+        drawn: list[tuple[Any, float, float, list[float]]] = []
+        for member in strip.members:
+            x = at(member.s_m)
+            y = 0.0
+            if member.lane != "beam":
+                y = CARD_LANE if member.lane == "below" else -CARD_LANE
+            nodes = self._strip_nodes(member, x, y, scale)
+            left = min(n["geometry"]["x"] for n in nodes)
+            top = min(n["geometry"]["y"] for n in nodes)
+            right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in nodes)
+            bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in nodes)
+            placed.append((left, top, right, bottom))
+            drawn.append((member, x, y, [left, top, right, bottom]))
+        texts: list[tuple[Any, float, float, float, float | None, float]] = []
+        for member, x, _y, (_left, top, _right, bottom) in drawn:
+            label = _HERE.format(member.label) if member.focus else member.label
+            lw = min(text_width(label, SMALL_SIZE), CARD_STRIP_VALUE * 2)
+            lx = min(max(x - lw / 2, self.x0), self.x0 + STRIP_WIDTH - lw)
+            up = member.lane == "above" or member.lane == "beam" and member.symbol == "dipole"
+            sign = -1 if up else 1
+            ty = top - SMALL_LINE - ROW_GAP if up else bottom + ROW_GAP
+            ty = free(lx, ty, lw, SMALL_LINE, sign * SMALL_LINE)
+            vx: float | None = None
+            vy = 0.0
+            if member.channel is not None and member.symbol != "dipole":
+                vx = min(
+                    max(x - CARD_STRIP_VALUE / 2, self.x0), self.x0 + STRIP_WIDTH - CARD_STRIP_VALUE
+                )
+                vy = free(
+                    vx, ty - ROW if up else ty + SMALL_LINE, CARD_STRIP_VALUE, ROW, sign * ROW
+                )
+            texts.append((member, lx, ty, lw, vx, vy))
+        highest = min([b for _a, b, _c, _d in placed] + [-CARD_ABOVE_ROOM])
+        lowest = max([d for _a, _b, _c, d in placed] + [CARD_BELOW_ROOM - ROW])
+        axis = self.y - highest
         self.box(self.x0, axis - CARD_PIPE / 2, STRIP_WIDTH, CARD_PIPE, fill=FIELD_BACKGROUND)
         if strip.bracket is not None:
             b0, b1, _label = strip.bracket
@@ -2585,56 +2662,23 @@ class _Page:
             reach = CARD_LANE - CARD_PIPE  # clear of the lanes' symbols
             self.box(left, axis - reach, right - left, 2 * reach, line=symbols.FOCUS, dashed=True)
         dipoles = False
-        for member in strip.members:
-            x = at(member.s_m)
-            kind = STRIP_KINDS[member.symbol]
-            if member.lane == "beam":
-                y = axis
-            else:
-                y = axis + (CARD_LANE if member.lane == "below" else -CARD_LANE)
-                self.line([(x, axis), (x, y)], MUTED_TEXT)  # its stem to the pipe
-            if member.symbol == "dipole":  # a box round the pipe, its length drawn
-                dipoles = True
-                w, h = CARD_DIPOLE_M * scale, CARD_DIPOLE_HEIGHT
-                outline = symbols.FOCUS if member.focus else PAGE_TEXT
-                props: dict[str, Any] = {
-                    "lineColor": outline,
-                    "lineWidth": BLOCK_LINE,
-                    "fill": False,
-                }
-                geometry = {"x": x - w / 2, "y": y - h / 2, "width": w, "height": h}
-                nodes: list[dict[str, Any]] = [
-                    {"type": "rectangle", "props": props, "geometry": geometry}
-                ]
-            else:
-                nodes = symbols.draw(kind, x, y, unit=CARD_SYMBOL_UNIT)
-            for node in nodes:
+        for member, x, y, (left, top, right, bottom) in drawn:
+            if member.lane != "beam":
+                self.line([(x, axis), (x, axis + y)], MUTED_TEXT)  # its stem to the pipe
+            dipoles = dipoles or member.symbol == "dipole"
+            for node in self._strip_nodes(member, x, axis + y, scale):
                 if member.focus:
                     node["props"]["lineColor"] = symbols.FOCUS
                 self.s.add(node)
-            left = min(n["geometry"]["x"] for n in nodes)
-            top = min(n["geometry"]["y"] for n in nodes)
-            right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in nodes)
-            bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in nodes)
+            if member.link is not None:
+                self.nav(left, axis + top, right - left, bottom - top, member.link)
+        for member, lx, ty, lw, vx, vy in texts:
             label = _HERE.format(member.label) if member.focus else member.label
             colour = symbols.FOCUS if member.focus else PAGE_TEXT
-            lw = min(text_width(label, SMALL_SIZE), CARD_STRIP_VALUE * 2)
-            if member.lane == "above" or member.lane == "beam" and member.symbol == "dipole":
-                ty = top - SMALL_LINE - ROW_GAP
-                vy = ty - ROW
-            else:
-                ty = bottom + ROW_GAP
-                vy = ty + SMALL_LINE
-            lx = min(max(x - lw / 2, self.x0), self.x0 + STRIP_WIDTH - lw)
-            self.text(lx, ty, _cut(label, lw, SMALL_SIZE), size=SMALL_SIZE, w=lw, h=SMALL_LINE, fg=colour)  # fmt: skip
-            if member.channel is not None and member.symbol != "dipole":
-                vx = min(
-                    max(x - CARD_STRIP_VALUE / 2, self.x0), self.x0 + STRIP_WIDTH - CARD_STRIP_VALUE
-                )
-                self.field(vx, vy, member.channel, w=CARD_STRIP_VALUE, units=True, within="unit")
-            if member.link is not None:
-                self.nav(left, top, right - left, bottom - top, member.link)
-        ticks = axis + CARD_BELOW_ROOM
+            self.text(lx, axis + ty, _cut(label, lw, SMALL_SIZE), size=SMALL_SIZE, w=lw, h=SMALL_LINE, fg=colour)  # fmt: skip
+            if vx is not None:
+                self.field(vx, axis + vy, member.channel, w=CARD_STRIP_VALUE, units=True, within="unit")  # fmt: skip
+        ticks = axis + lowest + ROW
         step = 1.0
         while step * scale < CARD_TICK_LEAST:
             step *= 2
@@ -4292,10 +4336,11 @@ class _Page:
                         w = min(text_width(short, SMALL_SIZE), SET_ROW_HEAD - GAP)
                         self.text(MARGIN, self.y, _cut(short, w, SMALL_SIZE), size=SMALL_SIZE, w=w)
                         self.nav(MARGIN, self.y, w, ROW, row.label)
+                    tall: float = ROW
                     for column, cell in enumerate(cells):
-                        self.grid_cell(self.set_x(column), self.y, cell)
+                        tall = max(tall, self.grid_cell(self.set_x(column), self.y, cell))
                         self.drawn += 1
-                    self.y += ROW + ROW_GAP
+                    self.y += tall + ROW_GAP
         for title, row in flows:
             left_out += self.set_flow(title, row)
         if left_out:
@@ -4317,7 +4362,7 @@ class _Page:
             x += w + CHIP_GAP
         self.next_row()
 
-    def calibration_box(self, x: float, y: float, w: float, state: str) -> None:
+    def calibration_box(self, x: float, y: float, w: float, state: str, h: float = ROW) -> None:
         """A calibration cell's box: tinted by its basis, outlined in the basis role;
         dashed and bare with no value."""
         props: dict[str, Any] = {"lineWidth": LINE_WIDTH}
@@ -4330,7 +4375,7 @@ class _Page:
             }
         else:
             props |= {"lineColor": MUTED_TEXT, "fill": False, "lineStyle": "dashed"}
-        self.s.widget("rectangle", x, y, w, ROW, props)
+        self.s.widget("rectangle", x, y, w, h, props)
 
     def set_flow(self, title: str, row: GridRow) -> int:
         """A group whose members all sit in one row too long for a block: its heading,
@@ -4345,13 +4390,15 @@ class _Page:
         per = max(1, int((STRIP_WIDTH + GAP) // (self.cell_w + GAP)))
         room = max(0, SET_MEMBERS - self.drawn)
         cells = row.cells[:room]
+        tall: float = ROW
         for k, cell in enumerate(cells):
             if k and not k % per:
-                self.y += ROW + ROW_GAP
-            self.grid_cell(MARGIN + (k % per) * (self.cell_w + GAP), self.y, cell)
+                self.y += tall + ROW_GAP
+                tall = ROW
+            tall = max(tall, self.grid_cell(MARGIN + (k % per) * (self.cell_w + GAP), self.y, cell))
             self.drawn += 1
         if cells:
-            self.y += ROW + ROW_GAP
+            self.y += tall + ROW_GAP
         return len(row.cells) - len(cells)
 
     def readback_units(self, rows: Sequence[GridRow]) -> set[str | None]:
@@ -4420,15 +4467,17 @@ class _Page:
         """The left edge of a set overview's *column* within its block."""
         return MARGIN + SET_ROW_HEAD + column * (self.cell_w + GAP)
 
-    def grid_cell(self, x0: float, y: float, cell: GridCell) -> None:
+    def grid_cell(self, x0: float, y: float, cell: GridCell) -> float:
         """One member: the readback in its field, else (with no light) the value its
         card's first key tile shows, else the short name in a box, and one light at
         the right end: the deviation light when the pair has one, else the member's;
-        the whole cell opens its card."""
+        the whole cell opens its card. Returns the cell's height: a row, or the lines
+        a calibration value of several numbers takes."""
         w = self.cell_w
         if cell.calibration is not None:  # a calibration view: no light, static text
             found = cell.calibration
-            self.calibration_box(x0, y, w, found.state)
+            h = self.held_height(found.channels, w - GAP) if found.channels else ROW
+            self.calibration_box(x0, y, w, found.state, h=h)
             if found.channels:
                 self.held(x0 + GAP / 2, y, found.channels, w - GAP)
             else:
@@ -4438,8 +4487,8 @@ class _Page:
                 member = cell.member
                 if not found.channels and text_width(found.text, TEXT_SIZE) > w - GAP:
                     member = Link(f"{member.label}: {found.text}", member.target)  # cut: whole
-                self.nav(x0, y, w, ROW, member)
-            return
+                self.nav(x0, y, w, h, member)
+            return h
         right = x0 + w - CHIP_LIGHT
         pair = cell.pair
         deviation = _tolerance_ladder(pair) if pair is not None else None
@@ -4470,6 +4519,7 @@ class _Page:
             self.text(x0 + GAP / 2, y, name, size=SMALL_SIZE, w=min(nw, end - x0 - GAP))
         if isinstance(cell.member, Link):
             self.nav(x0, y, w, ROW, cell.member)
+        return ROW
 
     def calibrations(self, table: Calibrations) -> None:
         """A device's calibration block: column heads, then a row per kind (see
@@ -4514,13 +4564,19 @@ class _Page:
                 self.hover(x[1], under, widths[1], len(lines) * SMALL_LINE, row.conditions)
             under += len(lines) * SMALL_LINE
         _name_x, _value_x, chip_x, *rest_x = x
-        self.basis_chip(chip_x, top, row)
+        under = max(under, self.basis_chip(chip_x, top, row))
         _w0, _w1, _w2, *rest_w = widths
         for left, width, text in zip(
             rest_x, rest_w, (row.date, row.source, row.history), strict=True
         ):
-            if text:
-                self.small(left, top + (ROW - SMALL_LINE) / 2, _cut(text, width, SMALL_SIZE))
+            if text:  # in a few lines, broken at its separators; whole on hover
+                lines = _wrap_label(text, width, SMALL_SIZE, CAL_CELL_LINES)
+                y0 = top + (ROW - SMALL_LINE) / 2
+                for n, line in enumerate(lines):
+                    self.small(left, y0 + n * SMALL_LINE, line)
+                if " ".join(lines) != " ".join(text.split()):
+                    self.hover(left, y0, width, len(lines) * SMALL_LINE, text)
+                under = max(under, y0 + len(lines) * SMALL_LINE)
         self.y = max(under, top + ROW + (len(titles) - 1) * TITLE_LINE) + ROW_GAP
 
     def hover(self, x: float, y: float, w: float, h: float, text: str) -> None:
@@ -4535,6 +4591,16 @@ class _Page:
         }
         self.s.widget("rectangle", x, y, w, h, props)
 
+    def held_height(self, channels: tuple[str, ...], w: float) -> float:
+        """How tall :meth:`held` draws *channels* within *w*: its lines of fields."""
+        left, lines = 0.0, 1
+        for channel in channels:
+            need = value_width(self.unit_of(channel), TEXT_SIZE)
+            if left > 0 and left + need > w:
+                left, lines = 0.0, lines + 1
+            left += need + GAP
+        return lines * ROW + (lines - 1) * ROW_GAP
+
     def held(self, x: float, y: float, channels: tuple[str, ...], w: float) -> float:
         """The channels holding a calibration value live, side by side within *w*, a
         gap between each two: one field for a scalar, one per number of a tuple, each
@@ -4548,26 +4614,33 @@ class _Page:
             left = self.field(left, top, channel, w=need) + GAP
         return top + ROW
 
-    def basis_chip(self, x: float, y: float, row: CalibrationRow) -> None:
+    def basis_chip(self, x: float, y: float, row: CalibrationRow) -> float:
         """The basis chip: an outline in the basis role (the disagree role when
         contested), dashed and muted for a value still wanted, page text for a
-        value held live."""
+        value held live; a text too long for one line in two. Returns its bottom."""
         if row.channels:
             colour, dashed = PAGE_TEXT, False
         elif row.shown is None:
             colour, dashed = MUTED_TEXT, True
         else:
             colour, dashed = symbols.BASIS_ROLES.get(row.state, MUTED_TEXT), False
-        text = _cut(row.chip, CAL_CHIP_WIDTH - GAP, SMALL_SIZE)
-        w = min(text_width(text, SMALL_SIZE) + GAP, CAL_CHIP_WIDTH)
+        lines = _wrap_label(row.chip, CAL_CHIP_WIDTH - GAP, SMALL_SIZE, TILE_LINES)
+        w = min(max(text_width(t, SMALL_SIZE) for t in lines) + GAP, CAL_CHIP_WIDTH)
+        h = ROW + (len(lines) - 1) * SMALL_LINE
         props = {
             "lineColor": colour,
             "lineWidth": LINE_WIDTH,
             "fill": False,
             "lineStyle": "dashed" if dashed else "solid",
         }
-        self.s.widget("rectangle", x, y + CHIP_INSET, w, ROW - 2 * CHIP_INSET, props)
-        self.text(x + GAP / 2, y, text, size=SMALL_SIZE, w=w - GAP, fg=colour)
+        self.s.widget("rectangle", x, y + CHIP_INSET, w, h - 2 * CHIP_INSET, props)
+        if len(lines) == 1:
+            self.text(x + GAP / 2, y, lines[0], size=SMALL_SIZE, w=w - GAP, fg=colour)
+        else:
+            first = y + (ROW - SMALL_LINE) / 2
+            for n, line in enumerate(lines):
+                self.text(x + GAP / 2, first + n * SMALL_LINE, line, size=SMALL_SIZE, w=w - GAP, h=SMALL_LINE, fg=colour)  # fmt: skip
+        return y + h
 
     def member_name(self, member: Link | Fact) -> str:
         """A member's short name: what ``names.csv`` states, else its id's last part."""
@@ -4779,7 +4852,11 @@ class _Page:
         placed, _scale = strip.arrange_scaled(drawn, widths, STRIP_WIDTH, fill=True)
         beam = [p for p in placed if p.lane != "above"]
         badges = [p for p in placed if p.lane == "above"]
-        levels = stem_levels([p.x for p in badges])
+        # a ringed badge needs its ring's room beside its neighbour's
+        ringed = any(p.channels for p in badges)
+        levels = stem_levels(
+            [p.x for p in badges], BADGE + BADGE_GAP + (2 * RING_PAD if ringed else 0)
+        )
         # the upper lane only when something stands in it
         tags = stem_levels([p.x for p in beam], TAG_WIDTH + STRIP_LABEL_GAP)
         above: float = STRIP_AXIS  # room over the axis: rings' words, then badges with theirs
@@ -5067,10 +5144,17 @@ class _Page:
     def locator(self, beam: Sequence[Placed], extent: tuple[float, float]) -> None:
         """The to-scale bar under a row: its caption, a mark per symbol where the
         symbol truly is, a leader from each symbol's name down to its mark, and
-        the metres."""
-        lo, hi = extent
+        the metres. The bar spans the row's own stretch of the beam, not the whole
+        place's *extent*, so a row's leaders run down, not across the page; the
+        caption says which stretch of the whole it is."""
+        whole_lo, whole_hi = extent
+        found = [p.s_m for p in beam]
+        lo, hi = (min(found), max(found)) if found else extent
+        pad = max((hi - lo) * LOCATOR_PAD, LOCATOR_LEAST_M / 2)
+        lo, hi = max(lo - pad, min(whole_lo, lo)), min(hi + pad, max(whole_hi, hi))
         span = hi - lo
-        self.text(MARGIN, self.y, _LOCATOR_CAPTION, size=SMALL_SIZE, fg=MUTED_TEXT)
+        caption = _LOCATOR_CAPTION + _LOCATOR_STRETCH.format(lo, hi, whole_lo, whole_hi)
+        self.text(MARGIN, self.y, caption, size=SMALL_SIZE, fg=MUTED_TEXT)
         leaders_top = self.y + ROW
         bar = leaders_top + LEADER_DROP + LOCATOR_BIG
         self.line([(MARGIN, bar), (MARGIN + STRIP_WIDTH, bar)], MUTED_TEXT, LOCATOR_BAR)
@@ -6138,6 +6222,9 @@ class _Page:
         classes counted and the sources; under it the devices not at a unit."""
         tops = [_unit_top(unit) for unit in elevation.units]
         height = max(tops, default=0)
+        # a unit numbered below 1 (a rack's floor, U0) stands inside the frame too
+        lowest = min([1, *(unit.position or 0 for unit in elevation.units)])
+        rows = height - lowest + 1
         frame_x = MARGIN + RACK_LABEL_WIDTH
         bars_x = frame_x + RACK_PAD
         top = self.y
@@ -6147,11 +6234,15 @@ class _Page:
             frame_x,
             top,
             RACK_WIDTH + 2 * RACK_PAD,
-            height * RACK_U + 2 * RACK_PAD,
+            rows * RACK_U + 2 * RACK_PAD,
             {"lineColor": PAGE_TEXT, "lineWidth": AXIS_WIDTH, "fill": False},
         )
         labelled: set[int | None] = set()
         lanes = rack_lanes(elevation.units)
+        # chassis too many side by side for their names: one bar over their units,
+        # and each in a list under the rack with its own light
+        crowded: list[RackUnit] = []
+        spans: list[list[int]] = []  # the crowded bars' units, lowest and highest
         for unit, unit_top, (lane, count) in zip(elevation.units, tops, lanes, strict=True):
             w = RACK_WIDTH / count  # chassis whose units overlap share the rack's width
             x = bars_x + lane * w
@@ -6164,10 +6255,29 @@ class _Page:
                     MARGIN, y + h - RACK_U, label, size=SMALL_SIZE, w=RACK_LABEL_WIDTH - GAP,
                     h=RACK_U,
                 )  # fmt: skip
+            if w < RACK_LANE_LEAST:
+                crowded.append(unit)
+                continue
             self.chassis(x, y, w, h, unit)
-        bottom = top + height * RACK_U + 2 * RACK_PAD
+        crowded.sort(key=lambda u: u.position or 0)
+        for unit in crowded:
+            low, high = unit.position or 0, _unit_top(unit)
+            if spans and low <= spans[-1][1]:
+                spans[-1][1] = max(spans[-1][1], high)
+                spans[-1][2] += 1
+            else:
+                spans.append([low, high, 1])
+        for low, high, n in spans:
+            y = rack_top + (height - high) * RACK_U
+            h = (high - low + 1) * RACK_U
+            self.box(bars_x, y, RACK_WIDTH, h, fill=FIELD_BACKGROUND, dashed=True)
+            word = _cut(_SIDE_BY_SIDE_BAR.format(n), RACK_WIDTH - GAP, SMALL_SIZE)
+            self.text(bars_x + GAP / 2, y, word, size=SMALL_SIZE, w=RACK_WIDTH - GAP, h=RACK_U, fg=MUTED_TEXT)  # fmt: skip
+        bottom = top + rows * RACK_U + 2 * RACK_PAD
         self.rack_facts(elevation, top)
         self.y = max(bottom, self.facts_bottom) + SECTION_GAP
+        if crowded:
+            self.not_at_a_unit(crowded, heading=_SIDE_BY_SIDE)
         if elevation.unpositioned:
             self.not_at_a_unit(elevation.unpositioned)
 
@@ -6181,8 +6291,8 @@ class _Page:
         if unit.standing == _CONTESTED:
             name = f"{name} · {_CONTESTED}"
         x_text = x + GAP / 2
-        if unit.conflicting:
-            x_text = self.text(x_text, y, symbols.CONFLICT_MARK, size=SMALL_SIZE, h=RACK_U)
+        if unit.conflicting:  # the mark, then air before the name
+            x_text = self.text(x_text, y, symbols.CONFLICT_MARK, size=SMALL_SIZE, h=RACK_U) + GAP
         room = light_x - GAP / 2 - x_text
         name = _cut(name, room, SMALL_SIZE)
         if name:
@@ -6247,17 +6357,20 @@ class _Page:
         self.facts_bottom = self.y
         self.x0, self.right = x0, right
 
-    def not_at_a_unit(self, entries: Sequence[RackUnit]) -> None:
-        """The devices in the rack with no unit: a framed list of chips, each with its
-        light and the unit text a claim gives, under the rack."""
+    def not_at_a_unit(self, entries: Sequence[RackUnit], heading: str = _NOT_AT_A_UNIT) -> None:
+        """The devices in the rack with no unit (or, under another *heading*, those too
+        many side by side for their names): a framed list of chips, each with its
+        light and the unit a claim gives, under the rack."""
         first = len(self.s.nodes)
         top = self.y
         self.y += PANEL_PAD
-        self.heading(_NOT_AT_A_UNIT)
+        self.heading(heading)
         x: float = MARGIN
         for unit in entries:
             name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
             label = f"{name} · unit {unit.unit_text}" if unit.unit_text else name
+            if unit.position is not None:
+                label = f"{name} · U{unit.position}"
             w = text_width(label, SMALL_SIZE) + CHIP_LIGHT + 2 * GAP
             if x > MARGIN and x + w > MARGIN + STRIP_WIDTH:
                 x = MARGIN
@@ -6653,6 +6766,22 @@ def _wrap(
             line = _cut(" ".join([line, *words]), fit, size)
             words = []
         out.append(_cut(line, fit, size))
+    return out or [""]
+
+
+def _wrap_label(text: str, width: float, size: float, lines: int) -> list[str]:
+    """A name in at most *lines* lines that each fit *width* at *size*, broken after a
+    space, colon, hyphen or underscore; the last line cut with an ellipsis when the
+    rest does not fit."""
+    pieces = re.findall(r"[^\s:_-]*[\s:_-]|[^\s:_-]+$", text)
+    out: list[str] = []
+    while pieces and len(out) < lines:
+        line = pieces.pop(0)
+        while pieces and text_width(line + pieces[0], size) <= width:
+            line += pieces.pop(0)
+        if len(out) == lines - 1 and pieces:
+            line, pieces = line + "".join(pieces), []
+        out.append(_cut(line.strip(), width, size))
     return out or [""]
 
 

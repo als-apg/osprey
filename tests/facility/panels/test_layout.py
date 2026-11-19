@@ -37,6 +37,7 @@ from osprey.facility.panels.layout import (
 )
 from osprey.facility.panels.model import load_graph
 from osprey.facility.panels.view import (
+    Fact,
     Light,
     Link,
     Node,
@@ -389,7 +390,8 @@ def test_a_locator_puts_ticks_and_devices_in_proportion_to_s(panel_graph) -> Non
         for n in _by_type(doc, "text-label")
         if re.fullmatch(r"\d+(\.\d+)?", n["props"]["text"])
     ]
-    assert "to scale · position along the beam (m)" in _texts(doc)
+    (caption,) = [t for t in _texts(doc) if t.startswith("to scale · position along the beam")]
+    assert caption.endswith("this row 0 to 30 of 0 to 30")  # one row: the whole place
     assert [m for m, _ in ticks] == list(range(0, 31, 2))
     (m0, x0), (m1, x1) = ticks[0], ticks[-1]
     per_metre = (x1 - x0) / (m1 - m0)
@@ -410,6 +412,20 @@ def test_a_dense_strip_breaks_into_rows_instead_of_shrinking(panel_graph) -> Non
             kind = ("quadrupole_f", "quadrupole_d", "bend")[int(thing[1:]) % 3]
             natural = symbols.WIDTH_UNITS[kind] * SYMBOL_UNIT
             assert n["geometry"]["width"] >= natural * MIN_STRIP_SCALE - 0.1
+
+
+def test_each_row_of_a_strip_has_a_locator_of_its_own_stretch(panel_graph) -> None:
+    doc, _ = draw(invented_views()[0], panel_graph)
+    stretches = [
+        tuple(float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", t.rsplit("this row", 1)[1]))
+        for t in _texts(doc)
+        if t.startswith("to scale · position along the beam")
+    ]
+    assert len(stretches) == len(_axes(doc)) > 1
+    for lo, hi, whole_lo, whole_hi in stretches:
+        assert whole_lo <= lo < hi <= whole_hi and hi - lo < whole_hi - whole_lo
+    # one row's stretch follows the last
+    assert [s[0] for s in stretches] == sorted(s[0] for s in stretches)
 
 
 def test_the_tray_is_a_dashed_box_of_its_entries_with_their_reason(panel_graph) -> None:
@@ -434,6 +450,54 @@ def test_a_conflicting_rack_unit_is_marked(panel_graph) -> None:
     doc, _ = draw(view, panel_graph)
     assert _texts(doc).count(symbols.CONFLICT_MARK) == len(conflicting)
     assert "NOT AT A UNIT" in _texts(doc)
+
+
+def test_a_conflict_mark_leaves_room_before_the_name(panel_graph) -> None:
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    doc, _ = draw(view, panel_graph)
+    texts = _by_type(doc, "text-label")
+    for i, n in enumerate(texts):
+        if n["props"]["text"] == symbols.CONFLICT_MARK:
+            name = texts[i + 1]["geometry"]
+            mark = n["geometry"]
+            assert name["x"] >= mark["x"] + mark["width"] + layout.GAP - 0.01
+
+
+def test_units_too_many_side_by_side_are_one_bar_and_listed_under_the_rack(panel_graph) -> None:
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    (elevation,) = view.sections[0].items
+    unit = elevation.units[0]
+    crowd = tuple(
+        replace(unit, link=Fact("chassis", f"XR01:SLOT{i}"), conflicting=False) for i in range(8)
+    )
+    elevation = replace(elevation, units=crowd)
+    view = replace(view, sections=(replace(view.sections[0], items=(elevation,)),))
+    doc, _ = draw(view, panel_graph)
+    texts = _texts(doc)
+    assert "8 devices side by side · listed under the rack" in texts
+    assert "SIDE BY SIDE AT ONE UNIT" in texts
+    assert [t for t in texts if t.startswith("XR01:SLOT")] == [
+        f"XR01:SLOT{i} · U{unit.position}" for i in range(8)
+    ]
+
+
+def test_a_unit_numbered_zero_stands_inside_the_rack_frame(panel_graph) -> None:
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    (elevation,) = view.sections[0].items
+    floor = replace(
+        elevation.units[0], position=0, size_u=1, link=Fact("x", "XR01:FLOOR"),
+        standing="accepted", conflicting=False,
+    )  # fmt: skip
+    elevation = replace(elevation, units=(*elevation.units, floor))
+    view = replace(view, sections=(replace(view.sections[0], items=(elevation,)),))
+    doc, _ = draw(view, panel_graph)
+    frame = max(
+        (n for n in _by_type(doc, "rectangle") if n["props"].get("lineWidth") == layout.AXIS_WIDTH),
+        key=lambda n: n["geometry"]["height"],
+    )["geometry"]
+    name = next(n for n in _by_type(doc, "text-label") if n["props"]["text"] == "XR01:FLOOR")
+    g = name["geometry"]
+    assert frame["y"] <= g["y"] and g["y"] + g["height"] <= frame["y"] + frame["height"]
 
 
 def test_a_rack_unit_is_as_tall_as_its_size(panel_graph) -> None:
@@ -1564,3 +1628,21 @@ def test_an_arrow_word_and_a_block_title_are_never_cut() -> None:
     assert lines == ["PORTA1_CH01"] and short  # the whole word on hover
     for line in layout.arrow_lines("an arrow word too long for any one line")[0]:
         assert layout.text_width(line, layout.SMALL_SIZE) <= layout.ARROW_RUN_MOST - layout.GAP
+
+
+def test_a_long_tile_name_breaks_at_its_separators_and_is_whole() -> None:
+    from osprey.facility.panels.layout import _wrap_label, text_width
+
+    name = "XR01:Vacuum-Controller"
+    width = text_width("XR01:Vacuum-", layout.SMALL_SIZE) + 1
+    lines = _wrap_label(name, width, layout.SMALL_SIZE, 2)
+    assert lines == ["XR01:Vacuum-", "Controller"]
+    assert all(text_width(line, layout.SMALL_SIZE) <= width for line in lines)
+    assert _wrap_label("120 without a rule", 1e6, layout.SMALL_SIZE, 2) == ["120 without a rule"]
+
+
+def test_every_size_constant_is_named_once() -> None:
+    source = Path(layout.__file__).read_text()
+    names = re.findall(r"^([A-Z][A-Z0-9_]*) = ", source, flags=re.MULTILINE)
+    twice = sorted({n for n in names if names.count(n) > 1})
+    assert twice == []  # a second binding silently changes every use of the first
