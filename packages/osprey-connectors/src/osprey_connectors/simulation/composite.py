@@ -15,6 +15,14 @@ child's own variables that no channel names (faults, optics) are reached as
 ``<model>/<name>`` through :meth:`Composite.model_get` and
 :meth:`Composite.model_set` only.
 
+**Several addresses of one record.** A wiring record of a physics child may
+state further addresses under ``also``. Each is a channel of the view, and the
+composite serves it as the record's ``address``: a read of it is that
+address's read at the same instant, motion, readout and channel fault
+included; a write to it is a write to that address; and it is emitted and
+moving when that address is. No child and no texture channel is keyed by a
+further address.
+
 **Server health.** ``supported_variables`` also holds the view's server health
 addresses, ``<code>:SIM:<model>:<signal>``, read-only and served for every model
 the view lists whether or not it is built: ``HEARTBEAT`` counts the whole seconds
@@ -433,9 +441,19 @@ class Composite(LUMEModel):
         physics = sorted(models)
 
         self._texture = TextureModel(variables, view.document(SEEDS_FILE), clock=clock)
+        #: Each further address a served record states, mapped to the record's
+        #: address, and each such record's further addresses.
+        self._record_of: dict[str, str] = {}
+        self._further: dict[str, tuple[str, ...]] = {}
+        for name in physics:
+            for binding in models[name].bindings:
+                if binding.also:
+                    self._further[binding.address] = binding.also
+                    self._record_of.update(dict.fromkeys(binding.also, binding.address))
         self._owner: dict[str, str] = {
             address: (owner if (owner := str(record.get("owner"))) in physics else TEXTURE_OWNER)
             for address, record in self._channels.items()
+            if address not in self._record_of
         }
         children = {name: self._child(models[name]) for name in physics}
         for child in children.values():
@@ -466,12 +484,13 @@ class Composite(LUMEModel):
 
         self._variables: dict[str, Variable] = {}
         for address in view.channels():
-            if self._owner[address] == TEXTURE_OWNER:
+            own = self._record_of.get(address, address)
+            if self._owner[own] == TEXTURE_OWNER:
                 self._variables[address] = self._texture.supported_variables[address]
             else:
-                child = self._children[self._owner[address]]
+                child = self._children[self._owner[own]]
                 self._variables[address] = channel_variable(
-                    self._channels[address], self._start_value(child, address)
+                    self._channels[address], self._start_value(child, own)
                 )
         for address in self._status:
             self._variables[address] = StrVariable(
@@ -726,7 +745,20 @@ class Composite(LUMEModel):
                 fired.update(str(address) for address in addresses)
             except Exception as exc:
                 self._fail(child, exc)
-        return frozenset(fired)
+        return self._with_further(fired)
+
+    def _own(self, names: Sequence[str]) -> list[str]:
+        """The addresses ``names`` are served as, each once, in first-named order."""
+        if not self._record_of:
+            return list(names)
+        return list(dict.fromkeys(self._record_of.get(name, name) for name in names))
+
+    def _with_further(self, addresses: Iterable[str]) -> frozenset[str]:
+        """``addresses`` and every further address their records state."""
+        named = frozenset(addresses)
+        if not self._further:
+            return named
+        return named.union(*(self._further.get(address, ()) for address in named))
 
     def _client_write(self, forwarded: Mapping[str, Mapping[str, object]], t_s: float) -> None:
         """Hand each child the client writes that reached its model."""
@@ -896,6 +928,7 @@ class Composite(LUMEModel):
             if fault.write:
                 held.add(str(address))
             pair = str(channel.get("pair") or address)
+            pair = self._record_of.get(pair, pair)
             if fault.read is None:
                 continue
             if pair != address and pair in self._channels:
@@ -941,7 +974,7 @@ class Composite(LUMEModel):
         term moves it.
         """
         self._refresh()
-        return self._moving
+        return self._with_further(self._moving)
 
     def stopped(self) -> frozenset[str]:
         """The addresses of the simulated servers the active scenarios stop.
@@ -1027,15 +1060,16 @@ class Composite(LUMEModel):
         self._refresh()
         t_s = float(self._clock())
         self._advance(t_s)
-        outputs = self._served(names, t_s)
-        outputs.update(self._held_demands(names))
-        for name in names:
+        own = self._own(names)
+        outputs = self._served(own, t_s)
+        outputs.update(self._held_demands(own))
+        for name in own:
             fault = self._faulted.get(name)
             if fault is not None and fault.read is not None:
                 outputs[name] = fault.read(
                     channel_value_type(self._channels[name]), self._snapshot.get(name)
                 )
-        return {name: outputs[name] for name in names}
+        return {name: outputs[self._record_of.get(name, name)] for name in names}
 
     def _served(self, names: list[str], t_s: float) -> dict[str, object]:
         """The channels as served at ``t_s`` without the channel faults."""
@@ -1166,16 +1200,19 @@ class Composite(LUMEModel):
         """The channels a read of ``address`` reads with it, ``address`` among them.
 
         A monitor plane of a physics child is read with its partner planes;
-        any other channel alone.
+        any other channel alone. A further address of a record stands in its
+        group where the record's address does.
 
         Raises:
             ValueError: ``address`` is not a channel of the view.
         """
         self._require([address])
-        owner = self._owner[address]
-        if owner == TEXTURE_OWNER or not self._is_moving_readback(address):
+        own = self._record_of.get(address, address)
+        owner = self._owner[own]
+        if owner == TEXTURE_OWNER or not self._is_moving_readback(own):
             return (address,)
-        return self._children[owner].partners.get(address, (address,))
+        group = self._children[owner].partners.get(own, (own,))
+        return tuple(address if name == own else name for name in group)
 
     def readings(
         self, levels: Mapping[str, float | npt.NDArray[np.float64]], t_s: object
@@ -1200,12 +1237,18 @@ class Composite(LUMEModel):
             ValueError: A name is not a float channel of the view, or a
                 monitor plane's partner has no level.
         """
-        names = sorted(levels)
-        self._require(names)
-        for name in names:
+        named = sorted(levels)
+        self._require(named)
+        for name in named:
             channel = self._channels.get(name)
             if channel is None or not is_float_channel(channel):
                 raise ValueError(f"{name} is not a float channel of the view")
+        # A further address reads as its record's address does on the level
+        # given for it; the level of the record's own address stands over it.
+        given = dict(levels)
+        levels = {self._record_of.get(name, name): given[name] for name in reversed(named)}
+        levels.update({name: given[name] for name in named if name not in self._record_of})
+        names = sorted(levels)
         self._refresh()
         times = np.asarray(t_s, dtype=np.float64).reshape(-1)
         out: dict[str, npt.NDArray[np.float64]] = {}
@@ -1229,7 +1272,7 @@ class Composite(LUMEModel):
                 out.update({name: np.full(times.shape, math.nan) for name in owned})
             else:
                 out.update(self._moving_readbacks(child, owned, times))
-        return {name: out[name] for name in names}
+        return {name: out[self._record_of.get(name, name)] for name in named}
 
     def held(self, names: Sequence[str]) -> dict[str, object]:
         """Each channel's held value: no motion, no readout, no clamp.
@@ -1248,8 +1291,9 @@ class Composite(LUMEModel):
         Raises:
             ValueError: A name is not a channel or status address of the view.
         """
-        wanted = list(names)
-        self._require(wanted)
+        named = list(names)
+        self._require(named)
+        wanted = self._own(named)
         self._refresh()
         self._advance(float(self._clock()))
         outputs, texture, physics = self._partition(wanted)
@@ -1262,7 +1306,7 @@ class Composite(LUMEModel):
             else:
                 outputs.update(read)
         outputs.update(self._held_demands(wanted))
-        return {name: outputs[name] for name in wanted}
+        return {name: outputs[self._record_of.get(name, name)] for name in named}
 
     def output_severity(self, names: Sequence[str]) -> dict[str, dict[str, str]]:
         """The condition of each named channel whose child failed or whose fault reports one.
@@ -1278,11 +1322,12 @@ class Composite(LUMEModel):
         self._refresh()
         severities: dict[str, dict[str, str]] = {}
         for name in names:
-            child = self._children.get(self._owner.get(name, TEXTURE_OWNER))
+            own = self._record_of.get(name, name)
+            child = self._children.get(self._owner.get(own, TEXTURE_OWNER))
             if child is not None and child.model is None:
                 severities[name] = {"condition": _UDF}
-            elif name in self._fault_severity:
-                severities[name] = {"condition": self._fault_severity[name]}
+            elif own in self._fault_severity:
+                severities[name] = {"condition": self._fault_severity[own]}
         return severities
 
     def status(self, model: str) -> str:
@@ -1303,7 +1348,8 @@ class Composite(LUMEModel):
 
         Args:
             values_by_name: Values by channel address; a waveform as a flat or
-                nested list.
+                nested list. A further address of a record writes the record's
+                address; of two values for one record the later stands.
 
         Raises:
             WriteRefusedError: (a ``ValueError``) A name is not a channel of the
@@ -1340,14 +1386,15 @@ class Composite(LUMEModel):
             if variable.read_only:
                 raise ReadOnlyError(f"Variable '{name}' is read-only. Cannot be set.")
             channel = self._channels[name]
+            own = self._record_of.get(name, name)
             try:
-                coerced[name] = values.coerce(
+                coerced[own] = values.coerce(
                     value.tolist() if isinstance(value, np.ndarray) else value,
                     channel.get("value_type"),
                     channel.get("options"),
                     channel.get("shape"),
                 )
-                variable.validate_value(_for_variable(variable, coerced[name]))
+                variable.validate_value(_for_variable(variable, coerced[own]))
             except ValueError as exc:
                 raise WriteRefusedError(str(exc), address=name) from exc
         t_s = float(self._clock())
@@ -1361,7 +1408,9 @@ class Composite(LUMEModel):
 
     @override
     def _set(self, values_by_name: dict[str, values.StoredValue]) -> None:
-        self._forward(values_by_name)
+        self._forward(
+            {self._record_of.get(name, name): value for name, value in values_by_name.items()}
+        )
 
     def _forward(
         self, values_by_name: Mapping[str, values.StoredValue]

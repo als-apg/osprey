@@ -186,9 +186,10 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
 def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
     """The addresses whose binding refreshes ``refresh``, across every model of the view."""
     return frozenset(
-        binding.address
+        address
         for binding in view.bindings(served_only=False)
         if binding.refresh == refresh
+        for address in binding.addresses
     )
 
 
@@ -247,24 +248,34 @@ def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
     Returns:
         For each setpoint a physics model binds: itself, its readback, the
         model's records that are no setpoint and no readback paired with one,
-        and the model's status address.
+        and the model's status address. A record counts under every address
+        it states, so a setpoint's entry is the same under each of them.
     """
     bindings = view.bindings(served_only=False)
     settings = [binding for binding in bindings if binding.engine_role == SETPOINT]
-    pairs = {binding.address: view.channel(binding.address).pair for binding in settings}
-    paired = {pair for pair in pairs.values() if pair is not None}
+    names = {address: binding.addresses for binding in bindings for address in binding.addresses}
+    pairs = {
+        binding.address: {
+            name
+            for address in binding.addresses
+            if (pair := view.channel(address).pair) is not None
+            for name in names.get(pair, (pair,))
+        }
+        for binding in settings
+    }
+    paired = set().union(*pairs.values())
     computed: dict[str, set[str]] = {}
     for binding in bindings:
-        if binding.engine_role != SETPOINT and binding.address not in paired:
-            computed.setdefault(binding.model, set()).add(binding.address)
+        if binding.engine_role != SETPOINT and paired.isdisjoint(binding.addresses):
+            computed.setdefault(binding.model, set()).update(binding.addresses)
     for model, address in view.status_addresses().items():
         computed.setdefault(model, set()).add(address)
     records: dict[str, frozenset[str]] = {}
     for binding in settings:
-        own = {binding.address, *computed.get(binding.model, ())}
-        if (pair := pairs[binding.address]) is not None:
-            own.add(pair)
-        records[binding.address] = frozenset(own)
+        own = frozenset(
+            {*binding.addresses, *computed.get(binding.model, ()), *pairs[binding.address]}
+        )
+        records.update(dict.fromkeys(binding.addresses, own))
     return records
 
 
