@@ -11,6 +11,7 @@ from .assets import (
     ImageEmbed,
     concept_dir,
     lookup_asset,
+    read_asset_bytes,
     resolve_image_target,
     scan_image_embeds,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "OKFDocumentError",
     "concept_dir",
     "lookup_asset",
+    "read_asset_bytes",
     "resolve_image_target",
     "scan_image_embeds",
 ]

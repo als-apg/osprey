@@ -94,21 +94,17 @@ def _read_panel_image(asset):
     read: a file that grew past the limit since the lookup is ``too_large``.
     """
     from osprey.services.facility_knowledge.okf.assets import (
-        MAX_IMAGE_BYTES,
         PANEL_IMAGE_TYPES,
         AssetError,
+        read_asset_bytes,
     )
 
     if asset.type not in PANEL_IMAGE_TYPES:
         raise AssetError("disallowed_type", f"{asset.type} is not a panel image type")
     try:
-        with asset.path.open("rb") as handle:
-            data = handle.read(MAX_IMAGE_BYTES + 1)
+        return read_asset_bytes(asset)
     except OSError as exc:
         raise AssetError("not_found", "the file can no longer be read") from exc
-    if len(data) > MAX_IMAGE_BYTES:
-        raise AssetError("too_large", f"more than {MAX_IMAGE_BYTES} bytes")
-    return data
 
 
 def _ranked_backend_kwargs():

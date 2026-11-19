@@ -48,6 +48,7 @@ __all__ = [
     "ImageEmbed",
     "concept_dir",
     "lookup_asset",
+    "read_asset_bytes",
     "resolve_image_target",
     "scan_image_embeds",
 ]
@@ -302,6 +303,23 @@ def lookup_asset(root: Path, bundle_path: str) -> Asset:
     if size > MAX_IMAGE_BYTES:
         raise AssetError("too_large", f"{size} bytes exceeds {MAX_IMAGE_BYTES}")
     return Asset(path=resolved, type=kind, mime=mime, size=size)
+
+
+def read_asset_bytes(asset: Asset) -> bytes:
+    """Read the bytes of a looked-up asset, never more than :data:`MAX_IMAGE_BYTES`.
+
+    The file is read again on every call; one that grew past the limit since
+    :func:`lookup_asset` is refused.
+
+    Raises:
+        AssetError: ``too_large`` when the file now holds more than the limit.
+        OSError: The file can no longer be read.
+    """
+    with asset.path.open("rb") as handle:
+        data = handle.read(MAX_IMAGE_BYTES + 1)
+    if len(data) > MAX_IMAGE_BYTES:
+        raise AssetError("too_large", f"the file grew past {MAX_IMAGE_BYTES} bytes")
+    return data
 
 
 # --------------------------------------------------------------------------- #

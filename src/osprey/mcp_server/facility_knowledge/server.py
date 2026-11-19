@@ -548,9 +548,9 @@ async def view_asset(path: str) -> ToolResult:
     from osprey.imaging import render
     from osprey.services.facility_knowledge.okf.assets import (
         AGENT_IMAGE_TYPES,
-        MAX_IMAGE_BYTES,
         AssetError,
         lookup_asset,
+        read_asset_bytes,
     )
 
     with _tool_error_envelope(f"view_asset {path!r}"):
@@ -571,10 +571,10 @@ async def view_asset(path: str) -> ToolResult:
             _refuse_asset(rel, "disallowed_type", f"{asset.type} images cannot be viewed")
 
         # Read from disk on every call, never more than the limit allows.
-        with asset.path.open("rb") as fh:
-            data = fh.read(MAX_IMAGE_BYTES + 1)
-        if len(data) > MAX_IMAGE_BYTES:
-            _refuse_asset(rel, "too_large", "the file grew past the size limit")
+        try:
+            data = read_asset_bytes(asset)
+        except AssetError as exc:
+            _refuse_asset(rel, exc.code, str(exc))
 
         # The renderer is the validity check for every picture sent. A
         # RenderUnavailable is no verdict on the image: the envelope turns it
