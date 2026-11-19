@@ -60,6 +60,8 @@ from osprey_connectors.simulation.values import is_waveform
 try:
     from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
 except ImportError:  # an osprey-connectors release older than scenario ``stopped_servers``
+    from osprey_connectors.simulation import GATED_TYPES as _FLOOR_STAND_IN  # noqa: F401
+
     TEXTURE_SERVER = None  # type: ignore[assignment]
     served_servers = None  # type: ignore[assignment]
 

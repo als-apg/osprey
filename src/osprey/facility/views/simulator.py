@@ -97,6 +97,15 @@ except ImportError:  # a connectors release whose view names no IOC health signa
 
     IOC_HEALTH_SIGNALS = ()  # type: ignore[assignment]
 
+try:
+    from osprey_connectors.simulation.servers import served_servers
+except ImportError:  # an osprey-connectors release older than scenario ``stopped_servers``
+    from osprey_connectors.simulation.view import (
+        ADDRESSES_FILE as _SERVERS_FLOOR_STAND_IN,  # noqa: F401
+    )
+
+    served_servers = None  # type: ignore[assignment]
+
 __all__ = [
     "ADDRESSES_FILE",
     "ADDRESSES_SCHEMA",
@@ -437,8 +446,9 @@ def _split_stopped_servers(
     """
     from osprey.facility.errors import FacilityBuildError
     from osprey.simulation.apply import resolve_default_scenarios
-    from osprey_connectors.simulation.servers import served_servers
 
+    # The validator refuses ``stopped_servers`` on connectors that cannot stop a server.
+    assert served_servers is not None
     physics = [
         str(model["name"])
         for model in inputs.records.document.get("models", [])

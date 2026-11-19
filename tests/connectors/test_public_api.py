@@ -258,6 +258,8 @@ def test_a_directory_backend_without_list_servers_answers_unavailable():
     from osprey_connectors.directory import ChannelDirectory
     from osprey_connectors.service_answers import Unavailable
 
+    if not hasattr(ChannelDirectory, "list_servers"):
+        pytest.skip("connectors floor has no directory listing")
     assert "list_servers" not in ChannelDirectory.__abstractmethods__
     older = type(
         "OlderDirectory",

@@ -99,6 +99,8 @@ try:
 
     DIRECTORY_LISTING_AVAILABLE = True
 except ImportError:
+    from osprey_connectors.types import CONTROL_TARGETS as _LISTING_FLOOR_STAND_IN  # noqa: F401
+
     DIRECTORY_LISTING_AVAILABLE = False
     ServerRow = None  # type: ignore[assignment,misc]
 

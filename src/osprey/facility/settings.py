@@ -32,6 +32,8 @@ from osprey_connectors.workspace import BUILD_DIR_NAME
 try:
     from osprey_connectors.simulation.servers import server_addresses
 except ImportError:  # an osprey-connectors release older than scenario ``stopped_servers``
+    from osprey_connectors.types import LIVE_STANDIN as _FLOOR_STAND_IN  # noqa: F401
+
     server_addresses = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
