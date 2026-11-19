@@ -549,7 +549,11 @@ demo preset ships this one:
 
 A setpoint record with both ``min_value`` and ``max_value`` is writable within
 them; ``max_step`` bounds a single change; ``writable: false`` blocks every
-write; ``confirm: false`` turns off the re-read after a write.
+write; ``confirm: false`` turns off the re-read after a write. A bool, enum,
+string or waveform setpoint carries no bounds and is writable when its record
+says ``writable: true``. For such a channel the limits check decides only
+whether it may be written; which values it takes is decided by the control
+system.
 
 ``osprey build`` renders the records into ``build/data/channel_limits.json``,
 the file the connector's reference monitor and the runtime's limits check

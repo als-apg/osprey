@@ -61,6 +61,7 @@ from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
+from osprey.facility.views.limits import NUMERIC_TYPES, record_writable
 from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 from osprey_connectors.simulation.values import is_waveform
@@ -144,7 +145,6 @@ _MAX_LABEL = 25
 #: than 17 significant digits.
 _MAX_PRECISION = 17
 
-_NUMERIC_TYPES = ("float", "int")
 _LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
 _MOTION = ("noise", "drift")
 #: The two terms a ``noise`` record states exactly one of.
@@ -2132,7 +2132,7 @@ class _Records:
                     "remove `writable`; only a setpoint is writable",
                 )
             bounds = [slot for slot in _LIMIT_BOUNDS if record.get(slot) is not None]
-            if bounds and value_type not in _NUMERIC_TYPES:
+            if bounds and value_type not in NUMERIC_TYPES:
                 yield self._error(
                     "value-invalid",
                     "limit",
@@ -2400,7 +2400,11 @@ class _Records:
             yield from refused
             return
         record = records.get(address)
-        if role == "setpoint" and record is not None and _locked(record):
+        if (
+            role == "setpoint"
+            and record is not None
+            and not record_writable(record, role, self._type(address))
+        ):
             yield self._error(
                 "seed-invalid",
                 "scenario",
@@ -2422,7 +2426,7 @@ class _Records:
         record: Mapping[str, Any] | None,
     ) -> Iterator[FacilityBuildError]:
         """Hold a scenario value on a setpoint to its limits record's band."""
-        if record is None or self._type(address) not in _NUMERIC_TYPES:
+        if record is None or self._type(address) not in NUMERIC_TYPES:
             return
         if self.index.channels[address].get("role") != "setpoint":
             return
@@ -2854,15 +2858,6 @@ def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildE
         remedy,
         record_kind="measurement",
         detail=detail,
-    )
-
-
-def _locked(record: Mapping[str, Any]) -> bool:
-    """True when a setpoint's limits record leaves it unwritable."""
-    return (
-        record.get("writable") is False
-        or record.get("min_value") is None
-        or record.get("max_value") is None
     )
 
 
