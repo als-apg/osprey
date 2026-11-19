@@ -60,20 +60,29 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
 
         return []
 
+    def required_tree_levels(self) -> list[str]:
+        """The levels an options request must select above the level it asks about.
+
+        Every tree level not declared ``optional``, top to bottom; instance
+        levels and optional tree levels may be left out.
+        """
+        levels = self.hierarchy_config["levels"]
+        return [
+            level
+            for level in self.hierarchy_levels
+            if levels[level]["type"] == "tree" and not levels[level].get("optional", False)
+        ]
+
     def _require_selected_tree_levels(
         self, target_level: str, previous_selections: dict[str, Any]
     ) -> None:
         """Raise ``ValueError`` naming the first required tree level above ``target_level``
         that ``previous_selections`` omit."""
+        required = set(self.required_tree_levels())
         for prev_level in self.hierarchy_levels:
             if prev_level == target_level:
                 return
-            level_config = self.hierarchy_config["levels"][prev_level]
-            if (
-                level_config["type"] == "tree"
-                and not level_config.get("optional", False)
-                and prev_level not in previous_selections
-            ):
+            if prev_level in required and prev_level not in previous_selections:
                 raise ValueError(
                     f"selections name no {prev_level!r}; "
                     f"get the {prev_level!r} options before the {target_level!r} options"
