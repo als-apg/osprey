@@ -1259,27 +1259,29 @@ def _role_title(role: str) -> str:
 
 def _role_word(row: ChannelRole) -> str:
     """What a card calls a role row's channel, on a tile or over a group: the row's
-    ``label`` as stated, else the role's name as a title. A choice's label is the
-    word of its own segment, so a choice is called by its role."""
+    ``label`` as stated, else its signal's ``title``, else the role's name as a
+    title. A choice's label is the word of its own segment, so a choice is called
+    by its role."""
     if row.label and row.shown_as != "choice":
         return row.label
-    return _role_title(row.role)
+    return row.title or _role_title(row.role)
 
 
 def _plate_word(row: ChannelRole) -> str:
     """A nameplate role's name in the device's block: its ``label`` as stated, else
-    the quantity its signal names (``model`` for ``model_readback``)."""
-    if row.label:
-        return row.label
+    its signal's ``title``, else the quantity its signal names (``model`` for
+    ``model_readback``)."""
+    if row.label or row.title:
+        return row.label or row.title or ""
     return _role_title(signal_quantity(row.role, "readback") or row.role).lower()
 
 
 def _row_word(row: ChannelRole) -> str:
     """A role row's name on a value row of a block: its ``label`` as stated, else
-    the role's name in lower case."""
+    its signal's ``title`` as stated, else the role's name in lower case."""
     if row.label and row.shown_as != "choice":
         return row.label
-    return _role_title(row.role).lower()
+    return row.title or _role_title(row.role).lower()
 
 
 #: A card key number's measures over every channel of its role on the device.
@@ -1583,7 +1585,7 @@ def _operate(
                     unstated.append(hit.channel)
                     continue
                 shade = _status(graph, hit, status) if kind == "choice" else None
-                label = hit.role.label or _role_title(role)
+                label = hit.role.label or hit.role.title or _role_title(role)
                 inferred = hit.role.press_value is not None and hit.role.basis == "inferred"
                 items.append(Control(label, hit.channel, press, shade or hit.channel, inferred))
                 used.add(hit.channel)
@@ -1867,7 +1869,8 @@ def _block_rows(
         if not found:
             found = [h for h in hits if h.role.role == role]
         if not found:
-            rows.append(BlockRow(_role_title(role).lower(), None, shown_as="value"))
+            word = graph.titles.get(role) or _role_title(role).lower()
+            rows.append(BlockRow(word, None, shown_as="value"))
             continue
         hit = found[0]
         shown = hit.role.shown_as if hit.role.shown_as in ("value", "word", "lamp") else "value"
@@ -2437,7 +2440,7 @@ def _connector_roles(
                 if press is None:
                     continue  # no value stated: no press (the card's count has it)
                 inferred = hit.role.press_value is not None and hit.role.basis == "inferred"
-                label = hit.role.label or _role_title(role)
+                label = hit.role.label or hit.role.title or _role_title(role)
                 controls.append(Control(label, hit.channel, press, None, inferred))
             elif hit.channel != lamp or graph.state_words(hit.channel):
                 shown = hit.role.shown_as if hit.role.shown_as != "lamp" else "word"
@@ -2653,7 +2656,9 @@ def limit_ladder(
         found = own.get(role)
         title = (
             found.role.label
-            if found is not None and found.role.label
+            or found.role.title
+            or _role_title(role.removeprefix(_THRESHOLD_PREFIX))
+            if found is not None
             else _role_title(role.removeprefix(_THRESHOLD_PREFIX))
         )
         if found is None:

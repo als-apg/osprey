@@ -245,11 +245,20 @@ refused:
    - name: bootloader_version_readback
      description: Bootloader version a controller reports.
      nameplate: true
+   - name: trip_level_readback
+     description: Level at which a protection circuit trips.
+     title: Trip
 
 ``nameplate: true`` marks a signal that names the unit it is read from rather
 than its state; a device card shows such a signal with what the device is,
 never as a key tile. The vocabulary's own ``model_readback``,
 ``serial_number_readback`` and ``firmware_version_readback`` are marked so.
+
+``title`` is the short word a screen names the signal by, on a tile or a value
+row; with none, the signal's name stands. The vocabulary titles its general
+signals with the operator's word: ``Current``, ``Setpoint``, ``Voltage``,
+``Ramp rate``, ``On command``, and ``Lolo``, ``Lo``, ``Hi``, ``Hihi`` for the
+temperature alarm limits. A ``channel_roles.csv`` row's ``label`` wins over it.
 
 Layers
 ======

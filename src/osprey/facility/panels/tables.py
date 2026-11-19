@@ -899,6 +899,9 @@ class ChannelRole:
     #: (:func:`osprey.facility.panels.model.signal_role`): it names what the channel
     #: is, never how the card presses it.
     stated: bool = True
+    #: The ``title`` the signal named ``role`` states (in the vocabulary or
+    #: ``signals.yaml``): what the card calls the channel when ``label`` is empty.
+    title: str | None = None
 
 
 def _channel_role(**columns: Any) -> ChannelRole:

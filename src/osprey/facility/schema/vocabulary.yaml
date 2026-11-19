@@ -24,9 +24,13 @@ enums:
     permissible_values:
       current_setpoint:
         description: Commanded current value sent to a powered device.
+        annotations:
+          title: Setpoint
         aliases: [current setpoint, magnet setpoint, demand current, set current, current demand, setpoint current, commanded current]
       current_readback:
         description: Measured current value read back from a powered device.
+        annotations:
+          title: Current
         aliases: [current readback, measured current, current measurement, current readout, readback current]
       field_setpoint:
         description: Commanded field (integrated or peak) for a magnetic device.
@@ -72,6 +76,8 @@ enums:
         aliases: [phase setpoint, cavity phase setpoint, set phase, PSET]
       magnet_voltage_readback:
         description: Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).
+        annotations:
+          title: Voltage
         aliases: [voltage, voltages, magnet voltage, magnet voltages, voltage readback, magnet voltage readback, driver supply voltage, high voltage readback, HV readback, D.H]
       valve_status:
         description: Open/closed/fault status readback for a beamline gate valve or fast valve.
@@ -91,6 +97,8 @@ enums:
         description: Power-on (energised) state readback of a powered device.
       power_on_command:
         description: Commanded power on/off transition for a powered device.
+        annotations:
+          title: On command
       ready_status:
         description: Device-ready handshake readback (interlocks satisfied, supplies up).
       fault_status:
@@ -103,6 +111,8 @@ enums:
         description: Generic interlock readback (active / cleared).
       ramp_rate_setpoint:
         description: Commanded ramp-rate setpoint for a powered device's current loop.
+        annotations:
+          title: Ramp rate
       ramping_status:
         description: Ramping-in-progress readback.
       leakage_current_readback:
@@ -264,6 +274,8 @@ enums:
         aliases: [voltage setpoint, set voltage, commanded voltage, voltage demand]
       voltage_readback:
         description: Measured voltage.
+        annotations:
+          title: Voltage
         aliases: [measured voltage, voltage reading, readback voltage]
       voltage_golden_readback:
         description: Stored golden voltage reference.
@@ -340,6 +352,38 @@ enums:
         annotations:
           nameplate: true
         aliases: [firmware, firmware version, firmware revision]
+      temperature_lolo_limit_readback:
+        description: Temperature of the low-low (major) alarm limit, as read back.
+        annotations:
+          title: Lolo
+      temperature_lolo_limit_setpoint:
+        description: Temperature of the low-low (major) alarm limit, as commanded.
+        annotations:
+          title: Lolo
+      temperature_lo_limit_readback:
+        description: Temperature of the low (minor) alarm limit, as read back.
+        annotations:
+          title: Lo
+      temperature_lo_limit_setpoint:
+        description: Temperature of the low (minor) alarm limit, as commanded.
+        annotations:
+          title: Lo
+      temperature_hi_limit_readback:
+        description: Temperature of the high (minor) alarm limit, as read back.
+        annotations:
+          title: Hi
+      temperature_hi_limit_setpoint:
+        description: Temperature of the high (minor) alarm limit, as commanded.
+        annotations:
+          title: Hi
+      temperature_hihi_limit_readback:
+        description: Temperature of the high-high (major) alarm limit, as read back.
+        annotations:
+          title: Hihi
+      temperature_hihi_limit_setpoint:
+        description: Temperature of the high-high (major) alarm limit, as commanded.
+        annotations:
+          title: Hihi
 
   property_name_enum:
     description: >-

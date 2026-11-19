@@ -591,6 +591,38 @@ class SignalRoleEnum(str, Enum):
     """
     Firmware version a device reports of itself.
     """
+    temperature_lolo_limit_readback = "temperature_lolo_limit_readback"
+    """
+    Temperature of the low-low (major) alarm limit, as read back.
+    """
+    temperature_lolo_limit_setpoint = "temperature_lolo_limit_setpoint"
+    """
+    Temperature of the low-low (major) alarm limit, as commanded.
+    """
+    temperature_lo_limit_readback = "temperature_lo_limit_readback"
+    """
+    Temperature of the low (minor) alarm limit, as read back.
+    """
+    temperature_lo_limit_setpoint = "temperature_lo_limit_setpoint"
+    """
+    Temperature of the low (minor) alarm limit, as commanded.
+    """
+    temperature_hi_limit_readback = "temperature_hi_limit_readback"
+    """
+    Temperature of the high (minor) alarm limit, as read back.
+    """
+    temperature_hi_limit_setpoint = "temperature_hi_limit_setpoint"
+    """
+    Temperature of the high (minor) alarm limit, as commanded.
+    """
+    temperature_hihi_limit_readback = "temperature_hihi_limit_readback"
+    """
+    Temperature of the high-high (major) alarm limit, as read back.
+    """
+    temperature_hihi_limit_setpoint = "temperature_hihi_limit_setpoint"
+    """
+    Temperature of the high-high (major) alarm limit, as commanded.
+    """
 
 
 class PropertyNameEnum(str, Enum):
@@ -1538,6 +1570,7 @@ class FacilitySignal(ConfiguredBaseModel):
                        'Group',
                        'Scenario']} })
     nameplate: Optional[bool] = Field(default=None, description="""True for a signal that names the unit it is read from rather than its state (its model, serial number, firmware version): read once, never a live quantity.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal']} })
+    title: Optional[str] = Field(default=None, description="""The short word a screen names the signal by, on a tile or a value row (``Hi`` for a high alarm limit); with none, its name.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal', 'Document']} })
 
 
 class Provenance(ConfiguredBaseModel):
@@ -2130,7 +2163,7 @@ class Document(ConfiguredBaseModel):
                        'Wiring',
                        'Relation',
                        'Document']} })
-    title: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Document']} })
+    title: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal', 'Document']} })
     kind: Optional[str] = Field(default=None, description="""The facility's word for the sort of document; policy ranks by it.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group', 'Document']} })
     system: Optional[str] = Field(default=None, description="""Where the document is kept.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Document']} })
 

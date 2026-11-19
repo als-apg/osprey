@@ -1029,7 +1029,8 @@
         "readback current"
       ],
       "description": "Measured current value read back from a powered device.",
-      "name": "current_readback"
+      "name": "current_readback",
+      "title": "Current"
     },
     {
       "aliases": [
@@ -1042,7 +1043,8 @@
         "commanded current"
       ],
       "description": "Commanded current value sent to a powered device.",
-      "name": "current_setpoint"
+      "name": "current_setpoint",
+      "title": "Setpoint"
     },
     {
       "aliases": [
@@ -1290,7 +1292,8 @@
         "D.H"
       ],
       "description": "Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).",
-      "name": "magnet_voltage_readback"
+      "name": "magnet_voltage_readback",
+      "title": "Voltage"
     },
     {
       "aliases": [
@@ -1459,7 +1462,8 @@
     {
       "aliases": [],
       "description": "Commanded power on/off transition for a powered device.",
-      "name": "power_on_command"
+      "name": "power_on_command",
+      "title": "On command"
     },
     {
       "aliases": [],
@@ -1572,7 +1576,8 @@
     {
       "aliases": [],
       "description": "Commanded ramp-rate setpoint for a powered device's current loop.",
-      "name": "ramp_rate_setpoint"
+      "name": "ramp_rate_setpoint",
+      "title": "Ramp rate"
     },
     {
       "aliases": [],
@@ -1688,6 +1693,30 @@
       "name": "status"
     },
     {
+      "aliases": [],
+      "description": "Temperature of the high (minor) alarm limit, as read back.",
+      "name": "temperature_hi_limit_readback",
+      "title": "Hi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high (minor) alarm limit, as commanded.",
+      "name": "temperature_hi_limit_setpoint",
+      "title": "Hi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high-high (major) alarm limit, as read back.",
+      "name": "temperature_hihi_limit_readback",
+      "title": "Hihi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high-high (major) alarm limit, as commanded.",
+      "name": "temperature_hihi_limit_setpoint",
+      "title": "Hihi"
+    },
+    {
       "aliases": [
         "temperature limit",
         "trip temperature",
@@ -1696,6 +1725,30 @@
       ],
       "description": "Temperature above which a device's over-temperature interlock trips.",
       "name": "temperature_limit_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low (minor) alarm limit, as read back.",
+      "name": "temperature_lo_limit_readback",
+      "title": "Lo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low (minor) alarm limit, as commanded.",
+      "name": "temperature_lo_limit_setpoint",
+      "title": "Lo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low-low (major) alarm limit, as read back.",
+      "name": "temperature_lolo_limit_readback",
+      "title": "Lolo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low-low (major) alarm limit, as commanded.",
+      "name": "temperature_lolo_limit_setpoint",
+      "title": "Lolo"
     },
     {
       "aliases": [
@@ -1803,7 +1856,8 @@
         "readback voltage"
       ],
       "description": "Measured voltage.",
-      "name": "voltage_readback"
+      "name": "voltage_readback",
+      "title": "Voltage"
     },
     {
       "aliases": [

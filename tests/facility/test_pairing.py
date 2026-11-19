@@ -39,6 +39,10 @@ PAIRINGS = {
     ("lamp_command", "lamp_status"),
     ("power_on_command", "power_on_status"),
     ("screen_in_command", "screen_in_status"),
+    ("temperature_lolo_limit_setpoint", "temperature_lolo_limit_readback"),
+    ("temperature_lo_limit_setpoint", "temperature_lo_limit_readback"),
+    ("temperature_hi_limit_setpoint", "temperature_hi_limit_readback"),
+    ("temperature_hihi_limit_setpoint", "temperature_hihi_limit_readback"),
 }
 
 #: The write-side signals no readback of the vocabulary shares a quantity with.
