@@ -669,7 +669,8 @@ signal states, may differ. Several setpoints may name one readback (a
 set and a reset command read back on one channel). The simulation
 drives a readback from its setpoint only where exactly one setpoint
 names it and the two agree in type; any other readback it drives from
-no setpoint.</p></td>
+no setpoint. The readback’s seed <code class="docutils literal notranslate"><span class="pre">follows</span></code> changes that for one pair
+(see Seeds).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tolerance</span></code></p></td>
 <td><p>On a float setpoint, how close its readback must come before a move
@@ -811,7 +812,10 @@ get a <code class="docutils literal notranslate"><span class="pre">members-disag
 until they agree or a <code class="docutils literal notranslate"><span class="pre">set</span></code> fix names <code class="docutils literal notranslate"><span class="pre">members</span></code>. A place’s or device’s
 <code class="docutils literal notranslate"><span class="pre">scheme_names</span></code> are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
-content is still a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.</p>
+content is still a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.
+A channel’s seed (<code class="docutils literal notranslate"><span class="pre">simulation</span></code>, which <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> states too) is joined
+per key: one layer may state <code class="docutils literal notranslate"><span class="pre">follows</span></code> and another the seed’s values, and
+only one key two layers state differently is a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.</p>
 <p>A place, device, channel or group record may say what the fields it states rest
 on. <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code> with a <code class="docutils literal notranslate"><span class="pre">rule</span></code> says a named rule derived them, not a
 source; with neither, they are stated. A producer that pairs channels by their
@@ -1358,6 +1362,24 @@ archive’s start state see. The build stops with <code class="docutils literal 
 <code class="docutils literal notranslate"><span class="pre">period_s</span></code> is not above zero, and with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when <code class="docutils literal notranslate"><span class="pre">topoff</span></code> has
 a <code class="docutils literal notranslate"><span class="pre">nominal</span></code> beside it or <code class="docutils literal notranslate"><span class="pre">topoff_lifetime.of</span></code> names no channel with a
 <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed. Live reads and the archive show the same sawtooth.</p>
+<p><code class="docutils literal notranslate"><span class="pre">follows</span></code> says whether the simulation copies a setpoint’s writes into this
+readback. By default it does when exactly one setpoint names the readback as
+its <code class="docutils literal notranslate"><span class="pre">pair</span></code> and the two agree in <code class="docutils literal notranslate"><span class="pre">value_type</span></code>, <code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code>.
+<code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">&lt;setpoint&gt;</span></code> makes the copy where the default does not, and
+<code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code> stops it where the default makes it. A followed readback
+starts at its setpoint’s value and takes each write at once, with its own noise
+and drift on top. The build stops with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when <code class="docutils literal notranslate"><span class="pre">follows</span></code> sits
+on a channel no setpoint names, on a readback several setpoints name, names a
+setpoint whose <code class="docutils literal notranslate"><span class="pre">pair</span></code> is another channel, or names a setpoint of another
+type. It stops too when a followed readback’s seed gives it a value of its own
+(<code class="docutils literal notranslate"><span class="pre">topoff</span></code>, <code class="docutils literal notranslate"><span class="pre">topoff_lifetime</span></code>, <code class="docutils literal notranslate"><span class="pre">linear</span></code> or <code class="docutils literal notranslate"><span class="pre">pulse</span></code>): a write to the
+setpoint would replace that value, so state <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code> on it. The simulator view’s <code class="docutils literal notranslate"><span class="pre">follows.json</span></code> lists every pair with whether the
+simulation follows it (<code class="docutils literal notranslate"><span class="pre">default</span></code>, <code class="docutils literal notranslate"><span class="pre">seed</span></code> or <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">followed</span></code>) and why, and
+counts each.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:VAC:VALVE:01:POSITION:OPEN</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">follows</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+</pre></div>
+</div>
 <p>At run time the <code class="docutils literal notranslate"><span class="pre">gate</span></code> acts on the channel’s held value, after a <code class="docutils literal notranslate"><span class="pre">linear</span></code>
 sum; <code class="docutils literal notranslate"><span class="pre">drift</span></code> and <code class="docutils literal notranslate"><span class="pre">noise</span></code> are added on top and <code class="docutils literal notranslate"><span class="pre">clamp</span></code> applied. A gated
 float reads its value
