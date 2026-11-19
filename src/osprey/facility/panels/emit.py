@@ -40,6 +40,13 @@ The stamp
     holds a time, an absolute path or a host name, so equal inputs give equal
     bytes on any machine.
 
+Classes
+    Each index entry names its screen's ``class`` and, when the screen differs
+    from its class's standard, how (``differs``); the index's ``classes`` table
+    holds each class's key, standard, counts and layout hash
+    (:mod:`osprey.facility.panels.classes`). A write of a subset draws the kept
+    screens again in memory to class them; ``check`` compares all of it.
+
 Ownership
     ``write`` deletes only files its earlier run listed in ``index.json`` and
     that are no target's file any more. A non-empty directory with no index is
@@ -61,6 +68,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from osprey.facility.panels import classes as screen_classes
 from osprey.facility.panels import layout
 from osprey.facility.panels.describe import (
     NO_CLASS,
@@ -98,7 +106,7 @@ __all__ = [
 ]
 
 #: Bumped when a change of the generator changes the files it writes.
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 #: The index file, at the root of the output directory.
 INDEX = "index.json"
 #: The suffix of a screen file (the canopy library's).
@@ -159,7 +167,9 @@ class Problem:
             pictures row's signal resolves to no channel on a device),
             ``ambiguous_picture`` (a note: it matches channels of several devices),
             ``unset_group`` (a note: a family that is no set only because some of its
-            members are no device of a stated class) or ``outside_set``.
+            members are no device of a stated class), ``stale_class`` (a screen's
+            class or differences, or the class table, in the index other than the
+            model gives now) or ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -533,11 +543,20 @@ def _stamp(graph: PanelGraph, draw: Draw) -> str:
     return f" Facility {graph.content_hash}, panels format {FORMAT_VERSION}, draw {draw.digest}."
 
 
-def _generate(
-    graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw: Draw
-) -> tuple[bytes, str, View, tuple[Target, ...]]:
-    """The bytes of a target's file, its title, its view, and the screens it names
-    without a link because a write kept to ``write_under`` does not produce them."""
+@dataclass(frozen=True)
+class _Drawn:
+    """A target drawn: its file's bytes, title and view, the screens it names without a
+    link because a write kept to ``write_under`` does not produce them, its class sample."""
+
+    data: bytes
+    title: str
+    view: View
+    unlinked: tuple[Target, ...]
+    sample: screen_classes.Sample
+
+
+def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw: Draw) -> _Drawn:
+    """A target drawn as its file."""
     own = _path(target, ids)
     scope = graph.write_scope
     unlinked: list[Target] = []
@@ -554,14 +573,44 @@ def _generate(
         target,
         annotate=draw.annotate,
     )
+    cuts: list[str] = []
     document = layout.render(
-        view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)], colours=draw.colours
+        view,
+        graph=graph,
+        screens=screens,
+        doc_id=own[: -len(SCREEN_SUFFIX)],
+        colours=draw.colours,
+        cuts=cuts,
     )
     document["metadata"]["description"] += _stamp(graph, draw)
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
-    return (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked))
+    cls, key = screen_classes.class_key(graph, target, ids[target])
+    sample = screen_classes.Sample(
+        own,
+        target,
+        cls,
+        key,
+        screen_classes.structure(view),
+        int(document["metadata"]["size"]["height"]),
+        tuple(dict.fromkeys(cuts)),
+    )
+    return _Drawn(
+        (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked)), sample
+    )
+
+
+def _classes(
+    graph: PanelGraph, samples: list[screen_classes.Sample], draw: Draw
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
+    """The class table and the differences of the screens *samples* stands for."""
+    return screen_classes.classify(
+        graph,
+        samples,
+        lambda target: describe(graph, target, annotate=draw.annotate),
+        stamp=f"format {FORMAT_VERSION}, draw {draw.digest}",
+    )
 
 
 def _atomic(path: Path, data: bytes) -> None:
@@ -750,9 +799,15 @@ def write(
         if target in written_ids
     ]
 
-    def put_index(state: str, screens: list[dict[str, Any]], outside: list[dict[str, Any]]) -> None:
+    def put_index(
+        state: str,
+        screens: list[dict[str, Any]],
+        outside: list[dict[str, Any]],
+        table: Mapping[str, Any] | None = None,
+    ) -> None:
         index = {
             **head,
+            "classes": dict(table or {}),
             "state": state,
             "total_bytes": sum(e.get("bytes", 0) for e in screens),
             "screens": sorted(screens, key=lambda e: e["file"]),
@@ -772,24 +827,33 @@ def write(
     entries: dict[str, dict[str, Any]] = {}
     written: list[Path] = []
     outside: list[dict[str, Any]] = []
+    samples: list[screen_classes.Sample] = []
     for target in found:
         relative = _path(target, ids)
         if only is None or only(target):
-            data, title, _view, _unlinked = _generate(graph, target, ids, draw)
-            written.append(_put(out, relative, data, seen))
-            entries[relative] = _entry(target, ids, title, len(data))
+            drawn = _generate(graph, target, ids, draw)
+            written.append(_put(out, relative, drawn.data, seen))
+            entries[relative] = _entry(target, ids, drawn.title, len(drawn.data))
+            samples.append(drawn.sample)
         elif relative in owned and _guard(out, relative, seen).is_file():
             old = owned[relative]
             entries[relative] = _entry(
                 target, ids, str(old.get("title", "")), (out / relative).stat().st_size
             )
+            # kept from an earlier run: its class is drawn again in memory, not read back
+            samples.append(_generate(graph, target, ids, draw).sample)
         else:
             outside.append(
                 {k: v for k, v in _entry(target, ids, "", 0).items() if k not in {"title", "bytes"}}
             )
     for relative in sorted(owned.keys() - paths):
         _remove(out, relative, seen)
-    put_index("complete", list(entries.values()), outside)
+    table, differs = _classes(graph, samples, draw)
+    for sample in samples:
+        entries[sample.file]["class"] = sample.cls
+        if sample.file in differs:
+            entries[sample.file]["differs"] = differs[sample.file]
+    put_index("complete", list(entries.values()), outside, table)
     return written
 
 
@@ -1045,6 +1109,7 @@ def check(
             )
     rolled: set[str] | None = set()
     opened: set[str] = set()
+    samples: list[screen_classes.Sample] = []
     for relative in wanted:
         if relative not in valid:
             if wanted[relative].view == "rollup" and (scope is None or scope(wanted[relative])):
@@ -1052,7 +1117,16 @@ def check(
             continue
         problems.extend(
             _check_file(
-                graph, out, relative, wanted[relative], ids, valid, outside, max_bytes, draw
+                graph,
+                out,
+                relative,
+                wanted[relative],
+                ids,
+                valid,
+                outside,
+                max_bytes,
+                draw,
+                samples,
             )
         )
         problems.extend(_unbound_probe(graph, relative, wanted[relative]))
@@ -1083,6 +1157,8 @@ def check(
             and (scope is None or scope.holds(graph.channel(name).thing))
             and _carried(graph, name)
         )
+    if len(samples) == len(listed):  # every listed screen was read: its class can be told
+        problems.extend(_check_classes(graph, index, listed, samples, draw))
     problems.extend(
         Problem(
             "unset_group",
@@ -1093,6 +1169,50 @@ def check(
         )
         for group, odd in unset_groups(graph)
     )
+    return problems
+
+
+def _check_classes(
+    graph: PanelGraph,
+    index: Mapping[str, Any],
+    listed: Mapping[str, Mapping[str, Any]],
+    samples: list[screen_classes.Sample],
+    draw: Draw,
+) -> list[Problem]:
+    """``stale_class`` problems: an entry's class or differences, or the class table,
+    other than the model gives now."""
+    table, differs = _classes(graph, samples, draw)
+    problems = [
+        Problem(
+            "stale_class",
+            sample.file,
+            f"the index states class {listed[sample.file].get('class')}, the model gives {sample.cls}",
+        )
+        for sample in samples
+        if listed[sample.file].get("class") != sample.cls
+    ]
+    problems.extend(
+        Problem(
+            "stale_class",
+            sample.file,
+            "its differences from the class standard are not the index's",
+        )
+        for sample in samples
+        if listed[sample.file].get("class") == sample.cls
+        and list(listed[sample.file].get("differs", ())) != differs.get(sample.file, [])
+    )
+    if index.get("classes") != table:
+        changed = sorted(
+            set(table) ^ set(index.get("classes") or {})
+            | {c for c in table if (index.get("classes") or {}).get(c) != table[c]}
+        )
+        problems.append(
+            Problem(
+                "stale_class",
+                INDEX,
+                f"the class table is not what the model gives now: {_named(tuple(changed))}",
+            )
+        )
     return problems
 
 
@@ -1207,6 +1327,7 @@ def _check_file(
     outside: set[str],
     max_bytes: int | None,
     draw: Draw,
+    samples: list[screen_classes.Sample] | None = None,
 ) -> list[Problem]:
     path = out / relative
     data = path.read_bytes()
@@ -1236,7 +1357,10 @@ def _check_file(
             Problem("stamp", relative, f"written from other {' and '.join(changed)} than now")
         )
     problems += _long_formulas(document, relative)
-    fresh, _title, view, unlinked = _generate(graph, target, ids, draw)
+    drawn = _generate(graph, target, ids, draw)
+    fresh, view, unlinked = drawn.data, drawn.view, drawn.unlinked
+    if samples is not None:
+        samples.append(drawn.sample)
     problems.extend(
         Problem(
             "outside_set",

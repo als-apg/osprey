@@ -1701,8 +1701,30 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    nothing else is touched, and a non-empty ``--out`` without an
    ``index.json`` is refused. ``--kind`` (repeatable) and ``--under`` write
    only the screens that match; links to the others are still written. The
-   command prints the screen count and size per view kind and the ``--top``
-   largest screens (default 10).
+   command prints the screen count and size per view kind, the class summary
+   (see ``panels classes``) and the ``--top`` largest screens (default 10).
+
+   Each entry of ``index.json`` names its screen's ``class``, and the index's
+   ``classes`` table states, per class, its key, its ``standard`` screen, its
+   member count, how many members are ``off_standard``, how many have a ``cut``
+   label, and a ``layout`` hash. Two screens are of one class when they have one
+   key: for a device's card and its channel list, the device's class, the card
+   recipe it is drawn from and the set of signal roles the card shows (a role
+   played by two channels counts once; the driver-internal role and channels
+   with no role are not in it); for a set, the device types of its members; for
+   a calibration overview, its kind and the device types of the set's members.
+   Every other screen (a place, a rack, a roll-up, a checkout, the home screen,
+   the card of a place or a group) is its own class. Sameness is measured on
+   what a screen shows, not on its file: its sections, items, rows and blocks,
+   without their text and numbers, so a longer name or a wider number does not
+   set a screen apart. The standard is the member whose structure most members
+   share (a tie goes to the smaller structure hash), and the ``layout`` hash
+   covers the standard's structure, the panels format and the drawing settings:
+   it changes when the class's typical screen changes, not when a member is
+   added or renamed. An entry whose screen differs from its standard lists how
+   under ``differs``, in words (``no beam position``, ``2 rows of
+   current_readback, the standard has 1``, ``relations: 6 relation blocks, the
+   standard has 5``, ``label cut: <the label>``, another height).
 
 ``osprey facility panels check --out DIRECTORY [--strict] [--max-bytes N] [--limit N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
    Regenerate every screen and compare it with the files under ``--out``;
@@ -1712,15 +1734,27 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``stamp``, ``invalid``, ``incomplete``, ``oversize`` (over
    ``--max-bytes``), ``unrolled`` (a rule channel no roll-up reads),
    ``static_rollup``, ``long_formula`` (an expression over the viewer's
-   length limit) or ``over_budget`` (more rules or channels than one screen
-   may bind). A link outside the written set, a card or checkout over its
+   length limit), ``over_budget`` (more rules or channels than one screen
+   may bind) or ``stale_class`` (a screen's class or differences, or the class
+   table, in ``index.json`` other than the model gives now). A link outside the written set, a card or checkout over its
    budget, a probe row whose signal no channel states, and a ``pictures.csv``
    row whose signal binds no channel (``unbound_picture``) or channels of two
    devices (``ambiguous_picture``) are notes, and fail only with ``--strict``.
    Before the problems it prints the device classes by how ``pictures.csv``
    draws them (with a drawing, with parts only, with none) and, per class, the
    parts not placed (no position and no angle): information, never a problem.
-   A clean set prints ``The written screens match the model.``
+   After the problems it prints the class summary from the index. A clean set
+   prints ``The written screens match the model.``
+
+``osprey facility panels classes --out DIRECTORY [--limit N] [--differs]``
+   Print the class table of the ``index.json`` under ``--out``; nothing else is
+   read. One row per class, the largest first: its members, those off the
+   standard, those with a cut label, the class and its standard's file; the
+   first ``--limit`` rows (default 30, ``0`` for all). ``--differs`` adds every
+   screen that differs from its standard, and how. The last line is the
+   summary a gate reads: ``classes: N classes (S of more than one screen), M
+   screens off their standard, C with a label cut``. Exits 1 when the index is
+   missing or holds no class table.
 
    Where a screen needs a widget the Screen-IR format lacks (a five-state
    light, a hatched fill, a scrolling table, clickable text, a condition on an

@@ -341,3 +341,31 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
     without = str(tmp_path / "without")
     assert run("write", "--out", without).exit_code == 0
     assert screens(without) != screens(out)
+
+
+def test_classes_prints_the_table_and_the_summary_a_gate_reads(facility_file, tmp_path):
+    from osprey.facility.panels.classes import summary
+
+    out = tmp_path / "out"
+    written = _run(facility_file, "write", "--out", str(out))
+    assert written.exit_code == 0, written.output
+    table = json.loads((out / "index.json").read_text())["classes"]
+    line = f"classes: {summary(table)}"
+    assert line in written.output
+    checked = _run(facility_file, "check", "--out", str(out))
+    assert line in checked.output
+    result = CliRunner().invoke(
+        cli, ["facility", "panels", "classes", "--out", str(out), "--limit", "2", "--differs"]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.rstrip().endswith(line)
+    biggest = min(table, key=lambda name: (-table[name]["members"], name))  # the first row
+    assert biggest in result.output
+    assert f"... and {len(table) - 2} more" in result.output
+    assert "label cut: " in result.output  # --differs lists each screen's differences
+
+
+def test_classes_without_an_index_fails(tmp_path):
+    result = CliRunner().invoke(cli, ["facility", "panels", "classes", "--out", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "No class table" in result.output

@@ -85,7 +85,8 @@ tree) as Screen-IR files under ``--out`` with an ``index.json``, and
 generates now and exits 1 on any failing problem. Both read the drawing settings
 from ``draw.json`` beside the rule tables, or ``--draw FILE``; see
 :mod:`osprey.facility.panels.emit`. Neither verb builds, and ``check`` writes
-nothing.
+nothing. ``osprey facility panels classes`` prints the screen classes such an
+index records (:mod:`osprey.facility.panels.classes`).
 
 Note: the facility package and the build's render are imported inside the
 command body, so ``osprey --help`` does not load them.
@@ -1303,6 +1304,7 @@ def panels_write(
     from collections import Counter
 
     from osprey.facility.panels import emit
+    from osprey.facility.panels.classes import summary
 
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
     draw = _panel_draw(tables_dir, draw_file)
@@ -1334,6 +1336,7 @@ def panels_write(
     for entry in screens:
         sizes[entry["kind"]] += entry["bytes"]
     report(f"{len(screens)} screens, {_megabytes(index['total_bytes'])}, in {out}")
+    report(f"  classes: {summary(index['classes'])}")
     for kind in _PANEL_VIEWS:
         if count[kind]:
             report(f"  {kind}: {count[kind]} screens, {_megabytes(sizes[kind])}")
@@ -1497,8 +1500,76 @@ def panels_check(
             report(f"  {problem.file}: {problem.detail}")
         if count[kind] > len(shown):
             report(f"  ... and {count[kind] - len(shown)} more")
+    table = _index_classes(out)
+    if table is not None:
+        from osprey.facility.panels.classes import summary
+
+        report(f"classes: {summary(table)}")
     failing = [p for p in problems if p.failing or strict]
     if failing:
         fail(f"{len(failing)} problems in the written screens.")
         ctx.exit(1)
     report("The written screens match the model.")
+
+
+def _index_classes(out: Path) -> dict[str, Any] | None:
+    """The class table of the index under *out*, or ``None`` when there is none to read."""
+    import json
+
+    from osprey.facility.panels import emit
+
+    try:
+        index = json.loads((out / emit.INDEX).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    classes = index.get("classes") if isinstance(index, dict) else None
+    return classes if isinstance(classes, dict) else None
+
+
+@panels_group.command("classes")
+@click.option(
+    "--out",
+    required=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Output directory a write filled.",
+)
+@click.option("--limit", default=30, show_default=True, help="Classes listed; 0 lists all.")
+@click.option(
+    "--differs", "show_differs", is_flag=True, help="List each screen off its standard and how."
+)
+@click.pass_context
+def panels_classes(ctx: click.Context, out: Path, limit: int, show_differs: bool) -> None:
+    """Print the screen classes the index under OUT records; reads nothing else.
+
+    One row per class, by member count: members, screens off the standard,
+    screens with a label cut, the class and its standard's file. The last line
+    is the summary a gate reads. With --differs, every screen that differs from
+    its standard, and how.
+    """
+    import json
+
+    from osprey.facility.panels import emit
+    from osprey.facility.panels.classes import summary
+
+    classes = _index_classes(out)
+    if classes is None:
+        fail("No class table.", f"{out / emit.INDEX} is missing or holds none; write again.")
+        ctx.exit(1)
+    rows = sorted(classes.items(), key=lambda kv: (-kv[1].get("members", 0), kv[0]))
+    shown = rows if limit <= 0 else rows[:limit]
+    report(f"{'members':>8} {'off':>5} {'cut':>5}  class  (standard)")
+    for name, row in shown:
+        report(
+            f"{row.get('members', 0):>8} {row.get('off_standard', 0):>5} {row.get('cut', 0):>5}"
+            f"  {name}  ({row.get('standard', '')})"
+        )
+    if len(rows) > len(shown):
+        report(f"  ... and {len(rows) - len(shown)} more")
+    if show_differs:
+        index = json.loads((out / emit.INDEX).read_text(encoding="utf-8"))
+        for entry in index.get("screens", ()):
+            if entry.get("differs"):
+                report(f"{entry['file']} ({entry.get('class')}):")
+                for words in entry["differs"]:
+                    report(f"  {words}")
+    report(f"classes: {summary(classes)}")
