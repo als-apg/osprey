@@ -189,6 +189,25 @@ passing nothing means "no opinion" and leaves the choice to the configuration.
 would, which is why ``osprey.runtime.write_channels`` behaves like
 ``osprey.runtime.write_channel``.
 
+Firing a command
+~~~~~~~~~~~~~~~~
+
+``osprey_connectors.command.fire(connector, act, value)`` writes a command
+channel once and returns when the status channel that reports its act says the
+act is over. A ``CommandAct`` names the command, the status, the value the
+status reads when ``idle`` and the longest one act may take (``timeout_s``).
+``fire`` subscribes to the status and reads it; a status that is not idle
+refuses the act with ``CommandBusyError`` and nothing is written. It then
+writes the command with ``confirm=False``, because the wait confirms the write
+more strongly than a re-read, and waits for a status update that is not idle
+followed by one that is. The status is compared with ``values_match``, the rule
+a write's confirmation uses. A status that does not leave idle in time raises
+``CommandNoEffectError``; one that leaves and does not come back within
+``timeout_s`` raises ``CommandTimeoutError``; a status that cannot be
+subscribed, read or compared, or whose connection drops, raises
+``CommandStatusError``. Every other write of the command is confirmed as its
+limits entry says.
+
 What a batch means
 ~~~~~~~~~~~~~~~~~~
 
