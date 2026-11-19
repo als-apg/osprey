@@ -709,29 +709,32 @@ and index another’s drafts, but cannot overwrite another’s file in place.</p
 <label class="sd-tab-label" for="sd-tab-item-1">
 Connecting to OSPREY</label><div class="sd-tab-content docutils">
 <p>The <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> MCP server reads the OKF bundle at
-startup and exposes it to the agent through five tools:</p>
+startup and exposes it to the agent through six tools:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_concepts</span></code> — browse the index to discover what topics exist</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> — retrieve a document by its concept ID (its bundle
-path minus the <code class="docutils literal notranslate"><span class="pre">.md</span></code> extension, e.g. <code class="docutils literal notranslate"><span class="pre">subsystems/timing-system</span></code>)</p></li>
+path minus the <code class="docutils literal notranslate"><span class="pre">.md</span></code> extension, e.g. <code class="docutils literal notranslate"><span class="pre">subsystems/timing-system</span></code>),
+with the images it embeds (see <a class="reference internal" href="#images">Images</a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">search</span></code> — ranked search across all concept documents (see
 <a class="reference internal" href="#searching-the-bundle">Searching the Bundle</a>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">view_asset</span></code> — look at an image stored in the bundle, by the path
+<code class="docutils literal notranslate"><span class="pre">read_concept</span></code> lists</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> — report the bundle’s path, size and concept types</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> — author a new concept document (requires human approval)</p></li>
 </ul>
-<p>Each of the three read tools also names a <code class="docutils literal notranslate"><span class="pre">url</span></code> per concept — the link
-that opens it in the KNOWLEDGE panel. It is relative to the page the
-operator is on, so the agent can cite a concept as a markdown link on a
+<p><code class="docutils literal notranslate"><span class="pre">list_concepts</span></code>, <code class="docutils literal notranslate"><span class="pre">read_concept</span></code> and <code class="docutils literal notranslate"><span class="pre">search</span></code> also name a <code class="docutils literal notranslate"><span class="pre">url</span></code> per
+concept — the link that opens it in the KNOWLEDGE panel. It is relative to the
+page the operator is on, so the agent can cite a concept as a markdown link on a
 single-user deployment and behind a per-user mount alike. In the operator
 chat, clicking such a link opens the KNOWLEDGE panel in
 the workspace at that concept.</p>
 <p><strong>The facility-knowledge subagent.</strong> When it is enabled in a project’s
 config, the main OSPREY agent delegates facility knowledge questions to this
 dedicated specialist rather than handling them inline. The subagent has
-access only to the three read-only tools (<code class="docutils literal notranslate"><span class="pre">list_concepts</span></code>,
-<code class="docutils literal notranslate"><span class="pre">read_concept</span></code>, <code class="docutils literal notranslate"><span class="pre">search</span></code>) and follows a fixed retrieval strategy: list
-first to orient, search to narrow, read to synthesize, then submit the
-result.</p>
+access only to the four read-only tools (<code class="docutils literal notranslate"><span class="pre">list_concepts</span></code>,
+<code class="docutils literal notranslate"><span class="pre">read_concept</span></code>, <code class="docutils literal notranslate"><span class="pre">search</span></code>, <code class="docutils literal notranslate"><span class="pre">view_asset</span></code>) and follows a fixed
+retrieval strategy: list first to orient, search to narrow, read to
+synthesize, then submit the result.</p>
 <p>It is enabled by default in the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset. To enable or
 disable it in a generated project, set the agent’s <code class="docutils literal notranslate"><span class="pre">enabled</span></code> flag under
 <code class="docutils literal notranslate"><span class="pre">claude_code.agents</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
@@ -803,8 +806,10 @@ warning and stays out of the indexes and search.  Files and directories
 whose name starts with <code class="docutils literal notranslate"><span class="pre">.</span></code> are not in the bundle.  Index files are checked
 for frontmatter compliance (OKF §8) and must match what <code class="docutils literal notranslate"><span class="pre">regen-index</span></code>
 writes, so a page added, removed or retitled without regenerating fails; a
-<code class="docutils literal notranslate"><span class="pre">log.md</span></code> must have no frontmatter.  The command exits 0 on a clean bundle, 1
-if any file fails.</p>
+<code class="docutils literal notranslate"><span class="pre">log.md</span></code> must have no frontmatter.  Each image a concept embeds that is
+missing, of a type the bundle does not allow, over the size limit or
+without alt text gets a warning (see <a class="reference internal" href="#images">Images</a>).  The command exits 0 on a
+clean bundle, 1 if any file fails; image warnings do not fail it.</p>
 <p><strong>seed-from-ttl</strong> — seeds one OKF stub document per device of the build’s
 graph view, <code class="docutils literal notranslate"><span class="pre">build/data/graph/facility.ttl</span></code> in the deployment repo
 (<code class="docutils literal notranslate"><span class="pre">--ttl</span></code> names another Turtle file):</p>
@@ -835,6 +840,37 @@ when the value is no device id in <code class="docutils literal notranslate"><sp
 A page without the key is not linked and never warns.</p>
 </div>
 </div>
+</section>
+<section id="images">
+<h2>Images<a class="headerlink" href="#images" title="Link to this heading">#</a></h2>
+<p>Some knowledge is easier to show than to describe: a pickup geometry, a rack
+layout, a timing diagram. A concept can embed an image stored in the bundle;
+the KNOWLEDGE panel shows it in the document, and the agent can look at it.
+The example bundle’s <code class="docutils literal notranslate"><span class="pre">devices/bpm</span></code> concept embeds a figure kept in
+<code class="docutils literal notranslate"><span class="pre">figures/</span></code> beside it:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>![<span class="nt">Cross-section of a button BPM</span>](<span class="na">figures/bpm-button-pickups.png</span>)
+</pre></div>
+</div>
+<p>The target resolves like a link (see <a class="reference internal" href="#the-core-ideas">The Core Ideas</a>), here to
+<code class="docutils literal notranslate"><span class="pre">devices/figures/bpm-button-pickups.png</span></code>. A reference-style image and a raw
+HTML <code class="docutils literal notranslate"><span class="pre">&lt;img&gt;</span></code> work the same way.</p>
+<ul class="simple">
+<li><p><strong>Types</strong> — PNG, JPEG, GIF, WebP and SVG, judged by the file’s content, not
+its name. At most 10 MB.</p></li>
+<li><p><strong>Alt text</strong> — every image needs it: the panel shows it when the image cannot
+be shown, and the agent reads it before deciding to look.</p></li>
+<li><p><strong>Remote images are not loaded.</strong> An <code class="docutils literal notranslate"><span class="pre">https:</span></code>, <code class="docutils literal notranslate"><span class="pre">//</span></code> or <code class="docutils literal notranslate"><span class="pre">data:</span></code> target
+shows its alt text, with a link to an <code class="docutils literal notranslate"><span class="pre">http(s):</span></code> address.</p></li>
+<li><p><strong>SVG is panel-only.</strong> The agent cannot view it.</p></li>
+<li><p><strong>Markdown inside a raw HTML block</strong>, such as <code class="docutils literal notranslate"><span class="pre">![…](…)</span></code> within a
+<code class="docutils literal notranslate"><span class="pre">&lt;div&gt;</span></code>, is checked by <code class="docutils literal notranslate"><span class="pre">validate</span></code> and listed to the agent, but the panel
+may not show it. Use <code class="docutils literal notranslate"><span class="pre">&lt;img&gt;</span></code> there.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> lists each in-bundle image with its path, alt text and whether
+the agent can view it; <code class="docutils literal notranslate"><span class="pre">view_asset</span></code> returns the image. An image larger than
+512 KiB or longer than 1024 px on a side reaches the agent scaled down. A model
+on a route that carries no images gets a note in its place (see
+<a class="reference internal" href="../llm-providers/configure-providers.html#what-the-translated-route-does-not-carry"><span class="std std-ref">What the translated route does not carry</span></a>).</p>
 </section>
 <section id="searching-the-bundle">
 <h2>Searching the Bundle<a class="headerlink" href="#searching-the-bundle" title="Link to this heading">#</a></h2>
@@ -973,6 +1009,7 @@ warning, and prefer hyphens over underscores in file names.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-the-open-knowledge-format">What Is the Open Knowledge Format?</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-core-ideas">The Core Ideas</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#working-with-a-bundle">Working with a Bundle</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#images">Images</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#searching-the-bundle">Searching the Bundle</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tuning-ranked-search">Tuning ranked search</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-well-does-it-retrieve">How well does it retrieve?</a></li>

@@ -774,7 +774,9 @@ model id is pinned.</p>
 <p><strong>Agent.</strong> The session view, the watchdog’s <code class="docutils literal notranslate"><span class="pre">references/</span></code>, and the read tools of the
 <code class="docutils literal notranslate"><span class="pre">controls</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> servers plus its <code class="docutils literal notranslate"><span class="pre">tools</span></code>. Its
 servers run in read-only mode, its environment ties it to no session, and a refused call is
-reported in <code class="docutils literal notranslate"><span class="pre">refused_tools</span></code>. An application’s read tools reach its backend with a read
+reported in <code class="docutils literal notranslate"><span class="pre">refused_tools</span></code>. A judge reads text only: the knowledge server’s <code class="docutils literal notranslate"><span class="pre">view_asset</span></code>
+is refused even when <code class="docutils literal notranslate"><span class="pre">tools</span></code> names the whole server, and a definition naming it is refused
+at load. An application’s read tools reach its backend with a read
 credential minted for the run: it opens only the <code class="docutils literal notranslate"><span class="pre">GET</span></code> and <code class="docutils literal notranslate"><span class="pre">HEAD</span></code> agent routes of the
 applications whose tool servers the run is given, and is revoked when the run ends. A run that reaches <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> or <code class="docutils literal notranslate"><span class="pre">max_cost_usd</span></code>, or that finds no room
 under the in-flight bound, is <code class="docutils literal notranslate"><span class="pre">unavailable</span></code>.</p>

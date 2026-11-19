@@ -1484,7 +1484,9 @@ search index have no verb of their own: <code class="docutils literal notranslat
 the second run changes nothing.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">validate</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Check every document in a bundle against the OKF format, including each
-<code class="docutils literal notranslate"><span class="pre">index.md</span></code> against its directory.</p>
+<code class="docutils literal notranslate"><span class="pre">index.md</span></code> against its directory. An embedded image that is missing, of a
+disallowed type, over 10 MB or without alt text gets a warning, one line
+per problem, and does not fail the bundle.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-from-ttl</span> <span class="pre">BUNDLE</span> <span class="pre">[--ttl</span> <span class="pre">PATH]</span> <span class="pre">[--force]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write stub concept documents into a bundle from the build’s graph view,
 one per device, for a person to fill in. The view read is
