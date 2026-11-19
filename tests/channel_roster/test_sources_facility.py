@@ -197,6 +197,30 @@ class TestTheRecords:
         assert records["N:RB"].direction == "read"
         assert records["N:SP"].readback is None
 
+    def test_a_command_record_carries_command_bound_and_status(self, tmp_path: Path) -> None:
+        switch = {"value_type": "bool", "options": ["OFF", "ON"], "on": {"device": "SR/Q1"}}
+        tree = plain_tree()
+        tree["records/channels.yaml"] += [
+            {
+                "id": "Q1:ON",
+                "role": "setpoint",
+                "signal": "power_on_command",
+                "timeout_s": 5.0,
+                **switch,
+            },
+            {"id": "Q1:STATE", "signal": "power_on_status", "idle": "OFF", **switch},
+        ]
+        write_facility_file(tmp_path, tree)
+
+        roster = registered_channels(_config(tmp_path))
+        records = {r.address: r for r in roster.records}
+
+        command, status = records["Q1:ON"], records["Q1:STATE"]
+        assert (command.command, command.readback, command.timeout_s) == (True, "Q1:STATE", 5.0)
+        assert (status.command, status.idle) == (False, "OFF")
+        assert records["Q1:SP"].command is False
+        assert roster.completion("Q1:ON") == ("Q1:ON", "Q1:STATE", "OFF", 5.0)
+
     def test_a_models_status_channels_are_never_listed(self, tmp_path: Path) -> None:
         tree = deck_tree()
         write_facility_file(tmp_path, tree)
