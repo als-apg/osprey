@@ -495,7 +495,8 @@ def test_writer_imports_only_the_stdlib_and_its_allowed_helpers():
     allowed = {
         "osprey.agent_record.contract",
         "osprey_connectors.identity",
-        "osprey_connectors.workspace",
+        # Stdlib-only at import: the process repo root the spool sits under.
+        "osprey.utils.config_paths",
         # Stdlib-only itself: the group-shared directory the spool is made as.
         "osprey_connectors.safety_file",
         # The repo layout's names, where the spool root is spelled.
