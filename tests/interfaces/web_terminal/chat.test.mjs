@@ -72,6 +72,12 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
 // terminal.js is xterm glue; the console only needs its panel broadcast, and
 // first-contact.js (imported by the console) only needs its session hook.
 const notifySessionChange = vi.fn();
+// Voice input asks the server whether speech-to-text works there; the chat
+// only has to start it, so a stand-in that records what it was handed.
+const voice = { initChatVoice: vi.fn() };
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-voice.js', () => ({
+  initChatVoice: (/** @type {any} */ ctx) => voice.initChatVoice(ctx),
+}));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
   notifySessionChange: (/** @type {any} */ id) => notifySessionChange(id),
   onSessionChange: () => {},
@@ -336,6 +342,18 @@ async function busModule() {
     await import(EVENTS_JS)
   );
 }
+
+describe('voice input', () => {
+  test('starts with the message box and Send, inside the chat', async () => {
+    voice.initChatVoice.mockClear();
+    await mountChat({ pointer: 'K1' });
+    expect(voice.initChatVoice).toHaveBeenCalledTimes(1);
+    const ctx = voice.initChatVoice.mock.calls[0][0];
+    expect(ctx.textarea).toBe(one('.op-input-area textarea'));
+    expect(ctx.sendBtn).toBe(one('.op-send-btn'));
+    expect(ctx.container).toBe(container);
+  });
+});
 
 describe('the busy signal', () => {
   /** Every `busy` value the bus carried, in order. */
