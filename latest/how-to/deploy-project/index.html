@@ -1175,6 +1175,9 @@ failure lists what was still pending. It also shows the last log lines of each
 container that exited or is unhealthy; that log is usually the cause. If the
 start is only slow (images pulled over a slow link, a loaded host), raise the
 limit (<a class="reference internal" href="#deployment-start-waits"><span class="std std-ref">How osprey up waits</span></a>).</p>
+<p><strong>A start reported services with no running container:</strong> compose said it
+succeeded, but the named services were not running afterwards. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">logs</span>
+<span class="pre">&lt;service&gt;</span></code> shows why.</p>
 <p><strong>“Unsupported compose provider”:</strong> OSPREY cannot drive the host’s compose
 implementation correctly, so it stopped before starting anything. The message
 prints the version banner it got. Compare it against

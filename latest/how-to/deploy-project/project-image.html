@@ -649,7 +649,9 @@ image.</p>
 <ul class="simple">
 <li><p>the top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key</p></li>
 <li><p>the <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code>
-/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> block</p></li>
+/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> /
+<code class="docutils literal notranslate"><span class="pre">images.playwright_download_host</span></code> block</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">images.skip_browser</span></code></p></li>
 </ul>
 <p>It resolves them once and hands them to every image it builds: the project
 image, each web-terminal image, the login sidecar and each service image. Set
@@ -699,6 +701,18 @@ resolves from PyPI.</p></td>
 <code class="docutils literal notranslate"><span class="pre">${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim</span></code>. The mirror must keep Docker
 Hub’s paths; pull-through caches such as a Harbor proxy project, an
 Artifactory remote and a Nexus docker proxy do.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PLAYWRIGHT_DOWNLOAD_HOST</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Host the headless browser is downloaded from, for a site that mirrors
+<code class="docutils literal notranslate"><span class="pre">cdn.playwright.dev</span></code>. The mirror must keep its paths. It is
+Playwright’s own environment name; left empty, Playwright downloads
+from its CDN.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_SKIP_BROWSER</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> builds without the headless browser; artifact-to-image export
+and CANOPY screenshots then report it missing.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code></p></td>

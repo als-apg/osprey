@@ -735,11 +735,12 @@ to the project by name, so they are kept. Giving this copy its own
 own containers, volumes and images, starting with empty data; move its ports
 in the same overlay with <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>. See
 <a class="reference internal" href="../build-profiles.html#profile-host-variants"><span class="std std-ref">One repository, several hosts</span></a> for how the overlay is selected.</p>
-<p>Moving a checkout with <code class="docutils literal notranslate"><span class="pre">mv</span></code> looks the same from the host: its old containers
-now record a path that no longer exists. The refusal says so and prints the one
-command that frees the name, <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">rm</span> <span class="pre">-f</span></code> with the old containers’ names.
-The volumes are untouched and keep their data, and the moved checkout picks
-them up on its next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
+<p>Moving a checkout with <code class="docutils literal notranslate"><span class="pre">mv</span></code> moves its <code class="docutils literal notranslate"><span class="pre">build/</span></code>, which still names the old
+directory, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses it with “this build was rendered in &lt;old
+path&gt;” until <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs in the new one. Its old containers then meet
+the refusal above: they record a path that no longer exists, and the refusal
+says so and prints the one command that frees the name, <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">rm</span> <span class="pre">-f</span></code> with
+the old containers’ names. The volumes are untouched and keep their data.</p>
 </section>
 </section>
 

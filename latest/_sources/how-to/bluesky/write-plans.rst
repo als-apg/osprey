@@ -98,9 +98,11 @@ Two ways to add a plan
      human description, and whether it moves anything on the machine.
    - **Parameters**: a schema describing the knobs (names, types, limits).
      BLUESKY's Plans view turns this schema into a form, so a well-described
-     parameter becomes a well-labeled field. Each parameter that holds
-     channel names also says what the plan does with them. See *A plan says
-     what it touches* below.
+     parameter becomes a well-labeled field. A default computed by a function
+     (``default_factory``) fills its field like a written one, and a plan
+     whose default breaks its parameter's own limits is refused when it
+     loads. Each parameter that holds channel names also says what the plan
+     does with them. See *A plan says what it touches* below.
    - **The plan function**: builds the actual Bluesky plan from the
      parameters and the resolved devices.
 
