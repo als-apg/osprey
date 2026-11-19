@@ -11,7 +11,16 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.pairing import derive_pairs, signal_quantity, simulated_pairs
+from osprey.facility.pairing import (
+    FOLLOWED_DEFAULT,
+    FOLLOWED_SEED,
+    NOT_FOLLOWED,
+    derive_pairs,
+    follow_totals,
+    pair_follows,
+    signal_quantity,
+    simulated_pairs,
+)
 from osprey.facility.validate import StageReport, run_stages, vocabulary
 from tests.facility._mml_built import TREES, BuiltModel
 
@@ -117,6 +126,58 @@ def test_the_simulation_follows_no_readback_of_another_type() -> None:
         **_rb("STS", "power_on_status", value_type="bool"),
     }
     assert simulated_pairs(channels) == {}
+
+
+def _follows(channels: dict[str, Any]) -> dict[tuple[str, str], tuple[str, str]]:
+    return {(f.setpoint, f.readback): (f.follow, f.why) for f in pair_follows(channels)}
+
+
+def test_each_pair_says_whether_the_simulation_follows_it_and_why() -> None:
+    channels = {
+        **_sp("SP", pair="RB"),
+        **_sp("SET", pair="SHARED"),
+        **_sp("RESET", pair="SHARED"),
+        **_sp("SELF", pair="SELF"),
+        **_sp("NONE"),
+        **_sp("CMD", "power_on_command", pair="STS", value_type="enum", options=["Idle", "On"]),
+        **_rb("RB"),
+        **_rb("SHARED"),
+        **_rb("STS", "power_on_status", value_type="bool"),
+    }
+    assert _follows(channels) == {
+        ("SP", "RB"): (
+            FOLLOWED_DEFAULT,
+            "one setpoint names the readback and the two hold values of one type",
+        ),
+        ("SET", "SHARED"): (NOT_FOLLOWED, "several setpoints name the readback"),
+        ("RESET", "SHARED"): (NOT_FOLLOWED, "several setpoints name the readback"),
+        ("CMD", "STS"): (
+            NOT_FOLLOWED,
+            "the setpoint and the readback hold values of different types",
+        ),
+    }
+    assert follow_totals(pair_follows(channels)) == {
+        FOLLOWED_DEFAULT: 1,
+        FOLLOWED_SEED: 0,
+        NOT_FOLLOWED: 3,
+    }
+
+
+def test_a_readback_seed_follows_none_stops_a_followed_pair() -> None:
+    channels = {**_sp("SP", pair="RB"), **_rb("RB", simulation={"follows": "none"})}
+    assert _follows(channels) == {("SP", "RB"): (NOT_FOLLOWED, "the readback's seed follows none")}
+    assert simulated_pairs(channels) == {}
+
+
+def test_a_readback_seed_naming_its_setpoint_makes_the_pair_followed() -> None:
+    channels = {
+        **_sp("SP", pair="RB"),
+        **_rb("RB", simulation={"follows": "SP", "noise": {"absolute": 0.1}}),
+    }
+    assert _follows(channels) == {
+        ("SP", "RB"): (FOLLOWED_SEED, "the readback's seed follows this setpoint")
+    }
+    assert simulated_pairs(channels) == {"RB": "SP"}
 
 
 def test_a_command_pairs_with_its_status_of_another_type() -> None:

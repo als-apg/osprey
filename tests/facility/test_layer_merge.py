@@ -261,6 +261,53 @@ class TestLayerMerge:
         assert (err.kind, err.record_kind, err.record_id) == ("layer-conflict", "model", "lattice")
         assert err.detail.startswith("`settings` differs:")
 
+    def test_a_seed_is_joined_per_key(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "seeds.yaml": {"SR:X": {"nominal": 1.5, "noise": {"absolute": 0.1}}},
+                "imported/pairs/channels.yaml": [{"id": "SR:X", "simulation": {"follows": "none"}}],
+            },
+        )
+        assert result.errors == []
+        channel = _record(result, "channels", "SR:X")
+        assert channel["simulation"] == {
+            "nominal": 1.5,
+            "noise": {"absolute": 0.1},
+            "follows": "none",
+        }
+
+    def test_one_seed_key_two_layers_state_differently_is_layer_conflict(
+        self, tmp_path: Path
+    ) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "seeds.yaml": {"SR:X": {"nominal": 1.5, "follows": "none"}},
+                "imported/pairs/channels.yaml": [{"id": "SR:X", "simulation": {"follows": "SR:S"}}],
+            },
+        )
+        err = _one(result.errors)
+        assert (err.kind, err.record_kind, err.record_id) == ("layer-conflict", "channel", "SR:X")
+        assert err.detail == "`simulation.follows` differs: authored=none; pairs=SR:S"
+
+    def test_one_seed_key_two_layers_state_alike_is_no_conflict(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "seeds.yaml": {"SR:X": {"nominal": 1.5, "noise": {"absolute": 0.1}}},
+                "imported/pairs/channels.yaml": [
+                    {"id": "SR:X", "simulation": {"nominal": 1.5, "follows": "none"}}
+                ],
+            },
+        )
+        assert result.errors == []
+        assert _record(result, "channels", "SR:X")["simulation"] == {
+            "nominal": 1.5,
+            "noise": {"absolute": 0.1},
+            "follows": "none",
+        }
+
     def test_differing_on_is_layer_conflict(self, tmp_path: Path) -> None:
         result = _build(
             tmp_path,

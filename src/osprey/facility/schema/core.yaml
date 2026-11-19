@@ -538,6 +538,12 @@ classes:
         range: TopoffLifetime
         inlined: true
         description: The lifetime of a `topoff` channel, read as a constant.
+      follows:
+        description: >-
+          On a readback a setpoint names as its `pair`: the setpoint the
+          simulation copies a write from into this readback, or `none` for
+          no setpoint. Without it the simulation follows the readback when
+          exactly one setpoint names it and the two hold values of one type.
 
   Topoff:
     description: >-

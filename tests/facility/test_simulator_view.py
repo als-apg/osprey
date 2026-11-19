@@ -53,6 +53,7 @@ LINE_DECK = "data/simulator/decks/LINE.json"
 TRANSFER_DECKS = ("data/simulator/decks/BTS.json", "data/simulator/decks/LTB.json")
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "data/simulator/seeds.json"
+FOLLOWS = "data/simulator/follows.json"
 SCENARIOS = "data/simulator/scenarios.json"
 SCENARIO_FILES = (
     "data/simulator/scenarios/bpm-polarity/plots/corrector_bump_test.png",
@@ -120,6 +121,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 SCENARIOS,
                 *SCENARIO_FILES,
                 SEEDS,
+                FOLLOWS,
                 SERVED,
                 VARIABLES,
                 LIMITS,
@@ -1077,6 +1079,108 @@ def test_a_readback_several_setpoints_name_is_driven_by_none_of_them(
     # the simulation follows a readback only where it is that readback's one setpoint
     assert _channel(variables, setpoint)["pair"] == setpoint
     assert _channel(variables, UNLISTED_SETPOINT)["pair"] == UNLISTED_SETPOINT
+
+
+def _render_follows(
+    tmp_path: Path, built: BuiltProject, edit: dict[str, dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The variables and follows documents of a render whose channels take ``edit``."""
+    variables = _render_channels(tmp_path, built, edit, ())
+    return variables, _view(tmp_path / "render", FOLLOWS)
+
+
+def _a_followed_pair(built: BuiltProject) -> tuple[str, str]:
+    from osprey.facility.pairing import FOLLOWED_DEFAULT, pair_follows
+
+    channels = {str(c["id"]): c for c in built.facility["channels"]}
+    return next(
+        (follow.setpoint, follow.readback)
+        for follow in pair_follows(channels)
+        if follow.follow == FOLLOWED_DEFAULT
+    )
+
+
+def test_follows_says_for_each_pair_whether_the_simulation_follows_it(
+    built_demo: BuiltProject,
+) -> None:
+    from osprey.facility.pairing import pair_follows
+
+    follows = _view(built_demo.build_dir, FOLLOWS)
+    channels = {str(c["id"]): c for c in built_demo.facility["channels"]}
+    expected = [follow._asdict() for follow in pair_follows(channels)]
+    assert follows["schema"] == "osprey.facility.follows/1"
+    assert follows["pairs"] == expected
+    assert follows["totals"] == {
+        word: sum(1 for pair in expected if pair["follow"] == word)
+        for word in ("default", "seed", "not followed")
+    }
+    assert follows["totals"]["default"] > 0
+    variables = _view(built_demo.build_dir, VARIABLES)
+    followed = {p["setpoint"]: p["readback"] for p in expected if p["follow"] != "not followed"}
+    for pair in expected:
+        assert _channel(variables, pair["setpoint"])["pair"] == followed.get(
+            pair["setpoint"], pair["setpoint"]
+        )
+
+
+def test_a_readback_seed_following_none_stops_the_simulation_following_it(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    setpoint, readback = _a_followed_pair(built_demo)
+    variables, follows = _render_follows(
+        tmp_path, built_demo, {readback: {"simulation": {"follows": "none"}}}
+    )
+
+    assert _channel(variables, setpoint)["pair"] == setpoint
+    assert {
+        "setpoint": setpoint,
+        "readback": readback,
+        "follow": "not followed",
+        "why": "the readback's seed follows none",
+    } in follows["pairs"]
+
+
+def test_seeds_leave_out_follows_which_the_pair_already_carries(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    readbacks = [
+        str(c["id"])
+        for c in built_demo.facility["channels"]
+        if c.get("role", "readback") == "readback"
+    ]
+    seeded = next(a for a in readbacks if _seed_of(built_demo, a) is not None)
+    unseeded = next(a for a in readbacks if _seed_of(built_demo, a) is None)
+    seed = _seed_of(built_demo, seeded)
+    _render_follows(
+        tmp_path,
+        built_demo,
+        {
+            seeded: {"simulation": {**seed, "follows": "none"}},
+            unseeded: {"simulation": {"follows": "none"}},
+        },
+    )
+    seeds = _view(tmp_path / "render", SEEDS)["seeds"]
+
+    assert seeds[seeded] == seed
+    assert unseeded not in seeds
+
+
+def _seed_of(built: BuiltProject, address: str) -> dict[str, Any] | None:
+    record = next(c for c in built.facility["channels"] if str(c["id"]) == address)
+    return record.get("simulation")
+
+
+def test_a_readback_seed_naming_its_setpoint_makes_the_simulation_follow_it(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    setpoint, readback = _a_followed_pair(built_demo)
+    variables, follows = _render_follows(
+        tmp_path, built_demo, {readback: {"simulation": {"follows": setpoint}}}
+    )
+
+    assert _channel(variables, setpoint)["pair"] == readback
+    entry = next(p for p in follows["pairs"] if p["readback"] == readback)
+    assert entry["follow"] == "seed"
 
 
 def _with_channels(built: BuiltProject, *addresses: str) -> dict[str, Any]:

@@ -170,6 +170,7 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "BR:DIAG:DCCT:01:CURRENT:RB:": ("seeds.yaml", _update),
     "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:": ("seeds.yaml", _update),
     "GTL:DIAG:BPM:01:SUM:RB:": ("seeds.yaml", _update),
+    "SR:VAC:VALVE:01:POSITION:OPEN:": ("seeds.yaml", _update),
 }
 
 #: Blocks that show part of a preset record, by first line: the preset file.

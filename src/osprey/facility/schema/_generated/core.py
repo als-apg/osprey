@@ -1792,6 +1792,7 @@ class Seed(ConfiguredBaseModel):
     gate: Optional[Gate] = Field(default=None, description="""What the channel does while any of `inputs` reads its blocking label, beside `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     topoff: Optional[Topoff] = Field(default=None, description="""A stored current refilled every `period_s` and decaying between refills with lifetime `lifetime_h`; it holds the level the decay averages to, so it carries no `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     topoff_lifetime: Optional[TopoffLifetime] = Field(default=None, description="""The lifetime of a `topoff` channel, read as a constant.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    follows: Optional[str] = Field(default=None, description="""On a readback a setpoint names as its `pair`: the setpoint the simulation copies a write from into this readback, or `none` for no setpoint. Without it the simulation follows the readback when exactly one setpoint names it and the two hold values of one type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
 
 
 class Topoff(ConfiguredBaseModel):

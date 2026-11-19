@@ -3,9 +3,11 @@
 The merge works per (kind, id, field). Each layer states only the fields its
 source states; combine collects every layer's present value and stops on
 nothing while collecting. A field is a top-level slot of the record, and a
-map-valued slot (``simulation``, ``settings``, ``engine``, ``calibration``,
-``span``, ``measurement``, ``attributes``) is one value, compared whole like a
-list.
+map-valued slot (``settings``, ``engine``, ``calibration``, ``span``,
+``measurement``, ``attributes``) is one value, compared whole like a list. A
+channel's seed (``simulation``) is joined per key instead (``JOINED_MAPS``): one
+source may state ``follows`` and another the seed's values, and two sources that
+state one key differently conflict.
 
 Then the fixes apply as a set — ``set`` and ``add`` first, then ``drop`` — and
 the conflict check runs over what is left: two present unequal values on a
@@ -82,6 +84,7 @@ __all__ = [
     "FIXES_FILE",
     "FIXES_HEADER",
     "SET_VALUED",
+    "JOINED_MAPS",
     "UNIONED",
     "CombineResult",
     "combine",
@@ -108,6 +111,10 @@ UNIONED: dict[str, frozenset[str]] = {
     "place": frozenset({"scheme_names"}),
     "device": frozenset({"scheme_names"}),
 }
+
+#: The map slots joined per key, per record kind: the record carries every key
+#: any source states, and only a key two sources state differently conflicts.
+JOINED_MAPS: dict[str, frozenset[str]] = {"channel": frozenset({"simulation"})}
 
 _OPS = ("set", "add", "drop")
 _KINDS = ("place", "device", "channel", "wiring", "group", "model", "relation")
@@ -287,6 +294,20 @@ def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
 def _unioned(kind: str, name: str, values: Sequence[_Value]) -> bool:
     """Whether the sources' values of a field are joined: a ``UNIONED`` slot stated as lists."""
     return name in UNIONED.get(kind, ()) and all(isinstance(v.value, list) for v in values)
+
+
+def _joined(kind: str, name: str, values: Sequence[_Value]) -> bool:
+    """Whether the sources' values of a field are joined per key: a ``JOINED_MAPS`` slot stated as maps."""
+    return name in JOINED_MAPS.get(kind, ()) and all(isinstance(v.value, dict) for v in values)
+
+
+def _join(values: Sequence[_Value]) -> dict[str, Any]:
+    """Every key any source states, in the order the sources first state them."""
+    joined: dict[str, Any] = {}
+    for stated in values:
+        for key, value in stated.value.items():
+            joined.setdefault(key, value)
+    return joined
 
 
 def _union(kind: str, name: str, values: Sequence[_Value]) -> Any:
@@ -776,6 +797,9 @@ class _Combiner:
                 values = record.values[name]
                 if all(_same(values[0].value, v.value) for v in values[1:]):
                     continue
+                if _joined(record.kind, name, values):
+                    self._keys_differ(record, name, values)
+                    continue
                 if _unioned(record.kind, name, values):
                     if name in KEYED_SETS:
                         self._keys_disagree(record, name, values)
@@ -793,6 +817,28 @@ class _Combiner:
                         detail=f"`{name}` differs: {shown}",
                     )
                 )
+
+    def _keys_differ(self, record: _Record, name: str, values: list[_Value]) -> None:
+        """Stop on each key of a joined map that two sources state differently."""
+        for key in _join(values):
+            stated = [v for v in values if key in v.value]
+            if all(_same(stated[0].value[key], v.value[key]) for v in stated[1:]):
+                continue
+            shown = "; ".join(
+                f"{v.layer}={_show(v.value[key])}"
+                for v in sorted(stated, key=lambda v: str(v.layer))
+            )
+            self.errors.append(
+                FacilityBuildError(
+                    "layer-conflict",
+                    record.id,
+                    record.files(),
+                    f"state `{name}.{key}` alike in each source, or add a `set` fix for "
+                    f"`{name}` to fixes.yaml",
+                    record_kind=record.kind,
+                    detail=f"`{name}.{key}` differs: {shown}",
+                )
+            )
 
     def _keys_disagree(self, record: _Record, name: str, values: list[_Value]) -> None:
         """Stop on each key of a joined keyed set that two sources give different contents."""
@@ -848,6 +894,8 @@ class _Combiner:
             candidates = [chosen] if chosen is not None else record.values[name]
             if chosen is None and _unioned(record.kind, name, candidates):
                 fields[name] = _union(record.kind, name, candidates)
+            elif chosen is None and len(candidates) > 1 and _joined(record.kind, name, candidates):
+                fields[name] = _join(candidates)
             else:
                 # The record's own copy, made by _normalize when it was stated
                 # and read by nothing once merged: a second copy here would
