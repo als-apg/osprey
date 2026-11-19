@@ -55,7 +55,6 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from osprey.facility import FACILITY_FILE
-from osprey.facility.pairing import PAIR_RULE
 from osprey.facility.panels.tables import (
     CALIBRATION_BASES,
     CHANNEL_ROLES,
@@ -133,10 +132,10 @@ class Pair:
     Attributes:
         setpoint: The setpoint.
         readback: Its pair.
-        basis: ``stated`` when a layer states the setpoint's ``pair``,
-            ``inferred`` when the build paired it.
+        basis: ``inferred`` when the build derived the pair, or the layer that
+            states it says a named rule did; ``stated`` otherwise.
         rule: For an inferred pair, the rule that formed it.
-        source: For a stated pair, the facility file that states it.
+        source: The layer file that states the pair; ``None`` for one the build derived.
     """
 
     setpoint: str
@@ -170,17 +169,27 @@ class RoleHit:
 
 
 def _facility_pair(setpoint: str, readback: str, record: Mapping[str, Any]) -> Pair:
-    """The pair a setpoint's record names: inferred when the build filled ``pair``,
-    else stated by the file the provenance names for it."""
+    """The pair a setpoint's record names, with what it rests on: stated when a layer
+    states ``pair`` outright, inferred by its rule when every layer that states it
+    says a rule derived it, or by the build's rule when the build derived it."""
     provenance = record.get("provenance") or {}
-    if "pair" in (provenance.get("defaults") or ()):
-        return Pair(setpoint, readback, "inferred", rule=PAIR_RULE)
-    files = [
-        str(source.get("file"))
-        for source in provenance.get("sources") or ()
-        if "pair" in (source.get("fields") or ())
-    ]
-    return Pair(setpoint, readback, "stated", source=files[-1] if files else None)
+    for derived in provenance.get("rules") or ():
+        if "pair" in (derived.get("fields") or ()):
+            return Pair(setpoint, readback, "inferred", rule=_text(derived.get("rule")))
+    stating = [s for s in provenance.get("sources") or () if "pair" in (s.get("fields") or ())]
+    stated = [s for s in stating if s.get("basis") != "inferred"]
+    if stated or not stating:  # one layer stating it outright is enough
+        return Pair(
+            setpoint, readback, "stated", source=_text(stated[-1].get("file")) if stated else None
+        )
+    source = stating[-1]
+    return Pair(
+        setpoint,
+        readback,
+        "inferred",
+        rule=_text(source.get("rule")),
+        source=_text(source.get("file")),
+    )
 
 
 def _join(edges: Iterable[Edge]) -> str | None:

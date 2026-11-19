@@ -1599,6 +1599,7 @@ class Provenance(ConfiguredBaseModel):
     fixes: Optional[list[ProvenanceFix]] = Field(default=None, description="""The fixes applied to the record, in fixes.yaml order.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
     defaults: Optional[list[str]] = Field(default=None, description="""The fields the build filled because no source stated them.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
     place_from: Optional[PlaceFromEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance']} })
+    rules: Optional[list[ProvenanceRule]] = Field(default=None, description="""The fields the build derived by a named rule (each also in `defaults`), one entry per rule; absent when none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
 
 
 class ProvenanceSource(ConfiguredBaseModel):
@@ -1606,7 +1607,18 @@ class ProvenanceSource(ConfiguredBaseModel):
 
     layer: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
     file: str = Field(default=..., description="""Relative to data/facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
-    fields: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource'], 'list_elements_ordered': True} })
+    fields: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule'],
+         'list_elements_ordered': True} })
+    basis: Optional[BasisEnum] = Field(default=None, description="""What the fields rest on, as the layer's record says (its `basis`); absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
+    rule: Optional[str] = Field(default=None, description="""The rule that derived the fields; present with basis inferred.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
+
+
+class ProvenanceRule(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    fields: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule'],
+         'list_elements_ordered': True} })
+    rule: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
 
 
 class ProvenanceFix(ConfiguredBaseModel):
@@ -2126,8 +2138,8 @@ class Relation(ConfiguredBaseModel):
     subject: RelationEnd = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     object: RelationEnd = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     attributes: Optional[Any] = Field(default=None, description="""Free map: cable, signal, medium, length, ...""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Relation']} })
-    basis: Optional[BasisEnum] = Field(default=None, description="""Absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
-    rule: Optional[str] = Field(default=None, description="""The rule that derived an inferred claim; required with basis inferred.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
+    basis: Optional[BasisEnum] = Field(default=None, description="""Absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
+    rule: Optional[str] = Field(default=None, description="""The rule that derived an inferred claim; required with basis inferred.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
     source: Optional[Citation] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
     standing: Optional[StandingEnum] = Field(default=None, description="""Computed; the claim's standing among the claims about the same fact.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     contests: Optional[list[str]] = Field(default=None, description="""Computed; the ids of the claims this one disputes.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
@@ -2192,8 +2204,8 @@ class Alias(ConfiguredBaseModel):
 
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'FacilitySignal', 'Model', 'Scenario', 'Alias']} })
     scheme: str = Field(default=..., description="""The naming vocabulary: lattice, controls, cable-schedule, ...""", json_schema_extra = { "linkml_meta": {'domain_of': ['Alias']} })
-    basis: Optional[BasisEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
-    rule: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
+    basis: Optional[BasisEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
+    rule: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
     source: Optional[Citation] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
 
 
@@ -2275,6 +2287,7 @@ FacilityClass.model_rebuild()
 FacilitySignal.model_rebuild()
 Provenance.model_rebuild()
 ProvenanceSource.model_rebuild()
+ProvenanceRule.model_rebuild()
 ProvenanceFix.model_rebuild()
 Place.model_rebuild()
 Span.model_rebuild()

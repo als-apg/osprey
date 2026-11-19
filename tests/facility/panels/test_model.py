@@ -114,6 +114,43 @@ def test_a_pair_the_build_derives_is_inferred_by_the_build_s_rule(
     assert pair.source is None
 
 
+def test_a_pair_a_layer_infers_by_a_rule_is_inferred_by_that_rule(tmp_path: Path) -> None:
+    import shutil
+
+    from osprey.facility.build import build_facility
+    from osprey.facility.render import facility_bytes
+    from tests.facility.panels._fixture import FACILITY_TREE
+
+    tree = tmp_path / "facility"
+    shutil.copytree(FACILITY_TREE, tree)
+    layer = tree / "imported" / "names" / "channels.yaml"
+    layer.parent.mkdir(parents=True)
+    layer.write_text(
+        "- id: XR01-PS1:On-Cmd\n"
+        "  pair: XR01-PS1:On-Sts\n"
+        "  basis: inferred\n"
+        "  rule: a -Cmd pairs with the -Sts of its name\n"
+        "- id: XR01-QF1:Current-SP\n"
+        "  pair: XR01-QF1:Current-RB\n"
+        "  basis: inferred\n"
+        "  rule: a -SP pairs with the -RB of its name\n",
+        encoding="utf-8",
+    )
+    facility = tmp_path / "facility.json"
+    facility.write_bytes(facility_bytes(build_facility(tree, project_name="xr")))
+    graph = load_graph(facility, PANELS_DIR)
+    stated = graph.pair("XR01-QF1:Current-SP")  # records/channels.yaml states it outright
+    assert stated is not None and (stated.basis, stated.rule) == ("stated", None)
+    pair = graph.pair("XR01-PS1:On-Cmd")
+    assert pair is not None
+    assert (pair.readback, pair.basis, pair.rule, pair.source) == (
+        "XR01-PS1:On-Sts",
+        "inferred",
+        "a -Cmd pairs with the -Sts of its name",
+        "imported/names/channels.yaml",
+    )
+
+
 def test_a_readback_or_a_left_out_setpoint_has_no_pair(panel_graph: PanelGraph) -> None:
     assert panel_graph.pair("XR01-QF1:Current-RB") is None
     assert panel_graph.pair(VA_CHANNEL) is None

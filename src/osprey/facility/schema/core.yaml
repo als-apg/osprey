@@ -265,6 +265,14 @@ classes:
         description: The fields the build filled because no source stated them.
       place_from:
         range: place_from_enum
+      rules:
+        range: ProvenanceRule
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: >-
+          The fields the build derived by a named rule (each also in `defaults`),
+          one entry per rule; absent when none.
 
   ProvenanceSource:
     attributes:
@@ -276,6 +284,22 @@ classes:
       fields:
         multivalued: true
         list_elements_ordered: true
+      basis:
+        range: basis_enum
+        description: >-
+          What the fields rest on, as the layer's record says (its `basis`); absent
+          means stated.
+      rule:
+        description: The rule that derived the fields; present with basis inferred.
+
+  ProvenanceRule:
+    attributes:
+      fields:
+        multivalued: true
+        list_elements_ordered: true
+        required: true
+      rule:
+        required: true
 
   ProvenanceFix:
     attributes:

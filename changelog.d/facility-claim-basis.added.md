@@ -1,0 +1,1 @@
+Facility layers: a place, device, channel or group record may state `basis: inferred` and the `rule` its fields rest on. The build keeps both in that layer's provenance entry, and a field the build derives by a named rule, such as a setpoint's pair, is listed under `provenance.rules`. Panels marks a pair inferred from either.
