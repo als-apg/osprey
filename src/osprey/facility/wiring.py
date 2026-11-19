@@ -25,7 +25,10 @@ Once the records are described, the stage marks each command channel
 (:func:`osprey.facility.pairing.is_command_signal`), or a channel some model's
 engine marks ``command``. A channel whose signal is a command word that an
 engine describes without the mark stops (``engine-invalid``). Whatever fires or
-judges a command reads this mark and no rule of its own.
+judges a command reads this mark and no rule of its own. With every command
+marked, each command's ``timeout_s`` and its status's ``idle`` are held to the
+command rules (:func:`osprey.facility.validate.check_commands`), which stop
+with ``command-invalid``.
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ from typing import Any
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults
-from osprey.facility.validate import Validated, need, stating_files
+from osprey.facility.validate import Validated, check_commands, need, stating_files
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
@@ -109,7 +112,8 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
                 model, validated.facility_dir, engines, channels, limits, setpoint_of, pairs
             )
         )
-    errors.extend(_mark_commands(document))
+    marking = _mark_commands(document)
+    errors.extend(marking or check_commands(document))
     return sorted(errors, key=lambda error: error.record_id)
 
 
