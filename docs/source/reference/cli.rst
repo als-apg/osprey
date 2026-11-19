@@ -1452,13 +1452,17 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    The rule tables are CSV files, each held to its header, and each may be
    absent. What the facility file states is the default, and a table states
    only what it does not: a setpoint's readback is its channel's ``pair``
-   (``pairs.csv`` names others), a thing's short name its ``label`` (``names.csv``
-   names others), a channel is drawn by its ``role`` (a setpoint as an entry
+   (``pairs.csv`` names others), a thing's short name what ``names.csv`` states,
+   else its ``label``, else the last ``:``- or ``/``-separated part of its id, a
+   channel is drawn by its ``role`` (a setpoint as an entry
    beside its readback, a readback as a value; ``record_types.csv`` names its
    record type and any other drawing), and a channel on a device that states a
    ``signal`` plays that signal as its role on the device's card, shown as an
    entry, a word or a value by how it is drawn (``channel_roles.csv`` names
-   walked scopes, labels, presses and channels with no signal). ``check``
+   walked scopes, labels, presses and channels with no signal; a row's stated
+   ``label`` is the word the card shows for the channel on every tile, value row
+   and group title, and stays in front of what tells two channels of one role
+   apart, while a choice's or an action's label is the word on its press). ``check``
    prints one ``redundant: <table>: <n> rows`` line per table whose rows only
    restate the facility file or these defaults, so a deployment can delete them.
    The tables: ``positions.csv``

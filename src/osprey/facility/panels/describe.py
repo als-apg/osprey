@@ -60,6 +60,7 @@ from osprey.facility.panels.tables import (
     CardRule,
     CardSection,
     ChainStep,
+    ChannelRole,
     FrontRow,
     Pose,
 )
@@ -1238,6 +1239,23 @@ def _role_title(role: str) -> str:
     return role.replace("-", " ").replace("_", " ").capitalize()
 
 
+def _role_word(row: ChannelRole) -> str:
+    """What a card calls a role row's channel, on a tile or over a group: the row's
+    ``label`` as stated, else the role's name as a title. A choice's label is the
+    word of its own segment, so a choice is called by its role."""
+    if row.label and row.shown_as != "choice":
+        return row.label
+    return _role_title(row.role)
+
+
+def _row_word(row: ChannelRole) -> str:
+    """A role row's name on a value row of a block: its ``label`` as stated, else
+    the role's name in lower case."""
+    if row.label and row.shown_as != "choice":
+        return row.label
+    return _role_title(row.role).lower()
+
+
 #: A card key number's measures over every channel of its role on the device.
 _OVER_ALL = ("count_true", "max", "sum")
 
@@ -1311,7 +1329,7 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
         unit, scale = _role_unit(graph, found[0])
         tiles.append(
             KeyTile(
-                _role_title(role),
+                _role_word(first),
                 found[0].channel,
                 first.shown_as,
                 unit,
@@ -1525,6 +1543,8 @@ def _operate(
             channel_key = hit.channel if hit.role.shown_as == "choice" else ""
             keyed.setdefault((hit.role.shown_as, hit.role.role, channel_key), []).append(hit)
         for (kind, role, _channel), found in keyed.items():
+            title = _role_word(found[0].role)
+            labelled = all(h.role.label for h in found)
             joined = [h for h in found if h.join is not None]  # never pressed: read only
             found = [h for h in found if h.join is None]
             items = []
@@ -1542,14 +1562,13 @@ def _operate(
                 kind, items = _one_segment(graph, items[0])
             if kind in ("entry", "action"):
                 # one word for several channels says nothing: each what tells it apart
-                items = _told_apart(items, thing.id, keep_word=kind == "action")
+                # a stated label stays as the word in front of what tells them apart
+                items = _told_apart(items, thing.id, keep_word=kind == "action" or labelled)
             if kind == "choice":
                 items = _distinct(items)
             if items:
                 groups.append(
-                    ControlGroup(
-                        kind, _role_title(role), tuple(items), _writes(kind, items, thing.id)
-                    )
+                    ControlGroup(kind, title, tuple(items), _writes(kind, items, thing.id))
                 )
             if joined:
                 shown = {h.channel: h for h in joined}  # one read-only value per channel
@@ -1557,10 +1576,8 @@ def _operate(
                 groups.append(
                     ControlGroup(
                         WITHHELD,
-                        _role_title(role),
-                        tuple(
-                            Control(h.role.label or _role_title(role), c) for c, h in shown.items()
-                        ),
+                        title,
+                        tuple(Control(_role_word(h.role), c) for c, h in shown.items()),
                         JOIN_WITHHELD,
                         rule,
                     )
@@ -1828,7 +1845,7 @@ def _block_rows(
         unit, scale = _role_unit(graph, hit)
         rows.append(
             BlockRow(
-                _role_title(role).lower(), hit.channel, shown_as=shown, unit=unit, scale=scale,
+                _row_word(hit.role), hit.channel, shown_as=shown, unit=unit, scale=scale,
                 words=_words(graph, hit.channel),
             )
         )  # fmt: skip
@@ -1990,7 +2007,7 @@ def _strip_member(graph, index, other: Thing, s_m: float, symbol, role, focus: s
     if other.id != focus:
         item = _ref(graph, index, other)
         link = item if isinstance(item, Link) else None
-    label = other.short_name or other.id
+    label = other.short
     return StripMember(
         other.id, label, s_m, symbol.symbol, symbol.lane, link, channel, unit, other.id == focus
     )
@@ -2070,7 +2087,7 @@ def recipe_chain(
         and h.role.shown_as in ("value", "word", "lamp")
         and h.role.role not in (*IDENTITY_ROLES, INTERNAL_ROLE)
     ][:FOCUS_ROWS]  # fmt: skip
-    labels = [_role_title(h.role.role).lower() for h in mine]
+    labels = [_row_word(h.role) for h in mine]
     focus_rows = tuple(
         BlockRow(
             label, h.channel, shown_as=h.role.shown_as,
@@ -2286,6 +2303,7 @@ def card_front(
     presses: list[Control] = []
     ported: set[str] = set()
     entries: dict[str, list[Control]] = {}
+    titles: dict[str, str] = {}  # each role's group title
     loose_rows: list[FrontRow] = []
     client_groups: set[tuple[str, str]] = set()
     for (face, group), rows in _grouped(graph.fronts(recipe)):
@@ -2322,7 +2340,8 @@ def card_front(
                 presses += controls
                 label = (row.label or row.connector).replace("{n}", n)
                 for hit in typed:
-                    word = hit.role.label or _role_title(hit.role.role)
+                    word = _role_word(hit.role)
+                    titles.setdefault(hit.role.role, word)
                     entries.setdefault(hit.role.role, []).append(
                         Control(f"{label} · {word}", hit.channel)
                     )
@@ -2340,9 +2359,7 @@ def card_front(
         _front_writes(presses, thing.id) if presses else None,
         section.caption,
         tuple(
-            ControlGroup(
-                "entry", _role_title(role), tuple(found), _writes("entry", found, thing.id)
-            )
+            ControlGroup("entry", titles[role], tuple(found), _writes("entry", found, thing.id))
             for role, found in entries.items()
         ),
     )
@@ -2398,7 +2415,7 @@ def _connector_roles(
                 unit, scale = _role_unit(graph, hit)
                 rows.append(
                     BlockRow(
-                        _role_title(role).lower(), hit.channel, shown_as=shown, unit=unit,
+                        _row_word(hit.role), hit.channel, shown_as=shown, unit=unit,
                         scale=scale, words=_words(graph, hit.channel),
                     )
                 )  # fmt: skip
@@ -2435,7 +2452,7 @@ def _loose(
                     shown = "word" if hit.role.shown_as == "lamp" else hit.role.shown_as
                     found.append(
                         BlockRow(
-                            _role_title(hit.role.role).lower(), hit.channel, shown_as=shown,
+                            _row_word(hit.role), hit.channel, shown_as=shown,
                             words=_words(graph, hit.channel),
                         )
                     )  # fmt: skip
@@ -2606,7 +2623,11 @@ def limit_ladder(
     missing: list[str] = []
     for role in roles[1:]:
         found = own.get(role)
-        title = _role_title(role.removeprefix(_THRESHOLD_PREFIX))
+        title = (
+            found.role.label
+            if found is not None and found.role.label
+            else _role_title(role.removeprefix(_THRESHOLD_PREFIX))
+        )
         if found is None:
             missing.append(title)
         else:
@@ -2708,14 +2729,14 @@ def ring_strip(
                 unit, scale = _role_unit(graph, hit)
                 rows.append(
                     BlockRow(
-                        _role_title(hit.role.role).lower(), hit.channel, shown_as=hit.role.shown_as,
+                        _row_word(hit.role), hit.channel, shown_as=hit.role.shown_as,
                         unit=unit, scale=scale, words=_words(graph, hit.channel),
                     )
                 )  # fmt: skip
                 break
         focus = member.id == thing.id
         item = None if focus else _ref(graph, index, member)
-        label = member.short_name or member.id.rsplit(":", 1)[-1]
+        label = member.short
         out.append(
             RingMember(
                 member.id,
@@ -2787,7 +2808,7 @@ def _short_labels(members: list[Thing]) -> dict[str, str]:
     """Each member's name inside its place: its short name, else the last segment of
     its id; members that would share one name each keep what follows the part of
     their ids they all share (``A:P1``, ``B:P1``)."""
-    first = {m.id: m.short_name or m.id.rsplit(":", 1)[-1] for m in members}
+    first = {m.id: m.short for m in members}
     seen = Counter(first.values())
     out = dict(first)
     for name, n in seen.items():
@@ -2950,9 +2971,9 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
     thing = graph.thing(device_id, "device")
     index = _index(graph)
     hits = graph.roles(device_id)
-    role_of: dict[str, str] = {}
+    role_of: dict[str, ChannelRole] = {}
     for hit in hits:
-        role_of.setdefault(hit.channel, hit.role.role)
+        role_of.setdefault(hit.channel, hit.role)
     own = graph.channels(device_id, "device")
     names = {c.name for c in own}
     reached = [
@@ -2964,11 +2985,11 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
     last: list[Item] = []
     for channel in (*own, *reached):
         role = role_of.get(channel.name)
-        if role == INTERNAL_ROLE:
+        if role is not None and role.role == INTERNAL_ROLE:
             last.append(_value_row(graph, channel))
             continue
         if role is not None:
-            title = _role_title(role)
+            title = _role_word(role)
         else:
             row = graph.record_type(channel.name)
             title = (

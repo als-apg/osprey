@@ -883,7 +883,10 @@ class ChannelRole:
     ...) the pattern may hold ``{port}`` (the relation's object port) and ``{n}`` (that
     port's trailing number). A ``choice`` or ``action`` row is one press:
     ``label`` is the word on it, ``press_value`` what it writes (``None``: the
-    value whose state word is ``label``). ``unit`` and ``scale`` (a divisor) win
+    value whose state word is ``label``). On any other row a stated ``label`` is
+    what the card calls the channel, on its tile, its value row and over its
+    group, and stays in front of what tells two channels of the role apart; with
+    none, the role's name. ``unit`` and ``scale`` (a divisor) win
     over ``units.csv``. The role words are the facility's vocabulary; the engine
     reads them as text."""
 

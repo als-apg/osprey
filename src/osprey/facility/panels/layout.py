@@ -49,7 +49,7 @@ from osprey.facility.panels.describe import (
 )
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
-from osprey.facility.panels.model import Citation, PanelGraph
+from osprey.facility.panels.model import Citation, PanelGraph, id_tail
 from osprey.facility.panels.strip import Placed
 from osprey.facility.panels.symbols import (
     BOX_BORDER,
@@ -534,7 +534,6 @@ _AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
 _SUMMARY_TEXT = "{} channels: a live summary of this level needs a server-side aggregate"
 _PART = "part {} of {}"
-_ID_PARTS = re.compile(r"[:/]")
 _PICTURE = "picture"
 #: The kind of a pictures row that is a point of the class's outline, not a part.
 OUTLINE_KIND = "outline"
@@ -4647,14 +4646,14 @@ class _Page:
         return y + h
 
     def member_name(self, member: Link | Fact) -> str:
-        """A member's short name: what ``names.csv`` states, else its id's last part."""
+        """A member's short name (:attr:`Thing.short`); a member that is no thing of
+        the graph by its label's last part."""
         if isinstance(member, Fact):
             return member.text
         try:
-            short = self.graph.thing(member.target.id, member.target.kind).short_name
+            return self.graph.thing(member.target.id, member.target.kind).short
         except KeyError:
-            short = None
-        return short or _short(member.label)
+            return id_tail(member.label)
 
     def check_header(self) -> None:
         tags = (_need("table"),)
@@ -6591,8 +6590,7 @@ def _ticks(lo: float, hi: float) -> list[tuple[float, float]]:
 
 def _short(thing: str) -> str:
     """A symbol's name: the last component of its id."""
-    parts = [part for part in _ID_PARTS.split(thing) if part]
-    return parts[-1] if parts else thing
+    return id_tail(thing)
 
 
 def _column_head(groups: Sequence[tuple[str, Sequence[GridRow]]], column: int) -> str:

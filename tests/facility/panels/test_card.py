@@ -828,7 +828,9 @@ def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
     ]
     assert strip.members[0].channel == "XR01-IP1:Pressure-RB"
     doc = stub_render(view, graph)
-    assert _text(doc, "XR01:IP1 · here")["props"]["foregroundColor"]["$role"] == "Focus"
+    # the quadrupole by its record's label; the pump, with none, by its id's last part
+    assert [m.label for m in strip.members] == ["IP1", "F1"]
+    assert _text(doc, "IP1 · here")["props"]["foregroundColor"]["$role"] == "Focus"
     assert _text(doc, "2 m") and _text(doc, "-1 m")  # a tick every metre
     opens = [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == "XR01:QF1"]
     assert opens and opens[0]["props"]["actions"]
@@ -1622,11 +1624,10 @@ def test_a_group_wrapping_onto_a_second_line_names_it_continued(tmp_path):
 
 
 def test_inside_a_place_a_member_shows_its_short_name_and_two_alike_keep_what_differs():
-    from types import SimpleNamespace
-
     from osprey.facility.panels.describe import _short_labels
+    from osprey.facility.panels.model import Thing
 
-    members = [SimpleNamespace(id=i, short_name=None) for i in ("XR05A:G1", "XR05A:P1", "XR05B:P1")]
+    members = [Thing(i, "device", None, None) for i in ("XR05A:G1", "XR05A:P1", "XR05B:P1")]
     assert _short_labels(members) == {"XR05A:G1": "G1", "XR05A:P1": "A:P1", "XR05B:P1": "B:P1"}
 
 
@@ -2403,3 +2404,36 @@ def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
         "Interlocks  XR01:IP1": ["XR01-CH3:In1-Sts"],
         "Interlocks  XR01:IP2": ["XR01-CH3:In2-Sts"],
     }
+
+
+def test_a_role_rows_stated_label_names_its_tile_value_and_entries(tmp_path) -> None:
+    """A stated label is the word on a lamp's and a value's tile, over the entries'
+    group and in front of what tells two entries of one role apart."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import ControlGroup, KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def sizes(document) -> None:
+        for name in ("XR01-IP1:Size_A", "XR01-IP1:Size_B"):
+            document["channels"].append(
+                {"id": name, "on": {"device": "XR01:IP1"}, "role": "setpoint"}
+            )
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "Pump,pump-state,*:State-Sts,device,lamp,,,,Pump OK,stated,S,,\n"
+        + "Pump,pressure,*:Pressure-RB,device,value,,,,Vacuum,stated,S,,\n"
+        + "Pump,pump-size,*:Size_*,device,entry,,,,Pump size,stated,S,,\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", sizes), tables)
+    view = device_card(graph, "XR01:IP1")
+    items = [i for s in view.sections for i in s.items]
+    tiles = {t.channel: t.title for t in items if isinstance(t, KeyTile)}
+    assert tiles == {"XR01-IP1:State-Sts": "Pump OK", "XR01-IP1:Pressure-RB": "Vacuum"}
+    (group,) = [
+        g for o in items if hasattr(o, "groups") for g in o.groups
+        if isinstance(g, ControlGroup) and g.kind == "entry"
+    ]  # fmt: skip
+    assert group.title == "Pump size"
+    assert [c.label for c in group.controls] == ["Pump size A", "Pump size B"]

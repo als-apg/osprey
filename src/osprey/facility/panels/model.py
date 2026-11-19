@@ -211,7 +211,8 @@ class Thing:
             tree, such as ``rack``); ``None`` for a device, a group or a place
             with none.
         short_name: The short name ``names.csv`` states for it (a strip's
-            label), else the record's ``label``, else ``None``.
+            label), else the record's ``label``, else ``None``; :attr:`short`
+            falls back to its id's last part.
         model: The model a device belongs to, or ``None``.
     """
 
@@ -232,6 +233,18 @@ class Thing:
     #: A device's ``s`` along its model's beam path, as the build computed or a
     #: source stated it; ``None`` without one.
     s_m: float | None = None
+
+    @property
+    def short(self) -> str:
+        """The name a drawing gives it in short: :attr:`short_name`, else the last
+        ``:``- or ``/``-separated part of its id."""
+        return self.short_name or id_tail(self.id)
+
+
+def id_tail(thing_id: str) -> str:
+    """The last ``:``- or ``/``-separated part of an id (the whole id if it has none)."""
+    parts = [part for part in re.split(r"[:/]", thing_id) if part]
+    return parts[-1] if parts else thing_id
 
 
 @dataclass(frozen=True)
