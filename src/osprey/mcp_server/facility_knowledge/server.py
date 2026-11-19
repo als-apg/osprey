@@ -1,7 +1,7 @@
 """OSPREY Facility Knowledge MCP Server.
 
 FastMCP server exposing OKF bundle read tools: list_concepts, read_concept,
-and search.  The bundle root is resolved from the ``facility_knowledge.bundle_path``
+search, and view_asset (an image the bundle stores).  The bundle root is resolved from the ``facility_knowledge.bundle_path``
 key in config.yml (via ``OSPREY_CONFIG``), relative to the config file's parent
 directory when the value is not absolute.
 
@@ -18,11 +18,12 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 from urllib.parse import quote
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.tools import ToolResult
 
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
@@ -41,6 +42,7 @@ mcp = FastMCP(
         "by ID, search the bundle for a query string, or draft/update a concept document. "
         "Every concept comes with a url that opens it in the KNOWLEDGE panel; cite it as a "
         "markdown link. "
+        "view_asset returns an image a concept embeds, by the path read_concept lists. "
         "draft_concept requires human approval via the PreToolUse hook before the write "
         "is committed to disk."
     ),
@@ -426,9 +428,11 @@ async def read_concept(concept_id: str) -> str:
         concept_id: OKF §2 path-minus-extension identifier.
 
     Returns:
-        JSON object with ``concept_id``, ``frontmatter``, ``body``, and ``url``
+        JSON object with ``concept_id``, ``frontmatter``, ``body``, ``url``
         — the concept's link in the KNOWLEDGE panel, relative to the page the
-        operator is on (see :func:`concept_url`).
+        operator is on (see :func:`concept_url`) — and ``images``: each
+        in-bundle image the body embeds as ``{path, alt, viewable}``, with a
+        ``reason`` code when it cannot be viewed (see :func:`concept_images`).
     """
     from osprey.services.facility_knowledge.okf.bundle import OKFBundleError
 
@@ -453,8 +457,177 @@ async def read_concept(concept_id: str) -> str:
                 "frontmatter": doc.frontmatter,
                 "body": doc.body,
                 "url": concept_url(concept_id),
+                "images": concept_images(bundle.root, concept_id, doc.body),
             }
         )
+
+
+def concept_images(root: Path, concept_id: str, body: str) -> list[dict[str, object]]:
+    """List the in-bundle images a concept body embeds, in body order.
+
+    Each entry is ``{"path", "alt", "viewable"}`` plus ``"reason"`` when not
+    viewable. A file is viewable when it exists, its leading bytes say it is an
+    image type the agent may view, and it is within the size limit; ``reason``
+    is the code ``view_asset`` would refuse the path with (an asset error code,
+    or ``svg``). Nothing is decoded, so a viewable image can still be refused
+    as unrenderable. Embeds with no bundle path (external, or leaving the
+    root) are not listed.
+
+    Args:
+        root: Bundle root.
+        concept_id: The concept's id, with or without a leading ``/``.
+        body: The concept body.
+    """
+    from osprey.services.facility_knowledge.okf.assets import (
+        AGENT_IMAGE_TYPES,
+        AssetError,
+        concept_dir,
+        lookup_asset,
+        scan_image_embeds,
+    )
+
+    try:
+        source_dir = concept_dir(root, concept_id)
+    except AssetError:
+        # read_concept already found the file, so this means the two
+        # resolvers disagree about the id; list nothing rather than guess.
+        logger.warning("read_concept: no concept directory for %r", concept_id)
+        return []
+
+    images: list[dict[str, object]] = []
+    for embed in scan_image_embeds(body, source_dir):
+        if embed.path is None:
+            continue
+        entry: dict[str, object] = {"path": embed.path, "alt": embed.alt}
+        try:
+            asset = lookup_asset(root, embed.path)
+        except AssetError as exc:
+            reason: str | None = exc.code
+        else:
+            reason = None if asset.type in AGENT_IMAGE_TYPES else asset.type
+        entry["viewable"] = reason is None
+        if reason is not None:
+            entry["reason"] = reason
+        images.append(entry)
+    return images
+
+
+#: Largest image block :func:`view_asset` sends. One tool message above about
+#: 1 MB breaks the agent SDK's stream buffer; ``artifact_read`` uses the same cap.
+MAX_IMAGE_BLOCK_BYTES = 512 * 1024
+
+
+@mcp.tool()
+async def view_asset(path: str) -> ToolResult:
+    """Look at an image stored in the facility knowledge bundle.
+
+    Use it for an image ``read_concept`` lists with ``viewable: true``. The
+    picture is returned so you can see it; a large or wide one is sent scaled
+    down, and ``scaled`` says so.
+
+    Args:
+        path: The image's bundle path relative to the root, exactly as
+            ``read_concept`` lists it (e.g. ``devices/figures/bpm.png``). One
+            leading ``/`` is accepted. The path is taken literally, never
+            percent-decoded.
+
+    Returns:
+        A JSON block with ``path``, ``type`` and ``bytes`` (the stored file's
+        type and size), ``width`` and ``height`` (of the picture sent) and
+        ``scaled`` (true when the picture sent is not the stored file),
+        followed by the picture. Errors carry the reason in ``details.code``:
+        not_found for a missing file; validation_error for any other refusal
+        (``outside_bundle``, ``dot_path``, ``symlink_escape``,
+        ``not_an_image``, ``disallowed_type``, ``too_large``, ``svg``, or
+        ``cannot_render`` when the picture cannot be decoded).
+    """
+    import base64
+
+    from mcp.types import ImageContent, TextContent
+
+    from osprey.imaging import render
+    from osprey.services.facility_knowledge.okf.assets import (
+        AGENT_IMAGE_TYPES,
+        AssetError,
+        lookup_asset,
+        read_asset_bytes,
+    )
+
+    with _tool_error_envelope(f"view_asset {path!r}"):
+        bundle = _get_bundle()
+        rel = path.removeprefix("/")
+        try:
+            asset = lookup_asset(bundle.root, rel)
+        except AssetError as exc:
+            _refuse_asset(rel, exc.code, str(exc))
+        if asset.type not in AGENT_IMAGE_TYPES:
+            if asset.type == "svg":
+                make_error(
+                    "validation_error",
+                    f"{rel} is an SVG image, which only the KNOWLEDGE panel can show.",
+                    ["Open the concept in the KNOWLEDGE panel to see this image."],
+                    details={"code": "svg", "path": rel},
+                )
+            _refuse_asset(rel, "disallowed_type", f"{asset.type} images cannot be viewed")
+
+        # Read from disk on every call, never more than the limit allows.
+        try:
+            data = read_asset_bytes(asset)
+        except AssetError as exc:
+            _refuse_asset(rel, exc.code, str(exc))
+
+        # The renderer is the validity check for every picture sent. A
+        # RenderUnavailable is no verdict on the image: the envelope turns it
+        # into internal_error.
+        outcome = await render.render_isolated(data, max_bytes=MAX_IMAGE_BLOCK_BYTES)
+        rendition = outcome.rendition
+        if rendition is None:
+            make_error(
+                "validation_error",
+                f"{rel} cannot be rendered ({outcome.reason}).",
+                ["The file may be damaged; check it in the KNOWLEDGE panel."],
+                details={"code": "cannot_render", "reason": outcome.reason, "path": rel},
+            )
+
+        if len(data) <= MAX_IMAGE_BLOCK_BYTES and not rendition.resized:
+            sent, mime, scaled = data, asset.mime, False
+        else:
+            sent, mime, scaled = rendition.data, rendition.mime, True
+        payload = {
+            "path": rel,
+            "type": asset.type,
+            "bytes": len(data),
+            "width": rendition.width,
+            "height": rendition.height,
+            "scaled": scaled,
+        }
+        return ToolResult(
+            content=[
+                TextContent(type="text", text=json.dumps(payload)),
+                ImageContent(
+                    type="image",
+                    data=base64.b64encode(sent).decode("ascii"),
+                    mimeType=mime,
+                ),
+            ]
+        )
+
+
+def _refuse_asset(path: str, code: str, message: str) -> NoReturn:
+    """Raise the error envelope for an asset refusal carrying *code*."""
+    if code == "not_found":
+        make_error(
+            "not_found",
+            f"No image at {path}.",
+            ["Use read_concept to list the images a concept embeds."],
+            details={"code": code, "path": path},
+        )
+    make_error(
+        "validation_error",
+        f"{path} cannot be viewed ({code}: {message}).",
+        ["Use read_concept to list the images a concept embeds and which are viewable."],
+        details={"code": code, "path": path},
+    )
 
 
 @mcp.tool()

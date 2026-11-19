@@ -11,15 +11,23 @@ error, before one handshake line is written and any input is read.
 Wire protocol (no pickle):
 
 * handshake -- one JSON line ``{"ready": true, "pillow": "<version>"}``;
-* request -- a 4-byte big-endian length, then that many picture bytes;
+* request -- a 4-byte big-endian length, then that many payload bytes: a
+  4-byte big-endian byte budget for the rendition (0 for none), then the
+  picture bytes;
 * reply -- one JSON header line ``{"ok", "format", "w", "h", "mode", "mime",
-  "reason"}``, then a 4-byte big-endian length, then the rendition bytes
-  (empty when ``ok`` is false).
+  "reason", "resized"}``, then a 4-byte big-endian length, then the rendition
+  bytes (empty when ``ok`` is false).
 
-The worker exits on end of input. Every request is answered by :func:`handle`,
-a pure function from request payload to reply frame; a refused picture is a
-reply with ``ok: false`` and a reason from
+The worker exits on end of input. Every request is answered by
+:func:`handle_request`, which splits off the budget and calls :func:`handle`, a
+pure function from picture bytes to reply frame; a refused picture is a reply
+with ``ok: false`` and a reason from
 :data:`~osprey.imaging.formats.CONTENT_SKIP_REASONS`.
+
+``resized`` is true when the rendition differs from the stored picture in pixel
+size (measured against the stored dimensions, before any JPEG draft), in
+orientation or in colour mode, whatever the budget; a reduction made only to
+meet the byte budget never sets it.
 """
 
 from __future__ import annotations
@@ -36,7 +44,7 @@ from collections.abc import Callable
 from typing import IO, Any, cast
 
 import PIL
-from PIL import Image, ImageOps
+from PIL import ExifTags, Image, ImageOps
 
 from osprey.imaging.formats import (
     ACCEPTED,
@@ -70,6 +78,18 @@ JPEG_QUALITY = 85
 
 PNG_TO_JPEG_BYTES = int(1.5 * 1024 * 1024)
 """A PNG rendition above this size with no alpha is re-encoded as JPEG."""
+
+BUDGET_QUALITIES = (85, 70, 55, 40, 25)
+"""JPEG qualities tried, in order, at each size of a rendition over its byte budget."""
+
+BUDGET_SCALE = 0.75
+"""Factor by which each size step shrinks a rendition over its byte budget."""
+
+BUDGET_MIN_SIDE = 16
+"""Smallest longest side a byte budget may shrink a rendition to."""
+
+FLATTEN_BACKGROUND = 255
+"""White: the background transparency is flattened onto when a budget forces JPEG."""
 
 MAX_REQUEST_BYTES = 512 * 1024 * 1024
 """Largest request payload the frame reader accepts; a longer frame ends the worker."""
@@ -208,6 +228,7 @@ def _refusal(reason: str) -> bytes:
             "mode": None,
             "mime": None,
             "reason": reason,
+            "resized": None,
         }
     )
 
@@ -352,7 +373,47 @@ def _save(im: Image.Image, fmt: str) -> bytes:
     return out.getvalue()
 
 
-def _render(data: bytes) -> bytes:
+def _flatten(im: Image.Image) -> Image.Image:
+    """Composite an image with alpha onto white; other images are returned as is."""
+    if im.mode not in _ALPHA_MODES:
+        return im
+    base_mode = im.mode[:-1]
+    background = Image.new(base_mode, im.size, (FLATTEN_BACKGROUND,) * len(base_mode))
+    background.paste(im.convert(base_mode), mask=im.getchannel("A"))
+    return background
+
+
+def _within_budget(
+    im: Image.Image, body: bytes, mime: str, budget: int
+) -> tuple[Image.Image, bytes, str]:
+    """Bring a rendition within ``budget`` bytes: lower JPEG quality, then smaller sizes.
+
+    ``body`` is the rendition encoded as usual; it is kept when it fits. Any
+    other answer is JPEG, so transparency is flattened onto white first.
+
+    Raises:
+        _Refused: ``rendition_too_large`` when no size and quality fits.
+    """
+    if len(body) <= budget:
+        return im, body, mime
+    flat = _flatten(im)
+    candidate = flat
+    while True:
+        for quality in BUDGET_QUALITIES:
+            out = io.BytesIO()
+            candidate.save(out, "JPEG", quality=quality)
+            if out.tell() <= budget:
+                return candidate, out.getvalue(), "image/jpeg"
+        longest = max(candidate.size)
+        if longest <= BUDGET_MIN_SIDE:
+            raise _Refused("rendition_too_large")
+        side = max(BUDGET_MIN_SIDE, int(longest * BUDGET_SCALE))
+        scale = side / max(flat.size)
+        size = (max(1, round(flat.width * scale)), max(1, round(flat.height * scale)))
+        candidate = flat.resize(size, Image.Resampling.LANCZOS)
+
+
+def _render(data: bytes, max_bytes: int | None = None) -> bytes:
     sniffed = sniff(data)
     if not sniffed.is_image:
         raise _Refused("not_an_image")
@@ -367,6 +428,7 @@ def _render(data: bytes) -> bytes:
         raise _Refused("format_mismatch")
     jpeg_source = source_format in _JPEG_FORMATS
 
+    stored_size, stored_mode = im.size, im.mode
     if jpeg_source:
         multi_scan = _is_progressive(im) or jpeg_has_multiple_scans(data)
         coefficients = progressive_coefficient_bytes(im.size, cast(Any, im).layer)
@@ -380,10 +442,19 @@ def _render(data: bytes) -> bytes:
     im.thumbnail(
         (RENDITION_MAX_SIDE, RENDITION_MAX_SIDE), Image.Resampling.LANCZOS, reducing_gap=2.0
     )
+    oriented_size = im.size
+    orientation = im.getexif().get(ExifTags.Base.Orientation, 1)
     ImageOps.exif_transpose(im, in_place=True)
+    resized = (
+        oriented_size != stored_size
+        or im.mode != stored_mode
+        or orientation in range(2, 9)  # the orientations exif_transpose applies
+    )
 
     body, mime = _encode(im, jpeg_source=jpeg_source)
-    if len(body) > RENDITION_MAX_BYTES:
+    if max_bytes is not None:
+        im, body, mime = _within_budget(im, body, mime, min(max_bytes, RENDITION_MAX_BYTES))
+    elif len(body) > RENDITION_MAX_BYTES:
         im.thumbnail((RETRY_SIZE, RETRY_SIZE), Image.Resampling.LANCZOS, reducing_gap=2.0)
         body, mime = _encode(im, jpeg_source=jpeg_source)
         if len(body) > RENDITION_MAX_BYTES:
@@ -398,20 +469,23 @@ def _render(data: bytes) -> bytes:
             "mode": im.mode,
             "mime": mime,
             "reason": None,
+            "resized": resized,
         },
         body,
     )
 
 
-def handle(frame: bytes) -> bytes:
-    """Answer one request: validate, decode, encode, and build the reply frame.
+def handle(frame: bytes, max_bytes: int | None = None) -> bytes:
+    """Answer one picture: validate, decode, encode, and build the reply frame.
 
     Pure apart from Pillow's process-global pixel limit and the bomb-warning
     filter, both of which it enforces for the duration of the call and restores
     afterwards.
 
     Args:
-        frame: The request payload -- the picture bytes.
+        frame: The picture bytes.
+        max_bytes: Byte budget of the rendition, or ``None`` for the default
+            :data:`~osprey.imaging.formats.RENDITION_MAX_BYTES` handling.
 
     Returns:
         The reply frame: JSON header line, 4-byte length, rendition bytes.
@@ -421,7 +495,7 @@ def handle(frame: bytes) -> bytes:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            return _render(frame)
+            return _render(frame, max_bytes)
     except _Refused as refused:
         return _refusal(refused.reason)
     except (MemoryError, Image.DecompressionBombError, Image.DecompressionBombWarning):
@@ -433,6 +507,14 @@ def handle(frame: bytes) -> bytes:
         Image.MAX_IMAGE_PIXELS = previous_limit
 
 
+def handle_request(payload: bytes) -> bytes:
+    """Answer one request payload: a 4-byte budget (0 for none), then the picture bytes."""
+    if len(payload) < _LENGTH.size:
+        return _refusal("not_an_image")
+    (budget,) = _LENGTH.unpack(payload[: _LENGTH.size])
+    return handle(payload[_LENGTH.size :], budget or None)
+
+
 # The frame loop runs only in the env-less -I child, where coverage never starts.
 def main() -> None:  # pragma: no cover
     """Harden, hand-shake, then answer frames until end of input."""
@@ -442,7 +524,7 @@ def main() -> None:  # pragma: no cover
     out.flush()
     stdin = sys.stdin.buffer
     while (frame := read_frame(stdin)) is not None:
-        out.write(handle(frame))
+        out.write(handle_request(frame))
         out.flush()
 
 

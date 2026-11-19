@@ -15,6 +15,13 @@ from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailab
 #: Channels whose reads and writes take far longer than any test waits.
 SLOW_PREFIX = "SLOW:"
 
+#: Channels whose writes take :data:`BRIEF_S` and then land: a call that is still
+#: running when the parent asks the child to stop, and that finishes soon after.
+BRIEF_PREFIX = "BRIEF:"
+
+#: How long a write to a ``BRIEF:`` channel takes.
+BRIEF_S = 1.0
+
 #: Channels the connector itself cannot reach: a read raises ChannelUnreachableError.
 GONE_PREFIX = "GONE:"
 
@@ -39,7 +46,8 @@ class SlowInProcessConnector(VAInProcessConnector):
     """The mock, except ``SLOW:`` channels hang, ``GONE:`` channels are
     unreachable (:class:`ChannelUnreachableError`), ``LOST:`` channels find the
     connector unavailable, ``BUG:`` channels raise a connector bug, ``WEDGE:``
-    channels wedge the child, and every write is logged."""
+    channels wedge the child, writes to ``BRIEF:`` channels take
+    :data:`BRIEF_S`, and every write is logged."""
 
     async def read_channel(self, channel_address, timeout=None):
         if channel_address.startswith(WEDGE_PREFIX):
@@ -63,6 +71,8 @@ class SlowInProcessConnector(VAInProcessConnector):
                 handle.write(f"{channel_address} {value}\n")
         if channel_address.startswith(SLOW_PREFIX):
             await asyncio.sleep(3600)
+        if channel_address.startswith(BRIEF_PREFIX):
+            await asyncio.sleep(BRIEF_S)
         return await super().write_channel(channel_address, value, timeout, confirm)
 
 

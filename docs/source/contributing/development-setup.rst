@@ -130,10 +130,12 @@ declared trees. CI and both tiers of ``scripts/check.py`` run the same check thr
 packages the ``dev`` extra declares (fix: ``uv sync --extra dev``). There is no list of
 tolerated errors: an error is fixed where it is reported.
 
-The check's targets are declared in ``pyproject.toml``: it covers the framework source
-and the connectors package together, and the gate reads that same list, so CI and a local
-run check the same trees. A run that names a single file is for a quick look only — it
-resolves less than the full run and reports errors the full run does not.
+The check's targets are declared in ``pyproject.toml``: the framework source, the packages
+under ``packages/``, and ``tests/type_contracts/``, whose files prove a typing property only
+the type check can see, such as a field that must refuse a mis-typed callback. The gate
+reads that same list, so CI and a local run check the same trees. A run that names a single
+file is for a quick look only — it resolves less than the full run and reports errors the
+full run does not.
 
 Testing
 ^^^^^^^

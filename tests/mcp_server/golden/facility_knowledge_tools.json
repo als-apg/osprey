@@ -151,7 +151,8 @@
           ]
         },
         "body": "# Quadrupole Magnets\n\nA quadrupole has four poles and a field that grows linearly with distance from the\naxis, so it acts as a lens: converging in one transverse plane and diverging in\nthe other. Alternating converging and diverging lenses around the ring produces\nnet confinement in both planes.\n\nQuadrupoles are grouped into families that share a power supply, and the family\ncurrents are what operators actually adjust when they move the betatron tunes onto\nthe working point. A per-magnet trim winding allows small individual adjustments\nfor beta-beat compensation.\n\nFamily currents are re-optimized after any chromaticity correction, because the\nsextupole change shifts the measured tunes slightly and the working point has to\nbe restored before user operation resumes.\n\nRamping is rate-limited in the supply firmware; a step request larger than the\nlimit is stretched over several seconds rather than rejected.",
-        "url": "panel/okf#magnets/quadrupoles"
+        "url": "panel/okf#magnets/quadrupoles",
+        "images": []
       }
     },
     {

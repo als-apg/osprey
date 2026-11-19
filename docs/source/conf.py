@@ -132,16 +132,18 @@ exclude_patterns = []
 # -- Link check configuration -----------------------------------------------
 
 # Addresses that answer to a reader but not to a checker, so `make linkcheck`
-# neither reports nor blocks on them. Two kinds, and nothing wider: a loopback
-# address names the reader's own deployment, which is not running where the
-# docs are built; the three hosts below refuse an automated request with 403
-# and open normally in a browser, and a DOI is a permanent identifier by
-# construction. Anything else that goes red is a link a reader cannot follow.
+# neither reports nor blocks on them, and nothing wider: a loopback address names
+# the reader's own deployment, which is not running where the docs are built;
+# the next hosts refuse an automated request with 403 and open normally in a
+# browser; a DOI is a permanent identifier by construction; the blog host opens
+# in a browser but times out a checker run from a build machine. Anything else
+# that goes red is a link a reader cannot follow.
 linkcheck_ignore = [
     r"^https?://(localhost|127\.0\.0\.1)(:\d+)?(/|$)",
     r"^https://claude\.ai/",
     r"^https://api\.cborg\.lbl\.gov",
     r"^https://doi\.org/",
+    r"^https://cloud\.google\.com/blog/",
 ]
 
 # -- Options for HTML output ------------------------------------------------

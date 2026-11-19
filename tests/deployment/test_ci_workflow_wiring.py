@@ -61,7 +61,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, NamedTuple
 from unittest import mock
 
 import pytest
@@ -70,6 +70,8 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
 from osprey_connectors_tests._paths import TESTS_ROOT as CONNECTORS_TESTS_ROOT
+from tests._coverage_handoff import COVERAGE_HANDOFF_PREFIX
+from tests._nested_pytest import outer_run_free_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -518,14 +520,63 @@ _MATRIX_EXPR = re.compile(r"\$\{\{\s*matrix\.([\w-]+)\s*\}\}")
 
 
 def _cells(job: dict[str, Any]) -> list[dict[str, Any]]:
-    """A job's matrix cells: its ``include:`` entries, or the product of its axes."""
+    """A job's matrix cells as GitHub expands them, from the parts written out.
+
+    An ``include:`` or ``exclude:`` written as an expression (the unit and serial
+    jobs' ``${{ fromJSON(...) }}``) is decided by the event, which a wiring check
+    does not have, so it is left out here: the cells are those of the axes and the
+    written entries. Left out, an expression exclude keeps the cells it drops on
+    some events, and an expression include adds no cell (the unit job's macOS
+    cells are read from its text by ``_unit_macos_cells``). A job whose whole
+    matrix is an expression has no cells here.
+    """
     matrix = (job.get("strategy") or {}).get("matrix")
     if not isinstance(matrix, dict):
         return []
-    axes = {k: v for k, v in matrix.items() if k not in ("include", "exclude")}
-    if not axes:
-        return [dict(cell) for cell in matrix.get("include", [])]
-    return [dict(zip(axes, combo, strict=True)) for combo in itertools.product(*axes.values())]
+    return _expanded_matrix(
+        {
+            key: value
+            for key, value in matrix.items()
+            if not (key in ("include", "exclude") and isinstance(value, str))
+        }
+    )
+
+
+def _expanded_matrix(matrix: dict[str, Any]) -> list[dict[str, Any]]:
+    """The cells GitHub expands *matrix* into, the one model of that in this file.
+
+    The product of its axes, then each ``include:`` entry in turn: merged into every
+    product cell none of whose axis values it changes, or, when it fits none of them,
+    a cell of its own (GitHub's rule; a cell an entry created takes no later entry).
+    An ``exclude:`` is refused, not ignored: the cells it removes would still be
+    counted here. So is an ``include:`` that is an expression, whose cells only a run
+    knows. ``_cells`` leaves a job's expression parts out before it calls this.
+    """
+    assert "exclude" not in matrix, (
+        f"this matrix has an exclude, which this model does not apply: {matrix['exclude']!r}"
+    )
+    assert isinstance(matrix.get("include", []), list), (
+        f"this matrix's include is an expression, which this model cannot expand: "
+        f"{matrix['include']!r}"
+    )
+    axes = {k: v for k, v in matrix.items() if k != "include"}
+    product = (
+        [dict(zip(axes, combo, strict=True)) for combo in itertools.product(*axes.values())]
+        if axes
+        else []
+    )
+    cells = [dict(original) for original in product]
+    for entry in matrix.get("include", []):
+        fits = [
+            cell
+            for original, cell in zip(product, cells[: len(product)], strict=True)
+            if all(original.get(key, value) == value for key, value in entry.items())
+        ]
+        for cell in fits:
+            cell.update(entry)
+        if not fits:
+            cells.append(dict(entry))
+    return cells
 
 
 def _cell_lane(job_id: str, cell: dict[str, Any]) -> str:
@@ -1259,22 +1310,24 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_a_flag(
 
 
 # ---------------------------------------------------------------------------
-# The boot smoke selects a single preset per cell, so the matrix and the module's
+# The boot smoke selects a single case per cell, so the matrix and the module's
 # own list are two halves of one statement
 # ---------------------------------------------------------------------------
 
 BOOT_SMOKE_JOB = "build-boot-smoke"
-BOOT_SMOKE_STEP = "Run the build + MCP boot smoke for the preset"
+BOOT_SMOKE_STEP = "Run the build + MCP boot smoke for the case"
 BOOT_SMOKE_TEST_FILE = "tests/integration/test_build_boot.py"
-#: The module-level list every test in the boot module is parametrised over, and
-#: the source the lane's matrix has to reproduce one value at a time.
-BOOT_SMOKE_PRESETS_CONSTANT = "PRESETS"
-#: The parametrize argument whose ids the lane's `-k` selector matches on.
-BOOT_SMOKE_PRESET_ARG = "preset"
-#: The shell variable the step interpolates into `-k`, and the step-level env
-#: entry that has to bind it to the matrix value.
-BOOT_SMOKE_SELECTOR = '-k "$PRESET"'
-BOOT_SMOKE_PRESET_ENV = "PRESET"
+#: The module-level list of the boot module's cases, and the source the lane's
+#: matrix has to reproduce one value at a time.
+BOOT_SMOKE_CASES_CONSTANT = "CASES"
+#: The matrix key whose value names a cell's case.
+BOOT_SMOKE_MATRIX_KEY = "case"
+#: The step-level env entry that binds the matrix value for the step's ``-k``.
+BOOT_SMOKE_CASE_ENV = "CASE"
+#: The action whose ``python-version`` input is the Python a job's steps run on.
+SETUP_UV_ACTION = "astral-sh/setup-uv@"
+#: A shell variable reference, ``$NAME`` or ``${NAME}``.
+_SHELL_VAR_RE = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
 
 
 def _boot_module_source() -> str:
@@ -1282,195 +1335,445 @@ def _boot_module_source() -> str:
 
     Read and parsed with ``ast`` rather than imported, as the two-shape constants above
     are: the module pulls in the MCP handshake helpers and exists to shell out to a real
-    build, none of which a wiring check has any business loading.
+    build, none of which a wiring check has any business loading. The one check that
+    needs the collected tests collects them in a child process.
     """
     return (CI_YML.parents[2] / BOOT_SMOKE_TEST_FILE).read_text(encoding="utf-8")
 
 
-def _boot_module_presets(source: str) -> list[str]:
+def _boot_module_cases(source: str) -> list[str]:
     for node in ast.parse(source).body:
         if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == BOOT_SMOKE_PRESETS_CONSTANT for t in node.targets
+            isinstance(t, ast.Name) and t.id == BOOT_SMOKE_CASES_CONSTANT for t in node.targets
         ):
             return list(ast.literal_eval(node.value))
     raise AssertionError(
-        f"{BOOT_SMOKE_TEST_FILE} defines no module-level {BOOT_SMOKE_PRESETS_CONSTANT}"
+        f"{BOOT_SMOKE_TEST_FILE} defines no module-level {BOOT_SMOKE_CASES_CONSTANT}"
     )
 
 
-def _parametrises_over_presets(decorator: ast.expr) -> bool:
-    """Whether *decorator* is the ``preset``/``PRESETS`` parametrize.
+class _BootCell(NamedTuple):
+    """A boot-smoke cell as it runs: the case it selects and the Python it installs."""
 
-    Both arguments are read. The argument name decides what the test id looks like and
-    so what ``-k`` can match; the list decides which ids exist at all, and a parametrize
-    over some other list would produce ids no cell of the matrix names.
+    case: str
+    python: str
+
+    def __str__(self) -> str:
+        return f"{self.case} on Python {self.python or '(uv default)'}"
+
+
+def _boot_smoke_matrix_cells(wf: dict[str, Any]) -> list[dict[str, Any]]:
+    """The boot-smoke matrix's cells, each with its values, as GitHub expands them."""
+    return _expanded_matrix(_jobs(wf)[BOOT_SMOKE_JOB]["strategy"]["matrix"])
+
+
+def _boot_smoke_cell(wf: dict[str, Any], values: dict[str, Any]) -> _BootCell:
+    """The case and the Python of the cell with *values*.
+
+    The Python is the job's setup-uv ``python-version`` with the cell's values bound,
+    not the cell's own ``python-version``: a cell that names 3.12 in a job whose setup
+    step pins 3.11 runs on 3.11.
     """
-    if not isinstance(decorator, ast.Call) or len(decorator.args) < 2:
-        return False
-    if not ast.unparse(decorator.func).endswith("parametrize"):
-        return False
-    first, second = decorator.args[0], decorator.args[1]
-    return (
-        isinstance(first, ast.Constant)
-        and first.value == BOOT_SMOKE_PRESET_ARG
-        and isinstance(second, ast.Name)
-        and second.id == BOOT_SMOKE_PRESETS_CONSTANT
+    setups = [
+        step
+        for step in _jobs(wf)[BOOT_SMOKE_JOB]["steps"]
+        if str(step.get("uses", "")).startswith(SETUP_UV_ACTION)
+    ]
+    assert len(setups) == 1, f"'{BOOT_SMOKE_JOB}' must install uv once; got {len(setups)}"
+    python = _substitute(str((setups[0].get("with") or {}).get("python-version", "")), values)
+    return _BootCell(str(values.get(BOOT_SMOKE_MATRIX_KEY, "")), python)
+
+
+def _boot_smoke_cells(wf: dict[str, Any]) -> list[_BootCell]:
+    return [_boot_smoke_cell(wf, values) for values in _boot_smoke_matrix_cells(wf)]
+
+
+def _boot_smoke_cell_selection(
+    wf: dict[str, Any], values: dict[str, Any]
+) -> tuple[list[str], str | None]:
+    """The paths and the ``-k`` expression the boot-smoke step hands pytest in the cell
+    with *values*.
+
+    Read the way the runner and bash read the step: the step's ``env`` binds the matrix
+    values, and each ``$NAME`` on the pytest line expands from that env, to nothing when
+    the step binds no such variable, as bash expands an unset one. The line quotes the
+    expression in double quotes, where bash expands it. The step's other options
+    (``-v``, ``--tb``) change nothing pytest collects. A ``-m`` or a ``-k`` spelt any
+    other way is refused, because the selection here models one separate ``-k`` only.
+    """
+    step = _find_named_step(wf, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
+    assert "PYTEST_ADDOPTS" not in (step.get("env") or {}), (
+        f"the '{BOOT_SMOKE_STEP}' step sets PYTEST_ADDOPTS, which can select tests this "
+        "guard does not model; select on the pytest line"
     )
+    env = {name: _substitute(str(value), values) for name, value in (step.get("env") or {}).items()}
+    lines = [
+        line for line in re.sub(r"\\\n[ \t]*", " ", step["run"]).splitlines() if "pytest" in line
+    ]
+    assert len(lines) == 1, f"the '{BOOT_SMOKE_STEP}' step has no single pytest line: {lines}"
+    expanded = _SHELL_VAR_RE.sub(lambda m: env.get(m[1] or m[2], ""), lines[0])
+    tokens = shlex.split(expanded)
+    args = iter(tokens[tokens.index("pytest") + 1 :])
+    paths: list[str] = []
+    expr: str | None = None
+    for arg in args:
+        if not arg.startswith("-"):
+            paths.append(arg)
+            continue
+        option, eq, value = arg.partition("=")
+        assert option not in {"-m", "--keyword"} and not (
+            option.startswith("-k") and option != "-k"
+        ), f"the '{BOOT_SMOKE_STEP}' step selects with {arg!r}; this guard models `-k <expr>` only"
+        if option in _PYTEST_VALUE_OPTIONS and not eq:
+            value = next(args)
+        if option == "-k":
+            expr = value
+    return paths, expr
 
 
-def _boot_module_tests(source: str) -> tuple[list[str], list[str]]:
-    """Every test in the boot module, and those a ``-k`` cell cannot reach.
+#: Run as ``python -c`` from the repo root with a test module and an output path:
+#: collects the module and writes, for each test (keyed by its id within the module),
+#: the names a ``-k`` expression is matched against. Those names are pytest's own
+#: ``KeywordMatcher.from_item`` of the collected item, which is what ``-k`` evaluates
+#: in a run, so an expression evaluated against them here selects what it selects there.
+_KEYWORD_NAMES_SCRIPT = """
+import json
+import sys
 
-    Class bodies are descended into as well as the module's own. A case written as a
-    method is a case, and a ``parametrize`` on the class covers every method under it,
-    so a scan reading only module-level ``def``s would report a clean sweep over a
-    file whose cases it never looked at.
+import pytest
+from _pytest.mark import KeywordMatcher
+
+
+class Record:
+    def __init__(self):
+        self.names = {}
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(self, items):
+        for item in items:
+            test = item.nodeid.partition("::")[2]
+            self.names[test] = sorted(KeywordMatcher.from_item(item)._names)
+
+
+record = Record()
+args = [sys.argv[1], "--collect-only", "-q", "-o", "addopts=", "-p", "no:cacheprovider"]
+code = pytest.main(args, plugins=[record])
+with open(sys.argv[2], "w", encoding="utf-8") as out:
+    json.dump(record.names, out)
+sys.exit(code)
+"""
+
+
+@functools.cache
+def _boot_module_keyword_names(module: Path) -> dict[str, frozenset[str]]:
+    """Each test *module* collects, by its id within the module, with the names ``-k``
+    matches it on.
+
+    Collected by pytest in a child process, so this module never imports the boot
+    module. The child runs from the repo root, where the module's ``tests.*`` imports
+    resolve as they do in a run. Keyed by the id after the module path, so a mutated
+    copy collected from another directory is compared test for test.
     """
-    names: list[str] = []
-    stray: list[str] = []
-
-    def collect(body: list[ast.stmt], parametrised: bool) -> None:
-        for node in body:
-            if isinstance(node, ast.ClassDef):
-                inherited = parametrised or any(
-                    _parametrises_over_presets(d) for d in node.decorator_list
-                )
-                collect(node.body, inherited)
-                continue
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            if not node.name.startswith("test_"):
-                continue
-            names.append(node.name)
-            own = any(_parametrises_over_presets(d) for d in node.decorator_list)
-            if not parametrised and not own:
-                stray.append(node.name)
-
-    collect(ast.parse(source).body, False)
-    return names, stray
+    with tempfile.TemporaryDirectory() as scratch:
+        out = Path(scratch) / "names.json"
+        # Free of the outer run's options, diagnostics directory and coverage hand-off,
+        # with a temporary root inside the scratch: a `PYTEST_ADDOPTS` deselecting slow
+        # tests would empty the collection, and the outer run's event log is its own.
+        env = outer_run_free_env(also_drop=(COVERAGE_HANDOFF_PREFIX,))
+        env["PYTEST_DEBUG_TEMPROOT"] = scratch
+        result = subprocess.run(
+            [sys.executable, "-c", _KEYWORD_NAMES_SCRIPT, str(module), str(out)],
+            cwd=CI_YML.parents[2],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        names = json.loads(out.read_text(encoding="utf-8"))
+    return {test: frozenset(keywords) for test, keywords in names.items()}
 
 
-def test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(
+def _boot_smoke_cells_by_test(wf: dict[str, Any], module: Path) -> dict[str, list[_BootCell]]:
+    """Each test *module* collects, with the cells of the boot-smoke matrix that select it.
+
+    Each cell's ``-k`` is evaluated against each test with pytest's own expression and
+    matcher. An empty expression selects everything, as pytest applies no ``-k`` then.
+    A cell the matrix holds twice is listed twice.
+    """
+    from _pytest.mark import KeywordMatcher
+    from _pytest.mark.expression import Expression
+
+    compiled: list[tuple[_BootCell, Expression | None]] = []
+    for values in _boot_smoke_matrix_cells(wf):
+        cell = _boot_smoke_cell(wf, values)
+        paths, expr = _boot_smoke_cell_selection(wf, values)
+        assert paths == [BOOT_SMOKE_TEST_FILE], (
+            f"the '{BOOT_SMOKE_STEP}' step must run {BOOT_SMOKE_TEST_FILE} by path and "
+            f"nothing else; in cell {cell} it runs {paths}"
+        )
+        stripped = (expr or "").lstrip()
+        compiled.append((cell, Expression.compile(stripped) if stripped else None))
+    return {
+        test: [
+            cell for cell, expr in compiled if expr is None or expr.evaluate(KeywordMatcher(names))
+        ]
+        for test, names in _boot_module_keyword_names(module).items()
+    }
+
+
+def test_boot_smoke_matrix_runs_every_case_the_module_parametrises(
     workflow: dict[str, Any],
 ) -> None:
-    """The matrix and the module's list have to be equal in both directions, and
-    each direction fails differently. A preset the module parametrises and the
-    matrix omits is a set of tests selected by no cell, which passes silently; a
-    preset the matrix names and the module does not selects nothing, which reds
-    the lane with an empty run."""
-    matrix = _jobs(workflow)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["preset"]
-    module = _boot_module_presets(_boot_module_source())
-    assert sorted(matrix) == sorted(module), (
+    """The cases the matrix's cells name and the module's list have to be equal in
+    both directions, and each direction fails differently. A case the module
+    parametrises and no cell names is a set of tests selected by no cell, which
+    passes silently; a case a cell names and the module does not selects nothing,
+    which reds the lane with an empty run. A case may have a cell on more than
+    one Python."""
+    matrix = sorted({cell.case for cell in _boot_smoke_cells(workflow)})
+    module = sorted(_boot_module_cases(_boot_module_source()))
+    assert matrix == module, (
         f"the '{BOOT_SMOKE_JOB}' matrix in .github/workflows/ci.yml names "
-        f"{sorted(matrix)} while {BOOT_SMOKE_TEST_FILE} parametrises {sorted(module)} — "
-        f"a cell for every preset, and no cell without one"
+        f"{matrix} while {BOOT_SMOKE_TEST_FILE} parametrises {module} — "
+        f"a cell for every case, and no cell without one"
     )
 
 
-def test_boot_smoke_matrix_runs_every_preset__mutation_drops_a_matrix_preset() -> None:
-    """A preset the module still parametrises but the matrix no longer names is
+def test_boot_smoke_matrix_runs_every_case__mutation_drops_a_matrix_case() -> None:
+    """A case the module still parametrises but the matrix no longer names is
     the silent half: those tests are selected by no cell and nothing reds."""
     mutated = copy.deepcopy(_load_workflow())
-    presets = _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["preset"]
-    presets.remove("demo")
+    _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"][BOOT_SMOKE_MATRIX_KEY].remove("demo")
     with pytest.raises(AssertionError):
-        test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(mutated)
+        test_boot_smoke_matrix_runs_every_case_the_module_parametrises(mutated)
 
 
-def test_boot_smoke_matrix_runs_every_preset__mutation_adds_a_preset_no_test_names() -> None:
+def test_boot_smoke_matrix_runs_every_case__mutation_adds_a_case_no_test_names() -> None:
     """And the other direction: a cell whose ``-k`` matches nothing at all."""
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["preset"].append("not-a-preset")
+    _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"][BOOT_SMOKE_MATRIX_KEY].append("not-a-case")
     with pytest.raises(AssertionError):
-        test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(mutated)
+        test_boot_smoke_matrix_runs_every_case_the_module_parametrises(mutated)
 
 
-def test_boot_smoke_step_selects_the_matrix_preset(workflow: dict[str, Any]) -> None:
-    """The chain from the matrix value to the selector is what makes the two
-    lists comparable at all, and it is three links long — the matrix entry, the
-    step ``env`` binding it, and the ``-k`` reading it. Each one is silently
-    droppable, so each one is pinned."""
-    step = _find_named_step(workflow, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
-    assert BOOT_SMOKE_TEST_FILE in step["run"], (
-        f"the '{BOOT_SMOKE_STEP}' step must name {BOOT_SMOKE_TEST_FILE} by path; got: "
-        f"{step['run'].strip()!r}"
+def test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(
+    workflow: dict[str, Any],
+    module: Path = CI_YML.parents[2] / BOOT_SMOKE_TEST_FILE,
+) -> None:
+    """Every test the boot module collects is selected by a matrix cell, and by no
+    two cells on the same Python.
+
+    Derived rather than read off a spelling: the matrix is expanded as GitHub
+    expands it, pytest collects the module, and each cell's ``-k`` (the step's own,
+    with the cell's values bound) is evaluated against every collected test the way
+    pytest evaluates it. A test selected by no cell runs nowhere while CI stays
+    green: a test not parametrised over the cases, or one whose second parametrize
+    puts more than the case into its id. A test selected by two cells on one Python
+    pays its case's build twice for one result; the same test on two Pythons is two
+    results. A cell that selects nothing reds its lane with an empty run.
+    """
+    by_test = _boot_smoke_cells_by_test(workflow, module)
+    assert by_test, (
+        f"{BOOT_SMOKE_TEST_FILE} collects no tests; either the module left or the collection broke"
     )
-    assert BOOT_SMOKE_SELECTOR in step["run"], (
-        f"the '{BOOT_SMOKE_STEP}' step must select a single preset with {BOOT_SMOKE_SELECTOR} — "
-        f"without it every cell runs the whole file and the matrix buys nothing; got: "
-        f"{step['run'].strip()!r}"
+    unselected = sorted(test for test, cells in by_test.items() if not cells)
+    doubled = {
+        test: cells
+        for test, cells in by_test.items()
+        if len({cell.python for cell in cells}) < len(cells)
+    }
+    assert not unselected and not doubled, (
+        f"each test of {BOOT_SMOKE_TEST_FILE} must be selected by a cell of "
+        f"'{BOOT_SMOKE_JOB}', and by one cell per Python at most; selected by no cell: "
+        f"{unselected}; selected by more than one cell on a Python: "
+        + "; ".join(
+            f"{test} -> {[str(cell) for cell in cells]}" for test, cells in sorted(doubled.items())
+        )
     )
-    assert step.get("env", {}).get(BOOT_SMOKE_PRESET_ENV) == "${{ matrix.preset }}", (
-        f"the '{BOOT_SMOKE_STEP}' step must bind {BOOT_SMOKE_PRESET_ENV} to "
-        f"${{{{ matrix.preset }}}}; got "
-        f"{step.get('env', {}).get(BOOT_SMOKE_PRESET_ENV)!r}"
+    idle = [
+        str(cell)
+        for cell in _boot_smoke_cells(workflow)
+        if not any(cell in cells for cells in by_test.values())
+    ]
+    assert idle == [], (
+        f"the '{BOOT_SMOKE_JOB}' cells {idle} select no test of {BOOT_SMOKE_TEST_FILE}, "
+        f"so each reds its lane with an empty run"
     )
 
 
-def test_boot_smoke_step_selects_the_matrix_preset__mutation_drops_the_selector() -> None:
-    """The dangerous half: with no ``-k`` the lane runs the whole file in every
-    cell, pays the build twice over and stays green while doing it."""
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_drops_the_include() -> None:
+    """The matrix's ``include:`` cells are its own business: without them every
+    test is still selected, once on each Python it runs on."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
-    original = step["run"]
-    step["run"] = original.replace(BOOT_SMOKE_SELECTOR, "")
-    assert step["run"] != original, "no selector in the step — mutation is stale"
-    with pytest.raises(AssertionError):
-        test_boot_smoke_step_selects_the_matrix_preset(mutated)
+    _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"].pop("include", None)
+    test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(mutated)
 
 
-def test_boot_smoke_step_selects_the_matrix_preset__mutation_unbinds_the_preset_env() -> None:
-    """A selector reading a shell variable the step never bound to the matrix
-    value selects the same thing in all cells."""
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_adds_a_second_cell() -> None:
+    """An ``include:`` entry written twice is two cells on one Python, each building
+    the case: the entry fits no cell of the product, so GitHub adds it as a cell of
+    its own both times (actionlint accepts the workflow)."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
-    step["env"][BOOT_SMOKE_PRESET_ENV] = "hello-world"
-    with pytest.raises(AssertionError):
-        test_boot_smoke_step_selects_the_matrix_preset(mutated)
+    include = _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["include"]
+    assert include, "the matrix has no include entry to repeat — mutation is stale"
+    include.append(dict(include[-1]))
+    with pytest.raises(AssertionError, match="one cell per Python"):
+        test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(mutated)
 
 
-def test_every_boot_smoke_test_runs_in_exactly_one_matrix_cell() -> None:
-    """The selector matches on test id, so a test that is not parametrised over
-    the preset list carries no preset in its id and is selected by no cell of
-    the matrix."""
-    names, stray = _boot_module_tests(_boot_module_source())
-    assert names, (
-        f"{BOOT_SMOKE_TEST_FILE} defines no test functions any more; either the module "
-        f"left or this scan broke"
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_pins_the_python() -> None:
+    """A cell is on the Python its job installs, not the one its values name: with
+    the setup step pinned, a cell that names another Python repeats a case on the
+    pinned one."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[BOOT_SMOKE_JOB]["steps"]
+    setup = next(
+        i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith(SETUP_UV_ACTION)
     )
-    assert stray == [], (
-        f"test(s) in {BOOT_SMOKE_TEST_FILE} are not parametrised over "
-        f"{BOOT_SMOKE_PRESETS_CONSTANT}: {stray}. The lane selects a single preset per cell "
-        f"with {BOOT_SMOKE_SELECTOR}, so a test with no preset in its id runs in no cell."
-    )
+    pythons = {
+        _boot_smoke_cell(mutated, values).python for values in _boot_smoke_matrix_cells(mutated)
+    }
+    assert len(pythons) > 1, "the matrix runs one Python; this mutation proves nothing"
+    steps[setup] = {**steps[setup], "with": {**steps[setup]["with"], "python-version": "3.11"}}
+    with pytest.raises(AssertionError, match="one cell per Python"):
+        test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(mutated)
+
+
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_adds_an_exclude() -> None:
+    """An ``exclude:`` is refused rather than read past: the expansion would
+    count the cells it removes."""
+    mutated = copy.deepcopy(_load_workflow())
+    matrix = _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"]
+    matrix["exclude"] = [{BOOT_SMOKE_MATRIX_KEY: "demo"}]
+    with pytest.raises(AssertionError, match="exclude"):
+        test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(mutated)
 
 
 @pytest.mark.parametrize(
-    ("addition", "stray_name"),
+    ("selector", "mutant"),
     [
-        # The concrete case: a new case lands in the module, passes locally, and is
-        # selected by nothing in CI because nobody noticed the missing decorator.
-        ("\n\ndef test_a_preset_free_case() -> None:\n    pass\n", "test_a_preset_free_case"),
-        # The same case one indent deeper. A method carries no preset in its id for
-        # exactly the same reason a function does, so the scan has to see it.
-        (
-            "\n\nclass TestPresetFree:\n"
-            "    def test_a_preset_free_method(self) -> None:\n"
-            "        pass\n",
-            "test_a_preset_free_method",
-        ),
+        # A bare `-k "demo"` matches by substring: the demo cell also selects, and
+        # builds, every `[demo-orbit-bump]` test.
+        ('-k "[$CASE]"', '-k "$CASE"'),
+        # No `-k` at all: every cell runs the whole file and stays green doing it.
+        (' -k "[$CASE]"', ""),
     ],
-    ids=["forgets-the-parametrize", "hides-the-case-in-a-class"],
+    ids=["drops-the-brackets", "drops-the-selector"],
 )
-def test_every_boot_smoke_test_runs_in_one_cell__mutation_adds_a_preset_free_test(
-    addition: str, stray_name: str
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_changes_the_selector(
+    selector: str, mutant: str
 ) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
+    original = step["run"]
+    step["run"] = original.replace(selector, mutant)
+    assert step["run"] != original, "no such selector in the step — mutation is stale"
+    with pytest.raises(AssertionError, match="one cell per Python"):
+        test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(mutated)
+
+
+@pytest.mark.parametrize("binding", ["hello-world", None], ids=["binds-a-constant", "drops-it"])
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_unbinds_the_case_env(
+    binding: str | None,
+) -> None:
+    """A selector reading a variable the step does not bind to the matrix value
+    selects the same tests in every cell, or none in any."""
+    mutated = copy.deepcopy(_load_workflow())
+    env = _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)["env"]
+    assert env.pop(BOOT_SMOKE_CASE_ENV) == f"${{{{ matrix.{BOOT_SMOKE_MATRIX_KEY} }}}}", (
+        "the step binds the variable some other way — mutation is stale"
+    )
+    if binding is not None:
+        env[BOOT_SMOKE_CASE_ENV] = binding
+    with pytest.raises(AssertionError, match="one cell per Python"):
+        test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(mutated)
+
+
+#: Tests added to the boot module that no cell selects, each a way it happens.
+_CELL_FREE_ADDITIONS = (
+    # A second parametrize over the cases: ids such as `[stdio-demo]`, which the
+    # exact `[<case>]` of no cell matches.
+    '\n\n@pytest.mark.parametrize("case", CASES, scope="module")\n'
+    '@pytest.mark.parametrize("transport", ["stdio", "http"])\n'
+    "def test_a_second_parametrize(case: str, transport: str) -> None:\n"
+    "    pass\n",
+    # A new test that forgets the case parametrize, so its id carries no case.
+    "\n\ndef test_a_case_free_test() -> None:\n    pass\n",
+    # The same one indent deeper: a method carries no case in its id either.
+    "\n\nclass TestCaseFree:\n    def test_a_case_free_method(self) -> None:\n        pass\n",
+)
+
+
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_adds_tests_no_cell_selects(
+    tmp_path: Path,
+) -> None:
+    """The module, collected with each addition, reports exactly the added tests as
+    selected by no cell, and nothing else."""
     source = _boot_module_source()
-    names, _ = _boot_module_tests(source)
-    mutated = source + addition
-    mutated_names, mutated_stray = _boot_module_tests(mutated)
-    assert mutated_stray == [stray_name]
-    assert len(mutated_names) == len(names) + 1
+    mutated = tmp_path / Path(BOOT_SMOKE_TEST_FILE).name
+    mutated.write_text(source + "".join(_CELL_FREE_ADDITIONS), encoding="utf-8")
+    workflow = _load_workflow()
+    with pytest.raises(AssertionError, match="one cell per Python"):
+        test_every_boot_smoke_test_runs_in_one_matrix_cell_per_python(workflow, mutated)
+    unselected = {
+        test for test, cells in _boot_smoke_cells_by_test(workflow, mutated).items() if not cells
+    }
+    assert unselected == {
+        *(
+            f"test_a_second_parametrize[{transport}-{case}]"
+            for case in _boot_module_cases(source)
+            for transport in ("stdio", "http")
+        ),
+        "test_a_case_free_test",
+        "TestCaseFree::test_a_case_free_method",
+    }
+
+
+#: The boot-smoke Python whose cells carry no Python in their check names.
+BOOT_SMOKE_UNNAMED_PYTHON = "3.11"
+
+
+def test_boot_smoke_cells_keep_their_check_names(workflow: dict[str, Any]) -> None:
+    """Each boot-smoke cell renders a check name of its own, read through
+    ``_rendered_names``, the model the gates' prefix checks run over every job. A
+    3.11 cell keeps the name the job gave it before it ran a second Python,
+    ``… — <case>``, which branch protection may require; a cell on another Python
+    appends ``(Python <version>)``."""
+    job = _jobs(workflow)[BOOT_SMOKE_JOB]
+    expected = [
+        f"Preset Build + MCP Boot — {cell[BOOT_SMOKE_MATRIX_KEY]}"
+        + (
+            ""
+            if cell.get("python-version") == BOOT_SMOKE_UNNAMED_PYTHON
+            else f" (Python {cell.get('python-version')})"
+        )
+        for cell in _boot_smoke_matrix_cells(workflow)
+    ]
+    rendered = _rendered_names(job)
+    assert rendered == expected, f"'{BOOT_SMOKE_JOB}' renders {rendered}, not {expected}"
+    assert len(set(expected)) == len(expected), f"two boot-smoke cells share a name: {expected}"
+
+
+@pytest.mark.parametrize(
+    ("cell", "rendered"),
+    [
+        ({"case": "demo", "python-version": "3.11"}, "Boot — demo"),
+        ({"case": "demo", "python-version": "3.12"}, "Boot — demo (Python 3.12)"),
+    ],
+    ids=["condition-false", "condition-true"],
+)
+def test_render_name_evaluates_the_python_suffix(cell: dict[str, Any], rendered: str) -> None:
+    name = (
+        "Boot — ${{ matrix.case }}${{ matrix.python-version != '3.11' && "
+        "format(' (Python {0})', matrix.python-version) || '' }}"
+    )
+    assert _render_name(name, cell) == rendered
+
+
+def test_render_name_refuses_an_expression_it_does_not_evaluate() -> None:
+    with pytest.raises(AssertionError, match="does not evaluate"):
+        _render_name("Boot — ${{ matrix.case || 'none' }}", {"case": "demo"})
 
 
 # ---------------------------------------------------------------------------
@@ -1609,7 +1912,7 @@ def test_every_ignored_file_has_a_host__mutation_gates_the_host_step() -> None:
         f"{BOOT_SMOKE_JOB} already carries an `if:` — mutation is stale"
     )
     _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)["if"] = (
-        "matrix.preset == 'hello-world'"
+        "matrix.case == 'hello-world'"
     )
     with pytest.raises(AssertionError):
         test_every_file_the_unit_lane_ignores_runs_in_an_unconditional_job(mutated)
@@ -4088,11 +4391,10 @@ def _collected_marks(args: list[str], scratch: Path) -> dict[str, bool]:
     whether it carries the ``model_free`` marker; one collection.
 
     ``--collect-only`` is exempt from the e2e provider refusal, so no provider
-    has to be named. The child only collects test code, so it starts without
-    coverage's subprocess hand-off.
+    has to be named. The child starts without the outer run's options and
+    diagnostics directory, which are the outer run's own, and, since it only
+    collects test code, without coverage's subprocess hand-off.
     """
-    from tests._coverage_handoff import without_coverage_handoff
-
     listing = scratch / "collected-marks.tsv"
     result = subprocess.run(
         [
@@ -4112,7 +4414,7 @@ def _collected_marks(args: list[str], scratch: Path) -> dict[str, bool]:
         capture_output=True,
         text=True,
         timeout=300,
-        env=without_coverage_handoff(),
+        env=outer_run_free_env(also_drop=(COVERAGE_HANDOFF_PREFIX,)),
     )
     assert result.returncode == 0, result.stdout + result.stderr
     rows = [line.split("\t", 1) for line in listing.read_text(encoding="utf-8").splitlines()]
@@ -4357,8 +4659,7 @@ def test_record_lane_runs_exactly_the_replay__mutation_adds_a_file() -> None:
 
 def _record_lane_cases(wf: dict[str, Any]) -> list[str]:
     """The case names the record lane's matrix cells select, one per cell."""
-    include = _jobs(wf)[RECORD_E2E_JOB]["strategy"]["matrix"]["include"]
-    return [str(cell["case"]) for cell in include]
+    return [str(cell["case"]) for cell in _cells(_jobs(wf)[RECORD_E2E_JOB])]
 
 
 def _record_file_cases() -> set[str]:
@@ -6974,12 +7275,17 @@ VA_LIVE_MATRIX_SUITES = "${{ matrix.suites }}"
 
 def _va_live_cells(wf: dict[str, Any], job_name: str = VA_LIVE_JOB) -> list[dict[str, Any]]:
     """The matrix cells of a live lane that runs its suites split across runners."""
-    return list(_jobs(wf)[job_name]["strategy"]["matrix"]["include"])
+    return _cells(_jobs(wf)[job_name])
+
+
+def _va_live_entries(wf: dict[str, Any]) -> list[dict[str, Any]]:
+    """Mutation handle: the VA live job's ``include:`` entries as written, edited in place."""
+    return list(_jobs(wf)[VA_LIVE_JOB]["strategy"]["matrix"]["include"])
 
 
 def _drop_va_live_suite(wf: dict[str, Any], path: str) -> None:
     """Mutation helper: take *path* out of whichever VA live cell names it."""
-    for cell in _va_live_cells(wf):
+    for cell in _va_live_entries(wf):
         tokens = str(cell["suites"]).split()
         if path in tokens:
             cell["suites"] = " ".join(t for t in tokens if t != path)
@@ -7084,7 +7390,7 @@ def test_va_live_cells_split_the_suites_once(workflow: dict[str, Any]) -> None:
 
 def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_two_cells() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    first, second = _va_live_cells(mutated)[:2]
+    first, second = _va_live_entries(mutated)[:2]
     second["suites"] = f"{second['suites']} {str(first['suites']).split()[0]}"
     with pytest.raises(AssertionError, match="more than one"):
         test_va_live_cells_split_the_suites_once(mutated)
@@ -7120,7 +7426,7 @@ def test_va_live_cells_split_the_suites_once__mutation_moves_the_real_facility_l
     cells_running_it: int,
 ) -> None:
     mutated = copy.deepcopy(_load_workflow())
-    for index, cell in enumerate(_va_live_cells(mutated)):
+    for index, cell in enumerate(_va_live_entries(mutated)):
         cell["als_lane"] = index < cells_running_it
     with pytest.raises(AssertionError, match="exactly one cell"):
         test_va_live_cells_split_the_suites_once(mutated)
@@ -7323,7 +7629,7 @@ def _va_live_facility_cells(wf: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _facility_cell_entry(wf: dict[str, Any]) -> dict[str, Any]:
-    return next(cell for cell in _va_live_cells(wf) if cell.get("als_lane") is True)
+    return next(cell for cell in _va_live_entries(wf) if cell.get("als_lane") is True)
 
 
 def test_va_live_step_caps_leave_the_job_room_for_the_build_and_the_capture(
@@ -9997,11 +10303,44 @@ def _assert_lane_prefixes_match(
         assert others == [], f"{prefix!r} also matches {others}"
 
 
+#: The one conditional a check name holds, ``build-boot-smoke``'s Python suffix:
+#: ``${{ matrix.<key> != '<text>' && format('<template>', matrix.<key>) || '' }}``.
+#: ``a && b || ''`` gives ``b`` when ``a`` holds and ``b`` is not empty, else ``''``.
+_NAME_CONDITIONAL_EXPR = re.compile(
+    r"\$\{\{\s*matrix\.([\w-]+)\s*(==|!=)\s*'([^']*)'\s*&&\s*"
+    r"format\(\s*'([^']*)'\s*,\s*matrix\.([\w-]+)\s*\)\s*\|\|\s*''\s*\}\}"
+)
+
+
+def _render_name(name: str, cell: dict[str, Any]) -> str:
+    """*name* as GitHub renders it for *cell*.
+
+    Evaluates bare ``${{ matrix.<key> }}`` terms and the conditional above, and
+    nothing else: a name left with another expression is refused rather than
+    returned with the expression in it. GitHub compares strings ignoring case, and
+    a key the cell lacks is null, which renders as nothing.
+    """
+
+    def text(key: str) -> str:
+        return str(_substitute(f"${{{{ matrix.{key} }}}}", cell))
+
+    def conditional(match: re.Match[str]) -> str:
+        key, operator, literal, template, argument = match.groups()
+        holds = (text(key).casefold() == literal.casefold()) == (operator == "==")
+        return template.replace("{0}", text(argument)) if holds else ""
+
+    rendered = str(_substitute(_NAME_CONDITIONAL_EXPR.sub(conditional, name), cell))
+    assert "${{" not in rendered, (
+        f"the check name {name!r} holds an expression this model does not evaluate: {rendered!r}"
+    )
+    return rendered
+
+
 def _rendered_names(job: dict[str, Any]) -> list[str]:
     """The check name of each of a job's matrix cells, or of the job when it has none."""
     name = str(job.get("name", ""))
     cells = _cells(job)
-    return [str(_substitute(name, cell)) for cell in cells] if cells else [name]
+    return [_render_name(name, cell) for cell in cells] if cells else [name]
 
 
 def _lane_names(wf: dict[str, Any], lane: str) -> list[str]:
@@ -10009,7 +10348,7 @@ def _lane_names(wf: dict[str, Any], lane: str) -> list[str]:
     cells = _lane_cells(wf)
     if lane in cells:
         job_id, cell = cells[lane]
-        return [str(_substitute(str(_jobs(wf)[job_id].get("name", "")), cell))]
+        return [_render_name(str(_jobs(wf)[job_id].get("name", "")), cell)]
     return _rendered_names(_jobs(wf)[lane]) if lane in _jobs(wf) else []
 
 
@@ -16160,7 +16499,7 @@ def test_every_spending_lane_and_stack_cell_fails_on_any_skipped_test(
     assert ungated == [], f"spending lanes without the no-skips gate: {ungated}"
     for job_id in (STACK_JOB, DISPATCH_STACK_JOB):
         assert job_id in NO_SKIPS_GATED and NO_SKIPS_GATED[job_id] is None
-        cells = _jobs(workflow)[job_id]["strategy"]["matrix"]["include"]
+        cells = _cells(_jobs(workflow)[job_id])
         opted_out = sorted(str(c.get("lane")) for c in cells if "no_skips" in json.dumps(c))
         assert opted_out == [], f"stack cells that touch the no-skips gate: {opted_out}"
 

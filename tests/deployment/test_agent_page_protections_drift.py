@@ -371,8 +371,10 @@ SANITISED_SINKS = {
     ("web_terminal/static/js/chat-markdown.js", "renderMarkdownInto"): (
         "sanitizeReply(DOMPurify, parse(withMath ? extractMath(source, found) : source))"
     ),
+    # sanitizeMarkdownHtml is DOMPurify.sanitize with the concept's forbidden
+    # tags and attributes and its hook pointing images at the asset route.
     ("okf_panel/static/js/app.js", "renderMarkdownInto"): (
-        "purify.sanitize(String(parser.parse(text)))"
+        "sanitizeMarkdownHtml(purify, String(parser.parse(text)), conceptId)"
     ),
     # sanitizeBody is DOMPurify.sanitize with the entry body's allowed tags and
     # attributes and its link hook. The assignment is to an inert <template>;

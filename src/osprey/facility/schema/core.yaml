@@ -649,6 +649,16 @@ classes:
         required: true
       deck:
         description: Relative to the facility tree.
+      length:
+        range: float
+        description: >-
+          The length of the model's path in metres; computed from the deck, and a
+          model without a deck may state it.
+      periodic:
+        range: boolean
+        description: >-
+          Whether the model's path closes on itself (true) or is passed once
+          (false); computed from the deck, and a model without a deck may state it.
       settings:
         range: Any
         description: "`{<engine>: {...}}`, the one key equal to `engine`."
