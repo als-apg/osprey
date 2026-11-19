@@ -35,6 +35,9 @@ from pathlib import Path
 
 import pytest
 
+from osprey_connectors_tests._harness._ports import reserved_port
+from tests._coverage_handoff import without_coverage_handoff
+
 # Deliberately not a name anything reads. A real key (TZ, an API key) would let
 # a passing test mean "nothing consumed it yet" rather than "nothing loaded it".
 SENTINEL = "OSPREY_IMPORT_HYGIENE_SENTINEL"
@@ -55,8 +58,11 @@ def _probe(snippet: str, *, cwd: Path, extra_env: Mapping[str, str] | None = Non
 
     The child must not inherit the sentinel, or every assertion below passes
     for the wrong reason. ``extra_env`` is merged into the child's environment.
+    The child starts without coverage's hand-off: what it reports is an
+    environment, and the framework code it runs is measured in-process by that
+    code's own tests.
     """
-    env = {k: v for k, v in os.environ.items() if k != SENTINEL}
+    env = {k: v for k, v in without_coverage_handoff().items() if k != SENTINEL}
     env.update(extra_env or {})
     code = textwrap.dedent(snippet) + textwrap.dedent(
         f"""
@@ -310,13 +316,20 @@ def test_litellm_settings_are_pinned_but_respect_an_explicit_setting():
     LiteLLM fetches it from GitHub at import unless told not to. Offline that
     fetch stalls every importing process, and the ids LiteLLM can route would
     differ by host; an operator may still opt back in.
+
+    The opted-in child does fetch, so it is pointed at a loopback port nothing
+    listens on (``LITELLM_MODEL_COST_MAP_URL``): the fetch is refused at once and
+    LiteLLM falls back to its bundled copy, so the case needs no network. The
+    child reports the URL LiteLLM read, so a renamed variable fails here instead
+    of quietly fetching from GitHub again.
     """
-    names = ("LITELLM_MODE", "LITELLM_LOCAL_MODEL_COST_MAP")
-    env = {k: v for k, v in os.environ.items() if k not in names}
+    names = ("LITELLM_MODE", "LITELLM_LOCAL_MODEL_COST_MAP", "LITELLM_MODEL_COST_MAP_URL")
+    env = {k: v for k, v in without_coverage_handoff().items() if k not in names}
     probe = (
-        "import os; import osprey.models.providers.litellm_adapter; "
+        "import os; import osprey.models.providers.litellm_adapter; import litellm; "
         "print('MODE ' + os.environ['LITELLM_MODE']); "
-        "print('MAP ' + os.environ['LITELLM_LOCAL_MODEL_COST_MAP'])"
+        "print('MAP ' + os.environ['LITELLM_LOCAL_MODEL_COST_MAP']); "
+        "print('URL ' + litellm.model_cost_map_url)"
     )
 
     default = subprocess.run(
@@ -326,16 +339,24 @@ def test_litellm_settings_are_pinned_but_respect_an_explicit_setting():
     assert "MODE PRODUCTION" in default.stdout
     assert "MAP True" in default.stdout
 
-    explicit = subprocess.run(
-        [sys.executable, "-c", probe],
-        env={**env, "LITELLM_MODE": "DEV", "LITELLM_LOCAL_MODEL_COST_MAP": "False"},
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
+    with reserved_port() as port:
+        refused = f"http://127.0.0.1:{port}/model_prices_and_context_window.json"
+        explicit = subprocess.run(
+            [sys.executable, "-c", probe],
+            env={
+                **env,
+                "LITELLM_MODE": "DEV",
+                "LITELLM_LOCAL_MODEL_COST_MAP": "False",
+                "LITELLM_MODEL_COST_MAP_URL": refused,
+            },
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
     assert explicit.returncode == 0, explicit.stderr
     assert "MODE DEV" in explicit.stdout
     assert "MAP False" in explicit.stdout
+    assert f"URL {refused}" in explicit.stdout, "the opted-in fetch went somewhere else"
 
 
 # ===================================================================

@@ -17,8 +17,56 @@ import {
   graphTarget,
   hashChangeTarget,
   isFallback,
+  linkedConceptId,
   readPanelParams,
+  tagList,
 } from '../../../src/osprey/interfaces/okf_panel/static/js/helpers.js';
+
+describe('tagList', () => {
+  test('a list is kept, without its empty entries', () => {
+    expect(tagList(['epics', null, '', 'pv'])).toEqual(['epics', 'pv']);
+  });
+
+  test('a scalar is one tag', () => {
+    expect(tagList('epics, pv')).toEqual(['epics, pv']);
+  });
+
+  test('a null, empty or missing value is no tag', () => {
+    expect(tagList(null)).toEqual([]);
+    expect(tagList('')).toEqual([]);
+    expect(tagList(undefined)).toEqual([]);
+  });
+});
+
+describe('linkedConceptId', () => {
+  test.each([
+    ['/tables/users.md', 'devices/bpm', 'tables/users'],
+    ['/tables/users.md', null, 'tables/users'],
+    ['corrector.md', 'devices/bpm', 'devices/corrector'],
+    ['./corrector.md', 'devices/bpm', 'devices/corrector'],
+    ['../physics/orbit.md', 'devices/bpm', 'physics/orbit'],
+    ['overview.md', 'bpm', 'overview'],
+    ['overview.md', null, 'overview'],
+    ['/tables/users.md#schema', 'devices/bpm', 'tables/users'],
+    ['my%20page.md', 'devices/bpm', 'devices/my page'],
+  ])('%s from %s names %s', (href, current, expected) => {
+    expect(linkedConceptId(href, current)).toBe(expected);
+  });
+
+  test.each([
+    ['https://example.org/x.md'],
+    ['facility:SR:BPM:01'],
+    ['#section'],
+    ['/tables/'],
+    ['/assets/ring.png'],
+    ['/index.md'],
+    ['log.md'],
+    ['../../outside.md'],
+    [''],
+  ])('%s names no concept', (href) => {
+    expect(linkedConceptId(href, 'devices/bpm')).toBeNull();
+  });
+});
 
 describe('el', () => {
   test('creates an element with the given tag', () => {

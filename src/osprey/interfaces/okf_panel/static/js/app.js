@@ -43,8 +43,10 @@ import {
   graphTarget,
   hashChangeTarget,
   isFallback,
+  linkedConceptId,
   readPanelParams,
   STRUCTURE_MARKER,
+  tagList,
 } from './helpers.js';
 import { createGraphView } from './graph-view.js';
 import { currentView, graphAvailable, initViews, showView } from './views.js';
@@ -330,7 +332,9 @@ function requireEl(id) {
   function afterRender(container) {
     // Task 3.2: wire cross-link navigation for every anchor in the freshly
     // rendered container. Four classes of href:
-    //   1. in-bundle cross-links  (/^\/.+\.md$/) → intercept, loadConcept + pushState
+    //   1. in-bundle cross-links  (a .md target, from the root or relative to
+    //                             the page: linkedConceptId) → intercept,
+    //                             loadConcept + pushState
     //   2. external links         (http:// or https://) → target=_blank rel=noopener
     //   3. facility links         (facility:) → the linked record on hover; a click
     //                             shows the record in the Graph view when there is one
@@ -348,13 +352,13 @@ function requireEl(id) {
     anchors.forEach(function (a) {
       if (a.dataset.okfWired === '1') return;
       const href = a.getAttribute('href') || '';
+      const id = linkedConceptId(href, readerEl.dataset.conceptId);
 
-      if (/^\/.+\.md$/.test(href)) {
+      if (id !== null) {
         // In-bundle cross-link.
         a.dataset.okfWired = '1';
         a.addEventListener('click', function (ev) {
           ev.preventDefault();
-          const id = href.replace(/^\//, '').replace(/\.md$/, '');
           loadConcept(id);
           history.pushState({ id: id }, '', '#' + id);
         });
@@ -547,8 +551,8 @@ function requireEl(id) {
     }
 
     // Tags, if present in frontmatter.
-    const tags = fm.tags;
-    if (Array.isArray(tags) && tags.length > 0) {
+    const tags = tagList(fm.tags);
+    if (tags.length > 0) {
       const tagWrap = el('div', { class: 'concept-tags' });
       for (const tag of tags) {
         tagWrap.appendChild(el('span', { class: 'tag', text: String(tag) }));

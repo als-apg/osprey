@@ -12,7 +12,8 @@ whenever the store's seed marker differs from the configured TTL's digest —
 replace its contents with that TTL. Every failure here warns
 and names ``osprey build && osprey up``; none of them aborts the deploy, because
 a control room whose channels, plans and archive are up should not be denied them
-over a search index.
+over a search index. None of them is a success either: the staging hands the
+failed step back, and the start raises it once the rest of the stack is up.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment import container_lifecycle
+from osprey.deployment.errors import DeployStepFailedError
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.services.graph_store import prompt_snapshot
 from osprey.services.graph_store import seeder as graph_seeder
@@ -156,8 +158,8 @@ def graphdb_stubs(monkeypatch, tmp_path):
     return state
 
 
-def _stage(config: dict, project_dir: Path) -> None:
-    container_lifecycle._stage_graphdb_store(config, ["compose.yml"], {}, project_dir)
+def _stage(config: dict, project_dir: Path) -> DeployStepFailedError | None:
+    return container_lifecycle._stage_graphdb_store(config, ["compose.yml"], {}, project_dir)
 
 
 def test_the_store_is_started_on_its_own(graphdb_stubs, tmp_path):
@@ -438,6 +440,64 @@ def test_a_missing_ttl_file_warns_and_leaves_the_deploy_standing(graphdb_stubs, 
     assert graphdb_stubs["markers"] == []
 
 
+def test_a_failed_import_is_reported_as_a_failed_step_and_handed_back(
+    graphdb_stubs, tmp_path, capsys
+):
+    """The staging does not abort the deploy, and it does not pass for a success
+    either: the failure is printed where the other steps report, and returned so
+    the start can end on it. No marker, so the next deploy imports again."""
+    # Arrange
+    graphdb_stubs["import_result"] = graph_seeder.ImportResult(
+        termination_status="KO", triples_loaded=120, triples_parsed=8114, extra_info="bad IRI"
+    )
+
+    # Act
+    failure = _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert isinstance(failure, DeployStepFailedError)
+    assert failure.step == "Seeding the graph store"
+    assert "bad IRI" in failure.cause
+    assert GRAPHDB_REBUILD_HINT in failure.remedy
+    assert graphdb_stubs["markers"] == []
+    printed = capsys.readouterr().err
+    assert "⚠ Seeding the graph store failed" in printed
+    assert "bad IRI" in printed
+    assert f"→ Fix the cause, then run `{GRAPHDB_REBUILD_HINT}`" in printed
+
+
+def test_an_import_that_raises_is_reported_as_a_failed_step_too(
+    graphdb_stubs, tmp_path, monkeypatch, capsys
+):
+    """A store out of memory answers the import with an error, not a status:
+    the same report, the same hand-back, and no marker."""
+
+    # Arrange
+    def _import_dies(_session, _text):
+        raise RuntimeError("Java heap space")
+
+    monkeypatch.setattr(graph_seeder, "import_ttl", _import_dies)
+
+    # Act
+    failure = _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert isinstance(failure, DeployStepFailedError)
+    assert "Java heap space" in failure.cause
+    assert graphdb_stubs["markers"] == []
+    assert "⚠ Seeding the graph store failed" in capsys.readouterr().err
+
+
+def test_a_seeded_store_hands_back_no_failure(graphdb_stubs, tmp_path, capsys):
+    # Act
+    failure = _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert failure is None
+    assert len(graphdb_stubs["markers"]) == 1
+    assert "⚠" not in capsys.readouterr().err
+
+
 def test_the_connection_is_credentialed_from_the_projects_own_dotenv(
     graphdb_stubs, tmp_path, monkeypatch
 ):
@@ -571,3 +631,31 @@ def test_a_deploy_listing_graphdb_without_a_block_is_refused_before_anything_sta
     # Assert
     assert "services.graphdb" in str(excinfo.value)
     assert started == []
+
+
+def test_a_detached_start_ends_on_the_failed_step_after_the_stack_is_up(
+    stub_deploy_up, monkeypatch, tmp_path
+):
+    """The two halves of the guarantee together: the rest of the stack is
+    started exactly as if the graph had seeded, and the start then raises the
+    step, so the command that ran it cannot end as a success."""
+    # Arrange
+    failure = DeployStepFailedError("Seeding the graph store", "Java heap space", "Run it again.")
+    monkeypatch.delenv("GRAPHDB_PASSWORD", raising=False)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_stage_graphdb_store", lambda *a, **k: failure)
+    captured = stub_deploy_up(
+        {
+            "deployed_services": ["graphdb"],
+            "services": {"graphdb": {"port_host": 7687, "http_port_host": 7474}},
+        },
+        seam="subprocess.run",
+    )
+
+    # Act
+    with pytest.raises(DeployStepFailedError) as excinfo:
+        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+
+    # Assert
+    assert excinfo.value is failure
+    assert captured["cmd"][-3:] == ["up", "--remove-orphans", "-d"]

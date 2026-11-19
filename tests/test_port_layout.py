@@ -52,6 +52,7 @@ EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "history": 10003,
     "dispatcher": 10010,
     "worker": 10011,
+    "dispatch_bus": 10050,
     "agent_record": 10053,
     "qmd": 10060,
     "tiled": 10070,

@@ -407,8 +407,8 @@ reports each one as it does (``· terminal alice ready (21s)``). A terminal that
 stops, or does not answer within the window, fails the start. Nothing is torn
 down. The message names the terminals that are serving beside the ones that
 are not, with the log lines of each one that is not. While a terminal's app is
-still starting, nginx answers for it with a page that reloads itself, instead
-of a bare ``502 Bad Gateway``.
+still starting, nginx answers for it with a waiting page that opens the
+terminal once it is ready, instead of a bare ``502 Bad Gateway``.
 
 Both limits are settings, and each takes a number of seconds. The environment
 variable wins over the top-level config key.

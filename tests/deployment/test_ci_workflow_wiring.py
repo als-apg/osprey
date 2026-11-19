@@ -56,6 +56,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -437,8 +438,12 @@ def _expand_run(run: str) -> str:
 
 @functools.cache
 def _raw_workflow() -> dict[str, Any]:
-    """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
-    loaded = yaml.safe_load(CI_YML.read_text())
+    """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``.
+
+    Parsed by libyaml where PyYAML has it: the same safe constructor over a
+    faster scanner, and this parse is paid at every worker's collection.
+    """
+    loaded = yaml.load(CI_YML.read_text(), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     assert loaded is not None, f"{CI_YML} parsed to None"
     return _unshared(loaded)
 
@@ -781,6 +786,127 @@ def test_unit_test_job_installs_required_extras__mutation_drops_extra() -> None:
     step["run"] = step["run"].replace(" --extra virtual-accelerator", "")
     with pytest.raises(AssertionError):
         test_unit_test_job_installs_required_extras(mutated)
+
+
+# ---------------------------------------------------------------------------
+# rest-b starts its container images' pulls, and fetches the n10s jar, before pytest
+# ---------------------------------------------------------------------------
+
+PREPULL_STEP = "Start pulling the container suites' images"
+N10S_UNIT_STEP = "Fetch the pinned neosemantics (n10s) jar for the graph suites"
+#: The cell that runs the testcontainers suites (the `docker` xdist group).
+CONTAINER_SHARD_IF = "matrix.shard == 'rest-b'"
+_PREPULL_LOOKUP = re.compile(r"uv run python -c '([^']+)'")
+#: A pull that runs in the background with every output stream sent to a file: a
+#: job still holding the step's stdout or stderr would hold the step until it ends.
+_BACKGROUND_PULL = re.compile(r"docker pull[^\n]*\n(?:.*\n)*?\s*\) >> \S+ 2>&1 < /dev/null &\n")
+
+
+#: Where each container fixture of rest-b names its image. Read from source, not
+#: imported: this module runs where no engine is (test_check.py holds that).
+PREPULLED_IMAGE_CONSTANTS = (
+    ("tests/_graphdb_container.py", "NEO4J_IMAGE"),
+    ("tests/_mongo_container.py", "MONGO_IMAGE"),
+    ("tests/_session_database.py", "SHIPPED_POSTGRES_IMAGE"),
+    ("tests/integration/test_tiled_export.py", "TILED_IMAGE"),
+)
+
+
+def _prepull_images(wf: dict[str, Any]) -> list[str]:
+    """What the pre-pull step's reference lookup prints, run on this checkout."""
+    run = _find_named_step(wf, UNIT_TEST_JOB, PREPULL_STEP)["run"]
+    found = _PREPULL_LOOKUP.findall(run)
+    assert len(found) == 1, f"expected one `uv run python -c` lookup in {PREPULL_STEP!r}: {found}"
+    out = subprocess.run(
+        [sys.executable, "-c", found[0]],
+        cwd=CI_YML.parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert out.returncode == 0, f"the image lookup fails on this checkout:\n{out.stderr}"
+    return out.stdout.split()
+
+
+def _before_the_unit_tests(wf: dict[str, Any], step_name: str) -> None:
+    names = _step_names(wf, UNIT_TEST_JOB)
+    assert step_name in names, f"the unit job has no {step_name!r} step"
+    at = names.index(step_name)
+    assert names.index("Install dependencies") < at < names.index("Run unit tests"), (
+        f"{step_name!r} must run after `uv sync` (it reads through `uv run`) and before the tests"
+    )
+    step = _find_named_step(wf, UNIT_TEST_JOB, step_name)
+    assert step.get("if") == CONTAINER_SHARD_IF, (
+        f"{step_name!r} belongs to the cell that runs the container suites: if {CONTAINER_SHARD_IF}"
+    )
+
+
+def test_rest_b_starts_pulling_its_container_fixtures_images_before_its_tests(
+    workflow: dict[str, Any],
+) -> None:
+    """Each testcontainers fixture pulls its image on first use, on the one worker
+    the `docker` group runs on. The step starts those pulls before pytest, from
+    the fixtures' own constants, and never waits for them."""
+    _before_the_unit_tests(workflow, PREPULL_STEP)
+    assert sorted(_prepull_images(workflow)) == sorted(
+        _module_constant(REPO_ROOT / path, name) for path, name in PREPULLED_IMAGE_CONSTANTS
+    )
+    run = _find_named_step(workflow, UNIT_TEST_JOB, PREPULL_STEP)["run"]
+    assert _BACKGROUND_PULL.search(run), (
+        "each pull must run in the background with stdout, stderr and stdin off the step's own"
+    )
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        pytest.param(
+            [
+                (" from tests.integration.test_tiled_export import TILED_IMAGE;", ""),
+                (", TILED_IMAGE)", ")"),
+            ],
+            id="drops-an-image",
+        ),
+        pytest.param([(" 2>&1 < /dev/null &", " 2>&1 < /dev/null")], id="waits-for-each-pull"),
+        pytest.param([(" >> ci-diag/image-prepull.log 2>&1", "")], id="holds-the-step-output"),
+    ],
+)
+def test_rest_b_starts_pulling__mutation(edits: list[tuple[str, str]]) -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, PREPULL_STEP)
+    for old, new in edits:
+        assert old in step["run"]
+        step["run"] = step["run"].replace(old, new)
+    with pytest.raises(AssertionError):
+        test_rest_b_starts_pulling_its_container_fixtures_images_before_its_tests(mutated)
+
+
+def test_rest_b_starts_pulling__mutation_after_the_tests() -> None:
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[UNIT_TEST_JOB]["steps"]
+    step = _find_named_step(mutated, UNIT_TEST_JOB, PREPULL_STEP)
+    steps.remove(step)
+    steps.append(step)
+    with pytest.raises(AssertionError):
+        test_rest_b_starts_pulling_its_container_fixtures_images_before_its_tests(mutated)
+
+
+def test_rest_b_fetches_the_n10s_jar_before_its_tests(workflow: dict[str, Any]) -> None:
+    """Without the jar the graph session fixture downloads it itself, and a failed
+    download there SKIPS every graph suite; fetched by the job, it reds the step."""
+    _before_the_unit_tests(workflow, N10S_UNIT_STEP)
+    assert (
+        _find_named_step(workflow, UNIT_TEST_JOB, N10S_UNIT_STEP)["run"]
+        == "scripts/ci/fetch_n10s_jar.sh"
+    )
+
+
+def test_rest_b_fetches_the_n10s_jar__mutation_on_every_shard() -> None:
+    mutated = _load_workflow()
+    del _find_named_step(mutated, UNIT_TEST_JOB, N10S_UNIT_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_rest_b_fetches_the_n10s_jar_before_its_tests(mutated)
 
 
 def test_bluesky_stack_is_a_core_dependency() -> None:
@@ -2611,9 +2737,14 @@ def _script_pytest_lines(source: str) -> list[str]:
     return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
+@functools.cache
 def _tier_source(tier: str, base: str | None = None) -> str:
     """The commands *tier* runs over the whole tree, one shell line each; with
-    *base*, the checks that judge a range are armed against it."""
+    *base*, the checks that judge a range are armed against it. Resolved once
+    per process: resolving scans the test tree for wall-clock budgets. Cached for
+    the run, so a mutation test that patches what it reads (the wall-clock scan,
+    ``check_set``) calls ``_tier_source.__wrapped__(...)``, as
+    ``test_nothing_else_times_it__mutation_a_file_carries_both_markers`` does."""
     argv = [tier, "--base", base] if base else [tier]
     return "\n".join(_render(line).replace("\n", " ") for line in check_set.resolve(argv))
 
@@ -3933,17 +4064,42 @@ def _model_free_lanes_paths(wf: dict[str, Any]) -> list[str]:
     return [*_model_free_selected_paths(), *_record_lane_paths(wf)]
 
 
-def _collected_ids(args: list[str]) -> set[str]:
-    """The node ids pytest collects for ``args``, from the repo root.
+#: A child's pytest run with a plugin that writes, per collected test, whether it
+#: carries the ``model_free`` marker. ``iter_markers`` is what ``-m`` matches a
+#: bare marker name against, so the marked lines are what ``-m model_free``
+#: would select from the same collection.
+_MARKED_COLLECTION = """
+import sys
+import pytest
+
+class _Marks:
+    def pytest_collection_finish(self, session):
+        with open(sys.argv[1], "w", encoding="utf-8") as out:
+            for item in session.items:
+                marked = next(item.iter_markers("model_free"), None) is not None
+                out.write(("1" if marked else "0") + "\\t" + item.nodeid + "\\n")
+
+sys.exit(pytest.main(sys.argv[2:], plugins=[_Marks()]))
+"""
+
+
+def _collected_marks(args: list[str], scratch: Path) -> dict[str, bool]:
+    """Each node id pytest collects for ``args``, from the repo root, with
+    whether it carries the ``model_free`` marker; one collection.
 
     ``--collect-only`` is exempt from the e2e provider refusal, so no provider
-    has to be named.
+    has to be named. The child only collects test code, so it starts without
+    coverage's subprocess hand-off.
     """
+    from tests._coverage_handoff import without_coverage_handoff
+
+    listing = scratch / "collected-marks.tsv"
     result = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "pytest",
+            "-c",
+            _MARKED_COLLECTION,
+            str(listing),
             "--collect-only",
             "-q",
             "-o",
@@ -3956,21 +4112,25 @@ def _collected_ids(args: list[str]) -> set[str]:
         capture_output=True,
         text=True,
         timeout=300,
+        env=without_coverage_handoff(),
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    return {line.strip() for line in result.stdout.splitlines() if "::" in line}
+    rows = [line.split("\t", 1) for line in listing.read_text(encoding="utf-8").splitlines()]
+    return {nodeid: flag == "1" for flag, nodeid in rows}
 
 
 def test_the_model_free_marker_equals_the_model_free_lane_selection(
-    workflow: dict[str, Any],
+    workflow: dict[str, Any], tmp_path: Path
 ) -> None:
     """A run that names no provider may select only ``model_free`` tests, and
     the lane is where those tests run. A test the lane runs without the marker
     would be refused in a run with no provider; a marked test the lane leaves
     out claims a lane that never runs it."""
     paths = _model_free_lanes_paths(workflow)
-    marked = _collected_ids([*paths, "-m", "model_free"])
-    selected = _collected_ids(paths)
+    collected = _collected_marks(paths, tmp_path)
+    assert collected, "the model-free lanes collect no test; this equality is vacuous"
+    marked = {nodeid for nodeid, is_marked in collected.items() if is_marked}
+    selected = set(collected)
     lanes = f"'{NO_MODEL_JOB}'/'{RECORD_E2E_JOB}'"
     assert marked == selected, (
         f"marked model_free but not run by {lanes}: {sorted(marked - selected)}; "
@@ -4735,6 +4895,12 @@ PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
 BROWSER_MARKER = "browser"
 
 
+def _identifier_text(source: str) -> str:
+    """*source* as Python reads its identifiers (NFKC-normalized), so a name it
+    reads is a substring: the text a literal prefilter checks."""
+    return source if source.isascii() else unicodedata.normalize("NFKC", source)
+
+
 def _module_marks(source: str) -> set[str]:
     """The pytest marker names a module applies to every test it defines.
 
@@ -4743,8 +4909,13 @@ def _module_marks(source: str) -> set[str]:
     workflow-wiring check has any business doing. Both ``pytestmark = [...]``
     and the annotated spelling are read, and a bare ``pytestmark =
     pytest.mark.browser`` is one mark rather than none.
+
+    A module that never spells ``pytestmark`` is not parsed: the name is one
+    identifier token, read after NFKC normalization, so it applies no mark.
     """
     marks: set[str] = set()
+    if "pytestmark" not in _identifier_text(source):
+        return marks
     for node in ast.parse(source).body:
         if isinstance(node, ast.AnnAssign):
             targets, value = [node.target], node.value
@@ -4780,13 +4951,16 @@ def _browser_suites_on_disk_once() -> tuple[str, ...]:
     Discovery follows the marker, never the filename: the marker is the
     module's own declaration that it needs a browser, and a suite is free to
     be called anything. A filename convention accounts only for the modules
-    that follow it and passes over every other in silence.
+    that follow it and passes over every other in silence. A module that never
+    spells the marker's name cannot apply it, so it is not parsed.
     """
     return tuple(
         sorted(
             path.relative_to(REPO_ROOT).as_posix()
             for path, source in _test_tree_sources().items()
-            if "__pycache__" not in path.parts and BROWSER_MARKER in _module_marks(source)
+            if "__pycache__" not in path.parts
+            and BROWSER_MARKER in _identifier_text(source)
+            and BROWSER_MARKER in _module_marks(source)
         )
     )
 
@@ -4834,6 +5008,9 @@ def test_the_marker_discovery_reads_the_marker_not_the_name() -> None:
     assert BROWSER_MARKER in _module_marks("import pytest\n\npytestmark = pytest.mark.browser\n")
     assert BROWSER_MARKER not in _module_marks("import pytest\n\npytestmark = [pytest.mark.slow]\n")
     assert _module_marks("x = 1\n") == set()
+    assert BROWSER_MARKER in _module_marks(
+        "import pytest\n\n\uff50ytestmark = pytest.mark.browser\n"
+    ), "a name the prefilter skips must be one Python would not read as pytestmark"
 
 
 def test_every_browser_suite_is_collected_by_exactly_one_browser_step(
@@ -5457,6 +5634,13 @@ DOCKER_LIFECYCLE_JOB = "multi-user-deploy-lifecycle-e2e[docker]"
 #: Jobs that name a container engine without running one — the gate lists the
 #: Docker lanes in its human-readable status strings.
 NON_CONTAINER_JOBS = {GATE_JOB}
+#: Container jobs whose failure record is their own upload rather than the
+#: capture action, by the step that uploads it. The unit job's containers are
+#: testcontainers fixtures the tests remove themselves; ``_harness/ci_diagnostics.py``
+#: snapshots them at a failure into ``ci-diag/``, and the step named here uploads
+#: that directory whatever the outcome. (Its pre-pull step is where ci.yml first
+#: names the engine for it; the containers were there before.)
+OWN_DIAGNOSTICS_UPLOAD = {UNIT_TEST_JOB: "Upload lane diagnostics"}
 
 
 def _container_jobs(wf: dict[str, Any]) -> set[str]:
@@ -5494,7 +5678,8 @@ def test_every_container_job_captures_diagnostics(workflow: dict[str, Any]) -> N
     missing = sorted(
         name
         for name in _container_jobs(workflow)
-        if _capture_step_index(_lane_jobs(workflow)[name]) is None
+        if name not in OWN_DIAGNOSTICS_UPLOAD
+        and _capture_step_index(_lane_jobs(workflow)[name]) is None
     )
     assert missing == [], (
         f"these jobs run containers but have no '{CAPTURE_STEP}' step: {missing}. "
@@ -5502,6 +5687,20 @@ def test_every_container_job_captures_diagnostics(workflow: dict[str, Any]) -> N
         f"teardown step — or add the job to NON_CONTAINER_JOBS if it only names an "
         f"engine in a status string."
     )
+    for name, step_name in OWN_DIAGNOSTICS_UPLOAD.items():
+        upload = _find_named_step(workflow, name, step_name)
+        assert upload.get("if") == "always()", f"{name}'s {step_name!r} must run whatever failed"
+        assert upload["with"]["path"].rstrip("/") == _capture_upload_dir(), (
+            f"{name}'s {step_name!r} must upload what the failure-time snapshot writes"
+        )
+
+
+def test_every_container_job_captures_diagnostics__mutation_drops_the_own_upload() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[UNIT_TEST_JOB]["steps"]
+    steps.remove(_find_named_step(mutated, UNIT_TEST_JOB, OWN_DIAGNOSTICS_UPLOAD[UNIT_TEST_JOB]))
+    with pytest.raises(AssertionError):
+        test_every_container_job_captures_diagnostics(mutated)
 
 
 def test_every_container_job_captures_diagnostics__mutation_drops_a_lane() -> None:
@@ -11306,8 +11505,16 @@ def _linkcheck_verdict_missing(commands: list[list[str]]) -> list[str]:
     ]
 
 
+@functools.cache
+def _full_tier_commands_once() -> tuple[tuple[str, ...], ...]:
+    """The full tier's commands, cached for the run: a mutation test that patches
+    what it reads calls ``_full_tier_commands_once.__wrapped__()``."""
+    return tuple(tuple(argv) for argv in check_set.resolve(["full"]))
+
+
 def _full_tier_commands() -> list[list[str]]:
-    return check_set.resolve(["full"])
+    """The full tier's commands, a fresh copy per call of one resolve per process."""
+    return [list(argv) for argv in _full_tier_commands_once()]
 
 
 def test_the_full_tier_blocks_on_a_broken_documentation_link() -> None:
@@ -14335,9 +14542,15 @@ _SETUP_RUN_RES = (
     ),
 )
 #: The steps of a caller job that prepare or report in ways no pattern above
-#: states, by job and step name; each has its own tests above. None on main: a
-#: caller job a branch adds names its own here.
+#: states, by job and step name; each has its own tests. A caller job a branch
+#: adds names its own here.
 CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {
+    # rest-b starts its container images' pulls and fetches the n10s jar before
+    # its tests (test_rest_b_starts_pulling_*, test_rest_b_fetches_the_n10s_jar_*).
+    UNIT_TEST_JOB: (
+        "Start pulling the container suites' images",
+        "Fetch the pinned neosemantics (n10s) jar for the graph suites",
+    ),
     # The canopy-contract job decides whether the change needs the contract,
     # then reads the pins, fetches and installs CANOPY, and copies the verdict
     # into the run summary; each of those has its own tests below.
@@ -14538,6 +14751,19 @@ def _is_setup(job: str, step: dict[str, Any]) -> bool:
     return step.get("name") in CALLER_SETUP_STEPS.get(job, ())
 
 
+@functools.cache
+def _refusal(call: tuple[str, ...]) -> str | None:
+    """Why ``check.py`` refuses *call* (``None`` = it resolves), probed once per
+    call per process: resolving scans the test tree for wall-clock budgets.
+    Cached for the run, so a mutation test that patches what it reads calls
+    ``_refusal.__wrapped__(...)``."""
+    try:
+        _resolved(list(call))
+    except (check_set.Refused, SystemExit) as refusal:
+        return str(refusal)
+    return None
+
+
 def _spelled_checks(wf: dict[str, Any]) -> list[str]:
     """What is wrong with the caller jobs' steps as callers, one line per defect."""
     problems = []
@@ -14554,9 +14780,8 @@ def _spelled_checks(wf: dict[str, Any]) -> list[str]:
             if call[:1] != ["run"]:
                 problems.append(f"{where} must call `{CHECK_SCRIPT} run ID`; got {call}")
                 continue
-            try:
-                _resolved(call)
-            except (check_set.Refused, SystemExit) as refusal:
+            refusal = _refusal(tuple(call))
+            if refusal is not None:
                 problems.append(f"{where} makes a call {CHECK_SCRIPT} refuses: {refusal}")
         spelled = _leaf_commands(step["run"])
         if spelled:

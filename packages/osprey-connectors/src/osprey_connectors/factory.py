@@ -709,6 +709,13 @@ _SERVICE_BUILTINS: tuple[_ServiceBuiltin, ...] = (
         "Phoebus alarm server state, from its Kafka topic (requires aiokafka)",
     ),
     _ServiceBuiltin(
+        "osprey_alarm_relay",
+        "alarm_state",
+        "osprey_connectors.alarm_state._relay",
+        "RelayAlarmState",
+        "Alarm state from an OSPREY alarm relay, over HTTP",
+    ),
+    _ServiceBuiltin(
         "alarm_replay",
         "alarm_state",
         "osprey_connectors.alarm_state._replay",

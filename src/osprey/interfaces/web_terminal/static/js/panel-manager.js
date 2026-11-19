@@ -49,6 +49,7 @@ import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-querie
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { finishStartup } from './panel-startup.js';
+import { latch } from './shell-reveal.js';
 import {
   initDockIframeAdapter,
   focusPanel,
@@ -183,6 +184,11 @@ let railEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
 let contentEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
 /** @type {string | null} */
 let activeTabId = null;
+
+// The start-up landing: open once the empty workspace slot has its panel or it
+// is known that none will claim it. The page's reveal waits for it
+// (panel-startup.js), within a budget.
+const landing = latch();
 
 // Per-panel state: { url, healthy, iframe, pollTimer, configLoaded }
 /** @type {Record<string, PanelState>} */
@@ -596,7 +602,13 @@ export async function initPanelManager(panelId) {
 
   // Hand the surfaces outside the panel stack the same /api/panels payload,
   // then mark the hub ready (panel-startup.js).
-  finishStartup(panelConfig);
+  // The reveal waits, within its budget, for what would otherwise move in
+  // front of the operator: the stored layout and the landing panel. Not
+  // awaited: start-up's caller goes on while the veil is still up.
+  const layout = latch();
+  if (getDockApi()) setLayoutRestoredHook(layout.open);
+  else layout.open();
+  void finishStartup(panelConfig, [layout.opened, landing.opened]);
 }
 
 // ---- Panel Queries & Active-Panel State ----
@@ -640,6 +652,7 @@ export const labelOf = (id) =>
  */
 function markSurfaced(id) {
   activeTabId = id;
+  if (id) landing.open();
   setActive(railEl, id);
   if (containerEl && id) containerEl.dataset.activePanel = id;
   else if (containerEl) delete containerEl.dataset.activePanel;
@@ -773,6 +786,7 @@ function ensureActivePanel() {
           (p) => visiblePanels.has(p.id) && panelState[p.id]?.healthy && !isDetached(p.id)
         )?.id;
   if (target) activateTab(target, { auto: true, landing: true });
+  landing.open();
 }
 
 // ---- Tab Switching ----

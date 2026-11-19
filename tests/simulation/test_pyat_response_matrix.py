@@ -383,9 +383,10 @@ def _trajectory(
 def _first_turn_order(demo: dict[str, Any], start: str = INJECTION) -> list[tuple[int, str]]:
     """Each turn-buffer row's (place counted from ``start``, address), as the bunch meets them."""
     index = _lattice_index(demo["deck"])
+    length = _lattice_length(demo["deck"])
     rows = [
         (
-            (index[element] - index[start]) % _lattice_length(demo["deck"]),
+            (index[element] - index[start]) % length,
             plane,
             f"{element}:TBT:{plane.upper()}",
         )
@@ -510,10 +511,10 @@ class TestTrajectory:
             {CORRECTOR_Y: 0.5, CORRECTOR_X: 0.5},
         )
 
+        length = _lattice_length(demo["deck"])
         assert result.columns == [CORRECTOR_Y, CORRECTOR_X]
         assert result.column_positions == [
-            (index[element[column]] - index[start]) % _lattice_length(demo["deck"])
-            for column in result.columns
+            (index[element[column]] - index[start]) % length for column in result.columns
         ]
 
     def test_a_corrector_moves_only_the_rows_placed_after_it(self, demo):

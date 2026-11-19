@@ -181,8 +181,8 @@ class TestOKFDocumentValidate:
         with pytest.raises(OKFDocumentError):
             doc.validate("authoring")
 
-    def test_authoring_passes_type_title_description_no_timestamp(self):
-        """Three-key doc without timestamp must pass authoring (OKF §9)."""
+    def test_authoring_passes_type_title_description_alone(self):
+        """A three-key doc with no optional family must pass authoring."""
         doc = OKFDocument(
             frontmatter={
                 "type": "facility_overview",

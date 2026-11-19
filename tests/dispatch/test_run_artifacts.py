@@ -66,7 +66,7 @@ def _save(
     mime: str,
     body: bytes,
 ) -> str:
-    """Save one artifact tagged with ``run_id`` (via the env the store reads)."""
+    """Save one artifact made for the person, tagged with ``run_id`` (via the env the store reads)."""
     with pytest.MonkeyPatch.context() as mp:
         if run_id:
             mp.setenv("OSPREY_DISPATCH_RUN_ID", run_id)
@@ -78,6 +78,7 @@ def _save(
             title=title,
             artifact_type="image",
             mime_type=mime,
+            deliver=True,
         )
     return entry.id
 
@@ -305,6 +306,399 @@ class TestDescribeRunArtifacts:
         # describe only classifies (get_converter lookup), never calls the converter
         [d] = resolve_mod.describe_run_artifacts("run-1")
         assert d["delivered_mime"] == "image/png"
+
+
+def _as_run(store: ArtifactStore, run_id: str) -> pytest.MonkeyPatch:
+    """A patch context in which the tools' store is *store* and saves are tagged *run_id*."""
+    from osprey.stores import artifact_store as store_mod
+
+    mp = pytest.MonkeyPatch()
+    mp.setenv("OSPREY_DISPATCH_RUN_ID", run_id)
+    mp.setattr(store_mod, "_artifact_store", store)
+    return mp
+
+
+def _execute_call(
+    store: ArtifactStore,
+    run_id: str,
+    description: str,
+    *figures: Path,
+    saved: tuple[dict, ...] = (),
+) -> None:
+    """One ``execute`` call, saved by the executor's own response builder.
+
+    It leaves what a real call leaves: a notebook and a result record, one
+    entry per figure the code drew and one per ``save_artifact()`` call (*saved*).
+    """
+    from osprey.mcp_server.python_executor.executor import ExecutionResult
+    from osprey.mcp_server.python_executor.tools._response_builder import (
+        build_execution_response,
+    )
+
+    mp = _as_run(store, run_id)
+    try:
+        asyncio.run(
+            build_execution_response(
+                code="print('ok')",
+                description=description,
+                execution_mode="readonly",
+                exec_result=ExecutionResult(
+                    success=True,
+                    stdout="ok\n",
+                    stderr="",
+                    figures=list(figures),
+                    artifacts=list(saved),
+                ),
+                patterns={},
+                save_output=True,
+            )
+        )
+    finally:
+        mp.undo()
+
+
+def _call_tool(store: ArtifactStore, run_id: str, tool, **arguments) -> dict:
+    """Call a workspace tool as the run's agent would; returns its reply."""
+    from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
+
+    mp = _as_run(store, run_id)
+    try:
+        return extract_response_dict(asyncio.run(get_tool_fn(tool)(**arguments)))
+    finally:
+        mp.undo()
+
+
+def _approval_preview(store: ArtifactStore, run_id: str) -> str:
+    """The review the approval hook saves before a call runs, stamped as the hook stamps it."""
+    from osprey.stores.artifact_store import RUN_RECORD_KEY
+
+    mp = _as_run(store, run_id)
+    try:
+        entry = store.save_file(
+            file_content=b"# Review\n",
+            filename="review.md",
+            title="Review: plot",
+            artifact_type="markdown",
+            mime_type="text/markdown",
+            tool_source="osprey_approval",
+            metadata={"exec_mode": "readonly", RUN_RECORD_KEY: True, "run_part": "preview"},
+        )
+    finally:
+        mp.undo()
+    return entry.id
+
+
+def _tool_data_record(store: ArtifactStore, run_id: str, tool: str) -> str:
+    """A data record saved the way ``archiver_read`` and its peers save theirs."""
+    mp = _as_run(store, run_id)
+    try:
+        entry = store.save_data(
+            tool=tool,
+            data={"series": {"SR:DCCT": {"timestamps": [0, 1], "values": [499.8, 500.1]}}},
+            title=f"{tool} record",
+            description=f"{tool} record",
+            summary={"channels": 1},
+            access_details={"access_pattern": 'json_data["series"]'},
+            metadata={"data_type": "timeseries"},
+        )
+    finally:
+        mp.undo()
+    return entry.id
+
+
+def _figure_file(tmp_path: Path, name: str = "current_vs_time.png") -> Path:
+    folder = tmp_path / "execution"
+    folder.mkdir(exist_ok=True)
+    path = folder / name
+    path.write_bytes(PNG_BYTES)
+    return path
+
+
+def _listed(run_id: str) -> list[str]:
+    return [d["artifact_id"] for d in resolve_mod.describe_run_artifacts(run_id)]
+
+
+def _run_ids(store: ArtifactStore, run_id: str) -> list[str]:
+    return [e.id for e in store.list_entries(run_filter=run_id)]
+
+
+def _plot_question_run(store: ArtifactStore, run_id: str, tmp_path: Path) -> str:
+    """The run of #2499: read the archiver, try twice, draw one plot. Returns the plot's id."""
+    _tool_data_record(store, run_id, "archiver_read")
+    _approval_preview(store, run_id)
+    _execute_call(store, run_id, "test tool availability")
+    _execute_call(store, run_id, "inspect the series")
+    _execute_call(store, run_id, "plot current vs time", _figure_file(tmp_path))
+    [plot] = [
+        e.id
+        for e in store.list_entries(run_filter=run_id)
+        if e.metadata.get("run_part") == "output"
+    ]
+    return plot
+
+
+class TestOnlyWhatIsForThePersonIsListed:
+    """A run lists the entries whose writer said they are for the person, and no other (#2499)."""
+
+    def test_an_archiver_read_and_three_execute_calls_list_exactly_the_plot(
+        self, tmp_path, monkeypatch
+    ):
+        store = _rooted_store(tmp_path, monkeypatch)
+        plot = _plot_question_run(store, "run-1", tmp_path)
+
+        # archiver record + preview + 3 x (notebook, result record) + the plot
+        assert len(_run_ids(store, "run-1")) == 9
+        assert _listed("run-1") == [plot]
+
+    def test_a_writer_that_states_nothing_is_not_listed(self, tmp_path, monkeypatch):
+        store = _rooted_store(tmp_path, monkeypatch)
+        mp = _as_run(store, "run-1")
+        try:
+            silent = store.save_file(
+                file_content=PNG_BYTES,
+                filename="orbit.png",
+                title="Orbit",
+                artifact_type="image",
+                mime_type="image/png",
+                tool_source="some_new_tool",
+            )
+            stated = store.save_file(
+                file_content=PNG_BYTES,
+                filename="orbit.png",
+                title="Orbit",
+                artifact_type="image",
+                mime_type="image/png",
+                tool_source="some_new_tool",
+                deliver=True,
+            )
+        finally:
+            mp.undo()
+
+        assert silent.deliver is False
+        assert _listed("run-1") == [stated.id]
+
+    @pytest.mark.parametrize(
+        "tool", ["archiver_read", "channel_read", "screenshot_capture", "phoebus_snapshot"]
+    )
+    def test_a_tools_data_record_is_not_listed(self, tmp_path, monkeypatch, tool):
+        store = _rooted_store(tmp_path, monkeypatch)
+        _tool_data_record(store, "run-1", tool)
+
+        assert _listed("run-1") == []
+
+    def test_no_oversized_channel_reading_is_listed(self, tmp_path, monkeypatch):
+        """All three shapes ``channel_read`` stores: a series, an image, a bare array."""
+        import numpy as np
+
+        from osprey.mcp_server.control_system.tools import channel_read
+
+        store = _rooted_store(tmp_path, monkeypatch)
+        frame = np.zeros((4, 4), dtype=np.uint8)
+        mp = _as_run(store, "run-1")
+        try:
+            channel_read._save_series_reading(store, "RING:WF", np.arange(8.0), {}, np)
+            channel_read._save_image_reading(store, "RING:CAM", frame, {}, np, PNG_BYTES)
+            channel_read._save_data_only_reading(store, "RING:CUBE", np.zeros((2, 2, 2, 2)), "4-D")
+        finally:
+            mp.undo()
+
+        assert len(_run_ids(store, "run-1")) == 3
+        assert _listed("run-1") == []
+
+    def test_the_filed_answer_text_is_not_listed(self, tmp_path, monkeypatch):
+        """``submit_response`` files the answer; the person gets it as the reply's text."""
+        from osprey.mcp_server.workspace.tools.submit_response import submit_response
+
+        store = _rooted_store(tmp_path, monkeypatch)
+        reply = _call_tool(
+            store, "run-1", submit_response, title="Beam current", content="It is 500 mA."
+        )
+
+        assert store.get_entry(reply["artifact_id"]) is not None
+        assert _listed("run-1") == []
+
+    def test_a_document_lists_its_pdf_and_not_its_source(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        from osprey.mcp_server.workspace.tools.create_document import create_document
+
+        store = _rooted_store(tmp_path, monkeypatch)
+
+        def pdflatex(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this signature
+            (Path(kwargs.get("cwd", ".")) / "document.pdf").write_bytes(PDF_BYTES)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/pdflatex"),
+            patch("subprocess.run", side_effect=pdflatex),
+        ):
+            reply = _call_tool(
+                store,
+                "run-1",
+                create_document,
+                latex_source="\\documentclass{article}\\begin{document}x\\end{document}",
+                title="Shift report",
+            )
+
+        pdf, source = reply["artifact_ids"]
+        assert store.get_entry(source).mime_type == "application/x-tex"
+        assert _listed("run-1") == [pdf]
+
+    def test_what_the_code_saved_on_purpose_is_listed(self, tmp_path, monkeypatch):
+        """A ``save_artifact()`` notebook is listed; the call's own notebook is not."""
+        store = _rooted_store(tmp_path, monkeypatch)
+        folder = tmp_path / "execution"
+        folder.mkdir()
+        kept = folder / "analysis.ipynb"
+        kept.write_bytes(b'{"cells": [], "nbformat": 4, "nbformat_minor": 5, "metadata": {}}')
+        _execute_call(
+            store,
+            "run-1",
+            "fit the tune",
+            saved=(
+                {
+                    "path": kept,
+                    "artifact_type": "notebook",
+                    "title": "Notebook: analysis",
+                    "description": "",
+                    "mime_type": "application/x-ipynb+json",
+                },
+            ),
+        )
+
+        [listed] = _listed("run-1")
+        assert store.get_entry(listed).title == "Notebook: analysis"
+        assert len(_run_ids(store, "run-1")) == 3
+
+    def test_status_body_and_list_route_name_exactly_the_plot(self, client, tmp_path):
+        c, store, _ = client
+        plot = _plot_question_run(store, "run-3", tmp_path)
+
+        status_ids = [d["artifact_id"] for d in _list_via_status(c, "run-3")]
+        listed = c.get("/dispatch/run-3/artifacts", headers=_auth()).json()
+
+        assert status_ids == [plot]
+        assert [d["artifact_id"] for d in listed] == [plot]
+
+    def test_a_record_stays_fetchable_by_id(self, client, monkeypatch):
+        """Left out of the list, not locked away: the byte route still serves it."""
+        c, store, _ = client
+        record = _tool_data_record(store, "run-1", "archiver_read")
+
+        import osprey.stores.artifact_converters as conv
+
+        monkeypatch.setitem(conv.CONVERTER_REGISTRY, "application/json", conv.passthrough)
+        r = c.get(f"/dispatch/run-1/artifacts/{record}", headers=_auth())
+
+        assert r.status_code == 200
+
+
+def _slack_delivery(c, run_id: str, monkeypatch) -> tuple[list[str], list[tuple]]:
+    """Deliver *run_id*'s status body through ``SlackOps.deliver_files``.
+
+    The bytes come over the worker's real byte route. Returns the ids fetched
+    and the uploads made, each ``(channel, thread_ts, name, data, mime)``.
+    """
+    from osprey.bridges.core import FetchedArtifact
+    from osprey.bridges.core.artifacts import bare_mime
+    from osprey.bridges.slack import ops as slack_ops
+    from tests.bridges.slack._posting import RecordingClient, make_entry, make_ops
+
+    class UploadClient(RecordingClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.uploads: list[tuple] = []
+
+        def upload(self, channel, thread_ts, name, data, mime):
+            self.uploads.append((channel, thread_ts, name, data, mime))
+            return {"ok": True}
+
+    fetched: list[str] = []
+
+    def fetch_from_the_worker(_http, _cfg, run_id, artifact_id, **_):
+        fetched.append(artifact_id)
+        r = c.get(f"/dispatch/{run_id}/artifacts/{artifact_id}", headers=_auth())
+        assert r.status_code == 200
+        return FetchedArtifact(r.content, bare_mime(r.headers.get("content-type")))
+
+    monkeypatch.setattr(slack_ops, "fetch_artifact", fetch_from_the_worker)
+    slack = UploadClient()
+    ops, _ = make_ops(slack)
+    ops.deliver_files(
+        make_entry(),
+        {
+            "status": "completed",
+            "text_output": "done",
+            "run_id": run_id,
+            "artifacts": _list_via_status(c, run_id),
+        },
+    )
+    return fetched, slack.uploads
+
+
+class TestABridgePostsOnlyWhatWasAskedFor:
+    """Worker status body -> ``SlackOps.deliver_files`` -> uploads, over the real byte route."""
+
+    def test_slack_uploads_the_plot_and_nothing_else(self, client, tmp_path, monkeypatch):
+        from tests.bridges.slack._posting import CHAN, TS
+
+        c, store, _ = client
+        plot = _plot_question_run(store, "run-3", tmp_path)
+
+        fetched, uploads = _slack_delivery(c, "run-3", monkeypatch)
+
+        assert fetched == [plot]
+        [(channel, thread_ts, name, data, mime)] = uploads
+        assert (channel, thread_ts, data, mime) == (CHAN, TS, PNG_BYTES, "image/png")
+        assert name.endswith(".png")
+
+    def test_a_camera_image_is_posted_once_the_agent_registers_it(self, client, monkeypatch):
+        """Asked to send the camera image: the reading is a record until the agent says send it."""
+        import numpy as np
+
+        from osprey.mcp_server.control_system.tools import channel_read
+        from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
+
+        c, store, _ = client
+        frame = np.zeros((4, 4), dtype=np.uint8)
+        mp = _as_run(store, "run-3")
+        try:
+            handle = channel_read._save_image_reading(store, "RING:CAM", frame, {}, np, PNG_BYTES)
+        finally:
+            mp.undo()
+        picture = store.get_file_path(handle["artifact_id"])
+
+        assert _listed("run-3") == []
+
+        reply = _call_tool(
+            store, "run-3", artifact_register, title="Camera image", file_path=str(picture)
+        )
+        fetched, uploads = _slack_delivery(c, "run-3", monkeypatch)
+
+        assert fetched == [reply["artifact_id"]]
+        [(_, _, name, data, mime)] = uploads
+        assert (data, mime) == (PNG_BYTES, "image/png")
+        assert name.endswith(".png")
+
+    def test_data_is_posted_as_a_file_once_the_agent_registers_a_csv(
+        self, client, tmp_path, monkeypatch
+    ):
+        """The guidance for "send me the data": write a CSV, register it."""
+        from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
+
+        c, store, _ = client
+        table = tmp_path / "beam_current.csv"
+        table.write_text("time,current\n0,500.1\n1,500.2\n")
+
+        reply = _call_tool(
+            store, "run-3", artifact_register, title="Beam current", file_path=str(table)
+        )
+        fetched, uploads = _slack_delivery(c, "run-3", monkeypatch)
+
+        assert fetched == [reply["artifact_id"]]
+        [(_, _, name, data, mime)] = uploads
+        assert (data, mime) == (table.read_bytes(), "text/csv")
+        assert name.endswith(".csv")
 
 
 class TestResolveSingleRunArtifact:

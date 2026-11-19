@@ -83,12 +83,12 @@ bytes.
 
 from __future__ import annotations
 
-import hashlib
+import io
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, BinaryIO, NamedTuple
 
 from osprey.facility import DEFAULT_ROLE, PN_LOCAL
 from osprey.facility.records import FacilityRecords, group_kind, is_family
@@ -110,6 +110,7 @@ __all__ = [
     "RELATION_PREDICATES",
     "RESERVED_NAMES",
     "GraphSettings",
+    "graph_bytes",
     "graph_settings",
     "graph_text",
     "write_graph_view",
@@ -347,7 +348,22 @@ def _decimal(value: Any) -> _Term:
 
 
 def _add(subjects: _Subjects, subject: str, predicate: str, term: _Term) -> None:
+    # One object per distinct predicate and term: a large facility states the
+    # same few predicates and type, class and signal IRIs a million times over.
+    shared = subjects.shared if isinstance(subjects, _SubjectMap) else {}
+    predicate = shared.setdefault(predicate, predicate)
+    term = shared.setdefault(term, term)
     subjects.setdefault(subject, {}).setdefault(predicate, set()).add(term)
+
+
+class _SubjectMap(dict[str, dict[str, set[_Term]]]):
+    """The subjects of one graph, with the one copy of each predicate and term they share."""
+
+    __slots__ = ("shared",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.shared: dict[Any, Any] = {}
 
 
 def _top(place_id: str) -> str:
@@ -865,11 +881,6 @@ def graph_settings(config: Mapping[str, Any]) -> GraphSettings:
     return GraphSettings(*values)
 
 
-#: The records and settings last rendered and their Turtle: a render's views
-#: share one read model, so its graph is rendered once per setting.
-_rendered: tuple[FacilityRecords, GraphSettings, str] | None = None
-
-
 def graph_text(records: FacilityRecords, settings: GraphSettings = GraphSettings()) -> str:
     """The graph view's Turtle for one facility file.
 
@@ -881,18 +892,28 @@ def graph_text(records: FacilityRecords, settings: GraphSettings = GraphSettings
         The Turtle text, its first line the facility file's sha256 header,
         ending in one newline.
     """
-    global _rendered
-    if _rendered is None or _rendered[0] is not records or _rendered[1] != settings:
-        _rendered = (records, settings, _turtle(records, settings))
-    return _rendered[2]
+    return graph_bytes(records, settings).decode("utf-8")
 
 
-def _turtle(records: FacilityRecords, settings: GraphSettings) -> str:
-    """Compute :func:`graph_text` without the per-build memo."""
+def graph_bytes(records: FacilityRecords, settings: GraphSettings = GraphSettings()) -> bytes:
+    """:func:`graph_text` as the UTF-8 bytes the view writes."""
+    out = io.BytesIO()
+    _write_turtle(records, settings, out)
+    return out.getvalue()
+
+
+def _write_turtle(records: FacilityRecords, settings: GraphSettings, out: BinaryIO) -> None:
+    """Write :func:`graph_bytes` to ``out``, subject by subject.
+
+    A large facility's Turtle is the biggest file a build writes: the view
+    streams it to its file rather than holding the text, the list of its lines
+    or an encoded copy. A build writes it once and copies it to every other
+    render (:mod:`osprey.facility.render`).
+    """
     code = str(records.document["identity"]["code"])
     classes = _class_rows(records)
 
-    subjects: _Subjects = {}
+    subjects: _Subjects = _SubjectMap()
     _place_triples(subjects, code, records.of_kind("place"), settings.basis)
     used = _device_triples(subjects, code, records, classes, settings.basis)
     signals = _channel_triples(subjects, code, records)
@@ -907,13 +928,15 @@ def _turtle(records: FacilityRecords, settings: GraphSettings) -> str:
     _class_triples(subjects, used, classes)
     _vocabulary_triples(subjects)
 
-    digest = hashlib.sha256(records.facility_bytes()).hexdigest()
-    lines = [f"{HEADER_PREFIX}{digest}"]
-    lines.extend(f"@prefix {prefix}: <{namespace}> ." for prefix, namespace in PREFIXES.items())
-    for subject, predicates in subjects.items():
-        lines.append("")
-        lines.extend(_subject_block(subject, predicates))
-    return "\n".join(lines) + "\n"
+    digest = records.facility_sha256()
+    out.write(f"{HEADER_PREFIX}{digest}\n".encode())
+    out.writelines(
+        f"@prefix {prefix}: <{namespace}> .\n".encode() for prefix, namespace in PREFIXES.items()
+    )
+    for subject in list(subjects):
+        # In the dict's order; each subject's terms go as soon as they are written.
+        block = _subject_block(subject, subjects.pop(subject))
+        out.write(("\n" + "\n".join(block) + "\n").encode("utf-8"))
 
 
 def write_graph_view(root: Path, inputs: ViewInputs) -> list[Path]:
@@ -933,5 +956,6 @@ def write_graph_view(root: Path, inputs: ViewInputs) -> list[Path]:
     settings = graph_settings(inputs.rendered_config)
     root.mkdir(parents=True, exist_ok=True)
     target = root / GRAPH_FILE
-    target.write_bytes(graph_text(inputs.records, settings).encode("utf-8"))
+    with target.open("wb") as out:
+        _write_turtle(inputs.records, settings, out)
     return [target]

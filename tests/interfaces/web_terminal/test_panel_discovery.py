@@ -32,6 +32,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.opaque_origin import OPAQUE_CSP
 from osprey.interfaces.web_terminal.panel_discovery import (
     DiscoveredPanel,
+    apply_build_panels,
     apply_discovered_panels,
     discover_panels,
 )
@@ -198,6 +199,58 @@ class TestApplyDiscoveredPanels:
         assert apply_discovered_panels(app) == []
         # The pre-existing registration is left untouched.
         assert [cp["label"] for cp in app.state.custom_panels] == ["Live"]
+
+
+class TestApplyBuildPanels:
+    """A panel the build wrote is wired from the config's block, gate or no gate."""
+
+    _BLOCK = {"id": "roster", "label": "Roster", "url": "", "configDefined": True}
+
+    def test_a_declared_panel_with_its_bundle_is_wired(self, tmp_path):
+        _write_panel(
+            tmp_path / ".osprey" / "panels", "roster", manifest=_manifest("roster", "Roster")
+        )
+        app = _fake_app(
+            allow=False, project_cwd=tmp_path, custom=[dict(self._BLOCK)], visible=["roster"]
+        )
+
+        assert [p.id for p in apply_build_panels(app)] == ["roster"]
+        entry = app.state.custom_panels[0]
+        assert entry["url"] == "/panel-static/roster/"
+        assert entry["discovered"] is True
+        assert entry["configDefined"] is True
+        assert app.state.discovered_panel_dirs["roster"].entry == "index.html"
+        assert app.state.visible_panels == ["roster"]
+
+    def test_a_declared_panel_without_a_bundle_leaves_the_rail(self, tmp_path, caplog):
+        app = _fake_app(
+            allow=False, project_cwd=tmp_path, custom=[dict(self._BLOCK)], visible=["roster"]
+        )
+        with caplog.at_level(logging.WARNING):
+            assert apply_build_panels(app) == []
+        assert app.state.custom_panels == []
+        assert app.state.visible_panels == []
+        assert "rebuild the project" in caplog.text
+
+    def test_a_block_with_its_own_url_is_the_deployments_panel(self, tmp_path):
+        _write_panel(
+            tmp_path / ".osprey" / "panels", "roster", manifest=_manifest("roster", "Roster")
+        )
+        own = {"id": "roster", "label": "Ours", "url": "http://roster.lan/"}
+        app = _fake_app(allow=False, project_cwd=tmp_path, custom=[own], visible=["roster"])
+
+        assert apply_build_panels(app) == []
+        assert app.state.custom_panels == [own]
+        assert app.state.discovered_panel_dirs == {}
+
+    def test_a_bundle_nothing_declares_is_not_served(self, tmp_path):
+        _write_panel(
+            tmp_path / ".osprey" / "panels", "roster", manifest=_manifest("roster", "Roster")
+        )
+        app = _fake_app(allow=True, project_cwd=tmp_path)
+        assert apply_build_panels(app) == []
+        assert apply_discovered_panels(app) == []
+        assert app.state.custom_panels == []
 
 
 @pytest.fixture

@@ -46,7 +46,11 @@ class TestColumns:
             "HALL:T,readback,,,HALL,degC,,\n",
         )
 
-        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
+        assert written == [
+            facility_dir / LAYER_DIR / "channels.yaml",
+            facility_dir / LAYER_DIR / "devices.yaml",
+        ]
+        assert _devices(facility_dir) == [{"id": "SR/Q1"}]
         assert _channels(facility_dir) == [
             {"id": "HALL:T", "role": "readback", "on": {"place": "HALL"}, "unit": "degC"},
             {"id": "Q1:RB", "on": {"device": "SR/Q1"}, "unit": "A"},
@@ -139,6 +143,72 @@ def _devices(facility_dir: Path) -> list[dict[str, Any]]:
     return yaml.safe_load((facility_dir / LAYER_DIR / "devices.yaml").read_text("utf-8"))
 
 
+class TestDevices:
+    def test_every_device_a_row_names_gets_a_record(self, tmp_path: Path) -> None:
+        facility_dir, written = _import(
+            tmp_path,
+            "address,role,device,unit,description\n"
+            "BL:M2:Pitch,readback,M2,mrad,Mirror pitch\n"
+            "BL:M1:Pitch,readback,M1,mrad,Mirror pitch\n"
+            "BL:M1:PitchSP,setpoint,M1,mrad,Mirror pitch setpoint\n"
+            "BL:T,readback,,degC,Hutch temperature\n",
+        )
+
+        assert written == [
+            facility_dir / LAYER_DIR / "channels.yaml",
+            facility_dir / LAYER_DIR / "devices.yaml",
+        ]
+        assert _devices(facility_dir) == [{"id": "M1"}, {"id": "M2"}]
+
+    def test_a_list_naming_no_device_removes_the_devices_file(self, tmp_path: Path) -> None:
+        facility_dir, _written = _import(tmp_path, "address,device\nG1:RB,L/G1\n")
+        (tmp_path / "list.csv").write_text("address,unit\nG1:RB,A\n", encoding="utf-8")
+
+        written = import_list(tmp_path / "list.csv", facility_dir)
+
+        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
+        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+
+    def test_devices_no_other_source_declares_are_named_in_one_line(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from tests.facility._synthetic_trees import write_tree
+
+        facility_dir = write_tree(
+            tmp_path / "facility",
+            {
+                "records/devices.yaml": [{"id": "M1"}],
+                "imported/other/devices.yaml": [{"id": "M2"}],
+            },
+        )
+        listing = _csv(tmp_path, "address,device\nA,M1\nB,M2\nC,M3\nD,M4\nE,M4\n")
+
+        import_list(listing, facility_dir)
+        import_list(listing, facility_dir)
+
+        assert capsys.readouterr() == ("", 2 * "import list: declared by this list only: M3, M4\n")
+        assert _devices(facility_dir) == [{"id": "M1"}, {"id": "M2"}, {"id": "M3"}, {"id": "M4"}]
+
+    def test_a_list_that_is_the_only_source_of_devices_prints_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        facility_dir, _written = _import(tmp_path, "address,device\nA,M1\n")
+        import_list(tmp_path / "list.csv", facility_dir)
+
+        assert capsys.readouterr() == ("", "")
+
+    def test_a_list_whose_devices_are_all_declared_elsewhere_prints_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from tests.facility._synthetic_trees import write_tree
+
+        facility_dir = write_tree(tmp_path / "facility", {"records/devices.yaml": [{"id": "M1"}]})
+
+        import_list(_csv(tmp_path, "address,device\nA,M1\n"), facility_dir)
+
+        assert capsys.readouterr() == ("", "")
+
+
 class TestPositions:
     def test_a_stated_s_and_model_write_a_device_record(self, tmp_path: Path) -> None:
         facility_dir, written = _import(
@@ -157,6 +227,7 @@ class TestPositions:
         assert _devices(facility_dir) == [
             {"id": "L/G1", "s": 3.5, "model": "LINE"},
             {"id": "L/G2", "s": 1.0},
+            {"id": "L/G3"},
         ]
         assert [channel["on"] for channel in _channels(facility_dir)] == [
             {"device": "L/G1"},
@@ -165,14 +236,13 @@ class TestPositions:
             {"device": "L/G3"},
         ]
 
-    def test_an_import_stating_no_s_leaves_no_devices_file(self, tmp_path: Path) -> None:
+    def test_an_import_stating_no_s_leaves_the_device_without_one(self, tmp_path: Path) -> None:
         facility_dir, _written = _import(tmp_path, "address,device,s\nG1:RB,L/G1,2\n")
         (tmp_path / "list.csv").write_text("address,device\nG1:RB,L/G1\n", encoding="utf-8")
 
-        written = import_list(tmp_path / "list.csv", facility_dir)
+        import_list(tmp_path / "list.csv", facility_dir)
 
-        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
-        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+        assert _devices(facility_dir) == [{"id": "L/G1"}]
 
     def test_s_on_a_row_with_no_device_is_source_invalid(self, tmp_path: Path) -> None:
         assert _refused(tmp_path, "address,place,s,model\nT:RB,HALL,2,LINE\n") == [
@@ -221,8 +291,11 @@ class TestPositions:
             "import list: list.csv row 2 states model LINE for device L/G1 and no row states "
             "its s; the model is ignored; fix: fill `s` on a row of the device, or empty `model`"
         ]
-        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
-        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+        assert written == [
+            facility_dir / LAYER_DIR / "channels.yaml",
+            facility_dir / LAYER_DIR / "devices.yaml",
+        ]
+        assert _devices(facility_dir) == [{"id": "L/G1"}]
         assert _channels(facility_dir) == [{"id": "G1:RB", "on": {"device": "L/G1"}}]
 
     def test_a_plain_list_prints_nothing(
@@ -281,6 +354,29 @@ class TestCommand:
             f"wrote data/facility/{LAYER_DIR}/channels.yaml\n"
         )
         assert _channels(repo / "data" / "facility") == [{"id": "LAB:TEMP:01"}]
+
+    def test_a_list_naming_devices_and_no_s_validates(self, tmp_path: Path) -> None:
+        from osprey.cli.main import cli
+        from tests._builds import init_project
+
+        repo = init_project(tmp_path, "hello-world", "demo")
+        listing = _csv(
+            tmp_path,
+            "address,role,device,unit,description\n"
+            "BL:M1:Pitch,readback,M1,mrad,Mirror pitch\n"
+            "BL:M1:PitchSP,setpoint,M1,mrad,Mirror pitch setpoint\n",
+        )
+
+        imported = _invoke(cli, listing, repo)
+        validated = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
+
+        assert imported.exit_code == 0, imported.output
+        assert imported.stdout.splitlines()[-2:] == [
+            f"wrote data/facility/{LAYER_DIR}/channels.yaml",
+            f"wrote data/facility/{LAYER_DIR}/devices.yaml",
+        ]
+        assert "reference-missing" not in validated.stderr
+        assert validated.exit_code == 0, validated.output
 
     def test_import_list_replaces_a_wholly_bundled_facility_in_one_line(
         self, tmp_path: Path

@@ -110,9 +110,10 @@ class TestRenderedDataTheme:
     def test_rendered_theme(self, workspace_dir, monkeypatch, env, configured, theme, mode, path):
         """``web.theme`` (or ``OSPREY_WEB_THEME`` over it) reaches ``<html>``.
 
-        ``data-theme-mode`` is rendered only when the value pinned a mode:
-        absence is what tells the hub to stay on 'auto', so a family or a
-        fallback emits no attribute at all.
+        ``data-theme-mode`` names the mode the value pinned. A family or a
+        fallback pins none: the hub page then says ``auto``, which theme-boot.js
+        resolves against the OS before the first paint, and the session page,
+        a follower, emits no attribute at all.
         """
         if env is not None:
             monkeypatch.setenv("OSPREY_WEB_THEME", env)
@@ -120,7 +121,9 @@ class TestRenderedDataTheme:
             body = client.get(path).text
 
         assert f'data-theme="{theme}"' in body
-        if mode is None:
+        if mode is None and path == "/":
+            assert 'data-theme-mode="auto"' in body
+        elif mode is None:
             assert "data-theme-mode" not in body
         else:
             assert f'data-theme-mode="{mode}"' in body

@@ -28,9 +28,9 @@ and a result record alongside whatever the code deliberately produced, and the
 approval hook saves a review preview before it. Emitting for those would turn
 one agent action into several strip entries, so they are filtered out here; the
 run's own channel emit is that action's signal. They are told by their run part
-(``metadata.run_part`` of ``preview``/``code``/``result``, or the legacy shapes
-:func:`~osprey.stores.artifact_store.run_role` reads, or the legacy
-``metadata[RUN_RECORD_KEY]``), so a run's ``output`` — a notebook the code saves
+(:func:`~osprey.stores.artifact_forms.is_run_record`: ``metadata.run_part`` of
+``preview``/``code``/``result``, or the shapes older entries have), so a run's
+``output`` — a notebook the code saves
 on purpose from inside the run included — still emits. Deliberate saves —
 figures, ``save_artifact()``, the ``create_*`` tools, ``archiver_read`` /
 ``phoebus_snapshot`` persists — emit one frame per entry.
@@ -61,9 +61,8 @@ from typing import TYPE_CHECKING
 
 from osprey.mcp_server.http import notify_agent_activity
 from osprey.stores.artifact_store import (
-    RUN_RECORD_KEY,
     current_artifact_mutation_actor,
-    run_role,
+    is_run_record,
 )
 
 if TYPE_CHECKING:
@@ -139,18 +138,6 @@ def notify_bulk_delete(scope: str, count: int) -> None:
         logger.debug("artifact activity backlog full — dropping bulk-delete summary")
 
 
-def _is_bookkeeping(entry: ArtifactEntry) -> bool:
-    """Return True when *entry* is a by-product of a run rather than an action.
-
-    Any run part but ``output`` is bookkeeping; an entry stamped with an
-    explicit ``run_part`` is judged by that alone, and an unstamped legacy
-    entry also by its ``RUN_RECORD_KEY`` mark.
-    """
-    if entry.metadata.get("run_part") is not None:
-        return run_role(entry) != "output"
-    return run_role(entry) != "output" or entry.metadata.get(RUN_RECORD_KEY) is True
-
-
 def _detail_for(entry: ArtifactEntry) -> str:
     """Human-readable subject for the activity frame."""
     title = entry.title or entry.id
@@ -179,7 +166,7 @@ def _enqueue(tool: str, entry: ArtifactEntry) -> None:
     # worker thread that POSTs later would always see the default.
     if current_artifact_mutation_actor() != "agent":
         return
-    if _is_bookkeeping(entry):
+    if is_run_record(entry):
         return
     try:
         _pending.put_nowait((tool, _detail_for(entry)))

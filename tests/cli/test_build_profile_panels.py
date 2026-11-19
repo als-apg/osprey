@@ -477,3 +477,48 @@ def test_an_icon_the_design_system_does_not_draw_is_refused(icon) -> None:
     assert error.startswith("web.panels.grafana: icon: ")
     assert "is not a design-system icon" in error
     assert "monitor" in error
+
+
+class TestWriteBuildPanels:
+    """The roster panel's bundle lands in a render that selects it, and only there."""
+
+    @pytest.fixture
+    def repo(self, tmp_path):
+        from osprey.cli.profile_cmd import _materialize_profile_directory
+
+        target = tmp_path / "facility"
+        _materialize_profile_directory(target, "demo")
+        return target
+
+    def test_a_selecting_render_gets_the_bundle_and_its_label(self, repo, tmp_path):
+        from osprey.cli.build_profile_panels import write_build_panels
+        from osprey.interfaces.design_system.panels.validator import validate_panel
+
+        render = tmp_path / "render"
+        overrides = write_build_panels(["ariel", "roster"], {}, repo, render)
+
+        assert overrides == {"web.panels.roster.label": "Roster"}
+        assert validate_panel(render / ".osprey" / "panels" / "roster") == []
+
+    def test_a_render_that_does_not_select_it_gets_nothing(self, repo, tmp_path):
+        from osprey.cli.build_profile_panels import write_build_panels
+
+        render = tmp_path / "render"
+        assert write_build_panels(["ariel"], {}, repo, render) == {}
+        assert not (render / ".osprey").exists()
+
+    def test_a_profile_with_its_own_roster_url_keeps_its_panel(self, repo, tmp_path):
+        from osprey.cli.build_profile_panels import write_build_panels
+
+        render = tmp_path / "render"
+        config = {"web.panels.roster.url": "http://localhost:9000"}
+        assert write_build_panels(["roster"], config, repo, render) == {}
+        assert not (render / ".osprey").exists()
+
+    def test_an_authored_label_is_not_overwritten(self, repo, tmp_path):
+        from osprey.cli.build_profile_panels import write_build_panels
+
+        render = tmp_path / "render"
+        config = {"web.panels.roster.label": "Who sees what"}
+        assert write_build_panels(["roster"], config, repo, render) == {}
+        assert (render / ".osprey" / "panels" / "roster" / "index.html").is_file()

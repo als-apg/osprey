@@ -5,8 +5,7 @@
  *
  * The reader (reader.js) draws an <img> only for attachments the server marks
  * `viewable: true`, always from `display_url`, and every href/src built from
- * attachment data passes `safeHref` (http(s), or an attachment route relative
- * to the API base, joined to that base).
+ * attachment data passes `safeHref` (attachment-urls.test.mjs).
  * Everything else is a file card. A list row (components.js renderListRow) shows a "picture match"
  * marker only when the search matched through an image.
  */
@@ -22,7 +21,7 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
 });
 
 import { entriesApi } from '../../../src/osprey/interfaces/ariel/static/js/api.js';
-import { showInReader, safeHref } from '../../../src/osprey/interfaces/ariel/static/js/reader.js';
+import { showInReader } from '../../../src/osprey/interfaces/ariel/static/js/reader.js';
 import { renderListRow } from '../../../src/osprey/interfaces/ariel/static/js/components.js';
 
 /** `display_url` values as the server sends them: routes relative to the API base. */
@@ -59,46 +58,6 @@ async function renderDetail(attachments) {
 beforeEach(() => {
   document.body.innerHTML = '<div id="ariel-reader-body"></div>';
   vi.clearAllMocks();
-});
-
-describe('safeHref', () => {
-  test.each(['http://example.org/a.png', 'https://example.org/a.png', 'HTTPS://example.org/a.png'])(
-    'keeps %j',
-    (url) => {
-      expect(safeHref(url)).toBe(url);
-    }
-  );
-
-  test.each([
-    [RENDITION, RENDITION_SRC],
-    [ORIGINAL, ORIGINAL_SRC],
-  ])('joins the attachment route %j to the API base', (route, src) => {
-    expect(safeHref(route)).toBe(src);
-  });
-
-  test.each([
-    'javascript:alert(1)',
-    'JavaScript:alert(1)',
-    ' javascript:alert(1)',
-    'data:image/svg+xml;base64,PHN2Zz4=',
-    'vbscript:msgbox(1)',
-    '//evil.example/a.png',
-    '/api/other',
-    '/api/attachments/att-0123456789ab/rendition',
-    '/attachments/',
-    '/attachments/../rendition',
-    '/attachments/./rendition',
-    '/attachments/a/b',
-    '/attachments/a/rendition/x',
-    '/attachments/a?x=1',
-    'relative/path.png',
-    '',
-    null,
-    undefined,
-    42,
-  ])('rejects %j', (url) => {
-    expect(safeHref(/** @type {any} */ (url))).toBeNull();
-  });
 });
 
 describe('entry detail attachments', () => {

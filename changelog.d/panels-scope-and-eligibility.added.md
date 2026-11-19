@@ -1,0 +1,3 @@
+Panels: `draw.json` takes `write_under`, the places a write keeps to (with the devices placed there, the devices in no place joined to them and the groups of those devices), and `check` holds a write to the same scope. `no_cards.csv` takes the optional columns `when` (`no-channel`, `no-recipe`) and `attribute` (`name=value`, matched against a device's attributes), and `class` `*`; a row with no owner relation gives its devices no screen. `check` reports how many devices each `no_cards.csv` row takes.
+
+The home screen lists the top places that hold a device of a model first, as the machines, and the other top places below them.

@@ -32,7 +32,13 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.profiles.web_panels import UNIVERSAL_PANELS, panel_id_refusal
+from osprey.profiles.web_panels import (
+    BUILD_PANELS,
+    BUILD_PANELS_DIRNAME,
+    ROSTER_PANEL_ID,
+    UNIVERSAL_PANELS,
+    panel_id_refusal,
+)
 
 __all__ = [
     "apply_panel_selection",
@@ -295,3 +301,54 @@ def _spelled_panel_ids(config: Any) -> set[str]:
             if isinstance(panels, Mapping):
                 ids.update(str(leaf) for leaf in panels)
     return ids
+
+
+def _roster_bundle(repo_root: Path) -> dict[str, str]:
+    """The ``roster`` panel's files for the deployment at *repo_root*."""
+    from .profile_panels import panel_matrix, panel_matrix_bundle
+
+    return panel_matrix_bundle(panel_matrix(repo_root))
+
+
+#: What writes each of :data:`~osprey.profiles.web_panels.BUILD_PANELS`: the
+#: deployment's directory in, the bundle's files out.
+_BUILD_PANEL_WRITERS = {ROSTER_PANEL_ID: _roster_bundle}
+
+
+def write_build_panels(
+    selected_panels: Iterable[str],
+    config: Mapping[str, Any],
+    repo_root: Path,
+    render_dir: Path,
+) -> dict[str, Any]:
+    """Write the bundle of every build-written panel this render selects.
+
+    A panel in :data:`~osprey.profiles.web_panels.BUILD_PANELS` has no server:
+    its page is made here, from the deployment's own files, and lands under
+    :data:`~osprey.profiles.web_panels.BUILD_PANELS_DIRNAME` in the render, where
+    the web terminal serves it from. A profile that gives the id a
+    ``web.panels.<id>.url`` has its own panel under that name, and nothing is
+    written for it.
+
+    Args:
+        selected_panels: The render's ``web_panels`` selection.
+        config: The profile's ``config:`` mapping.
+        repo_root: The deployment's directory, the one holding ``profile.yml``.
+        render_dir: The render the bundles are written into.
+
+    Returns:
+        The config overrides that declare each written panel, dotted keys: its
+        label, where the profile wrote none.
+    """
+    selected = set(selected_panels)
+    overrides: dict[str, Any] = {}
+    for panel_id, label in BUILD_PANELS.items():
+        if panel_id not in selected or panel_leaf_spellings(config, panel_id, "url"):
+            continue
+        bundle_dir = render_dir / BUILD_PANELS_DIRNAME / panel_id
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in _BUILD_PANEL_WRITERS[panel_id](repo_root).items():
+            (bundle_dir / name).write_text(content, encoding="utf-8")
+        if not panel_leaf_spellings(config, panel_id, "label"):
+            overrides[f"web.panels.{panel_id}.label"] = label
+    return overrides

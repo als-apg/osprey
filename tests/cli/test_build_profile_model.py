@@ -411,3 +411,50 @@ def test_a_profile_with_no_web_stack_seeds_no_web_ports() -> None:
     claimed = _profile()._claimed_ports()
 
     assert not [key for key in claimed if key.startswith("modules.web_terminals")]
+
+
+# --- the dispatch bus ------------------------------------------------------
+
+
+def test_the_bus_port_defaults_to_its_slot_at_the_profiles_base() -> None:
+    profile = _profile(
+        config={"deployment.port_base": 20000},
+        dispatch={"triggers": _TRIGGERS, "transport": "bus"},
+    )
+    assert profile.dispatch is not None
+    assert profile.dispatch.transport == "bus"
+    assert profile.dispatch.bus_port == default_port("dispatch_bus", base=20000)
+
+
+def test_an_unknown_transport_is_refused_by_name(tmp_path: Path) -> None:
+    reported = validation_errors(_dispatch_profile(transport="grpc"), tmp_path)
+    assert reported == ["dispatch.transport must be one of http, bus (got 'grpc')"]
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+def test_a_bus_port_out_of_range_is_refused(tmp_path: Path, port: int) -> None:
+    reported = validation_errors(_dispatch_profile(transport="bus", bus_port=port), tmp_path)
+    assert reported == [f"dispatch.bus_port must be in 1..65535 (got {port})"]
+
+
+def test_the_bus_may_not_share_the_dispatchers_http_port(tmp_path: Path) -> None:
+    port = default_port("dispatcher")
+    reported = validation_errors(_dispatch_profile(transport="bus", bus_port=port), tmp_path)
+    assert len(reported) == 1
+    assert "dispatch.bus_port and dispatch.dispatcher_port are both" in reported[0]
+
+
+def test_host_mode_workers_on_the_bus_claim_no_band_but_the_bus_port() -> None:
+    profile = _dispatch_profile(worker_count=4, network="host", transport="bus")
+    assert _worker_ports(profile) == {}
+    assert profile._claimed_ports()["dispatch.bus_port"] == default_port("dispatch_bus")
+
+
+def test_bridge_mode_bus_claims_no_host_port() -> None:
+    profile = _dispatch_profile(worker_count=4, transport="bus")
+    assert "dispatch.bus_port" not in profile._claimed_ports()
+
+
+def test_workers_on_the_bus_are_not_held_to_the_band(tmp_path: Path) -> None:
+    """Sixty workers overrun the band only when each binds a port of its own."""
+    _dispatch_profile(worker_count=60, network="host", transport="bus").validate(tmp_path)

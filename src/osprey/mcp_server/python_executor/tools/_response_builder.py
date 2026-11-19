@@ -280,6 +280,7 @@ async def build_execution_response(
                 tool_source=tool_source,
                 metadata={"run_part": "output", "figure": True},
                 exec_id=exec_id,
+                deliver=True,
             )
             artifact_ids.append(fig_entry.id)
         except Exception:
@@ -301,6 +302,7 @@ async def build_execution_response(
                 tool_source=tool_source,
                 metadata={"run_part": "output"},
                 exec_id=exec_id,
+                deliver=True,
             )
             artifact_ids.append(art_entry.id)
         except Exception:

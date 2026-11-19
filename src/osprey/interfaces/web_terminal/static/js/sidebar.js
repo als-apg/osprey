@@ -47,11 +47,10 @@
  * is placed against a sidebar edge that is about to move.
  */
 
-import { icon } from '/design-system/js/icons.js';
+import { hydrateIcons, paintChords } from './shell-icons.js';
 import { initCollapsible } from '/design-system/js/collapsible.js';
 import { closeAllPopovers, togglePopover } from '/design-system/js/popover.js';
 import { hideTooltip } from '/design-system/js/tooltip.js';
-import { isMacPlatform } from '/design-system/js/platform.js';
 import { declinesToBrowser, isContextMenuKey } from '/design-system/js/context-menu.js';
 import { hintFor, keyFor } from './key-bindings.js';
 import { openContextMenu } from './panel-context-menu.js';
@@ -97,36 +96,10 @@ const AGENT_ROW_ID = 'sidebar-agent-row';
 /** The Sessions row's name, as the sidebar shows it (panel-catalog.js). */
 const ROW_LABEL = TERMINAL_RAIL_LABEL;
 
-/**
- * Fill every empty `svg[data-icon]` placeholder under `root` with its icons.js
- * glyph, in place, so the element (and any reference to it) is kept.
- * @param {ParentNode} [root]
- * @returns {void}
- */
-export function hydrateIcons(root = document) {
-  for (const svg of root.querySelectorAll('svg[data-icon]')) {
-    if (svg.childElementCount > 0) continue;
-    const name = svg.getAttribute('data-icon') ?? '';
-    const glyph = icon(name);
-    for (const attr of ['viewBox', 'aria-hidden', 'focusable']) {
-      svg.setAttribute(attr, glyph.getAttribute(attr) ?? '');
-    }
-    svg.replaceChildren(...glyph.childNodes);
-  }
-}
-
-/**
- * Write each `[data-chord]` key hint under `root` for this platform: `⌘` on
- * macOS, `Ctrl+` elsewhere, then the key the attribute names.
- * @param {ParentNode} [root]
- * @returns {void}
- */
-export function paintChords(root = document) {
-  const prefix = isMacPlatform() ? '⌘' : 'Ctrl+';
-  for (const el of root.querySelectorAll('[data-chord]')) {
-    el.textContent = `${prefix}${/** @type {HTMLElement} */ (el).dataset.chord}`;
-  }
-}
+// The glyph and key-hint fill lives in shell-icons.js, where the page's first
+// module can reach it without this module's imports; re-exported for the
+// callers that dress a subtree later.
+export { hydrateIcons, paintChords };
 
 /** @returns {boolean} whether the sidebar shows icons only */
 function isCollapsed() {

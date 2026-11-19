@@ -526,6 +526,156 @@ async def test_the_default_consumer_has_no_group_reads_from_the_start_and_never_
     assert consumer.seeked is True
 
 
+def _built_options(monkeypatch, consumer=None):
+    """Install a fake aiokafka and return the dict its consumer class is built with."""
+    built = {}
+    consumer = consumer or FakeConsumer()
+
+    def consumer_class(*topics, **options):
+        built.update(options)
+        return consumer
+
+    module = types.ModuleType("aiokafka")
+    module.AIOKafkaConsumer = consumer_class
+    monkeypatch.setitem(sys.modules, "aiokafka", module)
+    return built
+
+
+async def _run_once(backend):
+    await backend.start()
+    await _caught_up(backend)
+    await backend.aclose()
+
+
+LOGIN = {"username": "reader", "password_env": "ALARM_FEED_PASSWORD"}
+
+
+async def test_an_open_broker_gets_no_login_options(monkeypatch):
+    built = _built_options(monkeypatch)
+    await _run_once(PhoebusAlarmState(_spec(bootstrap_servers="broker:9092", topic="Demo")))
+
+    for option in ("security_protocol", "sasl_mechanism", "sasl_plain_password", "ssl_context"):
+        assert option not in built
+
+
+async def test_a_login_is_sent_over_tls_with_the_password_from_the_environment(monkeypatch):
+    monkeypatch.setenv("ALARM_FEED_PASSWORD", "s3cret")
+    context = object()
+    monkeypatch.setattr(_phoebus_kafka.ConnectionSettings, "ssl_context", lambda self: context)
+    built = _built_options(monkeypatch)
+    await _run_once(
+        PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=LOGIN))
+    )
+
+    assert built["security_protocol"] == "SASL_SSL"
+    assert built["ssl_context"] is context
+    assert built["sasl_mechanism"] == "PLAIN"
+    assert built["sasl_plain_username"] == "reader"
+    assert built["sasl_plain_password"] == "s3cret"
+    assert built["group_id"] is None
+
+
+async def test_only_an_explicit_cleartext_sends_a_login_unencrypted(monkeypatch):
+    monkeypatch.setenv("ALARM_FEED_PASSWORD", "s3cret")
+    built = _built_options(monkeypatch)
+    auth = {**LOGIN, "cleartext": True}
+    await _run_once(
+        PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=auth))
+    )
+
+    assert built["security_protocol"] == "SASL_PLAINTEXT"
+    assert built["sasl_plain_password"] == "s3cret"
+    assert "ssl_context" not in built
+
+
+async def test_a_named_mechanism_is_the_one_sent(monkeypatch):
+    monkeypatch.setenv("ALARM_FEED_PASSWORD", "s3cret")
+    built = _built_options(monkeypatch)
+    auth = {**LOGIN, "mechanism": "SCRAM-SHA-512", "cleartext": True}
+    await _run_once(
+        PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=auth))
+    )
+
+    assert built["sasl_mechanism"] == "SCRAM-SHA-512"
+
+
+async def test_a_ca_turns_tls_on_with_and_without_a_login(monkeypatch):
+    monkeypatch.setenv("ALARM_FEED_PASSWORD", "s3cret")
+    context = object()
+    monkeypatch.setattr(
+        _phoebus_kafka.ConnectionSettings, "ssl_context", lambda self: context, raising=True
+    )
+    tls = {"ca_bundle": "/etc/ssl/site-ca.pem"}
+
+    built = _built_options(monkeypatch)
+    await _run_once(PhoebusAlarmState(_spec(bootstrap_servers="b:9093", topic="Demo", tls=tls)))
+    assert built["security_protocol"] == "SSL"
+    assert built["ssl_context"] is context
+    assert "sasl_mechanism" not in built
+
+    built = _built_options(monkeypatch)
+    await _run_once(
+        PhoebusAlarmState(_spec(bootstrap_servers="b:9093", topic="Demo", tls=tls, auth=LOGIN))
+    )
+    assert built["security_protocol"] == "SASL_SSL"
+    assert built["ssl_context"] is context
+
+
+@pytest.mark.parametrize(
+    ("auth", "names"),
+    [
+        ({"token_env": "ALARM_FEED_TOKEN"}, "auth"),
+        ({"username": "reader"}, "auth.password_env"),
+        ({**LOGIN, "mechanism": "GSSAPI"}, "auth.mechanism"),
+        ({**LOGIN, "password": "s3cret"}, "auth.password"),
+        ({**LOGIN, "cleartext": "yes"}, "auth.cleartext"),
+    ],
+)
+async def test_a_login_the_broker_cannot_take_answers_why_and_starts_nothing(
+    monkeypatch, auth, names
+):
+    monkeypatch.setitem(sys.modules, "aiokafka", types.ModuleType("aiokafka"))
+    backend = PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=auth))
+    await backend.start()
+
+    answer = await _answer(backend)
+    assert isinstance(answer, Unavailable)
+    assert f"pv_directory.alarm_state.settings.{names}" in answer.reason
+    assert "s3cret" not in answer.reason
+    assert backend._task is None
+
+
+async def test_a_cleartext_login_beside_a_ca_is_refused(monkeypatch):
+    monkeypatch.setitem(sys.modules, "aiokafka", types.ModuleType("aiokafka"))
+    backend = PhoebusAlarmState(
+        _spec(
+            bootstrap_servers="broker:9093",
+            topic="Demo",
+            auth={**LOGIN, "cleartext": True},
+            tls={"ca_bundle": "/etc/ssl/site-ca.pem"},
+        )
+    )
+    await backend.start()
+
+    answer = await _answer(backend)
+    assert isinstance(answer, Unavailable)
+    assert "auth.cleartext" in answer.reason
+    assert backend._task is None
+
+
+async def test_an_unset_password_variable_answers_naming_it(monkeypatch):
+    monkeypatch.delenv("ALARM_FEED_PASSWORD", raising=False)
+    _built_options(monkeypatch)
+    auth = {**LOGIN, "cleartext": True}
+    backend = PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=auth))
+    await backend.start()
+
+    answer = await backend.state_for(PV, deadline=5.0)
+    assert isinstance(answer, Unavailable)
+    assert "ALARM_FEED_PASSWORD" in answer.reason
+    await backend.aclose()
+
+
 def test_the_constructor_does_no_io_and_takes_seams_it_ignores():
     def factory(_settings):  # pragma: no cover - building must not call it
         raise AssertionError("the constructor does no I/O")

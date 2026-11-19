@@ -357,6 +357,8 @@ SANITISING_HELPERS = {
     # Builds the chat parser; its one caller is renderMarkdownInto.
     ("web_terminal/static/js/chat-markdown.js", "chatMarkedParse"),
     ("okf_panel/static/js/app.js", "renderMarkdownInto"),
+    # Builds the entry parser; its one caller is renderEntryMarkdown.
+    ("ariel/static/js/entry-markdown.js", "entryMarkedParse"),
 }
 
 #: The one sanitised assignment each sink's output flows into.
@@ -372,6 +374,12 @@ SANITISED_SINKS = {
     ("okf_panel/static/js/app.js", "renderMarkdownInto"): (
         "purify.sanitize(String(parser.parse(text)))"
     ),
+    # sanitizeBody is DOMPurify.sanitize with the entry body's allowed tags and
+    # attributes and its link hook. The assignment is to an inert <template>;
+    # the function returns that template's HTML for the reader to place.
+    ("ariel/static/js/entry-markdown.js", "renderEntryMarkdown"): (
+        "sanitizeBody(DOMPurify, parse(text))"
+    ),
 }
 
 #: ``(helper file, helper, the only function allowed to call it)``: a helper
@@ -379,12 +387,27 @@ SANITISED_SINKS = {
 UNSANITISED_HELPERS = [
     ("artifacts/static/js/md-render.js", "renderUnsanitized", "renderMathInMarkdown"),
     ("web_terminal/static/js/chat-markdown.js", "chatMarkedParse", "renderMarkdownInto"),
+    ("ariel/static/js/entry-markdown.js", "entryMarkedParse", "renderEntryMarkdown"),
 ]
 
+#: Each helper file's hostile-markdown suite, and the function it drives.
 VITEST_SUITES = {
-    "artifacts/static/js/md-render.js": "tests/interfaces/artifacts/content-sandbox.test.mjs",
-    "web_terminal/static/js/chat-markdown.js": "tests/interfaces/web_terminal/chat-render.test.mjs",
-    "okf_panel/static/js/app.js": "tests/interfaces/okf_panel/markdown-sanitize.test.mjs",
+    "artifacts/static/js/md-render.js": (
+        "tests/interfaces/artifacts/content-sandbox.test.mjs",
+        "renderMarkdownInto",
+    ),
+    "web_terminal/static/js/chat-markdown.js": (
+        "tests/interfaces/web_terminal/chat-render.test.mjs",
+        "renderMarkdownInto",
+    ),
+    "okf_panel/static/js/app.js": (
+        "tests/interfaces/okf_panel/markdown-sanitize.test.mjs",
+        "renderMarkdownInto",
+    ),
+    "ariel/static/js/entry-markdown.js": (
+        "tests/interfaces/ariel/entry-markdown.test.mjs",
+        "renderEntryMarkdown",
+    ),
 }
 
 
@@ -526,10 +549,15 @@ class TestMarkdownSanitiser:
         )
         assert [(line, fn) for line, fn, _ in _sinks(raw)] == [(2, "show"), (5, "also"), (7, None)]
 
-    @pytest.mark.parametrize(("helper_file", "suite"), sorted(VITEST_SUITES.items()))
-    def test_each_helper_is_driven_by_vitest_with_hostile_markdown(self, helper_file, suite):
+    @pytest.mark.parametrize(
+        ("helper_file", "suite", "function"),
+        [(file, *driven) for file, driven in sorted(VITEST_SUITES.items())],
+    )
+    def test_each_helper_is_driven_by_vitest_with_hostile_markdown(
+        self, helper_file, suite, function
+    ):
         text = (REPO / suite).read_text(encoding="utf-8")
 
         assert helper_file.rsplit("/", 1)[1] in text, (suite, helper_file)
-        assert "renderMarkdownInto" in text
+        assert function in text
         assert "onerror" in text and "<script>" in text

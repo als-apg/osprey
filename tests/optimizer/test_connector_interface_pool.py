@@ -21,6 +21,7 @@ from osprey_optimizer.environments.interface import ConnectorInterface
 from osprey_optimizer.environments.spec import EnvironmentFile
 from osprey_optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey_optimizer.models.exceptions import WriteRefusedError
+from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -74,7 +75,12 @@ def project(tmp_path, monkeypatch):
         monkeypatch.setenv(
             "PYTHONPATH",
             os.pathsep.join(
-                [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
+                [
+                    # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+                    str(CHILD_STUBS),
+                    str(REPO_ROOT / "src"),
+                    str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+                ]
             ),
         )
         return config

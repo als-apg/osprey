@@ -79,19 +79,32 @@ than holding its result: the approval hook's approval preview, and the
 executor's notebook and result record. Plots and files the script saves carry no
 such key. The web terminal's sidebar lists these under "Script runs" (it asks the
 gallery for them through ``GET /api/artifacts?run=true``) and keeps them out of its
-Artifacts list; :func:`is_run_record` is the verdict both listings share."""
+Artifacts list; :func:`is_run_record` is the verdict every surface shares."""
+
+RUN_ROLES: frozenset[str] = frozenset({"preview", "code", "output", "result"})
+"""Every value ``metadata.run_part`` may take."""
 
 
 def is_run_record(entry: ArtifactEntry) -> bool:
     """Whether ``entry`` records a script run rather than holding its result.
 
-    True when the entry carries :data:`RUN_RECORD_KEY` in its metadata, or — for
-    entries saved before that key existed — when it has what the writers always
-    gave a run record: the ``code_output`` category, the ``osprey_approval`` tool
-    source, or a notebook titled ``Notebook: …`` from ``execute`` or
-    ``execute_file``. The gallery sends this verdict to the browser as the
-    ``run_record`` field so no client re-derives it.
+    The one rule for it: the sidebar and gallery listings and the activity
+    strip all read this verdict. What a dispatch run delivers is a different
+    question with its own answer, :attr:`ArtifactEntry.deliver`.
+
+    An entry that states its run part (``metadata.run_part``) is judged by that
+    alone: a ``preview``, ``code`` or ``result`` part is a run record, an
+    ``output`` is not. Otherwise true when the entry carries
+    :data:`RUN_RECORD_KEY` in its metadata, or — for entries saved before that
+    key existed — when it has what the writers always gave a run record: the
+    ``code_output`` category, the ``osprey_approval`` tool source, or a notebook
+    titled ``Notebook: …`` from ``execute`` or ``execute_file``. The gallery
+    sends this verdict to the browser as the ``run_record`` field so no client
+    re-derives it.
     """
+    part = entry.metadata.get("run_part")
+    if part in RUN_ROLES:
+        return bool(part != "output")
     if entry.metadata.get(RUN_RECORD_KEY) is True:
         return True
     if entry.category == "code_output":

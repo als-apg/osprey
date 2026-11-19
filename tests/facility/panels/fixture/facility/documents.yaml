@@ -1,0 +1,9 @@
+# Invented for the panels tests: no document of a real facility.
+- id: XR-LAYOUT
+  title: Example ring layout
+  kind: layout
+  system: document-store
+- id: XR-RACKS
+  title: Example rack elevations
+  kind: rack-layout
+  system: document-store

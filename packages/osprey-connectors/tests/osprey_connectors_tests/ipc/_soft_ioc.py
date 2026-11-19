@@ -38,8 +38,9 @@ class SoftIOC:
         seed: float = 0.0,
         *,
         records: str | None = None,
+        wait: bool = True,
     ) -> None:
-        """Start the IOC and wait until it serves.
+        """Start the IOC and, unless told not to, wait until it serves.
 
         Args:
             directory: Where the database and the log are written.
@@ -48,6 +49,9 @@ class SoftIOC:
             seed: The value both default records start at.
             records: An EPICS database to serve instead of the two default
                 records, for a test that needs records of its own.
+            wait: ``False`` returns once the process is started; the caller
+                then calls :meth:`wait_until_serving`, so several IOCs can
+                start side by side.
         """
         self._reservation = contextlib.ExitStack()
         self.port = self._reservation.enter_context(reserved_port())
@@ -84,7 +88,8 @@ class SoftIOC:
         except BaseException:
             self._reservation.close()
             raise
-        self._wait_until_serving()
+        if wait:
+            self.wait_until_serving()
 
     def _log_text(self) -> str:
         try:
@@ -92,7 +97,8 @@ class SoftIOC:
         except OSError:
             return ""
 
-    def _wait_until_serving(self) -> None:
+    def wait_until_serving(self) -> None:
+        """Return once the IOC accepts connections; stop it and raise if it never does."""
         deadline = time.monotonic() + IOC_READY_TIMEOUT_S
         while time.monotonic() < deadline:
             if self.process.poll() is not None:

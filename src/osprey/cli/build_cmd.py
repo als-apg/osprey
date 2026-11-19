@@ -78,6 +78,7 @@ from .build_environment import (
     _create_project_venv,
     _plan_project_venv,
     _resolve_osprey_spec,
+    report_inner_call_keys,
     report_provider_credentials,
 )
 from .build_injectors import (
@@ -2126,7 +2127,7 @@ def _build_graph_index(
     import duckdb
 
     from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
-    from osprey.services.graph_store.seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_file_sha256
 
     def _no_index(error: Exception) -> None:
         from . import output
@@ -2147,7 +2148,7 @@ def _build_graph_index(
     # the guard for that reason too: a full disk must not be the one failure
     # that takes the whole render down.
     try:
-        digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))
+        digest = ttl_file_sha256(target.corpus_path)
         target.index_path.parent.mkdir(parents=True, exist_ok=True)
 
         built = shared.graph_indexes.get(digest)
@@ -2400,7 +2401,11 @@ def _render_project(
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides, profile_dispatch_tier
     from .build_profile_health import health_config_overrides
-    from .build_profile_panels import apply_panel_selection, panel_selection_overrides
+    from .build_profile_panels import (
+        apply_panel_selection,
+        panel_selection_overrides,
+        write_build_panels,
+    )
     from .build_profile_ports import layout_port_fill
     from .build_profile_reach import (
         attached_render_overrides,
@@ -2727,6 +2732,15 @@ def _render_project(
         if injected_out is not None:
             injected_out.extend(injected)
 
+        # The panels the build writes as a page (the roster): the bundle goes
+        # into this render, and the block that declares it into its config,
+        # before the selection is projected onto the blocks below.
+        built_panels = write_build_panels(
+            build_profile.web_panels or (), build_profile.config, repo_root, render_dir
+        )
+        if built_panels:
+            _apply_config_overrides(render_dir, built_panels)
+
         # What this render carries of the applications, before its panels are
         # told whether they show and its servers are persisted. An attached render
         # publishes no port of its own: the host's reading says where a panel is.
@@ -2911,6 +2925,7 @@ def _render_project(
 
     if deployment:
         report_provider_credentials(render_dir, build_profile.provider, profile_dir=repo_root)
+        report_inner_call_keys(_rendered_config(render_dir), render_dir, profile_dir=repo_root)
 
     manifest_context: dict[str, Any] = {
         "default_provider": build_profile.provider,
@@ -4962,6 +4977,40 @@ def _ariel_server_enabled(build_profile: Any) -> bool:
     if stated:
         return stated[0][1]
     return FRAMEWORK_SERVERS["ariel"].default_enabled
+
+
+def profile_model_call_view(build_profile: Any, repo_root: Path) -> dict[str, Any]:
+    """The config a build of *build_profile* renders, as far as a profile says it.
+
+    ``osprey validate`` judges a profile without rendering it, and the keys
+    :func:`osprey.models.inner_calls.inner_model_calls` reads are written by the
+    framework template from profile fields. This is
+    :func:`~osprey.cli.build_profile_deploy.build_lint_view`, the one mirror of
+    the build's derived keys, handed those fields and nested.
+
+    The channel-finder block is read off the profile's own ``agents:``. A
+    profile that takes the agent from its preset's selection instead shows no
+    paradigm here, so ``osprey validate`` stays silent on it and ``osprey
+    build``, which reads the render, reports it.
+    """
+    from osprey.deployment.web_terminals.lint import _nest_dotted
+
+    from .build_profile_deploy import build_lint_view, profile_dispatch_tier
+
+    selects_finder = "channel-finder" in (build_profile.agents or [])
+    return _nest_dotted(
+        build_lint_view(
+            build_profile.deploy,
+            build_profile.config or {},
+            build_profile.project_name,
+            profile_root=repo_root,
+            dispatch_tier=profile_dispatch_tier(build_profile),
+            provider=build_profile.provider,
+            pipeline=build_profile.channel_finder_mode if selects_finder else None,
+            ariel_server_on=_ariel_server_enabled(build_profile),
+            provider_catalog=load_provider_catalog(repo_root).entries,
+        )
+    )
 
 
 def _repo_render_context(

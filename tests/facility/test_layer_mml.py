@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from osprey.facility.layers.mml.mapping import (
     parse_mapping,
 )
 from osprey.facility.sources import load_sources
+from tests.facility._mml_built import MmlImport, read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
@@ -120,7 +122,9 @@ def _document() -> dict[str, Any]:
 
 
 def _rows(facility: Path, name: str) -> list[dict[str, Any]]:
-    return yaml.safe_load((facility / LAYER_DIR / name).read_text(encoding="utf-8"))
+    """The layer's record file ``name``, parsed once; the caller only reads it."""
+    rows: list[dict[str, Any]] = read_yaml(facility / LAYER_DIR / name)
+    return rows
 
 
 def _by(rows: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, Any]]:
@@ -253,23 +257,16 @@ def test_the_small_import_states_no_id_twice_within_the_layer(small: Path) -> No
 # -- the fixture exports: decks, slices and planes -------------------------------
 
 
-def _import(root: Path, tree: str) -> Path:
-    facility = root / "data" / "facility"
-    target = facility / MAPPING_FILE
-    target.parent.mkdir(parents=True)
-    shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
-    import_mml([FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], facility)
-    return facility
+@pytest.fixture(scope="module")
+def spear3(mml_imported: Callable[[str], MmlImport]) -> Path:
+    """The run's one spear3 import; a case that changes it works on a copy."""
+    return mml_imported("spear3").facility
 
 
 @pytest.fixture(scope="module")
-def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("spear3"), "spear3")
-
-
-@pytest.fixture(scope="module")
-def nsls2(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("nsls2"), "nsls2")
+def nsls2(mml_imported: Callable[[str], MmlImport]) -> Path:
+    """The run's one nsls2 import; a case that changes it works on a copy."""
+    return mml_imported("nsls2").facility
 
 
 def _combined(facility: Path) -> CombineResult:
@@ -423,15 +420,33 @@ def test_an_exported_family_the_mapping_leaves_out_writes_no_record(tmp_path: Pa
 
 def test_the_mml_layer_reads_no_channel_finder_database_module() -> None:
     import ast
+    from importlib.util import resolve_name
 
     import osprey.facility.layers.mml as layer
 
-    imported = []
-    for path in sorted(Path(layer.__file__).parent.glob("*.py")):
+    package = Path(layer.__file__).parent
+    forbidden = "osprey.services.channel_finder.databases"
+    imported: list[str] = []
+    # Every module of the layer, its subpackages included, in either import form.
+    for path in sorted(package.rglob("*.py")):
+        # The package a relative import in this file is resolved against.
+        here = ".".join((layer.__name__, *path.parent.relative_to(package).parts))
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
-                "osprey.services.channel_finder.databases"
-            ):
-                imported.append(f"{path.name}: {node.module}")
+            if isinstance(node, ast.ImportFrom):
+                # ``from a.b import c`` reads ``a.b`` and, when ``c`` is a module, ``a.b.c``;
+                # ``from ..a import c`` reads the ``a`` the dots name from this file's package.
+                base = node.module or ""
+                if node.level:
+                    base = resolve_name("." * node.level + base, here)
+                modules = [base, *(f"{base}.{alias.name}" for alias in node.names)]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            imported.extend(
+                f"{path.relative_to(package).as_posix()}: {module}"
+                for module in modules
+                if module == forbidden or module.startswith(f"{forbidden}.")
+            )
 
     assert imported == []

@@ -6063,8 +6063,8 @@ def _connection_ca_bundles(config, source_dir):
 
     Each is bind-mounted read-only at the same path by the service's compose
     template, so a block's ``tls.ca_bundle`` names one file on the host and in
-    the container. A dispatch worker opens the SELECTED archiver block, as a web
-    terminal does; the archive recorder always opens
+    the container. A dispatch worker opens the SELECTED archiver block and the
+    ``pv_directory`` blocks, as a web terminal does; the archive recorder always opens
     ``archiver.mongodb_archiver``, whatever ``archiver.type`` selects. Every
     other service reads no connection block and mounts nothing.
 
@@ -6079,11 +6079,13 @@ def _connection_ca_bundles(config, source_dir):
         as_dict,
         ca_bundle_mounts,
         config_archiver_ca_bundles,
+        config_pv_directory_ca_bundles,
     )
 
     service = os.path.basename(os.path.normpath(source_dir))
     if service == "dispatch_worker":
-        return list(config_archiver_ca_bundles(config))
+        paths = (*config_archiver_ca_bundles(config), *config_pv_directory_ca_bundles(config))
+        return list(dict.fromkeys(paths))
     if service == ARCHIVER_RECORDER_SERVICE:
         store = as_dict(config.get("archiver")).get("mongodb_archiver")
         return list(ca_bundle_mounts(store, where="archiver.mongodb_archiver"))

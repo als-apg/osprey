@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
+from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore, is_run_record
 from osprey_connectors import control_context
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
@@ -113,34 +113,40 @@ def _entry(**fields):
 
 
 class TestActivityVerdict:
+    """The strip's bookkeeping filter is the shared run-record rule."""
+
+    def test_the_strip_reads_the_one_run_record_rule(self):
+        from osprey.mcp_server import artifact_activity
+        from osprey.stores import artifact_forms
+
+        assert artifact_activity.is_run_record is artifact_forms.is_run_record
+
     @pytest.mark.parametrize("part", ["preview", "code", "result"])
     def test_run_parts_other_than_output_are_bookkeeping(self, part):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
-
-        assert _is_bookkeeping(_entry(tool_source="execute", metadata={"run_part": part}))
+        assert is_run_record(_entry(tool_source="execute", metadata={"run_part": part}))
 
     def test_a_run_output_emits(self):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
-
         entry = _entry(
             tool_source="execute",
             artifact_type="notebook",
             title="Notebook: saved on purpose",
             metadata={"run_part": "output", RUN_RECORD_KEY: True},
         )
-        assert not _is_bookkeeping(entry)
+        assert not is_run_record(entry)
 
     def test_legacy_result_record_is_bookkeeping(self):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
+        assert is_run_record(_entry(tool_source="execute", category="code_output"))
+        assert is_run_record(_entry(tool_source="execute", metadata={RUN_RECORD_KEY: True}))
 
-        assert _is_bookkeeping(_entry(tool_source="execute", category="code_output"))
-        assert _is_bookkeeping(_entry(tool_source="execute", metadata={RUN_RECORD_KEY: True}))
+    def test_a_deliberate_save_emits(self):
+        assert not is_run_record(_entry(tool_source="create_static_plot"))
+        assert not is_run_record(_entry(tool_source="artifact_register"))
 
-    def test_a_deliberate_save_emits_whatever_its_category(self):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
-
-        assert not _is_bookkeeping(_entry(tool_source="create_static_plot"))
-        assert not _is_bookkeeping(_entry(tool_source="artifact_register", category="code_output"))
+    def test_a_tools_data_record_emits(self):
+        """A data record is an agent action on the strip, though never sent to anyone."""
+        entry = _entry(tool_source="archiver_read", data_file="var/agent_data/artifacts/a1.json")
+        assert not is_run_record(entry)
+        assert entry.deliver is False
 
 
 # ---- summary by form ---------------------------------------------------------

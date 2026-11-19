@@ -50,6 +50,8 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
+    config_pv_directory_ca_bundles,
+    config_pv_directory_credential_envs,
     config_stop_period,
     resolve_cards,
     roster_entries,
@@ -295,6 +297,10 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "phoebus_handle_renders": config_needs_phoebus_handles,
         "archiver_credential_renders": lambda cfg: bool(config_archiver_credential_envs(cfg)),
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
+        "pv_directory_credential_renders": lambda cfg: bool(
+            config_pv_directory_credential_envs(cfg)
+        ),
+        "pv_directory_ca_bundle_renders": lambda cfg: bool(config_pv_directory_ca_bundles(cfg)),
         "stop_grace_renders": lambda cfg: config_stop_period(cfg) > 0,
     }
     keyed = {"launch_token_renders", "application_token_renders"}

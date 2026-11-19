@@ -12,9 +12,10 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 
    Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
-Seven pages break that picture down — how a write is guarded on its way to the
+Eight pages break that picture down — how a write is guarded on its way to the
 machine, how reading differs from writing, how one facility description feeds
-every service, and the subsystems with architecture of their own:
+every service, the subsystems with architecture of their own, and how all of it
+is tested:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -80,6 +81,15 @@ every service, and the subsystems with architecture of their own:
       map, the two transports, and the model seam that makes the physics
       replaceable.
 
+   .. grid-item-card:: Testing
+      :link: testing
+      :link-type: doc
+      :shadow: md
+
+      The inventory of the suite — what each family of tests proves, when each
+      lane runs, how a scenario stages a fault for the agent to find, and what
+      the benchmarks measure.
+
 .. seealso::
 
    :doc:`/how-to/control-systems/use-connectors`
@@ -98,3 +108,4 @@ every service, and the subsystems with architecture of their own:
    facility-file
    facility-relations
    virtual-accelerator
+   testing

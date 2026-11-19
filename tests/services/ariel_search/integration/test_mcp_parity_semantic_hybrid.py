@@ -17,8 +17,9 @@ lane in PostgreSQL).
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -31,6 +32,7 @@ from tests.interfaces.ariel._routes_app import routes_app
 from tests.mcp_server.conftest import get_tool_fn
 from tests.services.ariel_search.conftest import skip_or_fail
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
+from tests.services.ariel_search.integration._support import fresh_database, migrated_repository
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -162,39 +164,52 @@ def strategy(request) -> str:
 STRATEGIES = pytest.mark.parametrize("strategy", ["qmd", "rrf"], indirect=True)
 
 
+async def _migrate_seed_and_embed(uri: str) -> None:
+    """Bring *uri* to today's schema, insert :data:`ROWS` and store each row's embedding."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.database.migrations import model_to_table_name
+
+    async with migrated_repository(ARIELConfig.from_dict(_raw(uri, "qmd"))) as repository:
+        _seed(uri)
+        with psycopg.connect(uri, autocommit=True) as conn:
+            table = conn.execute(
+                "SELECT to_regclass(%s) IS NOT NULL", (model_to_table_name(MODEL),)
+            ).fetchone()
+        if not table or not table[0]:
+            skip_or_fail("this server has no pgvector; the embedding table was not created")
+        for entry_id, *_rest, vector in ROWS:
+            await repository.store_text_embedding(entry_id, vector, MODEL)
+
+
+@pytest.fixture(scope="module")
+def seeded_database(database_url: str) -> Iterator[str]:
+    """One store, migrated, seeded and embedded once for every test in the module.
+
+    Shared because every test here only searches it: a search reads the store
+    and writes nothing back, so each test sees the rows the seed wrote. The
+    hybrid strategy is a setting of the service, not of the store, so one
+    store serves both. Prepared in a loop of its own, as a plain fixture of a
+    wider scope than the tests' loops must be.
+    """
+    with fresh_database(database_url) as uri:
+        asyncio.run(_migrate_seed_and_embed(uri))
+        yield uri
+
+
 @pytest.fixture
-async def service(
-    scratch_database: str, strategy: str, monkeypatch, tmp_path
-) -> AsyncIterator[Any]:
-    """One service over a migrated, seeded, embedded store, shared by MCP and REST."""
+async def service(seeded_database: str, strategy: str, monkeypatch, tmp_path) -> AsyncIterator[Any]:
+    """One service over the module's seeded store, shared by MCP and REST."""
     from osprey.mcp_server.ariel.server_context import initialize_ariel_context
     from osprey.services.ariel_search.config import ARIELConfig
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import (
-        model_to_table_name,
-        run_migrations,
-    )
     from osprey.services.ariel_search.service import create_ariel_service
 
-    raw = _raw(scratch_database, strategy)
+    raw = _raw(seeded_database, strategy)
     config = ARIELConfig.from_dict(raw)
-    async with await create_connection_pool(config.database) as pool:
-        await run_migrations(pool, config)
-    _seed(scratch_database)
-    with psycopg.connect(scratch_database, autocommit=True) as conn:
-        table = conn.execute(
-            "SELECT to_regclass(%s) IS NOT NULL", (model_to_table_name(MODEL),)
-        ).fetchone()
-    if not table or not table[0]:
-        skip_or_fail("this server has no pgvector; the embedding table was not created")
-
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(json.dumps({"ariel": raw}))
     initialize_ariel_context()
     svc = await create_ariel_service(config)
     try:
-        for entry_id, *_rest, vector in ROWS:
-            await svc.repository.store_text_embedding(entry_id, vector, MODEL)
         with patch(
             "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=svc),

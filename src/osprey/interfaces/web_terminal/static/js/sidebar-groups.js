@@ -112,7 +112,7 @@ export const FALLBACK_GROUP = 'tools';
 const DEFAULT_WORKSPACE = Object.freeze(['artifacts']);
 
 /** The panels that sit in System until the operator moves them. */
-const DEFAULT_SYSTEM = Object.freeze(['events', 'system-health']);
+const DEFAULT_SYSTEM = Object.freeze(['events', 'system-health', 'roster']);
 
 /** The id of a group the operator added. */
 const CUSTOM_ID = /^g-[0-9a-f]{8}$/;

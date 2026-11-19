@@ -604,8 +604,13 @@ class TestAttachmentTextColumnsMigration:
         assert await migrations.run_migrations(scratch_pool, scratch_config) == ["core_schema"]
         monkeypatch.setattr(migrations, "KNOWN_MIGRATIONS", both)
 
-        # A hang ceiling: k times the retry budget the busy skip is bounded by.
+        # A hang ceiling: k times the unpatched retry budget, computed before the
+        # patch below on purpose, so it stays what it was with the real delay.
         ceiling_s = 6 * migrations.LOCK_ATTEMPTS * migrations.LOCK_RETRY_DELAY_S
+        # The retries keep their count; only the pause between them shrinks, so
+        # the readers and the sampler still run across every attempt. This proves
+        # the attempts never queue; it no longer runs the real wall-clock window.
+        monkeypatch.setattr(migrations, "LOCK_RETRY_DELAY_S", 0.05)
 
         holder = await psycopg.AsyncConnection.connect(scratch_database)
         third = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)

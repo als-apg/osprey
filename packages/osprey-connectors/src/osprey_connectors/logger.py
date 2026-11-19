@@ -42,7 +42,7 @@ from typing import NamedTuple, TypeAlias
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import config_flag, get_config_value
 
 __all__ = [
     "ComponentLogger",
@@ -482,19 +482,28 @@ _settings_warning_given = False
 def _read_handler_settings() -> tuple[_HandlerSettings, Exception | None]:
     """Read the handler's settings from the configuration this process resolves.
 
+    Each switch is read through :func:`config_flag`, so a ``"false"`` that
+    reached the config as text (quoted, or a resolved ``${VAR:-false}``) is off.
+    A switch spelling neither on nor off is a problem like an unavailable
+    configuration: every setting falls back to the defaults, which hide locals
+    and shorten paths, rather than failing the process's start-up over a
+    logging key.
+
     Returns:
         The settings, and what kept them from being read: the defaults and the
         exception when the configuration is unavailable, else ``None``.
     """
+
+    def switch(name: str, default: bool) -> bool:
+        key = f"logging.{name}"
+        return config_flag(get_config_value(key, default), key=key)
+
     try:
-        # Read for their truth, as RichHandler reads them.
         return (
             _HandlerSettings(
-                rich_tracebacks=bool(get_config_value("logging.rich_tracebacks", True)),
-                show_traceback_locals=bool(
-                    get_config_value("logging.show_traceback_locals", False)
-                ),
-                show_full_paths=bool(get_config_value("logging.show_full_paths", False)),
+                rich_tracebacks=switch("rich_tracebacks", True),
+                show_traceback_locals=switch("show_traceback_locals", False),
+                show_full_paths=switch("show_full_paths", False),
             ),
             None,
         )

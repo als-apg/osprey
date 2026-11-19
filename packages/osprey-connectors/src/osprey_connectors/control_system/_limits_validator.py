@@ -446,29 +446,6 @@ class LimitsValidator:
         logger.debug(f"Loaded limits database with {len(limits_db)} channels from {db_path}")
         return (limits_db, raw_db), None
 
-    @staticmethod
-    def writable_addresses(db_path: str | Path) -> frozenset[str]:
-        """The addresses a limits database declares writable.
-
-        Read through :meth:`_load_limits_database` rather than from the raw
-        JSON, so the metadata keys and the per-entry validation are applied by
-        the same code the write path applies them with: ``writable`` is read
-        from each entry, an entry that does not state it fails the load, and a
-        top-level ``defaults`` key fails the load.
-
-        Args:
-            db_path: Path to a ``channel_limits.json``-shaped file.
-
-        Returns:
-            The writable addresses.
-
-        Raises:
-            ValueError: If the file is missing, is not JSON, is not a JSON
-                object, or carries an entry the validator refuses.
-        """
-        limits_db, _raw = LimitsValidator._load_limits_database(str(db_path))
-        return frozenset(address for address, entry in limits_db.items() if entry.writable)
-
     @classmethod
     def from_config(
         cls,

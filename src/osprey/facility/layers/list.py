@@ -20,12 +20,16 @@ address per line. Blank lines are skipped and every cell is stripped.
 The layer writes ``imported/list/channels.yaml``, one record per row sorted by
 address, holding only the fields its row fills; the import step seeds the
 knowledge stub, and the layer seeds no authored file of its own.
+The list declares the devices it names: for each device a row names, the layer
+writes ``{id}`` to ``imported/list/devices.yaml``, plus ``s``, and ``model``
+when stated, where a row states the device's ``s``, and no other device field.
 ``s`` and ``model`` state the position of the row's device, never of the
-channel: for each device a row states ``s`` for, the layer writes ``{id, s}``,
-plus ``model`` when stated, to ``imported/list/devices.yaml``, and no other
-device field, so a device another source declares merges with it field by
-field and one declared nowhere else holds only its position. The layer writes
-``devices.yaml`` only when some row states ``s``.
+channel. A device another source declares merges with the record field by
+field; one declared nowhere else holds only its id and position. The layer
+writes ``devices.yaml`` only when some row names a device. When another layer
+or ``records/devices.yaml`` declares devices, one ``import list:`` line on
+stderr names the devices this list alone declares; ``fixes.yaml`` is not read
+for it.
 
 A row naming both a device and a place, a role outside the three, an unknown or
 repeated column, a row with more cells than the header, a row with no address,
@@ -50,6 +54,7 @@ import click
 
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.sources import load_sources
 from osprey_connectors import yaml_loader
 
 __all__ = ["COLUMNS", "LAYER_DIR", "import_list"]
@@ -84,6 +89,7 @@ class _Reading:
     name: str
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
     rows: dict[str, int] = field(default_factory=dict)
+    devices: set[str] = field(default_factory=set)
     positions: dict[str, dict[str, tuple[Any, int]]] = field(default_factory=dict)
     errors: list[FacilityBuildError] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -120,27 +126,45 @@ def import_list(path: Path, facility_dir: Path) -> list[Path]:
         click.echo(warning, err=True)
     if reading.errors:
         raise LayerSourceInvalid(reading.errors)
+    alone = _declared_alone(facility_dir, reading.devices)
+    if alone:
+        click.echo(f"import list: declared by this list only: {', '.join(alone)}", err=True)
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
     written = [
         _dump(layer / "channels.yaml", [reading.channels[a] for a in sorted(reading.channels)])
     ]
     devices = layer / "devices.yaml"
-    if reading.positions:
-        written.append(_dump(devices, _devices(reading.positions)))
+    if reading.devices:
+        written.append(_dump(devices, _devices(reading)))
     elif devices.exists():
         devices.unlink()
     return written
 
 
-def _devices(positions: dict[str, dict[str, tuple[Any, int]]]) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": device,
-            **{slot: positions[device][slot][0] for slot in _POSITION if slot in positions[device]},
-        }
-        for device in sorted(positions)
-    ]
+def _devices(reading: _Reading) -> list[dict[str, Any]]:
+    """One record per device a row names, with the position the rows state for it."""
+    records = []
+    for device in sorted(reading.devices):
+        stated = reading.positions.get(device, {})
+        records.append(
+            {"id": device, **{slot: stated[slot][0] for slot in _POSITION if slot in stated}}
+        )
+    return records
+
+
+def _declared_alone(facility_dir: Path, devices: set[str]) -> list[str]:
+    """The listed devices no other source declares, when another source declares any.
+
+    A list that is the facility's only source of device records declares all
+    of them, and none is named.
+    """
+    elsewhere = {
+        record.id
+        for record in load_sources(facility_dir).sources.records
+        if record.kind == "device" and record.file != f"{LAYER_DIR}/devices.yaml"
+    }
+    return sorted(devices - elsewhere) if elsewhere else []
 
 
 def _read(path: Path) -> _Reading:
@@ -274,6 +298,8 @@ def _channel(
         ok = False
     if not ok:
         return None
+    if device:
+        reading.devices.add(device)
     if position:
         _state_position(reading, number, device, position)
     if role:

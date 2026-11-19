@@ -194,6 +194,10 @@ LAYOUT: tuple[PortSlot, ...] = (
     # member sits directly above the dispatcher it answers to. Host-network
     # mode only: bridge-mode workers publish nothing on the host.
     PortSlot("worker", 10, "dispatch", "services.dispatch_worker.worker_port_base"),
+    # The dispatch bus the workers connect to, directly above their band. Spent
+    # on the host only in host-network mode; on the compose bridge the workers
+    # reach it by the dispatcher's service name and nothing is published.
+    PortSlot("dispatch_bus", 50, "dispatch", "services.event_dispatcher.bus_port"),
     # The agent record's service: every write and read of the record goes
     # through it. Moved by the rendered ``agent_record.port``.
     PortSlot("agent_record", 53, "services", "agent_record.port"),

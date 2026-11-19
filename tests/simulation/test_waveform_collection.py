@@ -28,8 +28,6 @@ from osprey_connectors.simulation.archive import (
     waveform_collection,
     waveform_document,
 )
-from tests._container_support import is_docker_available
-from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -157,29 +155,21 @@ def test_prepare_without_a_waveform_handle_touches_only_the_scalar_collection():
 
 
 @pytest.fixture(scope="module")
-def mongo_database():
-    """A real store, so the index is checked as MongoDB records it."""
-    if not is_docker_available():
-        pytest.skip("Docker not available — needed to inspect real indexes.")
-
+def mongo_database(mongodb_container):
+    """A real store, so the index is checked as MongoDB records it: the session's."""
     from pymongo import MongoClient
 
-    username, password = "waveuser", "wavepass123"
-    with started_mongo("mongodb-waveform", username=username, password=password) as (
-        host,
-        port,
-    ):
-        client = MongoClient(
-            host=host,
-            port=port,
-            username=username,
-            password=password,
-            authSource=MONGO_AUTH_DB,
-        )
-        try:
-            yield client["waveform_test_db"]
-        finally:
-            client.close()
+    client = MongoClient(
+        host=mongodb_container["host"],
+        port=mongodb_container["port"],
+        username=mongodb_container["username"],
+        password=mongodb_container["password"],
+        authSource=mongodb_container["auth_db"],
+    )
+    try:
+        yield client["waveform_test_db"]
+    finally:
+        client.close()
 
 
 def _ttl_indexes(handle) -> dict[str, int]:
@@ -190,6 +180,12 @@ def _ttl_indexes(handle) -> dict[str, int]:
     }
 
 
+# xdist_group("docker"), on this store-backed test only: it uses the session's
+# ``mongodb_container`` (tests/conftest.py), and the docker group puts it on the
+# worker that already runs it, so it shares that container instead of starting one
+# of its own. It works in a database of its own, ``waveform_test_db``, and drops
+# every collection it creates. The store-free tests stay on this file's own worker.
+@pytest.mark.xdist_group("docker")
 def test_the_prepared_waveform_collection_carries_the_expiry_index(mongo_database):
     scalar = mongo_database["pv_history"]
     waveforms = mongo_database[waveform_collection(scalar.name)]

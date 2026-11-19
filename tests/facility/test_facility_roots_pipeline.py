@@ -153,37 +153,61 @@ def test_mounted_content_in_the_content_root_is_hashed(tmp_path: Path) -> None:
 # --- build and render --------------------------------------------------------------------
 
 
-def test_a_split_renders_the_same_views_as_one_tree(tmp_path: Path) -> None:
-    tree = _single(tmp_path)
-    machine, content = _split(tmp_path)
+#: A knowledge page naming a device no tree holds, so a build that reads it warns.
+_GONE = "---\ntype: device\ndevice_id: NO/SUCH/DEVICE\n---\n\n# Gone\n"
+
+#: The same, naming another missing device, left in a mounting deployment's machine root.
+_STALE = "---\ntype: device\ndevice_id: NO/SUCH/STALE\n---\n\n# Stale\n"
+
+
+@pytest.fixture(scope="module")
+def built_both_ways(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """The example built and rendered as one tree and as a split, once for the module.
+
+    Both carry the dangling page ``knowledge/gone.md`` in the root a build reads knowledge
+    from: the one tree, or the split's content root. The split also leaves
+    ``knowledge/stale.md``, naming another missing device, in its machine root, where a
+    mounted build must not read it.
+    """
+    root = tmp_path_factory.mktemp("roots")
+    tree = _single(root)
+    machine, content = _split(root)
+    (tree / "knowledge" / "gone.md").write_text(_GONE)
+    (content / "knowledge" / "gone.md").write_text(_GONE)
+    (machine / "knowledge").mkdir()
+    (machine / "knowledge" / "stale.md").write_text(_STALE)
+
     one_doc, one_warnings = build_facility_with_warnings(tree, project_name="site")
     split_doc, split_warnings = build_facility_with_warnings(
         machine, project_name="site", content_dir=content
     )
-    one_render = tmp_path / "render-one"
-    split_render = tmp_path / "render-split"
+    one_render = root / "render-one"
+    split_render = root / "render-split"
     one_render.mkdir()
     split_render.mkdir()
-
     render_facility_outputs(one_render, one_doc, CONFIG, tree)
     render_facility_outputs(split_render, split_doc, CONFIG, machine, content_dir=content)
+    return {
+        "one": (one_doc, list(one_warnings), _rendered(one_render)),
+        "split": (split_doc, list(split_warnings), _rendered(split_render)),
+    }
+
+
+def test_a_split_renders_the_same_views_as_one_tree(built_both_ways: dict[str, Any]) -> None:
+    one_doc, one_warnings, one = built_both_ways["one"]
+    split_doc, split_warnings, split = built_both_ways["split"]
 
     assert split_doc == one_doc
     assert [w.line for w in split_warnings] == [w.line for w in one_warnings]
-    one = _rendered(one_render)
     assert "data/benchmarks/queries.json" in one
-    assert _rendered(split_render) == one
+    assert split == one
 
 
-def test_a_dangling_knowledge_link_warns_when_mounted_as_in_one_tree(tmp_path: Path) -> None:
-    tree = _single(tmp_path)
-    machine, content = _split(tmp_path)
-    page = "---\ntype: device\ndevice_id: NO/SUCH/DEVICE\n---\n\n# Gone\n"
-    (tree / "knowledge" / "gone.md").write_text(page)
-    (content / "knowledge" / "gone.md").write_text(page)
-
-    _, one = build_facility_with_warnings(tree, project_name="site")
-    _, split = build_facility_with_warnings(machine, project_name="site", content_dir=content)
+def test_a_dangling_knowledge_link_warns_when_mounted_as_in_one_tree(
+    built_both_ways: dict[str, Any],
+) -> None:
+    _, one, _ = built_both_ways["one"]
+    _, split, _ = built_both_ways["split"]
 
     dangling = [w.line for w in split if w.kind == "link-dangling"]
     assert any("knowledge/gone.md" in line and "NO/SUCH/DEVICE" in line for line in dangling)
@@ -191,17 +215,12 @@ def test_a_dangling_knowledge_link_warns_when_mounted_as_in_one_tree(tmp_path: P
 
 
 def test_a_knowledge_page_left_in_the_machine_root_is_not_read_when_mounted(
-    tmp_path: Path,
+    built_both_ways: dict[str, Any],
 ) -> None:
-    machine, content = _split(tmp_path)
-    (machine / "knowledge").mkdir()
-    (machine / "knowledge" / "gone.md").write_text(
-        "---\ntype: device\ndevice_id: NO/SUCH/DEVICE\n---\n\n# Gone\n"
-    )
+    _, warnings, _ = built_both_ways["split"]
 
-    _, warnings = build_facility_with_warnings(machine, project_name="site", content_dir=content)
-
-    assert not any("NO/SUCH/DEVICE" in w.line for w in warnings)
+    assert any("NO/SUCH/DEVICE" in w.line for w in warnings), "the content root was not read"
+    assert not any("NO/SUCH/STALE" in w.line for w in warnings)
 
 
 # --- facility settings -------------------------------------------------------------------

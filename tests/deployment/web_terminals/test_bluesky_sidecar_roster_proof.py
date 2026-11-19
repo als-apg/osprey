@@ -15,7 +15,8 @@ panel answered ``401 invalid credential``. The one test on that seam asserted
 on a re-render no verb performs, and shipped it green.
 
 This module is the proof that would have caught it on its own: a REAL
-``osprey init --preset demo`` + ``osprey build`` render, the
+``osprey init --preset demo`` + ``osprey build`` render (the run's shared
+``built_demo``, copied so this module can write to it), the
 deploy ``.env`` written by the SAME writers ``osprey up`` calls, the sidecar
 started by ``docker compose`` from the compose files the build wrote (the
 as-built list, resolved the way the start verbs resolve it), and four requests
@@ -40,35 +41,30 @@ affordable here, and the Dockerfile is not what this module tests: the gate
 lives in this checkout's ``src/``. So the sidecar runs from a small harness
 image — ``python:3.11-slim`` plus the part of the distribution's declared
 dependency set the sidecar's import closure needs (taken from the installed
-distribution's own metadata, exactly as ``test_auth_serving.py`` does, so the
-harness can only contain what a deployment's ``pip install osprey-framework``
-would also install) — with this repository's ``src/`` bind-mounted. Everything
-else about the container is the rendered compose's own: the uvicorn argv, the
-environment (the roster grant included), the config and audit mounts, the
-network. A compose OVERRIDE file swaps in the harness image and the source
-mounts, gives the container a per-run name, and replaces the rendered fixed
-host port with an ephemeral loopback binding, because the deployment's port
-layout (``10071`` by default) may be in use by a real deployment on the host
-running this test.
+distribution's own metadata, so the harness can only contain what a
+deployment's ``pip install osprey-framework`` would also install; it is the
+image ``test_auth_serving.py`` runs its sidecar from, ``_harness_image.py``)
+— with this repository's ``src/`` bind-mounted. Everything else about the
+container is the rendered compose's own: the uvicorn argv, the environment
+(the roster grant included), the config and audit mounts, the network. A
+compose OVERRIDE file swaps in the harness image and the source mounts, gives
+the container a per-run name, and replaces the rendered fixed host port with an
+ephemeral loopback binding, because the deployment's port layout (``10071`` by
+default) may be in use by a real deployment on the host running this test.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
-import re
 import subprocess
-import textwrap
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from importlib.metadata import requires as distribution_requires
 from pathlib import Path
 
 import httpx
 import pytest
 import yaml
-from packaging.requirements import Requirement
 
 from osprey.deployment.compose_generator import compose_base_cmd
 from osprey.deployment.container_lifecycle import (
@@ -88,13 +84,14 @@ from osprey.deployment.web_terminals.roster import (
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from tests._builds import BuiltProject, copy_build
 from tests._container_support import (
     RuntimeContainer,
     docker_cli_unavailable_reason_once,
     require_container_runtime,
     runtime_command,
 )
-from tests.cli.test_tier_app_presets import _build_render_stack
+from tests.deployment.web_terminals._harness_image import build_harness_image
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
@@ -128,105 +125,6 @@ _PANEL_PATH = "/bluesky/?embedded=true"
 #: preset change fails there with the reason rather than as a bare 401.
 _ENTITLED_USER = "alice"
 _UNENTITLED_USER = "bob"
-
-_PACKAGES = (
-    "fastapi",
-    "uvicorn",
-    "authlib",
-    "itsdangerous",
-    "python-multipart",
-    "httpx",
-    "jinja2",
-    "ruamel.yaml",
-    "pyyaml",
-    "click",
-    "rich",
-)
-"""The sidecar's import closure, by distribution name.
-
-``import osprey.interfaces.bluesky_web.app`` in a bare ``python:3.11-slim``
-needs the web stack (the first six) and the config/registry packages
-``osprey.interfaces._app_setup`` drags in behind the auth middleware. The
-*versions* are never named here — see :func:`_declared_specs`.
-"""
-
-
-# ---------------------------------------------------------------------------
-# Harness image
-# ---------------------------------------------------------------------------
-
-
-def _canonical(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def _declared_specs() -> tuple[str, ...]:
-    """The requirement specifiers ``osprey-framework`` declares for :data:`_PACKAGES`.
-
-    Read from the *installed distribution's* metadata rather than written out
-    here, so the harness image can only contain what a deployment's
-    ``pip install osprey-framework`` would also install.
-
-    Raises:
-        AssertionError: If the distribution does not declare one of them. That
-            is a real defect rather than a harness problem — the sidecar imports
-            the package, so the deployed image would be missing it too.
-    """
-    declared: dict[str, str] = {}
-    for raw in distribution_requires("osprey-framework") or ():
-        requirement = Requirement(raw)
-        # Extras (``; extra == "dev"``) are not in a default install, so they
-        # are not in the deployed image either.
-        if requirement.marker is not None and not requirement.marker.evaluate({"extra": ""}):
-            continue
-        declared[_canonical(requirement.name)] = str(requirement)
-
-    missing = [name for name in _PACKAGES if _canonical(name) not in declared]
-    assert not missing, (
-        f"osprey-framework does not declare {missing}, which the bluesky-web sidecar "
-        "imports. The deployed sidecar image installs the distribution's declared "
-        "dependencies and would be missing them too."
-    )
-    return tuple(declared[_canonical(name)] for name in _PACKAGES)
-
-
-def _harness_dockerfile() -> str:
-    specs = " ".join(f'"{spec}"' for spec in _declared_specs())
-    return textwrap.dedent(
-        f"""\
-        FROM python:3.11-slim
-        RUN pip install --no-cache-dir {specs}
-        ENV PYTHONPATH=/src:/connectors-src PYTHONDONTWRITEBYTECODE=1
-        """
-    )
-
-
-def _build_harness_image(tmp_path: Path) -> str:
-    """Build (or reuse) the image the sidecar runs from.
-
-    The tag carries a digest of the Dockerfile, so a dependency-declaration
-    change produces a new tag instead of silently reusing a stale layer. Every
-    session on the host that would build identical content shares the tag, so
-    no session removes it: another may be starting a container from it.
-    """
-    dockerfile = _harness_dockerfile()
-    tag = f"osprey-bluesky-roster-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
-
-    if runtime_command("image", "inspect", tag, capture_output=True).returncode == 0:
-        return tag
-
-    context = tmp_path / "harness"
-    context.mkdir()
-    (context / "Dockerfile").write_text(dockerfile)
-    result = subprocess.run(
-        ["docker", "build", "-t", tag, str(context)],
-        capture_output=True,
-        text=True,
-        timeout=900,
-    )
-    assert result.returncode == 0, f"harness image build failed:\n{result.stdout}\n{result.stderr}"
-    return tag
-
 
 # ---------------------------------------------------------------------------
 # The composed sidecar
@@ -401,10 +299,15 @@ def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.
 
 
 @pytest.fixture(scope="module")
-def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
-    """The sidecar of a real demo build, up on an ephemeral port."""
+def sidecar(tmp_path_factory, built_demo: BuiltProject) -> Iterator[Sidecar]:
+    """The sidecar of the run's real demo build, up on an ephemeral port.
+
+    It runs on a copy: the deploy ``.env`` is written into the repo and compose
+    creates the rendered bind sources under ``var/``, and ``built_demo`` is
+    shared read-only with every other reader of the run.
+    """
     tmp_path = tmp_path_factory.mktemp("bluesky-roster")
-    repo = _build_render_stack(tmp_path / "my-facility")
+    repo = copy_build(built_demo.repo, tmp_path)
     host_config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     assert "bluesky_web" in host_config["deployed_services"]
 
@@ -420,7 +323,7 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     )
 
     require_container_runtime()
-    image = _build_harness_image(tmp_path)
+    image = build_harness_image(tmp_path)
 
     # One compose project per run: the container name is a host-global docker
     # identifier and the network is namespaced by the project, so a unique

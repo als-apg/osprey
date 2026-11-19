@@ -46,6 +46,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
 from osprey.docs_links import PERIMETER_LIMITS_URL
+from osprey.interfaces._assets import CACHE_IMMUTABLE, CACHE_REVALIDATE
 from osprey.interfaces.web_auth import (
     JudgeAdmission,
     JudgeGrants,
@@ -135,7 +136,7 @@ __all__ = [
 #: backend's root, so its vendor files sit under this mount.
 APP_PANEL_VENDOR_MOUNT = "/vendor/"
 
-_IMMUTABLE = "public, max-age=31536000, immutable"
+_IMMUTABLE = CACHE_IMMUTABLE
 _UNCACHED = "no-cache, no-store, must-revalidate"
 
 
@@ -162,9 +163,16 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     for a ``GET``/``HEAD`` answered 200, and never over a route's own
     ``no-store``: an error or redirect on a vendor path is uncached, so it
     cannot outlive the deploy that produced it. Proxied panel traffic keeps its
-    upstream's headers. All other static/API paths are uncached to avoid stale
-    code after updates; the design system's modules among them, since a page's
-    own scripts import names from them and a stale copy breaks the page at load.
+    upstream's headers. API paths are uncached.
+
+    A first-party file under ``/static/`` or ``/design-system/`` is never served
+    stale, and never by leaving the browser to guess. The asset mounts answer a
+    plain URL ``no-cache`` (stored, revalidated by content on every use) and a
+    fingerprinted one ``immutable`` (:mod:`osprey.interfaces._assets`); this
+    layer keeps exactly those two answers and marks everything else under those
+    paths uncached. A page's scripts import names from the design system's
+    modules, so a copy from the previous deploy stops the page at load; both
+    answers rule that out.
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -177,7 +185,13 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = _IMMUTABLE
             else:
                 response.headers["Cache-Control"] = _UNCACHED
-        elif path.startswith(("/static/", "/api/", "/design-system/")):
+        elif path.startswith(("/static/", "/design-system/")):
+            # The asset mounts state their own policy on an answer that carries
+            # a file (osprey.interfaces._assets); anything else under these
+            # paths, an error or a rendered page, is uncached.
+            if response.headers.get("Cache-Control") not in (CACHE_IMMUTABLE, CACHE_REVALIDATE):
+                response.headers["Cache-Control"] = _UNCACHED
+        elif path.startswith("/api/"):
             response.headers["Cache-Control"] = _UNCACHED
         return response
 

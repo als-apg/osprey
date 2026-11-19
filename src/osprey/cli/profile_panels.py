@@ -8,7 +8,8 @@ reads it, from the resolved profile of every login, so the table is what the
 renders will carry and not a second reading of the files.
 
 :func:`panel_matrix` is the derivation, :func:`format_panel_matrix` the plain
-table and :func:`panel_matrix_html` the same table as one self-contained page.
+table, :func:`panel_matrix_html` the same table as one self-contained page and
+:func:`panel_matrix_bundle` that page as the ``roster`` panel of the web terminal.
 """
 
 from __future__ import annotations
@@ -21,7 +22,13 @@ from typing import Any
 
 import yaml
 
-from osprey.profiles.web_panels import UNIVERSAL_PANELS, in_catalog_order, panel_label
+from osprey.profiles.web_panels import (
+    BUILD_PANELS,
+    ROSTER_PANEL_ID,
+    UNIVERSAL_PANELS,
+    in_catalog_order,
+    panel_label,
+)
 
 __all__ = [
     "STATE_DEFAULT",
@@ -30,6 +37,7 @@ __all__ = [
     "STATE_TAB",
     "format_panel_matrix",
     "panel_matrix",
+    "panel_matrix_bundle",
     "panel_matrix_html",
 ]
 
@@ -255,13 +263,7 @@ def format_panel_matrix(matrix: Mapping[str, Any]) -> list[str]:
     return lines
 
 
-_PAGE = """<!doctype html>
-<html lang="en" data-theme="dark"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Panels by login</title>
-<style>
-__TOKENS__
-*,*::before,*::after{box-sizing:border-box}
+_STYLE = """*,*::before,*::after{box-sizing:border-box}
 body{margin:0;padding:var(--space-5) var(--space-4);background:var(--surface-canvas);
   color:var(--text-primary);font:var(--weight-regular) var(--text-lg)/var(--leading-normal) var(--font-display)}
 header{display:flex;align-items:baseline;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-4)}
@@ -295,30 +297,90 @@ td[data-why]:focus-visible,td.picked{outline:2px solid var(--surface-focus);outl
 .legend span{display:inline-flex;align-items:center;gap:var(--space-2)}
 #why{margin-top:var(--space-3);padding:var(--space-3) var(--space-4);min-height:44px;background:var(--surface-well);
   border:1px solid var(--border-default);border-radius:var(--radius-lg);color:var(--text-secondary)}
-</style></head><body>
-<header><h1>Panels by login</h1>
-<p>What each login of this deployment shows. Select a cell to see which file decides it.</p>
-<button type="button" id="theme">Light</button></header>
-<div class="card"><table><thead><tr><th>Panel</th>__HEAD__</tr></thead><tbody>__BODY__</tbody></table></div>
+"""
+
+_INTRO = (
+    "<h1>Panels by login</h1>"
+    "<p>What each login of this deployment shows. Select a cell to see which file decides it.</p>"
+)
+
+_TABLE = """<div class="card"><table><thead><tr><th>Panel</th>__HEAD__</tr></thead><tbody>__BODY__</tbody></table></div>
 <div class="legend">
 <span class="default"><span class="pill">default</span>opens first</span>
 <span class="tab"><span class="pill">tab</span>on the sidebar</span>
 <span class="menu"><span class="pill">menu</span>in the panel menu only</span>
 <span class="off"><span class="pill">&ndash;</span>not there</span></div>
 <div id="why">Select a cell.</div>
-<script>
-const data=__DATA__;
-const root=document.documentElement,button=document.getElementById('theme');
-function theme(name){root.dataset.theme=name;button.textContent=name==='dark'?'Light':'Dark';}
-theme(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
-button.addEventListener('click',()=>theme(root.dataset.theme==='dark'?'light':'dark'));
+"""
+
+_PICK = """const data=__DATA__;
 function pick(td){document.querySelectorAll('td.picked').forEach(c=>c.classList.remove('picked'));
   td.classList.add('picked');document.getElementById('why').textContent=td.dataset.why;}
 document.querySelectorAll('td[data-why]').forEach(td=>{
   td.addEventListener('click',()=>pick(td));
   td.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(td);}});});
-</script></body></html>
 """
+
+#: The page a maintainer opens from disk: it links nothing, so it carries the
+#: token blocks and its own light/dark button.
+_PAGE = (
+    """<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panels by login</title>
+<style>
+__TOKENS__
+"""
+    + _STYLE
+    + "</style></head><body>\n<header>"
+    + _INTRO
+    + """
+<button type="button" id="theme">Light</button></header>
+"""
+    + _TABLE
+    + """<script>
+const root=document.documentElement,button=document.getElementById('theme');
+function theme(name){root.dataset.theme=name;button.textContent=name==='dark'?'Light':'Dark';}
+theme(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+button.addEventListener('click',()=>theme(root.dataset.theme==='dark'?'light':'dark'));
+"""
+    + _PICK
+    + "</script></body></html>\n"
+)
+
+#: The same table as a panel of the web terminal: it links the design system by
+#: the panel contract's canonical tags and follows the terminal's theme, so it
+#: has no button of its own.
+_PANEL_PAGE = (
+    """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panels by login</title>
+<script type="module">
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { applyEmbedded } from '/design-system/js/frame-params.js';
+  initTheme({ role: 'follower' });
+  applyEmbedded();
+</script>
+<style>
+html,body{height:auto;overflow:auto}
+"""
+    + _STYLE
+    + "</style></head><body>\n<header>"
+    + _INTRO
+    + "</header>\n"
+    + _TABLE
+    + "<script>\n"
+    + _PICK
+    + "</script></body></html>\n"
+)
 
 _PAGE_MARKS = {STATE_DEFAULT: "default", STATE_TAB: "tab", STATE_MENU: "menu", STATE_OFF: "\u2013"}
 
@@ -367,6 +429,11 @@ def panel_matrix_html(matrix: Mapping[str, Any]) -> str:
     Returns:
         The page's HTML. It loads nothing from the network.
     """
+    return _filled(_PAGE.replace("__TOKENS__", _theme_tokens()), matrix)
+
+
+def _filled(page: str, matrix: Mapping[str, Any]) -> str:
+    """*page* with the table of *matrix* and its data written in."""
     esc = html.escape
     head = "".join(
         f"<th>{esc(render['name'])}<small>{esc(render['file'])}</small>"
@@ -385,9 +452,30 @@ def panel_matrix_html(matrix: Mapping[str, Any]) -> str:
             )
         body += "</tr>"
     data = json.dumps(matrix).replace("</", "<\\/")
-    return (
-        _PAGE.replace("__TOKENS__", _theme_tokens())
-        .replace("__HEAD__", head)
-        .replace("__BODY__", body)
-        .replace("__DATA__", data)
-    )
+    return page.replace("__HEAD__", head).replace("__BODY__", body).replace("__DATA__", data)
+
+
+def panel_matrix_bundle(matrix: Mapping[str, Any]) -> dict[str, str]:
+    """*matrix* as the files of the ``roster`` panel's bundle.
+
+    The bundle is what the panel contract asks of any static panel
+    (:mod:`osprey.interfaces.design_system.panels.validator`): a manifest and
+    an entry page that links the design system. ``osprey build`` writes it into
+    a render that selects the panel, and the web terminal serves it from there.
+
+    Args:
+        matrix: What :func:`panel_matrix` returns.
+
+    Returns:
+        File name to content: ``manifest.json`` and ``index.html``.
+    """
+    manifest = {
+        "id": ROSTER_PANEL_ID,
+        "label": BUILD_PANELS[ROSTER_PANEL_ID],
+        "entry": "index.html",
+        "version": 1,
+    }
+    return {
+        "manifest.json": json.dumps(manifest, indent=2) + "\n",
+        "index.html": _filled(_PANEL_PAGE, matrix),
+    }

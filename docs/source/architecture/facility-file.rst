@@ -86,6 +86,10 @@ filters the file's own channel records and names a model or a place.
      - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey.facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
      - Sorted keys.
      -
+   * - ``facility_sha256()``
+     - The sha256 hex digest of ``facility_bytes()``, taken from the same one serialisation, so a view can key on the document without holding its bytes.
+     - Lowercase hex.
+     -
    * - ``record(kind, id)``
      - The one record of that kind and id.
      -

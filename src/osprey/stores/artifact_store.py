@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from osprey.stores.artifact_forms import (
     RUN_RECORD_KEY,
+    RUN_ROLES,
     extension_key,
     form_of,
     is_run_record,
@@ -213,6 +214,13 @@ class ArtifactEntry:
     kind: str = ""
     """The registered extension type this artifact is (``osprey.stores.type_registry``),
     empty for none. ``artifact_type`` stays the file format."""
+    deliver: bool = False
+    """Whether this entry was made for the person who asked, stated by its writer
+    at save time (the ``deliver`` argument of the save methods). A dispatch run
+    lists exactly its entries that say so, and a chat bridge posts what the
+    list names. An entry that states nothing — a run's own record, a tool's
+    data record, anything saved before the field existed — is kept in the
+    store and served by id, never posted."""
 
     def to_dict(self) -> dict[str, Any]:
         # ``_sanitize_for_json`` already rebuilds every nested dict and list, so
@@ -440,9 +448,6 @@ def _stamped_metadata(metadata: Mapping[str, Any] | None, now: str) -> dict[str,
 
 RunRole = Literal["preview", "code", "output", "result"]
 RunStatus = Literal["succeeded", "failed", "not_run"]
-
-RUN_ROLES: frozenset[str] = frozenset({"preview", "code", "output", "result"})
-"""Every value ``metadata.run_part`` may take."""
 
 RUN_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "not_run"})
 """Every value a result head's ``metadata.run_status`` may take."""
@@ -766,6 +771,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         d.setdefault("origin", "")
         d.setdefault("exec_id", "")
         d.setdefault("kind", "")
+        d.setdefault("deliver", False)
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -807,6 +813,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         at: datetime | None = None,
         entry_id: str | None = None,
     ) -> ArtifactEntry:
@@ -823,8 +830,10 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         an ingested caller file, :data:`EXAMPLE_ORIGIN` for the shipped
         example; empty for produced output). An empty ``origin`` takes
         ``OSPREY_ARTIFACT_ORIGIN``. ``exec_id`` links the entry into a run group;
-        ``kind`` names its extension type. ``category`` is deprecated and
-        ignored.
+        ``kind`` names its extension type. ``deliver=True`` states that the
+        entry was made for the person who asked (:attr:`ArtifactEntry.deliver`);
+        a writer that leaves it out stores a record nobody is sent.
+        ``category`` is deprecated and ignored.
 
         ``at`` (timezone-aware) states the save's time: it becomes
         ``timestamp`` and, unless *metadata* already names one,
@@ -848,6 +857,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 session_id=session_id,
                 exec_id=exec_id,
                 kind=kind,
+                deliver=deliver,
                 at=at,
                 entry_id=entry_id,
             )
@@ -875,6 +885,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         at: datetime | None = None,
         entry_id: str | None = None,
     ) -> ArtifactEntry:
@@ -916,6 +927,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             origin=_resolved_origin(origin),
             exec_id=exec_id,
             kind=kind,
+            deliver=deliver,
         )
         self._entries.append(entry)
         self._save_index()
@@ -971,6 +983,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Smart-serialize a Python object and save it.
@@ -994,6 +1007,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             origin=origin,
             exec_id=exec_id,
             kind=kind,
+            deliver=deliver,
         )
 
     def save_from_path(
@@ -1008,6 +1022,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Copy an existing file into the artifact store. ``category`` is deprecated and ignored."""
@@ -1032,6 +1047,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             origin=origin,
             exec_id=exec_id,
             kind=kind,
+            deliver=deliver,
         )
 
     def save_data(
@@ -1049,6 +1065,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Save structured data as an artifact.  Replaces ``DataContext.save()``.
@@ -1097,6 +1114,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 origin=_resolved_origin(origin),
                 exec_id=exec_id,
                 kind=kind,
+                deliver=deliver,
             )
             self._entries.append(entry)
             self._save_index()
@@ -1122,6 +1140,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Save a multi-dimensional channel reading as a PNG plus its raw array.
@@ -1218,6 +1237,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                     origin=_resolved_origin(origin),
                     exec_id=exec_id,
                     kind=kind,
+                    deliver=deliver,
                 )
                 self._entries.append(entry)
                 appended = True

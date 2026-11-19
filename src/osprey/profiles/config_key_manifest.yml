@@ -999,6 +999,23 @@ keys:
   services.event_dispatcher.channel_strip_prefix: {evidence: 'CHANNEL_STRIP_PREFIX: "\{\{ services\.event_dispatcher\.channel_strip_prefix', default: ""}
   services.event_dispatcher.additional_dirs: {evidence: 'container_cfg\.get\("additional_dirs", \[\]\)', default: []}
   services.event_dispatcher.network: {evidence: 'services\.event_dispatcher\.network \| default\(.bridge., true\)', default: bridge}
+  services.event_dispatcher.transport:
+    rendered: false
+    evidence: 'services\.event_dispatcher\.transport \| default\(.http., true\)'
+    note: >-
+      `bus` moves the dispatch workers off HTTP onto the dispatcher's ZeroMQ
+      bus. Written by the dispatch injector from the profile's
+      `dispatch.transport` only when that is `bus`, so no preset's render
+      carries it.
+    default: http
+  services.event_dispatcher.bus_port:
+    rendered: false
+    evidence: 'PortSlot\("dispatch_bus", 50, "dispatch", "services\.event_dispatcher\.bus_port"\)'
+    note: >-
+      The port the dispatcher binds the bus on. Written beside `transport`
+      from the profile's `dispatch.bus_port`, and only on the bus.
+    default: derived
+    default_note: the layout's dispatch_bus slot at this deployment's port base
   services.event_dispatcher.bind_env: {covered-by: services.event_dispatcher, default: n/a}
   services.event_dispatcher.bind:
     rendered: false
@@ -2573,14 +2590,16 @@ keys:
     default: no-fallback
     default_note: >-
       absent, no alarm feed and pv_directory_alarm_state is false; `type:
-      phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic
+      phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic,
+      `type: osprey_alarm_relay` needs settings.url
   pv_directory.alarm_state.type:
     rendered: false
     covered-by: pv_directory.alarm_state
     default: no-fallback
     default_note: >-
-      absent, `live` and `standin` have no alarm feed; the built-in type is
-      phoebus_alarm_server, which needs the alarm-state extra
+      absent, `live` and `standin` have no alarm feed; the built-in types are
+      phoebus_alarm_server, which needs the alarm-state extra, and
+      osprey_alarm_relay, which reads a relay over HTTP
   pv_directory.alarm_state.settings: {rendered: false, covered-by: pv_directory.alarm_state, default: {}}
   pv_directory.alarm_state.settings.bootstrap_servers:
     rendered: false
@@ -2592,6 +2611,24 @@ keys:
     evidence: 'settings\.get\("topic"\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
+  pv_directory.alarm_state.settings.url:
+    rendered: false
+    covered-by: pv_directory.alarm_state.settings
+    default: no-fallback
+    default_note: "the build refuses `type: osprey_alarm_relay` without it, naming this key"
+  pv_directory.alarm_state.settings.auth:
+    rendered: false
+    covered-by: pv_directory.alarm_state.settings
+    note: >-
+      the login a Kafka broker asks for — a user and a password named by
+      environment variable, sent as SASL; unset sends no login
+    default: null
+  pv_directory.alarm_state.settings.auth.username: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: null}
+  pv_directory.alarm_state.settings.auth.password_env: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: null}
+  pv_directory.alarm_state.settings.auth.mechanism: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: PLAIN}
+  pv_directory.alarm_state.settings.auth.cleartext: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: false}
+  pv_directory.alarm_state.settings.tls: {rendered: false, covered-by: pv_directory.alarm_state.settings, default: null}
+  pv_directory.alarm_state.settings.tls.ca_bundle: {rendered: false, covered-by: pv_directory.alarm_state.settings.tls, default: null}
   pv_directory.alarm_state.replay_file:
     evidence: 'block\.get\("replay_file"\)'
     default: no-fallback
@@ -3305,9 +3342,11 @@ keys:
   phoebus.panels:
     rendered: false
     data-map: true
-    evidence: 'config\.get\("phoebus", \{\}\)\.get\("panels", \{\}\)'
+    evidence: 'load_osprey_config\(\)\.get\("phoebus", \{\}\)\.get\("panels", \{\}\)'
     note: >-
-      Panel name to display-file path, the names phoebus_open_panel opens. The
+      Panel name to display-file path, the names phoebus_open_panel opens. An
+      entry may instead be a mapping: `file`, the path, and `macros`, the list
+      of macro names the panel takes; a panel that lists none takes none. The
       names are the deployment's own vocabulary, so this is a data map; no
       preset carries it.
     default: {}
@@ -4135,7 +4174,7 @@ keys:
   modules.web_terminals.nginx_image:
     rendered: false
     evidence: 'upstream_image\("nginx", resolve_base_registry\(root\)\)'
-    default: nginx:1.31-alpine
+    default: nginx:1.31.9-alpine
   modules.web_terminals.tls:
     rendered: false
     evidence: 'tls = as_dict\(web_terminals\.get\("tls"\)\)'

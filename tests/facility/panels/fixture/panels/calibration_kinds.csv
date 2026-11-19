@@ -1,0 +1,7 @@
+kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order,under
+integrated_gradient,Integrated gradient,Quadrupole,scalar,T,bench,rel:0.002,XR-MAG-REQ A,,1,
+excitation,Excitation curve,Quadrupole,curve,A;T,bench,,,,2,
+centre,Magnetic centre,Quadrupole,tuple,um,survey,abs:5,XR-MAG-REQ A,,3,
+strength_scale,Strength scale from the beam,Quadrupole,scalar,,beam,,,,4,
+current_offset,Current offset,Quadrupole,scalar,A,design,,,current_setpoint,5,
+centre,Field centre,Dipole,tuple,um,survey,abs:20,XR-MAG-REQ A,,1,XR/XR02

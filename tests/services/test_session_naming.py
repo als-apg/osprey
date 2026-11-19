@@ -5,7 +5,8 @@ timeout, exception, empty reply, provider and model resolution). The scheduler
 is driven with a stubbed namer against the real session meta: de-duplication and one naming in flight; pre-cutoff,
 truncated and bookkeeping-only rows never named; a failure retried once per hub
 start; ``pending`` held in memory only; one ``session_named`` frame per result;
-and ``GET /api/sessions`` answering while the model has not.
+and ``GET /api/sessions`` answering while the model has not. A hub whose
+provider has no API key builds no namer: one log line and no naming call.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from osprey.services.session_naming import (
     SESSION_NAMED_FRAME,
     SessionNamer,
     name_session,
+    session_namer_for,
     trim_title,
 )
 from osprey.stores.session_ledger import aware_time
@@ -529,3 +531,59 @@ class TestListingHook:
         with TestClient(app) as client:
             row = client.get("/api/sessions").json()["sessions"][0]
         assert row["naming"] is None and row["title"] == "tune the ring"
+
+
+# --- no API key: no namer, no call ------------------------------------------------------
+
+
+def _render(tmp_path: Path, api_key: str) -> Path:
+    """A render on ``anthropic`` whose key is *api_key*; returns its ``config.yml``."""
+    render = tmp_path / "render"
+    render.mkdir()
+    config = render / "config.yml"
+    config.write_text(
+        "project_name: demo\n"
+        "claude_code:\n  provider: anthropic\n"
+        f"api:\n  providers:\n    anthropic:\n      api_key: {api_key}\n",
+        encoding="utf-8",
+    )
+    return config
+
+
+class TestNoKeyNoNamer:
+    def test_a_hub_without_a_project_config_has_no_namer(self, app):
+        assert session_namer_for(app, None) is None
+
+    def test_an_unset_key_builds_no_namer_and_says_so_once(
+        self, app, record, tmp_path, monkeypatch, caplog
+    ):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        calls = _completion(monkeypatch, AssertionError("asked the model"))
+        record.answers["list_sessions"] = ClientAnswer(
+            data=[_record_row(T1, "tune the ring"), _record_row(T2, "check the vacuum")],
+            complete=True,
+        )
+
+        app.state.session_namer = session_namer_for(app, _render(tmp_path, "${ANTHROPIC_API_KEY}"))
+
+        assert app.state.session_namer is None
+        with TestClient(app) as client:
+            for _ in range(2):
+                rows = client.get("/api/sessions").json()["sessions"]
+                assert [row["naming"] for row in rows] == [None, None]
+            assert {row["title"] for row in rows} == {"tune the ring", "check the vacuum"}
+        assert calls == []
+        said = [r.getMessage() for r in caplog.records if "Session naming" in r.getMessage()]
+        assert said == [
+            "Session naming is off: session naming needs ANTHROPIC_API_KEY (not set): "
+            "sessions keep their first-prompt title"
+        ]
+
+    def test_a_set_key_builds_the_namer(self, app, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+        namer = session_namer_for(app, _render(tmp_path, "${ANTHROPIC_API_KEY}"))
+        assert isinstance(namer, SessionNamer)
+
+    def test_an_unreadable_render_leaves_the_failure_to_the_call(self, app, tmp_path):
+        namer = session_namer_for(app, tmp_path / "render" / "config.yml")
+        assert isinstance(namer, SessionNamer)

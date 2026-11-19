@@ -77,6 +77,7 @@ from osprey.deployment.errors import (
     BuildRenderedElsewhereError,
     ComposeInterpolationError,
     DeploymentRecordError,
+    DeployStepFailedError,
     DevModeUnavailableError,
     NoRenderedBuildError,
     ServicesNotRunningError,
@@ -5661,6 +5662,9 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
     :param project_dir: Root of the built project.
     :param connection: The resolved graph-store connection.
     :raises ValueError: If the rendered block names no corpus.
+    :raises RuntimeError: If the store is left without the corpus: the wiped
+        store did not take osprey's graph config, or the import failed. No
+        marker is written. The caller reports it as the failed step.
     """
     from osprey.deployment.graphdb_service import (
         GRAPHDB_TTL_PATH_CONFIG_KEY,
@@ -5698,22 +5702,17 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
         graph_seeder.wipe(session)
         rebootstrapped = graph_seeder.bootstrap(session)
         if not rebootstrapped.ok:
-            logger.warning(
-                f"The graph store was wiped, but its {rebootstrapped.message}. Nothing "
-                f"was imported. Run `{GRAPHDB_REBUILD_HINT}` from {project_dir}."
+            raise RuntimeError(
+                f"the graph store was wiped, but its {rebootstrapped.message}. "
+                f"Nothing was imported."
             )
-            return
 
         imported = graph_seeder.import_ttl(session, text)
         if not imported.ok:
-            logger.warning(
-                f"The graph store came up but importing {resolved} failed "
-                f"({imported.termination_status}: {imported.extra_info}), so graph queries "
-                f"will return little or nothing. Everything else in this deploy is "
-                f"unaffected. Fix the corpus and run `{GRAPHDB_REBUILD_HINT}` "
-                f"from {project_dir}."
+            raise RuntimeError(
+                f"importing {resolved} failed "
+                f"({imported.termination_status}: {imported.extra_info})"
             )
-            return
 
         graph_seeder.write_marker(session, digest)
         _report_step(f"graph seeded: {imported.triples_loaded} triples")
@@ -5814,7 +5813,14 @@ def _stage_agent_record_clickhouse(
     _report_step("agent record store schema and account applied")
 
 
-def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
+#: What the graph staging's failure is called wherever it is reported: the step
+#: line where it happens, and the line the command ends on.
+_GRAPHDB_SEED_STEP = "Seeding the graph store"
+
+
+def _stage_graphdb_store(
+    config, compose_files, env, project_dir, *, provider=None
+) -> DeployStepFailedError | None:
     """Start the graph store, bootstrap it, and seed it whenever its marker differs.
 
     The knowledge-graph counterpart of :func:`_stage_ariel_store`, and staged
@@ -5824,13 +5830,17 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
     consumers start would leave a stack that is only correct once somebody
     restarts it.
 
-    Failure here warns and returns rather than aborting the deploy. The graph is
-    one search surface among many, and a control room whose channels, plan runs
-    and archive are all up should not be denied them because its graph could not
-    be provisioned — but every warning names
-    :data:`~osprey.deployment.graphdb_service.GRAPHDB_REBUILD_HINT`, so the gap
-    is never silent.
+    Failure to bootstrap or seed does not abort the deploy. The graph is one
+    search surface among many, and a control room whose channels, plan runs and
+    archive are all up should not be denied them because its graph could not be
+    provisioned. It is not a success either: the failure is printed here, in the
+    run's own column, naming
+    :data:`~osprey.deployment.graphdb_service.GRAPHDB_REBUILD_HINT`, and handed
+    back so the start can end on it once the rest of the stack is up
+    (:class:`~osprey.deployment.errors.DeployStepFailedError`).
 
+    :returns: The failed step, or ``None`` when the store holds the corpus or
+        this deploy runs no graph store.
     :param config: Raw deploy config.
     :param compose_files: Rendered compose file paths for this deploy.
     :param env: The environment the deploy hands compose.
@@ -5840,7 +5850,7 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
         docker shape.
     """
     if not _graphdb_store_deployed(config):
-        return
+        return None
 
     run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
     # The invocation contract, same as _stage_ariel_store: one provider-shaped
@@ -5867,14 +5877,16 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
         connection = _graphdb_connection(config, project_dir)
         _wait_for_graphdb_store(connection, time.monotonic() + _GRAPHDB_HEALTH_TIMEOUT_S)
         _bootstrap_and_seed_graphdb(config, project_dir, connection)
-    except Exception as exc:  # reported, never fatal (see docstring)
-        logger.warning(
-            f"The graph store could not be bootstrapped or seeded, so graph queries will "
-            f"return nothing. Everything else in this deploy is unaffected. Run "
-            f"`{GRAPHDB_REBUILD_HINT}` from {project_dir} once the store is reachable. "
-            f"Cause: {exc}"
+    except Exception as exc:  # reported and carried, never raised here (see docstring)
+        failure = DeployStepFailedError(
+            _GRAPHDB_SEED_STEP,
+            f"{exc}\nGraph queries will return little or nothing. Everything else in this "
+            f"deploy is unaffected.",
+            f"Fix the cause, then run `{GRAPHDB_REBUILD_HINT}` from {project_dir}.",
         )
-        return
+        _warn_fact(f"{failure.step} failed", failure.cause, failure.remedy)
+        return failure
+    return None
 
 
 def deploy_up(
@@ -6107,6 +6119,23 @@ def _ensure_agent_record_credentials(config: dict, repo_root: Path | str) -> Non
         _report_fact(f"agent record credential files created: {', '.join(service_files)}")
     if report.purged:
         _report_fact(f"agent record credential files removed: {', '.join(report.purged)}")
+
+
+def _ensure_dispatch_bus_keys(config: dict, repo_root: Path | str) -> None:
+    """Provision the dispatch bus's key files, and say what changed (names only).
+
+    A no-op for a deployment whose dispatcher is not on the bus.
+    """
+    from osprey.deployment.dispatch_bus_keys import ensure_dispatch_bus_keys
+
+    report = ensure_dispatch_bus_keys(repo_root, config)
+    if report.minted:
+        _report_fact(f"dispatch bus keys minted: {', '.join(report.minted)}")
+    rewritten = [name for name in report.written if name not in report.minted]
+    if rewritten:
+        _report_fact(f"dispatch bus key files updated: {', '.join(rewritten)}")
+    if report.removed:
+        _report_fact(f"dispatch bus key files removed: {', '.join(report.removed)}")
 
 
 def _collect_unmet_preconditions(
@@ -6719,6 +6748,12 @@ def _start_stack(
     # reporting pass below, which only reads them.
     _ensure_agent_record_credentials(config, repo_root)
 
+    # The dispatch bus's per-container keys, for a deployment whose workers
+    # connect to the dispatcher rather than listen. Beside the record's
+    # credential files and for the same reasons: a provisioning step, files
+    # each container's own env_file names, digests that recreate their owner.
+    _ensure_dispatch_bus_keys(config, repo_root)
+
     # Refuse a chain that is not the one this project was rendered against:
     # membership is fixed at build time, so a file added or removed since then
     # changes nothing about what the stack reads. Ahead of the advisory below
@@ -6881,8 +6916,12 @@ def _start_stack(
     # And the graph store, on the same placement and for the same reason: the
     # corpus has to be in the graph before the surfaces that query it start, and
     # both deploy paths need it. No-op unless this project deploys the store
-    # itself; never aborts (see _stage_graphdb_store).
-    _stage_graphdb_store(config, compose_files, env, Path(repo_root), provider=provider)
+    # itself. It never aborts the start: a failure is reported where it happens
+    # and raised below, once the rest of the stack is up (see
+    # _stage_graphdb_store).
+    graph_failure = _stage_graphdb_store(
+        config, compose_files, env, Path(repo_root), provider=provider
+    )
 
     # Build the <project>:local image the dispatch worker, the ARIEL sync service
     # and the record archive run. None of them has a compose build block (that
@@ -6971,6 +7010,8 @@ def _start_stack(
                 repo_root=Path(repo_root),
             )
             log_endpoint_summary(config, compose_files)
+            if graph_failure is not None:
+                raise graph_failure
             return
 
         # Pin COMPOSE_PROJECT_NAME so this deploy owns its own compose project (and
@@ -7097,6 +7138,12 @@ def _start_stack(
                 )
             _report_step("containers started")
             log_endpoint_summary(config, compose_files)
+            # Everything else is up. A step that failed without stopping the
+            # start is what this run ends on, so it does not end as a success.
+            # An attached start has no end of its own: the step's report above
+            # is the last word this process has before compose takes over.
+            if graph_failure is not None:
+                raise graph_failure
         else:
             # The contexts are finished with here, while there is still a process to
             # clear them: the argv below replaces this process with compose. Every

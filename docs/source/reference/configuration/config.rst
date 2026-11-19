@@ -1134,7 +1134,12 @@ These keys configure the ``phoebus`` MCP server, which is off until
        own port.
    * - ``phoebus.panels``
      - Panel name to ``.bob`` path, one dotted line per display. A relative
-       path resolves against the directory of ``config.yml``.
+       path resolves against the directory of ``config.yml``. A parameterised
+       display is written in the long form instead:
+       ``phoebus.panels.<name>.file`` is the path and
+       ``phoebus.panels.<name>.macros`` the list of macro names
+       ``phoebus_open_panel`` may pass to it. A panel that lists none, and
+       every panel in the short form, takes no macros.
    * - ``phoebus.require_handle``
      - ``true`` refuses the implicit ``"active"`` display, so callers pass a
        handle or a display name. A multi-user web-terminal deployment stamps
@@ -1192,7 +1197,9 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
    * - ``pv_directory.settings.auth``
      - The login a proxy in front of the service asks for: ``token_env``, or
        ``username`` with ``password_env``, each secret named by environment
-       variable. ``tls.ca_bundle`` is the absolute path of a PEM CA.
+       variable. ``tls.ca_bundle`` is the absolute path of a PEM CA. A web
+       terminal is handed each variable a block names and each CA file that is
+       on the host.
    * - ``pv_directory.description_property``
      - The directory property shown as a PV's description. Default
        ``recordDesc``.
@@ -1218,13 +1225,34 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
    * - ``pv_directory.alarm_state``
      - Current alarm state. ``type: phoebus_alarm_server`` reads the alarm
        server's Kafka topic and needs ``settings.bootstrap_servers`` and
-       ``settings.topic``.
+       ``settings.topic``. Where the broker is out of reach and only HTTP
+       crosses the network, ``type: osprey_alarm_relay`` with ``settings.url``
+       reads the same state from a relay run beside the broker
+       (``python -m osprey_connectors.alarm_state.relay``).
+   * - ``pv_directory.alarm_state.settings.auth``
+     - The login a broker asks for: ``username`` with ``password_env``, sent
+       as SASL. ``mechanism`` names how: ``PLAIN`` unless it says
+       ``SCRAM-SHA-256`` or ``SCRAM-SHA-512``. A login is sent over TLS, verified against
+       ``settings.tls.ca_bundle`` or, without one, the system trust store.
+       ``cleartext: true`` sends it unencrypted, for a listener that offers
+       no TLS: anyone on the network path can then read the password.
    * - ``pv_directory.alarm_state.replay_file``
      - The alarm feed on ``va``: ``demo:<name>`` names a feed packaged with
        OSPREY, any other value an ``.ndjson`` file relative to the project.
        It may be set beside ``type``.
    * - ``pv_directory.put_log``
      - Put history: ``type: caputlog`` with ``settings.url``.
+
+**Reading the alarm feed without write access.** A Kafka broker with no
+access control lets every client that reaches it produce, so opening its port
+to OSPREY would let that host forge alarm states and acknowledge alarms. The
+feed needs one right, ``Read`` on the topic: OSPREY reads with no consumer
+group, commits no offset and never produces. A broker can grant exactly that
+on a second, authenticated listener and leave its existing clients as they
+are: turn on the ACL authorizer, keep the unauthenticated listener's
+``User:ANONYMOUS`` among ``super.users``, add a SASL listener on a new port,
+and allow the OSPREY user ``Read`` on the topic. Open only that port to the
+OSPREY host and name the user under ``alarm_state.settings.auth``.
 
 ``pv_directory.caveats`` and each sub-block's ``caveats`` are lines shown with
 every answer from that source. A sub-block takes the same ``settings`` keys as
@@ -1265,8 +1293,12 @@ A facility with ChannelFinder, the Phoebus alarm services and caPutLog:
      alarm_state:
        type: phoebus_alarm_server
        settings:
-         bootstrap_servers: kafka.example.org:9092  # osprey:not-a-port — Kafka's broker port
+         bootstrap_servers: kafka.example.org:9093  # osprey:not-a-port — Kafka's broker port
          topic: Accelerator
+         # A read-only user on the broker's authenticated listener.
+         auth:
+           username: osprey
+           password_env: ALARM_FEED_PASSWORD
        # The feed the simulator target replays.
        replay_file: demo:example-alarms
      put_log:

@@ -133,11 +133,6 @@ class ConnectionSettings:
     login: Login | None = None
     ca_bundle: Path | None = None
 
-    @property
-    def credential_env_names(self) -> tuple[str, ...]:
-        """The environment variables the login's secret is read from; ``()`` without one."""
-        return self.login.env_names if self.login else ()
-
     def timeout_or(self, default: float) -> float:
         """The configured bound, or ``default`` when the block sets none."""
         return self.timeout_s if self.timeout_s is not None else default

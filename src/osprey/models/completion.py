@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, create_model
 
+from osprey.models.api_keys import api_key_env_var, api_key_missing
 from osprey.models.config import get_provider_config
 from osprey_connectors.logger import get_logger
 
@@ -204,8 +205,13 @@ def get_chat_completion(
     # module loads no provider module.
     from osprey.models.providers.base import declares
 
-    if declares(provider_class, "requires_api_key") and not api_key:
-        raise ValueError(f"API key required for {provider}")
+    # An unset `${VAR}` reaches here as the literal placeholder, which is no key:
+    # refused here, by name, so nothing is sent to the provider.
+    if declares(provider_class, "requires_api_key") and api_key_missing(api_key):
+        env_var = api_key_env_var(provider, api_key)
+        raise ValueError(
+            f"API key required for {provider}" + (f": {env_var} is not set" if env_var else "")
+        )
     if declares(provider_class, "requires_base_url") and not base_url:
         raise ValueError(f"Base URL required for {provider}")
     if not model_id:

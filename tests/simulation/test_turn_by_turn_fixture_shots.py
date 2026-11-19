@@ -477,20 +477,24 @@ def _writes() -> list[dict[str, Any]]:
 
 
 def test_the_same_writes_give_identical_arrays_in_two_python_processes(view: Path) -> None:
+    """A fresh child process and this test process replay the same writes bit for bit.
+
+    Two independent processes are compared: the child and this one, each with
+    its own interpreter, import state and string-hash salt. A difference that
+    every second process shows is always caught. One that only some processes
+    show (it keys on per-process state such as the hash salt) is caught only
+    when the two draws differ, which is less likely than with a third process.
+    """
     names = [TURN_X["BPM01"], TURN_Y["BPM37"], TURN_SUM["BPM72"]]
     writes = _writes()
 
-    def run() -> dict[str, list[str]]:
-        done = subprocess.run(
-            [sys.executable, "-c", _CHILD, str(view), json.dumps(writes), *names],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return json.loads(done.stdout.strip().splitlines()[-1])
-
-    first, second = run(), run()
-    assert first == second
+    done = subprocess.run(
+        [sys.executable, "-c", _CHILD, str(view), json.dumps(writes), *names],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    child = json.loads(done.stdout.strip().splitlines()[-1])
 
     ring = _Ring(view)
     for step in writes:
@@ -501,7 +505,7 @@ def test_the_same_writes_give_identical_arrays_in_two_python_processes(view: Pat
             ring.composite.advance()
         ring.composite.emitted()
     here = {name: [v.hex() for v in np.asarray(ring.read(name), float).tolist()] for name in names}
-    assert here == first
+    assert here == child
     assert float(ring.read(TURNS_TRACKED)) == TURNS
 
 

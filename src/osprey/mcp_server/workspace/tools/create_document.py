@@ -156,6 +156,7 @@ async def create_document(
             mime_type="application/pdf",
             tool_source="create_document",
             metadata={"figures_included": len(resolved_files)},
+            deliver=True,
         )
         store.update_entry_metadata(pdf_entry.id, source_agent="data-visualizer")
         output_artifact_ids.append(pdf_entry.id)
@@ -169,6 +170,7 @@ async def create_document(
             description=f"LaTeX source for: {title}",
             mime_type="application/x-tex",
             tool_source="create_document",
+            deliver=False,  # the PDF is the document; the source is kept, not sent
         )
         store.update_entry_metadata(tex_entry.id, source_agent="data-visualizer")
         output_artifact_ids.append(tex_entry.id)

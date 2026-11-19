@@ -1,0 +1,269 @@
+"""``osprey facility panels write`` and ``check``: operator screens from the built facility."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from click.testing import CliRunner, Result
+
+from osprey.cli.main import cli
+from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+
+@pytest.fixture(scope="module")
+def facility_file(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return write_fixture_facility(tmp_path_factory.mktemp("panels-cli") / "facility.json")
+
+
+def _run(facility_file: Path, verb: str, *args: str) -> Result:
+    return CliRunner().invoke(
+        cli,
+        [
+            "facility",
+            "panels",
+            verb,
+            "--facility",
+            str(facility_file),
+            "--tables",
+            str(PANELS_DIR),
+            *args,
+        ],
+    )
+
+
+def test_write_prints_the_counts_the_total_and_the_largest(facility_file, tmp_path):
+    result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--top", "3")
+    assert result.exit_code == 0, result.output
+    index = json.loads((tmp_path / "out" / "index.json").read_text())
+    assert f"{len(index['screens'])} screens" in result.output
+    for kind in ("card", "place", "rollup", "checkout"):
+        assert f"  {kind}: " in result.output
+    assert result.output.count(".screen.json") == 3
+    biggest = max(index["screens"], key=lambda e: e["bytes"])
+    assert biggest["file"] in result.output
+    devices = sum(e["kind"] == "card" and e["thing_kind"] == "device" for e in index["screens"])
+    assert f"  device cards: {devices} with the default recipe" in result.output  # no recipe rows
+
+
+def test_check_after_write_exits_0(facility_file, tmp_path):
+    out = str(tmp_path / "out")
+    assert _run(facility_file, "write", "--out", out).exit_code == 0
+    result = _run(facility_file, "check", "--out", out)
+    assert result.exit_code == 0, result.output
+    assert "match the model" in result.output
+    # the classes by how their pictures are stated, before the problems
+    assert "pictures, drawing: 0 classes" in result.output
+    assert "pictures, parts only: 1 class (Quadrupole)" in result.output
+    assert "pictures, none: " in result.output
+    assert "pictures, parts not placed: none" in result.output  # information, not a problem
+    assert "0 left out (no value stated) on 0 cards" in result.output
+    assert "default card without tiles: " in result.output  # no roles: no tile is guessed
+
+
+def test_check_counts_the_devices_each_no_cards_row_takes(facility_file, tmp_path):
+    import shutil
+
+    tables = tmp_path / "panels"
+    shutil.copytree(PANELS_DIR, tables)
+    (tables / "no_cards.csv").write_text(
+        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source,when\n"
+        "Pump,XR/XR01,,,,,drawn on its rack,S,\n"
+        "*,,XR02:*,,,,nothing to read,S,no-channel\n"
+    )
+
+    def run(verb: str, *args: str) -> Result:
+        return CliRunner().invoke(
+            cli,
+            ["facility", "panels", verb, "--facility", str(facility_file), "--tables", str(tables)]
+            + list(args),
+        )
+
+    out = str(tmp_path / "out")
+    assert run("write", "--out", out).exit_code == 0
+    result = run("check", "--out", out)
+    assert "  no_cards.csv row 1 (class Pump, under XR/XR01): 2 devices" in result.output
+    assert "  no_cards.csv row 2 (class *, devices XR02:*, when no-channel): " in result.output
+
+
+def test_check_exits_1_and_counts_each_kind(facility_file, tmp_path):
+    out = tmp_path / "out"
+    _run(facility_file, "write", "--out", str(out))
+    victims = sorted(out.glob("card/*.screen.json"))[:3]
+    for victim in victims:
+        victim.write_text("{broken")
+    (out / "card" / "foreign.txt").write_text("ignored")
+    result = _run(facility_file, "check", "--out", str(out), "--limit", "2")
+    assert result.exit_code == 1
+    assert "invalid: 3" in result.output
+    assert "... and 1 more" in result.output
+    assert "foreign" not in result.output
+
+
+def test_kind_and_under_write_a_subset_and_check_notes_the_rest(facility_file, tmp_path):
+    out = str(tmp_path / "out")
+    written = _run(facility_file, "write", "--out", out, "--kind", "card", "--under", "XR/XR01")
+    assert written.exit_code == 0, written.output
+    assert "not written" in written.output
+    clean = _run(facility_file, "check", "--out", out)
+    assert clean.exit_code == 0, clean.output
+    assert "outside_set:" in clean.output
+    strict = _run(facility_file, "check", "--out", out, "--strict")
+    assert strict.exit_code == 1
+
+
+def test_max_bytes_check_lists_the_oversize(facility_file, tmp_path):
+    out = str(tmp_path / "out")
+    assert _run(facility_file, "write", "--out", out).exit_code == 0
+    result = _run(facility_file, "check", "--out", out, "--max-bytes", "1")
+    assert result.exit_code == 1 and "oversize:" in result.output
+
+
+def test_write_refuses_a_non_empty_directory_without_an_index(facility_file, tmp_path):
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "mine.txt").write_text("x")
+    result = _run(facility_file, "write", "--out", str(tmp_path / "out"))
+    assert result.exit_code == 1
+    assert "index.json" in result.output
+    assert (tmp_path / "out" / "mine.txt").read_text() == "x"
+
+
+def test_an_unknown_place_is_refused(facility_file, tmp_path):
+    result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--under", "NOWHERE")
+    assert result.exit_code == 1 and "NOWHERE" in result.output
+    assert not (tmp_path / "out" / "index.json").exists()
+
+
+def test_a_missing_facility_file_says_so(tmp_path):
+    result = _run(tmp_path / "none.json", "check", "--out", str(tmp_path))
+    assert result.exit_code == 1
+    assert "cannot be read" in result.output
+
+
+def test_a_corrupt_index_stops_write_and_check(facility_file, tmp_path):
+    out = tmp_path / "out"
+    assert _run(facility_file, "write", "--out", str(out)).exit_code == 0
+    (out / "index.json").write_text("{nope")
+    written = _run(facility_file, "write", "--out", str(out))
+    assert written.exit_code == 1 and "index.json" in written.output
+    checked = _run(facility_file, "check", "--out", str(out))
+    assert checked.exit_code == 1 and "invalid: 1" in checked.output
+
+
+def test_a_draw_file_is_read_and_part_of_the_stamp(facility_file, tmp_path):
+    draw = tmp_path / "draw.json"
+    draw.write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    out = str(tmp_path / "out")
+    assert _run(facility_file, "write", "--out", out, "--draw", str(draw)).exit_code == 0
+    assert _run(facility_file, "check", "--out", out, "--draw", str(draw)).exit_code == 0
+    plain = _run(facility_file, "check", "--out", out)
+    assert plain.exit_code == 1
+    assert "stamp:" in plain.output and "draw settings" in plain.output
+
+
+def test_draw_json_beside_the_tables_is_the_default(facility_file, tmp_path):
+    import shutil
+
+    tables = tmp_path / "tables"
+    shutil.copytree(PANELS_DIR, tables)
+    (tables / "draw.json").unlink()  # the fixture's own settings; this test writes its own
+    result = CliRunner().invoke(
+        cli,
+        [
+            "facility",
+            "panels",
+            "write",
+            "--facility",
+            str(facility_file),
+            "--tables",
+            str(tables),
+            "--out",
+            str(tmp_path / "a"),
+        ],
+    )
+    assert "no draw.json" in result.output
+    (tables / "draw.json").write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    result = CliRunner().invoke(
+        cli,
+        [
+            "facility",
+            "panels",
+            "write",
+            "--facility",
+            str(facility_file),
+            "--tables",
+            str(tables),
+            "--out",
+            str(tmp_path / "b"),
+        ],
+    )
+    assert result.exit_code == 0 and "no draw.json" not in result.output
+    index = json.loads((tmp_path / "b" / "index.json").read_text())
+    other = json.loads((tmp_path / "a" / "index.json").read_text())
+    assert index["draw_hash"] != other["draw_hash"]
+
+
+def test_a_bad_draw_file_stops_the_command(facility_file, tmp_path):
+    draw = tmp_path / "draw.json"
+    draw.write_text(json.dumps({"symbols": {"Quadrupole": "no_such_symbol"}}))
+    result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--draw", str(draw))
+    assert result.exit_code == 1 and "no_such_symbol" in result.output
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_tampered_index_entry_is_reported_on_stderr_and_left_alone(facility_file, tmp_path):
+    out = tmp_path / "out"
+    assert _run(facility_file, "write", "--out", str(out)).exit_code == 0
+    (out / "mine.txt").write_text("1")
+    index = json.loads((out / "index.json").read_text())
+    index["screens"].append({"file": "mine.txt"})
+    (out / "index.json").write_text(json.dumps(index))
+    result = _run(facility_file, "write", "--out", str(out))
+    assert result.exit_code == 0 and "mine.txt" in result.output
+    assert (out / "mine.txt").read_text() == "1"
+
+
+def test_a_value_the_graph_cannot_read_is_counted_and_nothing_stops(tmp_path):
+    def odd_unit(document) -> None:
+        for claim in document["relations"]:
+            if claim["id"] == "xr02-ch5-rack2":
+                claim["object"]["unit"] = "A5"
+
+    facility = write_fixture_facility(tmp_path / "facility.json", odd_unit)
+    result = _run(facility, "write", "--out", str(tmp_path / "out"))
+    assert result.exit_code == 0, result.output
+    assert "1 values of the facility's rows cannot be read" in result.output
+
+
+def test_a_part_of_an_excluded_thing_is_counted_as_withheld(tmp_path):
+    from tests.facility.panels._fixture import add_part
+
+    def part(document) -> None:
+        add_part(document, "XR02:SAF1:CARD", "XR02:SAF1")
+
+    facility = write_fixture_facility(tmp_path / "facility.json", part)
+    result = _run(facility, "write", "--out", str(tmp_path / "out"))
+    assert result.exit_code == 0, result.output
+    assert "1 things withheld as part of an excluded thing" in result.output
+
+
+def test_a_draw_colour_near_a_state_colour_stops_the_command(facility_file, tmp_path):
+    draw = tmp_path / "draw.json"
+    draw.write_text(json.dumps({"colours": {"bend": "#c4162a"}}))  # the bad state's red
+    result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--draw", str(draw))
+    assert result.exit_code == 1 and "too near the state colour MAJOR" in result.output
+    checked = _run(facility_file, "check", "--out", str(tmp_path / "out"), "--draw", str(draw))
+    assert checked.exit_code == 1 and "too near the state colour MAJOR" in checked.output
+
+
+def test_every_view_kind_of_the_engine_can_be_chosen(facility_file, tmp_path):
+    from osprey.cli.facility_cmd import _PANEL_VIEWS
+    from osprey.facility.panels.view import VIEW_KINDS
+
+    assert tuple(_PANEL_VIEWS) == VIEW_KINDS
+    out = tmp_path / "out"
+    written = _run(facility_file, "write", "--out", str(out), "--kind", "calibration")
+    assert written.exit_code == 0, written.output
+    assert "calibration:" in written.output
+    assert list((out / "calibration").iterdir())

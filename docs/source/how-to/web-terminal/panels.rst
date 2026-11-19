@@ -55,8 +55,8 @@ Where the panels live
 Panels have a row in the sidebar on the left of the window.
 **Sessions** is the first row and has no heading. **Artifacts** has no row: its
 artifacts are in the session tree, and the palette opens the panel.
-**Events** (when the deployment enables it) and **Health** are in the
-**System** section. All other panels are in the **Apps** section, which ends
+**Events** (when the deployment enables it), **Health** and **Roster** (for a
+login that selects it) are in the **System** section. All other panels are in the **Apps** section, which ends
 with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
@@ -331,6 +331,31 @@ last. A panel sends two kinds:
   above it).
 
 Everything else a panel needs goes in its own toolbar, inside the panel.
+
+The Roster panel
+----------------
+
+**Roster** shows which login opens which panel: one row per panel, one column
+for the deployment's own profile and for every file under ``tiers/``, with the
+logins each column stands for. A cell is the tab the login opens on, a tab, a
+panel reachable from the panel menu only, or nothing. Selecting a cell names
+the file whose line decides it.
+
+Select it like any other panel:
+
+.. code-block:: yaml
+
+   web_panels:
+     - roster
+
+No bundled login selects it; a deployment adds it to the login its
+maintainers use, typically ``tiers/admin.yml``. The panel has no server: ``osprey build`` writes the page into a render that
+selects it, so it shows the deployment as it was last built, which is what the
+running terminals were made from. ``osprey profile panels`` prints the same
+table from the files as they are now (see :doc:`/reference/cli`).
+
+A profile that already gives a custom panel the id ``roster``, with a
+``web.panels.roster.url``, keeps that panel.
 
 The Bluesky panel
 -----------------

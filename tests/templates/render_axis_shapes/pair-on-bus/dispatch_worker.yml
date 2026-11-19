@@ -1,0 +1,518 @@
+# The dispatch-worker runs the full PROJECT image (<project>:local) that
+# `osprey up` builds from the project root — the same image the web
+# terminal runs, baking the facility overlays and data/ into /app/<project>.
+# It overrides only `command:` to launch the dispatch-worker MCP server instead
+# of the web UI. OSPREY_WORKER_IMAGE overrides with a prebuilt/published image.
+#
+# NOTE: Multi-worker load distribution is NOT yet implemented.
+# The dispatcher routes to dispatch-worker-1 only (hardcoded in tutorial_triggers.yml dispatch_target).
+# Additional workers declared here are provisioned but idle until routing is implemented.
+
+
+
+services:
+
+  dispatch-worker-1:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # NO build: block here on purpose. The project image (<project>:local) is
+    # built once by `osprey up` (deployment/container_lifecycle.py) from
+    # the project root before `docker compose up` runs; the worker just
+    # references that prebuilt tag. Declaring a second `build:` for it would race
+    # the sole builder to tag the same image. `depends_on` keeps the worker
+    # ordered after the event-dispatcher. A prebuilt OSPREY_WORKER_IMAGE override
+    # is pulled normally instead.
+    depends_on:
+      - event-dispatcher
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy workers on one host without colliding on
+    # one name. The dispatcher routes to the compose service key
+    # `dispatch-worker-1` (see tutorial_triggers.yml dispatch_target),
+    # unchanged here — so this rename needs no network alias.
+    container_name: golden-project-dispatch-worker-1
+    command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      # Content fingerprint of the env chain this deploy read (runtime_helper's
+      # env_chain_digest, carried in by OSPREY_ENV_DIGEST). It is a label, not
+      # documentation: compose recreates a container when the compose document
+      # changes, and neither provider diffs a running container against the env
+      # FILES it was started from — so without this, editing a chain file left
+      # the running worker on the old values. Folding the chain's hash into a
+      # label makes such an edit a document change. Empty when the invocation
+      # did not set the variable (a hand-run `docker compose up`).
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+      # The same trigger for this worker's agent-record login file.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_DISPATCH_WORKER_1:-}"
+      # And for this worker's bus key file.
+      osprey.dispatch-bus.digest: "${OSPREY_DISPATCH_BUS_DIGEST_DISPATCH_WORKER_1:-}"
+    restart: unless-stopped
+    # Provider auth: the worker's startup hook (inject_provider_env) resolves
+    # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
+    # the process environment. `env_file:` is read by the compose CLI on the
+    # HOST (as the file's owner), so it works even though the repo's .env is
+    # deliberately 0600 and the worker itself runs as non-root `osprey` and
+    # cannot open it.
+    #
+    # The deployment's env is a CHAIN of files at the repo root, listed here in
+    # ASCENDING precedence — committed defaults (.env.shared) first, the local
+    # secret file (.env) last — because compose lets a later entry win on any
+    # key an earlier one also sets. That is the same order the invocation's
+    # own `--env-file` flags carry, so what interpolates into this document and
+    # what lands in the container agree.
+    #
+    # Only files that EXIST at render time are listed: an `env_file:` entry
+    # naming a missing path errors `compose up` outright. Every path is relative
+    # to the pinned compose project directory, which is the deployment REPO
+    # ROOT — so these are the deployment's own chain files, not copies inside
+    # the disposable render.
+    env_file:
+      - ./.env
+      # This worker's agent-record login: one login and nothing else, which
+      # every worker shares in the shared workspace mode, because those
+      # workers write as one identity. Always listed, because the record is
+      # always deployed and `osprey build` writes the file before this one.
+      - .env.agent-record.login.dispatch-worker-1
+      # This worker's bus keys and no other worker's: its own secret and the
+      # dispatcher's public key. The worker takes the secret out of its
+      # environment before it starts any run.
+      - .env.dispatch-bus.dispatch-worker-1
+    environment:
+      # No :-default (see event_dispatcher compose): fail closed on an unset token.
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      # On the bus: connect to the dispatcher under this worker's name, which
+      # is the name its key is listed under there. No port is bound, so the
+      # healthcheck reads the file every heartbeat touches instead.
+      DISPATCH_BUS_CONNECT: "tcp://event-dispatcher:10050"
+      DISPATCH_BUS_WORKER_NAME: dispatch-worker-1
+      DISPATCH_BUS_ALIVE_FILE: /tmp/osprey-dispatch-bus-alive
+      DISPATCH_TIMEOUT_SEC: "300"
+      DISPATCH_INACTIVITY_SEC: "120"
+      # The third budget: how many agentic turns one dispatched run may take
+      # when the trigger names no ceiling of its own.
+      DISPATCH_MAX_TURNS: "25"
+      OSPREY_PROJECT_DIR: /app/golden-project
+      # WHO this worker's records are written as. The identity follows the
+      # MIDDLEWARE, not the interface app: this container
+      # launches the framework MCP servers through a CLI subprocess, so every
+      # tools/call it makes is recorded — and a worker that recorded as the
+      # generic container user would file its records under a name that
+      # identifies nobody.
+      #
+      # One identity per WORKER, not one for the service: each worker is its own
+      # container writing concurrently, and the identity is its compose service
+      # key, so a record can be traced back to the container that wrote it with
+      # no lookup table. The same derivation provisions the host directory
+      # (compose_generator.dispatch_worker_audit_identities), which is why the
+      # two are asserted against each other rather than kept in step by hand.
+      #
+      # OSPREY_SPOOL_DIR and OSPREY_STATE_DIR below are also the contract this
+      # file offers the image's entrypoint: its root phase is to join the group
+      # of each directory the render names here before dropping privileges. This worker mounts no
+      # facility bundle, so it names no second directory and that step simply
+      # finds nothing else to do — no special case needed for it.
+      OSPREY_AUDIT_IDENTITY: dispatch-worker-1
+      # WHERE this worker appends its agent-record events and keeps its own
+      # state: its own directories in the two zones, bound below. Named for
+      # the writer and for the entrypoint, which joins each one's group.
+      OSPREY_SPOOL_DIR: /app/golden-project/var/spool/dispatch-worker-1
+      # WHERE this worker reads the agent record: its compose service on the
+      # bridge network, its loopback publish from the host namespace.
+      OSPREY_AGENT_RECORD_URL: http://agent-record:8000
+      OSPREY_STATE_DIR: /app/golden-project/var/state/dispatch-worker-1
+
+      # WHO this worker is to the control system. Per worker, from the same
+      # loop index as the audit identity above, so a write traced to
+      # `osprey-dispatch-<i>` names the one container that made it. The
+      # entrypoint's root phase renames the image's `osprey` account to this
+      # name, using the module mounted read-only below, before it drops
+      # privileges.
+      OSPREY_CONTROL_IDENTITY: osprey-dispatch-1
+      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity/control_identity.py
+
+      # WHERE this worker reads the control-context tree, mounted read-only
+      # below. A dispatch run writes as the OWNER on its job — a person, whose
+      # terminal may have narrowed them to another machine since the trigger was
+      # authored — and this is the only place that narrowing is visible from
+      # inside this container. Naming the directory is what arms the read: a
+      # worker without this variable judges on the target's ceiling alone.
+      #
+      # Unconditional, unlike the Bluesky lane's copy of this pair. A lane is
+      # bound to one control target at render time, so its write posture is
+      # known here; this worker runs the whole agent and can move between
+      # targets at runtime, so whether it will write is not a render-time fact.
+      #
+      # Like OSPREY_SPOOL_DIR above, this is also the contract offered to the
+      # image's entrypoint: its root phase joins the group of each directory
+      # named here and probes it for READ (the tree is read-only, so a write
+      # probe would report a loss nothing in this container was going to write).
+      OSPREY_CONTROL_CONTEXT_TREE: /osprey/control_tree
+      # WHERE this worker appends the simulator's model logs, mounted below.
+      # Named for the entrypoint, whose root phase joins the directory's group
+      # before dropping privileges, so the worker can append to a log another
+      # container created.
+      OSPREY_SIMULATOR_LOG_DIR: /app/golden-project/var/simulator
+      # WHERE this worker keeps guarded runs' locks, mounted below.
+      # Named for the entrypoint, whose root phase joins the directory's group
+      # before dropping privileges, so the worker can take a lock another
+      # container created.
+      OSPREY_GUARDED_RUN_DIR: /app/golden-project/var/guarded_run
+      # The worker process reads OSPREY config directly (e.g. get_facility_timezone
+      # while building the agent's system prompt), and spawns a CLI subprocess with
+      # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
+      # subprocess resolve config from the mounted project (via env inheritance),
+      # independent of CWD. It points at the STAGED config.yml bind-mounted below
+      # (the deploy-time config), not the copy baked into the image.
+      #
+      # Under the project directory, in build/ — the same four-zone shape the
+      # repo has, because this worker runs the PROJECT image and its .mcp.json is
+      # rendered as `{project_root}/build/config.yml` (registry/mcp.py, with
+      # project_root = this /app/<project> root). A flat config.yml here would be
+      # a path the agent's own MCP servers never read. The standalone service
+      # images are the opposite case and stay flat: nothing inside them renders
+      # anything against a project root.
+      CONFIG_FILE: /app/golden-project/build/config.yml
+      TZ: UTC
+
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT — hence the build/services/ prefix on
+    # the render output below.
+    volumes:
+      # The staged runtime config overlays the config.yml baked into the image,
+      # so the worker reads the deploy-time config.
+      - ./build/services/dispatch_worker/config.yml:/app/golden-project/build/config.yml:ro
+      # The image creates the agent-data directory (and its subdirs) and chowns
+      # `var/` — the state zone that directory lives in — to osprey. The render
+      # itself stays root-owned: the container starts as root and its entrypoint
+      # drops to osprey with gosu for the command, so only the startup steps
+      # that must write the render ever can. A fresh named volume initialized
+      # from the agent-data path therefore inherits osprey ownership, and the
+      # unprivileged worker writes it without any user: override.
+      # The mount target is rendered whole by compose_generator from the SAME
+      # `agent_data.base_dir` the mounted config.yml declares, so the volume
+      # cannot end up mounted anywhere but where the worker writes. It arrives
+      # already joined onto /app/<project> — the join is done there because an
+      # ABSOLUTE base_dir names the same path inside the container and must not
+      # be re-anchored under the project directory, which a template-level
+      # concatenation here could not tell apart from a relative one.
+
+      - dispatch_workspace_1:/app/golden-project/var/agent_data
+      - dispatch_claude_projects_1:/app/golden-project/var/agent_data/claude-config/projects
+
+      # This worker's spool and state directories, and only its own. Binds
+      # rather than named volumes, unlike the workspace above: agent-record
+      # binds the spool root whole and ingests what lands here, and the host
+      # reads the state. The isolation is the MOUNT — this container holds a
+      # bind to its own subdirectory of each zone and nothing else under them,
+      # so a worker cannot read a terminal user's events or another worker's.
+      # Provisioned host-side before the mount is created
+      # (compose_generator.ensure_spool_dir and ensure_state_dir, from
+      # `_ensure_agent_data_structure` on the build path): left to the container
+      # runtime, a rootful daemon creates the source root-owned and the dropped
+      # `osprey` process inside can write nothing to it.
+      - ./var/spool/dispatch-worker-1:/app/golden-project/var/spool/dispatch-worker-1
+      - ./var/state/dispatch-worker-1:/app/golden-project/var/state/dispatch-worker-1
+
+      # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
+      # the spool bind above, for the opposite reason. Spool isolation is the
+      # mount: a worker may see only the events it wrote. The tree is a thing
+      # this worker READS about other people: the owner of a dispatch job
+      # arrives with the request, so a mount narrowed to one identity would
+      # answer for nobody. Read-only keeps the asymmetry honest — every record
+      # under here belongs to the terminal that wrote it, and nothing in this
+      # container may edit the narrowing that judges its own writes.
+      #
+      # The target sits outside `/app/<project>` and so outside this
+      # container's `var/` state zone: the entrypoint's `hand_back_state_zone`
+      # chowns that zone on every start, and a chown across a read-only bind
+      # fails with EROFS and warns every time. Both halves are computed by
+      # compose_generator from the same `agent_data.base_dir` the writer
+      # resolves its own record path against.
+      - ./var/agent_data/control_target:/osprey/control_tree:ro
+
+      # The simulator's model logs, read-write: the in-process composite appends
+      # `<model>.log` here, beside the records every other process serving the
+      # simulated machine writes. Provisioned setgid and group-writable on the
+      # host before compose runs (compose_generator.ensure_simulator_log_dirs).
+      - ./var/simulator:/app/golden-project/var/simulator
+
+      # Guarded runs' locks, read-write: one directory per control target,
+      # shared with every other container that runs the agent, so a run
+      # started here contends for the same lock.
+      # Provisioned setgid and group-writable on the host before compose runs
+      # (compose_generator.ensure_guarded_run_dirs).
+      - ./var/guarded_run:/app/golden-project/var/guarded_run
+
+      # The control-identity script the entrypoint runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity:/opt/osprey/control_identity:ro
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/osprey-dispatch-bus-alive') < 30 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — first run provisions Claude
+      # artifacts and injects provider env, which takes a few seconds.
+      start_period: 30s
+
+  dispatch-worker-2:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # NO build: block here on purpose. The project image (<project>:local) is
+    # built once by `osprey up` (deployment/container_lifecycle.py) from
+    # the project root before `docker compose up` runs; the worker just
+    # references that prebuilt tag. Declaring a second `build:` for it would race
+    # the sole builder to tag the same image. `depends_on` keeps the worker
+    # ordered after the event-dispatcher. A prebuilt OSPREY_WORKER_IMAGE override
+    # is pulled normally instead.
+    depends_on:
+      - event-dispatcher
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy workers on one host without colliding on
+    # one name. The dispatcher routes to the compose service key
+    # `dispatch-worker-2` (see tutorial_triggers.yml dispatch_target),
+    # unchanged here — so this rename needs no network alias.
+    container_name: golden-project-dispatch-worker-2
+    command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      # Content fingerprint of the env chain this deploy read (runtime_helper's
+      # env_chain_digest, carried in by OSPREY_ENV_DIGEST). It is a label, not
+      # documentation: compose recreates a container when the compose document
+      # changes, and neither provider diffs a running container against the env
+      # FILES it was started from — so without this, editing a chain file left
+      # the running worker on the old values. Folding the chain's hash into a
+      # label makes such an edit a document change. Empty when the invocation
+      # did not set the variable (a hand-run `docker compose up`).
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+      # The same trigger for this worker's agent-record login file.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_DISPATCH_WORKER_2:-}"
+      # And for this worker's bus key file.
+      osprey.dispatch-bus.digest: "${OSPREY_DISPATCH_BUS_DIGEST_DISPATCH_WORKER_2:-}"
+    restart: unless-stopped
+    # Provider auth: the worker's startup hook (inject_provider_env) resolves
+    # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
+    # the process environment. `env_file:` is read by the compose CLI on the
+    # HOST (as the file's owner), so it works even though the repo's .env is
+    # deliberately 0600 and the worker itself runs as non-root `osprey` and
+    # cannot open it.
+    #
+    # The deployment's env is a CHAIN of files at the repo root, listed here in
+    # ASCENDING precedence — committed defaults (.env.shared) first, the local
+    # secret file (.env) last — because compose lets a later entry win on any
+    # key an earlier one also sets. That is the same order the invocation's
+    # own `--env-file` flags carry, so what interpolates into this document and
+    # what lands in the container agree.
+    #
+    # Only files that EXIST at render time are listed: an `env_file:` entry
+    # naming a missing path errors `compose up` outright. Every path is relative
+    # to the pinned compose project directory, which is the deployment REPO
+    # ROOT — so these are the deployment's own chain files, not copies inside
+    # the disposable render.
+    env_file:
+      - ./.env
+      # This worker's agent-record login: one login and nothing else, which
+      # every worker shares in the shared workspace mode, because those
+      # workers write as one identity. Always listed, because the record is
+      # always deployed and `osprey build` writes the file before this one.
+      - .env.agent-record.login.dispatch-worker-2
+      # This worker's bus keys and no other worker's: its own secret and the
+      # dispatcher's public key. The worker takes the secret out of its
+      # environment before it starts any run.
+      - .env.dispatch-bus.dispatch-worker-2
+    environment:
+      # No :-default (see event_dispatcher compose): fail closed on an unset token.
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      # On the bus: connect to the dispatcher under this worker's name, which
+      # is the name its key is listed under there. No port is bound, so the
+      # healthcheck reads the file every heartbeat touches instead.
+      DISPATCH_BUS_CONNECT: "tcp://event-dispatcher:10050"
+      DISPATCH_BUS_WORKER_NAME: dispatch-worker-2
+      DISPATCH_BUS_ALIVE_FILE: /tmp/osprey-dispatch-bus-alive
+      DISPATCH_TIMEOUT_SEC: "300"
+      DISPATCH_INACTIVITY_SEC: "120"
+      # The third budget: how many agentic turns one dispatched run may take
+      # when the trigger names no ceiling of its own.
+      DISPATCH_MAX_TURNS: "25"
+      OSPREY_PROJECT_DIR: /app/golden-project
+      # WHO this worker's records are written as. The identity follows the
+      # MIDDLEWARE, not the interface app: this container
+      # launches the framework MCP servers through a CLI subprocess, so every
+      # tools/call it makes is recorded — and a worker that recorded as the
+      # generic container user would file its records under a name that
+      # identifies nobody.
+      #
+      # One identity per WORKER, not one for the service: each worker is its own
+      # container writing concurrently, and the identity is its compose service
+      # key, so a record can be traced back to the container that wrote it with
+      # no lookup table. The same derivation provisions the host directory
+      # (compose_generator.dispatch_worker_audit_identities), which is why the
+      # two are asserted against each other rather than kept in step by hand.
+      #
+      # OSPREY_SPOOL_DIR and OSPREY_STATE_DIR below are also the contract this
+      # file offers the image's entrypoint: its root phase is to join the group
+      # of each directory the render names here before dropping privileges. This worker mounts no
+      # facility bundle, so it names no second directory and that step simply
+      # finds nothing else to do — no special case needed for it.
+      OSPREY_AUDIT_IDENTITY: dispatch-worker-2
+      # WHERE this worker appends its agent-record events and keeps its own
+      # state: its own directories in the two zones, bound below. Named for
+      # the writer and for the entrypoint, which joins each one's group.
+      OSPREY_SPOOL_DIR: /app/golden-project/var/spool/dispatch-worker-2
+      # WHERE this worker reads the agent record: its compose service on the
+      # bridge network, its loopback publish from the host namespace.
+      OSPREY_AGENT_RECORD_URL: http://agent-record:8000
+      OSPREY_STATE_DIR: /app/golden-project/var/state/dispatch-worker-2
+
+      # WHO this worker is to the control system. Per worker, from the same
+      # loop index as the audit identity above, so a write traced to
+      # `osprey-dispatch-<i>` names the one container that made it. The
+      # entrypoint's root phase renames the image's `osprey` account to this
+      # name, using the module mounted read-only below, before it drops
+      # privileges.
+      OSPREY_CONTROL_IDENTITY: osprey-dispatch-2
+      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity/control_identity.py
+
+      # WHERE this worker reads the control-context tree, mounted read-only
+      # below. A dispatch run writes as the OWNER on its job — a person, whose
+      # terminal may have narrowed them to another machine since the trigger was
+      # authored — and this is the only place that narrowing is visible from
+      # inside this container. Naming the directory is what arms the read: a
+      # worker without this variable judges on the target's ceiling alone.
+      #
+      # Unconditional, unlike the Bluesky lane's copy of this pair. A lane is
+      # bound to one control target at render time, so its write posture is
+      # known here; this worker runs the whole agent and can move between
+      # targets at runtime, so whether it will write is not a render-time fact.
+      #
+      # Like OSPREY_SPOOL_DIR above, this is also the contract offered to the
+      # image's entrypoint: its root phase joins the group of each directory
+      # named here and probes it for READ (the tree is read-only, so a write
+      # probe would report a loss nothing in this container was going to write).
+      OSPREY_CONTROL_CONTEXT_TREE: /osprey/control_tree
+      # WHERE this worker appends the simulator's model logs, mounted below.
+      # Named for the entrypoint, whose root phase joins the directory's group
+      # before dropping privileges, so the worker can append to a log another
+      # container created.
+      OSPREY_SIMULATOR_LOG_DIR: /app/golden-project/var/simulator
+      # WHERE this worker keeps guarded runs' locks, mounted below.
+      # Named for the entrypoint, whose root phase joins the directory's group
+      # before dropping privileges, so the worker can take a lock another
+      # container created.
+      OSPREY_GUARDED_RUN_DIR: /app/golden-project/var/guarded_run
+      # The worker process reads OSPREY config directly (e.g. get_facility_timezone
+      # while building the agent's system prompt), and spawns a CLI subprocess with
+      # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
+      # subprocess resolve config from the mounted project (via env inheritance),
+      # independent of CWD. It points at the STAGED config.yml bind-mounted below
+      # (the deploy-time config), not the copy baked into the image.
+      #
+      # Under the project directory, in build/ — the same four-zone shape the
+      # repo has, because this worker runs the PROJECT image and its .mcp.json is
+      # rendered as `{project_root}/build/config.yml` (registry/mcp.py, with
+      # project_root = this /app/<project> root). A flat config.yml here would be
+      # a path the agent's own MCP servers never read. The standalone service
+      # images are the opposite case and stay flat: nothing inside them renders
+      # anything against a project root.
+      CONFIG_FILE: /app/golden-project/build/config.yml
+      TZ: UTC
+
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT — hence the build/services/ prefix on
+    # the render output below.
+    volumes:
+      # The staged runtime config overlays the config.yml baked into the image,
+      # so the worker reads the deploy-time config.
+      - ./build/services/dispatch_worker/config.yml:/app/golden-project/build/config.yml:ro
+      # The image creates the agent-data directory (and its subdirs) and chowns
+      # `var/` — the state zone that directory lives in — to osprey. The render
+      # itself stays root-owned: the container starts as root and its entrypoint
+      # drops to osprey with gosu for the command, so only the startup steps
+      # that must write the render ever can. A fresh named volume initialized
+      # from the agent-data path therefore inherits osprey ownership, and the
+      # unprivileged worker writes it without any user: override.
+      # The mount target is rendered whole by compose_generator from the SAME
+      # `agent_data.base_dir` the mounted config.yml declares, so the volume
+      # cannot end up mounted anywhere but where the worker writes. It arrives
+      # already joined onto /app/<project> — the join is done there because an
+      # ABSOLUTE base_dir names the same path inside the container and must not
+      # be re-anchored under the project directory, which a template-level
+      # concatenation here could not tell apart from a relative one.
+
+      - dispatch_workspace_2:/app/golden-project/var/agent_data
+      - dispatch_claude_projects_2:/app/golden-project/var/agent_data/claude-config/projects
+
+      # This worker's spool and state directories, and only its own. Binds
+      # rather than named volumes, unlike the workspace above: agent-record
+      # binds the spool root whole and ingests what lands here, and the host
+      # reads the state. The isolation is the MOUNT — this container holds a
+      # bind to its own subdirectory of each zone and nothing else under them,
+      # so a worker cannot read a terminal user's events or another worker's.
+      # Provisioned host-side before the mount is created
+      # (compose_generator.ensure_spool_dir and ensure_state_dir, from
+      # `_ensure_agent_data_structure` on the build path): left to the container
+      # runtime, a rootful daemon creates the source root-owned and the dropped
+      # `osprey` process inside can write nothing to it.
+      - ./var/spool/dispatch-worker-2:/app/golden-project/var/spool/dispatch-worker-2
+      - ./var/state/dispatch-worker-2:/app/golden-project/var/state/dispatch-worker-2
+
+      # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
+      # the spool bind above, for the opposite reason. Spool isolation is the
+      # mount: a worker may see only the events it wrote. The tree is a thing
+      # this worker READS about other people: the owner of a dispatch job
+      # arrives with the request, so a mount narrowed to one identity would
+      # answer for nobody. Read-only keeps the asymmetry honest — every record
+      # under here belongs to the terminal that wrote it, and nothing in this
+      # container may edit the narrowing that judges its own writes.
+      #
+      # The target sits outside `/app/<project>` and so outside this
+      # container's `var/` state zone: the entrypoint's `hand_back_state_zone`
+      # chowns that zone on every start, and a chown across a read-only bind
+      # fails with EROFS and warns every time. Both halves are computed by
+      # compose_generator from the same `agent_data.base_dir` the writer
+      # resolves its own record path against.
+      - ./var/agent_data/control_target:/osprey/control_tree:ro
+
+      # The simulator's model logs, read-write: the in-process composite appends
+      # `<model>.log` here, beside the records every other process serving the
+      # simulated machine writes. Provisioned setgid and group-writable on the
+      # host before compose runs (compose_generator.ensure_simulator_log_dirs).
+      - ./var/simulator:/app/golden-project/var/simulator
+
+      # Guarded runs' locks, read-write: one directory per control target,
+      # shared with every other container that runs the agent, so a run
+      # started here contends for the same lock.
+      # Provisioned setgid and group-writable on the host before compose runs
+      # (compose_generator.ensure_guarded_run_dirs).
+      - ./var/guarded_run:/app/golden-project/var/guarded_run
+
+      # The control-identity script the entrypoint runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity:/opt/osprey/control_identity:ro
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/osprey-dispatch-bus-alive') < 30 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — first run provisions Claude
+      # artifacts and injects provider env, which takes a few seconds.
+      start_period: 30s
+
+
+volumes:
+
+
+  dispatch_workspace_1:
+  dispatch_claude_projects_1:
+
+  dispatch_workspace_2:
+  dispatch_claude_projects_2:
+
+
+
+networks:
+  osprey-network:

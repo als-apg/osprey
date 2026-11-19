@@ -3,7 +3,7 @@
 `test_render.py`'s and `test_auth_tls_seams.py`'s assertions are string matches
 on the Jinja output — cheap and fast, but they can't catch an nginx syntax error
 the strings happen to satisfy. This module closes that gap for real by actually
-invoking `nginx -t` inside `nginx:1.31-alpine` (the base image the deployed stack
+invoking `nginx -t` inside `nginx:1.31.9-alpine` (the base image the deployed stack
 uses) against each render shape the auth/TLS seams can produce:
 
 - the default render (`auth.method` unset -> "token", `tls.enabled` unset ->
@@ -63,6 +63,7 @@ from tests._container_support import (
     runtime_command,
 )
 from tests._renders import tier_render
+from tests.deployment.web_terminals._harness_image import NGINX_IMAGE
 from tests.deployment.web_terminals._nginx import (
     nginx_directives,
     nginx_terminals_part,
@@ -72,7 +73,7 @@ from tests.deployment.web_terminals._nginx import (
 #: moves them, so they are the layout's own — derived here so a cookie name or a
 #: proxy_pass target asserted further down follows a slot that moves.
 _BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel")}
-_NGINX_IMAGE = "nginx:1.31-alpine"
+_NGINX_IMAGE = NGINX_IMAGE
 
 #: The `tls.port` a rootless deployment names: above 1024, so an unprivileged
 #: nginx can bind it, and pointedly not `TLS_LISTEN_PORT` — the whole point of
@@ -243,7 +244,7 @@ def _run_nginx_t(
     command: tuple[str, ...] = ("nginx", "-t"),
     entrypoint: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run *command* (default ``nginx -t``) in ``nginx:1.31-alpine`` against the
+    """Run *command* (default ``nginx -t``) in ``nginx:1.31.9-alpine`` against the
     rendered fragment.
 
     When *templates_dir* is given, the base image's entrypoint is driven exactly
@@ -507,6 +508,26 @@ _REDIRECT_PROBE_PATH = "/u/alice/?token=x"
 _OTHER_NAMES = ("localhost", "127.0.0.1", "alias.example")
 
 
+#: How many 0.05 s polls a probe gives nginx's listeners to answer, in all: the
+#: one second the fixed ``sleep 1`` it replaced always waited.
+_LISTEN_POLLS = 20
+
+
+def _await_listeners(urls: list[str]) -> str:
+    """Shell that waits until every one of *urls* answers, for at most :data:`_LISTEN_POLLS` polls.
+
+    Any HTTP answer counts (``curl -s`` exits 0 on a 301 or a 503 alike); only a
+    refused connection waits. nginx binds its listeners before it daemonizes, so
+    the first poll normally answers; the bound is the old fixed wait, after which
+    the probes run as they did after it.
+    """
+    ready = " && ".join(f"curl -sk -o /dev/null '{url}'" for url in dict.fromkeys(urls))
+    return (
+        f"{{ i=0; until {{ {ready}; }} || [ $i -ge {_LISTEN_POLLS} ]; "
+        "do i=$((i + 1)); sleep 0.05; done; }"
+    )
+
+
 def _probe_script(requests: list[tuple[str, str]]) -> str:
     """A shell script that starts nginx and prints one answer per request.
 
@@ -519,7 +540,7 @@ def _probe_script(requests: list[tuple[str, str]]) -> str:
         f"-H 'Host: {host}' '{url}')\""
         for host, url in requests
     )
-    return f"nginx && sleep 1\n{probes}\n"
+    return f"nginx && {_await_listeners([url for _, url in requests])}\n{probes}\n"
 
 
 def _probe_answers(stdout: str) -> dict[tuple[str, str], str]:
@@ -1120,7 +1141,8 @@ def test_a_blank_terminal_secret_takes_down_only_that_users_terminal() -> None:
 
 def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> None:
     """While a terminal's app is still starting, nginx answers for it with a
-    self-reloading 503 page — and a 502 the app returns itself is still the app's.
+    503 waiting page — to a HEAD as to a GET, which is what the page's own
+    poll relies on — and a 502 the app returns itself is still the app's.
 
     Run through real nginx because the split rests on nginx's own semantics:
     `error_page` covers the 502 nginx generates when it cannot connect, and
@@ -1150,8 +1172,10 @@ def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> N
             entrypoint="sh",
             command=(
                 "-c",
-                "nginx && sleep 1\n"
+                f"nginx && {_await_listeners([f'http://127.0.0.1:{port}/'])}\n"
                 f"curl -s -D - -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/alice/\n"
+                "echo '=====HEAD'\n"
+                f"curl -s -I -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/alice/\n"
                 "echo '=====BOB'\n"
                 f"curl -s -D - -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/bob/\n",
             ),
@@ -1159,11 +1183,16 @@ def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> N
 
     # Assert
     assert result.returncode == 0, result.stderr
-    alice, bob = result.stdout.split("=====BOB", 1)
+    alice, rest = result.stdout.split("=====HEAD", 1)
+    head, bob = rest.split("=====BOB", 1)
     assert _status(alice) == "503", alice
     assert "Retry-After: 5" in alice
-    assert 'http-equiv="refresh"' in alice
-    assert "This terminal is not answering yet" in alice
+    assert "Cache-Control: no-store" in alice
+    assert "<h1>Starting your terminal</h1>" in alice
+    assert '<noscript><meta http-equiv="refresh" content="5"></noscript>' in alice
+    assert 'method: "HEAD"' in alice
+    assert _status(head) == "503", head
+    assert "Retry-After: 5" in head
     assert _status(bob) == "502", bob
     assert "the app says 502" in bob
 

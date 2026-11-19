@@ -3566,7 +3566,7 @@ def _check_nginx_image(web_terminals: dict[str, Any]) -> list[Finding]:
                 message=(
                     f"modules.web_terminals.nginx_image {value!r} is not a string; "
                     "it must be an image reference, e.g. "
-                    "'registry.example.com:5050/mirrors/nginx:1.31-alpine'"
+                    "'registry.example.com:5050/mirrors/nginx:1.31.9-alpine'"
                 ),
             )
         ]

@@ -6626,25 +6626,10 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
 #: The label line the dispatcher gained, exactly as it must render.
 _DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
 
-#: The deploy-timestamp label the templates no longer carry, as the committed
-#: side still renders it while this removal is uncommitted. Normalized away on
-#: both sides for the same reason the digest label is: the comparison below is
-#: "these two renders differ only by the deltas named here", and a delta that
-#: is being REMOVED has to be nameable too or the check cannot survive its own
-#: commit. Once committed neither side emits it and both replacements are
-#: no-ops; that the label is gone for good is pinned directly by
-#: :func:`test_render_carries_no_deploy_timestamp`.
-_DEPLOYED_AT_LABEL_LINE = '      osprey.deployed.at: ""\n'
-
 #: The config-digest label and the comment that carried its reasoning, which
 #: the template no longer writes: the build's generated labels override gives
-#: every rendered service that label. Named, like
-#: :data:`_DEPLOYED_AT_LABEL_LINE`, because a delta that is being REMOVED has to
-#: be nameable too or the comparison below cannot survive its own commit; once
-#: committed neither side emits it and the replacement is a no-op. Includes the
-#: comment because the delta IS the whole block: stripping the label alone
-#: would leave the comment as an unexplained difference and fail for the wrong
-#: reason.
+#: every rendered service that label. Includes the comment because the label
+#: was the whole block.
 _CONFIG_DIGEST_BLOCK = (
     "      # Content fingerprint of the rendered config this deploy built\n"
     "      # (runtime_helper's as_built_config_digest, carried in by\n"
@@ -6666,86 +6651,32 @@ _GENERATED_LABEL_LINES = (
     '      osprey.project.root: "/r"\n'
 )
 
-#: The MCP transport path and the comment carrying its reasoning, as the
-#: committed side does not render them yet while this addition is uncommitted.
-#: Named for the same reason as :data:`_CONFIG_DIGEST_BLOCK`, and carries the
-#: whole block for the same reason: the comment is part of the delta, and
-#: stripping the variable alone would fail on the comment instead. That this
-#: line renders at all, with the value both ends of the wire read, is pinned by
-#: :func:`test_dispatcher_serves_mcp_on_the_path_the_proxy_appends`.
-_MCP_TRANSPORT_PATH_BLOCK = (
-    "      # The same prefix also decides the path the MCP transport answers on.\n"
-    "      # Stated rather than left to FastMCP's own default because the terminal's\n"
-    "      # panel proxy reaches this server by appending a path of its own, and a\n"
-    "      # default is a value one end can change without the other hearing about\n"
-    "      # it. The Python spelling is osprey.dispatch.DISPATCHER_MCP_PATH; a render\n"
-    "      # test asserts the two are the same string, so the proxy and the server\n"
-    "      # cannot drift apart.\n"
-    "      FASTMCP_STREAMABLE_HTTP_PATH: /mcp\n"
+#: The dispatcher template's default (network-unset) render, pinned byte for byte.
+_DISPATCHER_DEFAULT_GOLDEN = Path(__file__).parent / "goldens" / "dispatcher" / "default.yml"
+
+#: The command that rewrites it from today's template (:func:`_regenerate`).
+_DISPATCHER_GOLDEN_REGENERATE = (
+    "PYTHONPATH=src:. ./.venv/bin/python tests/deployment/test_compose_generator.py"
 )
 
 
-def _head_dispatcher_render() -> str:
-    """Render the dispatcher template as of ``HEAD`` in the same Environment.
+def test_dispatcher_default_render_is_byte_identical_to_its_golden() -> None:
+    """The default (network-unset) render, byte for byte, and the labels it writes.
 
-    The comparison this feeds is the byte-identity promise: adopting the shared
-    macros must move no byte of a default (network-unset) render. Rendering the
-    committed template rather than pinning a copied literal keeps the promise
-    anchored to the file the repository actually shipped.
+    Asserted on raw text rather than parsed YAML: the shared network-axis
+    macros' whole whitespace contract is that a default render moves no byte,
+    and a parsed comparison would pass on a render that gained or lost a blank
+    line. The label assertions say apart from the golden which labels the
+    template writes itself and which the build's generated labels override
+    carries instead.
 
-    Skips rather than fails when the committed template cannot be read (no git,
-    or a test run against an ``osprey`` installed from somewhere other than this
-    checkout), and proves the two are the same file first so the skip can never
-    hide a real drift.
+    **Update discipline**: a failure means a template edit moved the default
+    render, which is never on its own a reason to hand-edit the golden.
+    Regenerate it in the same change as that edit, then account for every
+    changed byte::
+
+        PYTHONPATH=src:. ./.venv/bin/python tests/deployment/test_compose_generator.py
     """
-    import subprocess
-    from importlib import resources
-
-    repo_root = Path(__file__).resolve().parents[2]
-    rel = f"src/osprey/templates/{_DISPATCHER_TEMPLATE}"
-    on_disk = repo_root / rel
-    packaged = resources.files("osprey").joinpath(f"templates/{_DISPATCHER_TEMPLATE}")
-    if not on_disk.is_file() or on_disk.read_bytes() != packaged.read_bytes():
-        pytest.skip(f"packaged template is not this checkout's {rel}")
-
-    try:
-        head_source = subprocess.run(
-            ["git", "show", f"HEAD:{rel}"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover - env-dependent
-        pytest.skip(f"cannot read the committed template: {exc}")
-
-    # Reuse the packaged Environment so the Undefined mode, the loader and the
-    # trailing-newline handling are identical on both sides of the comparison.
-    environment = _packaged_compose_template(_DISPATCHER_TEMPLATE).environment
-    return environment.from_string(head_source).render(**_dispatcher_context())
-
-
-def test_dispatcher_default_render_matches_the_committed_one_but_for_the_label_deltas() -> None:
-    """The enumerated deltas, byte for byte, and nothing else.
-
-    Asserted on raw text rather than parsed YAML: the macros' whole whitespace
-    contract is that a default render moves no byte, and a parsed comparison
-    would pass on a render that gained or lost a blank line. The enumerated
-    labels are removed from BOTH sides so the check keeps its meaning once the
-    templates are committed — what it pins is "these labels are the only
-    differences", which stays true either way.
-    """
-
-    def _normalized(text: str) -> str:
-        return (
-            text.replace(_DIGEST_LABEL_LINE, "", 1)
-            .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
-            .replace(_GENERATED_LABEL_LINES, "", 1)
-            .replace(_CONFIG_DIGEST_BLOCK, "", 1)
-            .replace(_MCP_TRANSPORT_PATH_BLOCK, "", 1)
-        )
-
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
@@ -6753,7 +6684,15 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_label_d
         "the labels override carries the config digest"
     )
     assert _GENERATED_LABEL_LINES not in rendered, "the labels override carries the project labels"
-    assert _normalized(rendered) == _normalized(_head_dispatcher_render())
+    # Final-newline count is normalized on both sides: the repo's
+    # end-of-file-fixer hook owns the golden's trailing newline. Every other
+    # byte still has to match.
+    golden = _DISPATCHER_DEFAULT_GOLDEN.read_text(encoding="utf-8")
+    assert rendered.rstrip("\n") + "\n" == golden.rstrip("\n") + "\n", (
+        f"a template edit moved the dispatcher's default render; regenerate "
+        f"{_DISPATCHER_DEFAULT_GOLDEN.relative_to(Path(__file__).parents[2])} with "
+        f"`{_DISPATCHER_GOLDEN_REGENERATE}` and review every changed byte"
+    )
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
@@ -9777,3 +9716,23 @@ def test_up_finds_exactly_the_compose_files_the_build_wrote(
     )
     assert (history_compose in {os.path.normpath(p) for p in built}) is history_expected
     assert ("history" in derived_compose_dirs(config)) is history_expected
+
+
+def _regenerate() -> None:
+    """Overwrite the dispatcher's default-render golden from today's template.
+
+    Rendered by :func:`_render_dispatcher_template`, the same render the pinned
+    test makes, so a regenerated golden can only differ where the template
+    does. See that test's update discipline before running this.
+    """
+    _DISPATCHER_DEFAULT_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+    # The repo's end-of-file-fixer owns the trailing newline, and the pinned
+    # test normalizes it on both sides.
+    _DISPATCHER_DEFAULT_GOLDEN.write_text(
+        _render_dispatcher_template().rstrip("\n") + "\n", encoding="utf-8"
+    )
+    print(f"wrote {_DISPATCHER_DEFAULT_GOLDEN}")
+
+
+if __name__ == "__main__":
+    _regenerate()

@@ -2445,7 +2445,7 @@ def test_lint_an_omitted_optional_key_reports_nothing(key: str) -> None:
     [
         # A non-empty string image reference is accepted silently.
         pytest.param(
-            "nginx_image", "registry.example.com:5050/mirrors/nginx:1.31-alpine", id="nginx-image"
+            "nginx_image", "registry.example.com:5050/mirrors/nginx:1.31.9-alpine", id="nginx-image"
         ),
         # scheme://host[:port] is exactly what a browser sends as `Origin`.
         pytest.param("external_origin", "https://terminals.example.org", id="external-origin"),

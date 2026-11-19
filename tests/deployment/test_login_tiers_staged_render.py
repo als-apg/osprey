@@ -282,8 +282,13 @@ def _redeploy(repo: Path, case: Case, **kwargs: Any) -> None:
         prepare_compose_files(str(build / "config.yml"), **kwargs)
 
 
+#: libyaml's safe loader where the build has it: these assertions parse every
+#: rendered config several times per case, ~7x faster than pure Python.
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
 def _load(path: Path) -> dict[str, Any]:
-    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    document = yaml.load(path.read_text(encoding="utf-8"), Loader=_SAFE_LOADER)
     return document if isinstance(document, dict) else {}
 
 
@@ -518,6 +523,10 @@ def _assert_no_other_render_carries_a_map(repo: Path, *output_trees: Path) -> No
     assert must_check <= set(configs), must_check - set(configs)
 
     for path in configs:
+        # A document whose text never names the key cannot carry the map, so
+        # only the few that do are parsed.
+        if MAP_KEY.encode() not in path.read_bytes():
+            continue
         assert not _carries_map(_load(path)), path
 
 

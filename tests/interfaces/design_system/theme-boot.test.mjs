@@ -51,6 +51,7 @@ describe('theme-boot.js resolution ladder', () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-theme-mode');
     setSearch('');
     stubOSPreference(true);
   });
@@ -209,6 +210,37 @@ describe('theme-boot.js resolution ladder', () => {
       runBoot();
 
       expect(currentTheme()).toBe('high-contrast-light');
+    });
+
+    test('a server mode of auto resolves the stamped family against the OS', () => {
+      document.documentElement.setAttribute('data-theme', 'desy-dark');
+      document.documentElement.setAttribute('data-theme-mode', 'auto');
+      stubOSPreference(false);
+
+      runBoot();
+
+      expect(currentTheme()).toBe('desy-light');
+    });
+
+    test('a pinned server mode keeps the stamped id whatever the OS prefers', () => {
+      document.documentElement.setAttribute('data-theme', 'desy-dark');
+      document.documentElement.setAttribute('data-theme-mode', 'dark');
+      stubOSPreference(false);
+
+      runBoot();
+
+      expect(currentTheme()).toBe('desy-dark');
+    });
+
+    test('a stored preference outranks a server mode of auto', () => {
+      document.documentElement.setAttribute('data-theme', 'desy-dark');
+      document.documentElement.setAttribute('data-theme-mode', 'auto');
+      storePreference({ family: 'retro', mode: 'dark' });
+      stubOSPreference(false);
+
+      runBoot();
+
+      expect(currentTheme()).toBe('retro-dark');
     });
 
     test('an unknown server attribute falls through to auto in DEFAULT_FAMILY', () => {

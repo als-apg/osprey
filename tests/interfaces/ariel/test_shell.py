@@ -2677,3 +2677,80 @@ def test_compose_sheet_shows_exactly_one_banner(ariel_url: str, chromium_browser
     expect(_sheet_title(page)).to_have_text("New entry")
     expect(shown).to_have_count(0)
     page.close()
+
+
+# ---------------------------------------------------------------------------
+# An entry body that declares Markdown
+# ---------------------------------------------------------------------------
+
+#: An imported entry: a table, a picture placed in the text by file name, and
+#: what a hostile source could add (script, a remote picture, a script link).
+MARKDOWN_ENTRY = {
+    **make_entry(
+        "M1",
+        "Imported shift report",
+        attachments=[PICTURE],
+        metadata={"body_format": "markdown"},
+    ),
+    "raw_text": "\n".join(
+        [
+            "Imported shift report",
+            "",
+            "| Magnet | State |",
+            "| --- | --- |",
+            "| QF1 | tripped |",
+            "",
+            "![Beam at injection](beam.png)",
+            "",
+            "<script>window.__arielPwned = 1</script>",
+            '<img src="https://tracker.invalid/pixel.png" onerror="window.__arielPwned = 1">',
+            "",
+            "[the manual](javascript:window.__arielPwned=1) and [the wiki](https://wiki.invalid/)",
+        ]
+    ),
+}
+
+
+def test_a_markdown_entry_renders_as_formatted_text_and_stays_inert(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """A ``body_format: markdown`` body is elements, its picture opens the lightbox,
+    and nothing in the text runs or loads from another site."""
+    backend = FakeBackend(entries=[MARKDOWN_ENTRY, *DEFAULT_ENTRIES])
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    requested: list[str] = []
+    page.on("request", lambda request: requested.append(request.url))
+    row(page, "M1").click()
+    body = page.locator("#ariel-reader-body .entry-detail-text")
+
+    expect(reader_title(page)).to_have_text("Imported shift report")
+    expect(body).to_have_class(re.compile(r"entry-detail-text--rendered"))
+    expect(body.locator("table tbody td").first).to_have_text("QF1")
+    expect(body.locator("a", has_text="the wiki")).to_have_attribute("target", "_blank")
+    expect(body.locator("a", has_text="the manual")).not_to_have_attribute("href", re.compile(".*"))
+    expect(body.locator("script, [onerror]")).to_have_count(0)
+    expect(body.locator("img")).to_have_count(1)
+    assert page.evaluate("() => window.__arielPwned") is None
+    assert any("/attachments/A1" in url for url in requested), requested
+    assert not [url for url in requested if ".invalid" in url], requested
+
+    body.locator("img.entry-inline-image").click()
+    expect(page.locator("#image-lightbox")).to_be_visible()
+    wait_for_hash(page, canonical(sel="M1", att="A1"))
+    page.close()
+
+
+def test_an_entry_that_declares_no_format_shows_its_markup_as_text(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """The same text with no ``body_format`` is shown as stored, markup characters and all."""
+    plain = {**MARKDOWN_ENTRY, "entry_id": "P1", "metadata": {}}
+    backend = FakeBackend(entries=[plain, *DEFAULT_ENTRIES])
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='P1')}", backend)
+    body = page.locator("#ariel-reader-body .entry-detail-text")
+
+    expect(body).to_contain_text("| Magnet | State |")
+    expect(body).to_contain_text("<script>window.__arielPwned = 1</script>")
+    expect(body).not_to_have_class(re.compile(r"entry-detail-text--rendered"))
+    expect(body.locator("table, img, a, script")).to_have_count(0)
+    page.close()

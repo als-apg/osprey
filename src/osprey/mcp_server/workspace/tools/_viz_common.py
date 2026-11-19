@@ -181,6 +181,7 @@ def collect_and_register_artifacts(
                 mime_type=art["mime_type"],
                 tool_source=tool_source,
                 metadata=viz_metadata or None,
+                deliver=True,
             )
             store.update_entry_metadata(art_entry.id, source_agent="data-visualizer")
 

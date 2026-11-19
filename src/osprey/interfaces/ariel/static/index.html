@@ -292,6 +292,14 @@
     </div>
   </osprey-drawer>
 
+  <!-- Markdown parser and sanitiser for entry bodies that declare Markdown
+       (js/entry-markdown.js). Classic scripts, so they are page globals before
+       the deferred module below runs. vendor_url() names the CDN copy by
+       default and the copy `osprey vendor fetch` places in static/vendor/ when
+       the deployment is offline. Without them an entry shows as plain text. -->
+  <script src="{{ vendor_url('marked', '/static/vendor/marked.min.js') }}"></script>
+  <script src="{{ vendor_url('DOMPurify', '/static/vendor/purify.min.js') }}"></script>
+
   <!-- JavaScript -->
   <script type="module" src="/static/js/app.js"></script>
 </body>

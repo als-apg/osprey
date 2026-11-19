@@ -502,3 +502,236 @@ def test_a_channels_names_are_a_list_on_its_binding(
             assert row is not None
             assert isinstance(row["names"], list), row["names"]
             assert sorted(row["names"]) == sorted(set(record["names"]))
+
+
+# ---------------------------------------------------------------------------
+# Import in bounded requests
+# ---------------------------------------------------------------------------
+
+#: Every node of the corpus with its labels and properties. n10s's own
+#: bookkeeping nodes carry no ``uri``.
+_NODE_CENSUS_CYPHER = (
+    "MATCH (n) WHERE n.uri IS NOT NULL "
+    "RETURN n.uri AS uri, labels(n) AS labels, properties(n) AS props"
+)
+#: Every relationship of the corpus.
+_EDGE_CENSUS_CYPHER = "MATCH (a)-[r]->(b) RETURN a.uri AS src, type(r) AS rel, b.uri AS dst"
+
+#: Small enough that the demo's graph view goes out as dozens of requests.
+BOUNDED_REQUEST_CHARS = 50_000
+
+
+def _census(session: WatchedSession) -> tuple[dict, list]:
+    """All of the store's corpus: its nodes by URI, and its edges, sorted."""
+
+    def _plain(value):
+        return sorted(value) if isinstance(value, list) else value
+
+    nodes = {
+        row["uri"]: (
+            sorted(row["labels"]),
+            {key: _plain(value) for key, value in row["props"].items()},
+        )
+        for row in session.records(_NODE_CENSUS_CYPHER)
+    }
+    edges = sorted(
+        (row["src"], row["rel"], row["dst"]) for row in session.records(_EDGE_CENSUS_CYPHER)
+    )
+    return nodes, edges
+
+
+def test_an_import_in_bounded_requests_builds_the_same_graph(
+    graphdb_session_store: WatchedStore, demo_ttl: str
+) -> None:
+    """The graph view sent in many small requests is the graph it is sent whole.
+
+    ``osprey up`` sends a corpus larger than one request as several, each a
+    Turtle document of its own, so the store's heap does not have to hold the
+    corpus. The store is seeded twice here, once in one request and once in
+    requests of :data:`BOUNDED_REQUEST_CHARS`, and every node, label, property
+    and relationship is compared: n10s must count the same triples and build
+    the same graph either way, list-valued names included.
+
+    Last in the module, on the session's shared store: it wipes that store,
+    which the tests above read through ``named_store``.
+    """
+    from osprey.services.graph_store import seeder as graph_seeder
+
+    assert len(demo_ttl) > 20 * BOUNDED_REQUEST_CHARS
+    store = wiped_graphdb_store(
+        graphdb_session_store, label="graphdb (neo4j + n10s) seeded in bounded requests"
+    )
+    censuses = []
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        watched = WatchedSession(session, store)
+        for max_chars in (len(demo_ttl), BOUNDED_REQUEST_CHARS):
+            graph_seeder.wipe(session)
+            assert graph_seeder.bootstrap(session).ok
+            imported = graph_seeder.import_ttl(session, demo_ttl, max_chars=max_chars)
+            assert imported.ok, imported.extra_info
+            assert imported.triples_loaded == EXPECTED_TRIPLES_LOADED
+            censuses.append(_census(watched))
+
+    (whole_nodes, whole_edges), (bounded_nodes, bounded_edges) = censuses
+    assert len(whole_nodes) > EXPECTED_BINDINGS, "the census read no corpus: the check is vacuous"
+    assert bounded_nodes == whole_nodes
+    assert bounded_edges == whole_edges
+
+
+def test_a_labelled_blank_node_is_one_node_across_bounded_requests(
+    graphdb_session_store: WatchedStore,
+) -> None:
+    """A blank node label used far apart in the text still names one node.
+
+    n10s gives each request blank nodes of its own, so the same ``_:hub`` in
+    two requests would be two nodes. The statements that name a label travel
+    together in one request; the store must hold one hub that both ends point
+    at and that carries its own property.
+    """
+    from osprey.services.graph_store import seeder as graph_seeder
+
+    filler = "".join(f'ex:filler-{n} ex:value "{n}" .\n' for n in range(200))
+    text = (
+        "@prefix ex: <https://example.org/> .\n"
+        f'_:hub ex:name "the one hub" .\n{filler}'
+        f"ex:first ex:points _:hub .\n{filler}"
+        "ex:second ex:points _:hub .\n"
+    )
+    assert len(list(graph_seeder.split_ttl(text, 2_000))) > 5
+
+    store = wiped_graphdb_store(
+        graphdb_session_store, label="graphdb (neo4j + n10s) seeded with a labelled blank node"
+    )
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        assert graph_seeder.bootstrap(session).ok
+        imported = graph_seeder.import_ttl(session, text, max_chars=2_000)
+        assert imported.ok, imported.extra_info
+        assert imported.triples_loaded == 403
+
+        rows = WatchedSession(session, store).records(
+            "MATCH (end:Resource)-[]->(hub:Resource) "
+            "WHERE end.uri IN $ends "
+            "RETURN end.uri AS end, hub.uri AS hub, [k IN keys(hub) WHERE k <> 'uri'] AS props",
+            {"ends": ["https://example.org/first", "https://example.org/second"]},
+        )
+
+    assert len(rows) == 2
+    assert len({row["hub"] for row in rows}) == 1, "the label named two nodes"
+    assert all(len(row["props"]) == 1 for row in rows), "the hub lost its own property"
+
+
+# ---------------------------------------------------------------------------
+# A corpus larger than the heap holds in one request
+# ---------------------------------------------------------------------------
+
+#: The heap the small-heap store is pinned to: half the shipped default of 1G.
+SMALL_HEAP = "512m"
+#: Devices in the generated corpus. With two channels each this is about 50 MB
+#: of Turtle: half of a corpus that could not be seeded at the default heap,
+#: against half that heap.
+LARGE_CORPUS_DEVICES = 95_000
+#: Triples one generated device states: eight of its own, three per channel.
+_TRIPLES_PER_DEVICE = 14
+
+
+def _large_corpus(devices: int) -> str:
+    """A corpus in the shape the graph view writes, of *devices* devices.
+
+    Every device is typed, numbered, placed, labelled, named twice and bound to
+    a readback and a setpoint, each of which is a typed node of its own, so the
+    graph has what makes a real one heavy to hold: two classes that every node
+    of their kind points at.
+    """
+    blocks = [
+        "# facility-sha256: " + "0" * 64 + "\n"
+        "@prefix ex: <https://example.org/> .\n"
+        "@prefix ex_sem: <https://example.org/schema/> .\n"
+        "@prefix ex_p: <https://example.org/property/> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .\n"
+    ]
+    for index in range(devices):
+        device = f"ex:DEV-{index:07d}"
+        blocks.append(
+            f"\n{device} a ex_sem:Device ;\n"
+            f"    ex_p:index {index} ;\n"
+            f"    ex_p:sPositionM {index * 0.137:.4f} ;\n"
+            f'    rdfs:label "device {index} of the generated corpus" ;\n'
+            f'    skos:altLabel "dev-{index}",\n        "alias-{index}" ;\n'
+            f"    ex_p:hasBinding {device}_readback,\n        {device}_setpoint .\n"
+            f"\n{device}_readback a ex_sem:ChannelBinding ;\n"
+            f'    ex_p:channelName "GEN:DEV{index:07d}:READBACK" ;\n'
+            f'    ex_p:direction "read" .\n'
+            f"\n{device}_setpoint a ex_sem:ChannelBinding ;\n"
+            f'    ex_p:channelName "GEN:DEV{index:07d}:SETPOINT" ;\n'
+            f'    ex_p:direction "write" .\n'
+        )
+    return "".join(blocks)
+
+
+@pytest.mark.slow
+def test_a_corpus_too_large_for_one_request_seeds_and_is_wiped_in_a_small_heap(
+    graphdb_plugin_dir: Path,
+) -> None:
+    """A large corpus is seeded, and replaced, inside a heap far smaller than it needs whole.
+
+    The defect this pins: the whole corpus went to the store as one request, so
+    the heap had to hold all of it. A corpus of about 110 MB failed at the
+    shipped 1G heap and at 2G, and the deploy that failed ended as a success.
+    Here both sides are halved to keep the test short: about 50 MB against
+    512m, where the one-request import dies of ``Java heap space`` just the
+    same.
+
+    The second half is the wipe that starts every re-seed. The store this
+    leaves holds two class nodes with hundreds of thousands of relationships
+    each; deleting them one bounded batch at a time is what lets the next
+    ``osprey up`` replace this corpus in the same heap.
+
+    A store of its own, pinned to :data:`SMALL_HEAP`: the session's shared
+    store takes the image's own heap sizing, which follows the host.
+    """
+    from osprey.services.graph_store import seeder as graph_seeder
+
+    corpus = _large_corpus(LARGE_CORPUS_DEVICES)
+    assert len(corpus) > 10 * graph_seeder.IMPORT_CHUNK_CHARS
+
+    label = f"graphdb (neo4j + n10s) with a {SMALL_HEAP} heap"
+    with (
+        watched_graphdb_store(graphdb_plugin_dir, label=label, heap=SMALL_HEAP) as store,
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        assert graph_seeder.bootstrap(session).ok
+
+        imported = graph_seeder.import_ttl(session, corpus)
+
+        assert imported.ok, imported.extra_info
+        assert imported.triples_loaded == _TRIPLES_PER_DEVICE * LARGE_CORPUS_DEVICES
+        # Every device and its two bindings, and the two classes they point at.
+        assert graph_seeder.resource_count(session) == 3 * LARGE_CORPUS_DEVICES + 2
+
+        graph_seeder.wipe(session)
+
+        assert graph_seeder.resource_count(session) == 0
+        assert graph_seeder.bootstrap(session).status is graph_seeder.BootstrapStatus.INITIALIZED

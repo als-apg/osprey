@@ -36,6 +36,7 @@ _EVERY_BUILTIN = (
     ("simulator_view", "directory", "SimulatorDirectory"),
     ("phoebus_alarm_logger", "alarm_log", "PhoebusAlarmLogger"),
     ("phoebus_alarm_server", "alarm_state", "PhoebusAlarmState"),
+    ("osprey_alarm_relay", "alarm_state", "RelayAlarmState"),
     ("alarm_replay", "alarm_state", "ReplayAlarmState"),
     ("caputlog", "put_log", "CaPutLog"),
 )

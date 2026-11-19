@@ -1,10 +1,9 @@
 """Warn-only bundle validation for the OKF knowledge panel.
 
 Sweeps an :class:`~osprey.services.facility_knowledge.okf.bundle.OKFBundle` and
-reports authoring-level problems without ever raising: missing frontmatter (per
-OKF §9 authoring level) and dangling/malformed cross-links in document bodies
-(OKF §9 tolerates broken links, but the panel surfaces them as warnings so
-authors can fix them).
+reports authoring-level problems without ever raising: missing frontmatter and
+dangling links in document bodies (OKF §6.1 has consumers accept broken links,
+but the panel surfaces them as warnings so authors can fix them).
 
 The OKF imports resolve to core osprey rather than a vendored ``okf/`` copy.
 
@@ -16,8 +15,8 @@ The OKF API this builds on is intentionally narrow:
   :class:`OKFDocumentError` on malformed frontmatter.
 * ``doc.validate("authoring")`` -> ``None``; *raises* :class:`OKFDocumentError`
   listing the missing required keys.
-* ``bundle.resolve_concept_path(concept_id)`` -> ``Path`` (need not exist);
-  *raises* :class:`OKFBundleError` if the id escapes the bundle root.
+* ``resolve_in_bundle(target, source_dir=...)`` -> the bundle-relative path a
+  link names, or ``None`` for an external one (OKF §6).
 
 Every risky call is wrapped: :func:`validate_bundle` returns a list and never
 raises.
@@ -29,17 +28,13 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from osprey.facility.references import LINK_SCHEME
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle, OKFBundleError
 from osprey.services.facility_knowledge.okf.document import OKFDocumentError
+from osprey.services.facility_knowledge.okf.paths import resolve_in_bundle
 
 # Markdown inline links: [text](target) or [text](<target>), the angle-bracket
 # destination holding spaces or parentheses.
 _LINK_RE = re.compile(r"\[([^\]]*)\]\((<[^>\n]*>|[^)]+)\)")
-
-# Link targets we never try to resolve as concepts. A facility link names a
-# facility record, not a concept; the facility build checks it.
-_EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#", f"{LINK_SCHEME}:")
 
 
 @dataclass(frozen=True)
@@ -48,8 +43,7 @@ class ValidationWarning:
 
     Args:
         concept_id: The concept whose document the problem was found in.
-        kind: Problem category — ``"frontmatter"``, ``"broken-link"``, or
-            ``"malformed-link"``.
+        kind: Problem category — ``"frontmatter"`` or ``"broken-link"``.
         detail: Human-readable description of the specific problem.
     """
 
@@ -62,9 +56,11 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
     """Scan every concept in *bundle* and collect authoring warnings.
 
     For each concept this checks (a) authoring-level frontmatter completeness
-    and (b) that every internal body link resolves to an existing concept file.
-    External links (``http``, ``https``, ``mailto``, in-page ``#`` anchors) and
-    ``facility:`` links are skipped.
+    and (b) that every in-bundle body link names a file the bundle holds: a
+    concept, an asset or a directory. External links are skipped: any URI
+    scheme (``https:``, ``mailto:``, and ``facility:``, whose records the
+    facility build checks), in-page ``#`` anchors, and targets outside the
+    bundle root.
 
     This function never raises: any unexpected error while reading a concept is
     itself recorded as a ``"frontmatter"`` warning so the sweep can continue.
@@ -144,6 +140,7 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
 def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[ValidationWarning]:
     """Return link warnings for one document body. Never raises."""
     found: list[ValidationWarning] = []
+    source_dir = concept_id.rpartition("/")[0]
 
     try:
         matches = list(_LINK_RE.finditer(body or ""))
@@ -156,39 +153,18 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
             target = target[1:-1].strip()
         if not target:
             continue
-        if target.lower().startswith(_EXTERNAL_PREFIXES):
-            continue
-
-        # Map a link target like "/devices/bpm.md" or "devices/bpm.md" to an
-        # OKF §2 concept id: strip a leading slash and a trailing ".md".
-        link_id = target.lstrip("/")
-        link_id = link_id.removesuffix(".md")
-        if not link_id:
+        # OKF §6: "/x.md" resolves from the bundle root, "x.md" from this
+        # page's directory. A target with a scheme, or one that resolves
+        # outside the root, is external and is never read.
+        resolved = resolve_in_bundle(target, source_dir=source_dir)
+        if resolved is None:
             continue
 
         try:
-            path = bundle.resolve_concept_path(link_id)
-        except OKFBundleError as exc:
-            found.append(
-                ValidationWarning(
-                    concept_id=concept_id,
-                    kind="malformed-link",
-                    detail=f"{target!r}: {exc}",
-                )
+            # A page linked without its ".md" is still found, as it always was.
+            exists = (bundle.root / resolved).exists() or (
+                not resolved.endswith("/") and (bundle.root / f"{resolved}.md").is_file()
             )
-            continue
-        except Exception as exc:
-            found.append(
-                ValidationWarning(
-                    concept_id=concept_id,
-                    kind="malformed-link",
-                    detail=f"{target!r}: {exc}",
-                )
-            )
-            continue
-
-        try:
-            exists = path.exists()
         except Exception:
             exists = False
         if not exists:
@@ -196,7 +172,7 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
                 ValidationWarning(
                     concept_id=concept_id,
                     kind="broken-link",
-                    detail=f"{target!r} -> {link_id} (no such concept)",
+                    detail=f"{target!r} -> {resolved} (no such file)",
                 )
             )
 

@@ -704,8 +704,10 @@ def stage_va_project(root: Path) -> VaProject:
     apply`` discovers by walking up from its working directory, and the state
     zone it writes ``active_scenarios`` into; a stubbed render supplies the
     ``build/config.yml`` every repo-scoped verb reads, and the preset's
-    simulator view is rendered beside it (see ``stage_demo_data_dir``), so
-    ``osprey sim apply`` and the container read the same view. The render's
+    simulator view is laid beside it, so ``osprey sim apply`` and the
+    container read the same view. The view is a copy of this process's
+    :func:`demo_data_dir`: ``stage_demo_data_dir`` renders the same bytes
+    under any root, so one render serves both. The render's
     config names :data:`SUITE_SCENARIOS` in ``simulation.default_scenarios``,
     and the repo starts in that set the way a deploy's first start activates
     it.
@@ -728,7 +730,13 @@ def stage_va_project(root: Path) -> VaProject:
         "simulation": {"default_scenarios": list(SUITE_SCENARIOS)},
     }
     build = stub_build(project_dir, config=yaml.safe_dump(config))
-    data_dir = stage_demo_data_dir(build / "data")
+    data_dir = build / "data"
+    # The copy takes the mode of demo_data_dir()'s mkdtemp root (0o700); a render
+    # here makes this directory as a plain mkdir does, so it keeps that mode.
+    data_dir.mkdir()
+    mode = data_dir.stat().st_mode & 0o7777
+    shutil.copytree(demo_data_dir(), data_dir, dirs_exist_ok=True)
+    data_dir.chmod(mode)
 
     active = activate_default_scenarios(config, project_dir)
     assert STILL_MONITORS_SCENARIO_NAME in active, active

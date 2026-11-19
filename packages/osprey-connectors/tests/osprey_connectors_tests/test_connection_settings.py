@@ -41,7 +41,6 @@ def test_an_absent_block_reads_as_nothing_set(block):
     assert settings.timeout_s is None
     assert settings.login is None
     assert settings.ca_bundle is None
-    assert settings.credential_env_names == ()
 
 
 def test_a_token_login_names_its_variable():
@@ -51,7 +50,6 @@ def test_a_token_login_names_its_variable():
     assert settings.login.token_env == "OSPREY_ARCHIVER_TOKEN"
     assert settings.login.username is None
     assert settings.login.password_env is None
-    assert settings.credential_env_names == ("OSPREY_ARCHIVER_TOKEN",)
 
 
 def test_a_password_login_names_user_and_variable():
@@ -61,7 +59,6 @@ def test_a_password_login_names_user_and_variable():
     assert settings.login.username == "reader"
     assert settings.login.password_env == "ARCHIVER_PASSWORD"
     assert settings.login.token_env is None
-    assert settings.credential_env_names == ("ARCHIVER_PASSWORD",)
 
 
 def test_two_logins_are_refused():
@@ -215,9 +212,11 @@ def test_a_token_only_connection_refuses_a_password_login():
             logins=frozenset({"token"}),
             unsupported_because="tokens only",
         )
-    assert _read(
+    login = _read(
         {"auth": {"token_env": "T"}}, logins=frozenset({"token"}), unsupported_because="x"
-    ).credential_env_names == ("T",)
+    ).login
+    assert login is not None
+    assert login.token_env == "T"
 
 
 def test_a_connection_that_sends_no_ca_refuses_tls_with_its_reason():

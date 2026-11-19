@@ -587,18 +587,15 @@ class TestTheBuiltGraph:
             for member in ("SR/ION-PUMP13", "SR/BPM13", "SR/QF05")
         }
 
-    def test_two_independent_builds_render_equal_bytes(self) -> None:
+    def test_two_independent_builds_render_equal_bytes(self, text: str) -> None:
         from osprey.facility.build import build_facility
         from tests._preset_data import packaged_facility_dir
 
-        # Two builds and two read models: graph_text memoizes on the records
-        # object, so one read model rendered twice would compare a string to itself.
-        first, second = (
-            graph_text(
-                FacilityRecords(build_facility(packaged_facility_dir("demo"), project_name="demo"))
-            )
-            for _ in range(2)
+        # Two builds and two read models: the shared ``osprey build`` of the demo
+        # deployment wrote ``text`` to its file, and this one builds the tree that
+        # deployment was initialised from, in memory, and renders it afresh.
+        second = graph_text(
+            FacilityRecords(build_facility(packaged_facility_dir("demo"), project_name="demo"))
         )
 
-        assert first is not second
-        assert first.encode("utf-8") == second.encode("utf-8")
+        assert text.encode("utf-8") == second.encode("utf-8")

@@ -119,6 +119,7 @@ source-text-tests = [
     "tests/connectors/test_public_api.py::test_a_lazy_namespace_maps_what_it_lists",
     "tests/connectors/test_public_api.py::test_every_listed_name_is_there",
     "tests/connectors/test_public_api.py::test_every_name_a_public_module_defines_is_listed_or_private",
+    "tests/connectors/test_public_api.py::test_every_private_top_level_module_is_protected",
     "tests/connectors/test_public_api.py::test_every_top_level_module_has_a_layer",
     "tests/connectors/test_public_api.py::test_public_signatures_name_only_public_types",
     "tests/connectors/test_safety_file_single_home.py::test_no_file_is_replaced_by_a_hand_rolled_rename",

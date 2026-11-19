@@ -4,7 +4,8 @@ The generator's ``line`` mode merges the line's place, devices, channels and
 groups into ``records/``, its model into ``models.yaml`` and its measurement
 file into ``measurement/LINE.yaml``. On a copy of the committed tree with the
 line removed it writes the committed tree back, every other record byte-equal;
-run twice it changes nothing. It writes no limits record and no seed, and the
+run on the committed tree it changes nothing, so a second run changes nothing
+either. It writes no limits record and no seed, and the
 hello-world tree holds no line record. The line's groups, one per family, hold
 only its own devices; the measurement names the BPM and corrector ones, and
 its losing kick loses the particle on the deck.
@@ -15,6 +16,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -92,10 +94,28 @@ def _run_line(tree: Path) -> None:
     )
 
 
-@pytest.fixture
-def stripped(tmp_path: Path) -> Path:
-    """A copy of the committed example tree with the line removed, its place a stub."""
-    tree = tmp_path / "example"
+@dataclass(frozen=True)
+class Merged:
+    """The stripped tree after one run of the ``line`` mode.
+
+    Attributes:
+        tree: The tree, as the run left it.
+        records: Each of :data:`MERGED` as the stripped tree held it before the run.
+        limits: ``limits.yaml`` as the stripped tree held it before the run.
+    """
+
+    tree: Path
+    records: dict[str, str]
+    limits: bytes
+
+
+@pytest.fixture(scope="module")
+def merged(tmp_path_factory: pytest.TempPathFactory) -> Merged:
+    """A copy of the committed example tree with the line removed, its place a stub, then merged.
+
+    The generator runs once; every case of it reads that run.
+    """
+    tree = tmp_path_factory.mktemp("line") / "example"
     shutil.copytree(EXAMPLE, tree)
     for rel in MERGED:
         path = tree / rel
@@ -103,40 +123,42 @@ def stripped(tmp_path: Path) -> Path:
         path.write_text(_stripped(text, keep_place=rel == "records/places.yaml"), "utf-8")
     for rel in WRITTEN:
         (tree / rel).unlink()
-    return tree
+    records = {rel: (tree / rel).read_text(encoding="utf-8") for rel in MERGED}
+    limits = (tree / "limits.yaml").read_bytes()
+    _run_line(tree)
+    return Merged(tree, records, limits)
 
 
-def test_the_line_mode_writes_the_committed_tree(stripped: Path) -> None:
-    _run_line(stripped)
+def test_the_line_mode_writes_the_committed_tree(merged: Merged) -> None:
     for rel in [*MERGED, *WRITTEN]:
-        assert (stripped / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
+        assert (merged.tree / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
 
 
-def test_the_line_mode_leaves_every_other_record_byte_equal(stripped: Path) -> None:
-    before = {rel: (stripped / rel).read_text(encoding="utf-8") for rel in MERGED}
-    _run_line(stripped)
+def test_the_line_mode_leaves_every_other_record_byte_equal(merged: Merged) -> None:
     for rel in MERGED:
-        after = (stripped / rel).read_text(encoding="utf-8")
-        assert _without_line(after) == _without_line(before[rel]), rel
+        after = (merged.tree / rel).read_text(encoding="utf-8")
+        assert _without_line(after) == _without_line(merged.records[rel]), rel
 
 
 def test_the_line_mode_is_idempotent(tmp_path: Path) -> None:
+    """One run on the committed tree writes it back unchanged.
+
+    The mode writes only :data:`MERGED` and :data:`WRITTEN`, so a second run
+    starts from the same tree and writes the same bytes again.
+    """
     tree = tmp_path / "example"
     shutil.copytree(EXAMPLE, tree)
-    _run_line(tree)
     _run_line(tree)
     for rel in [*MERGED, *WRITTEN]:
         assert (tree / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
 
 
-def test_no_limits_record_names_the_line_but_its_correctors(stripped: Path) -> None:
+def test_no_limits_record_names_the_line_but_its_correctors(merged: Merged) -> None:
     limits = read_yaml((EXAMPLE / "limits.yaml").read_text(encoding="utf-8"))
     line = [r["address"] for r in limits["records"] if r["address"].startswith("LINE:")]
     assert len(line) == 8
     assert all(":MAG:HCM:" in a or ":MAG:VCM:" in a for a in line)
-    before = (stripped / "limits.yaml").read_bytes()
-    _run_line(stripped)
-    assert (stripped / "limits.yaml").read_bytes() == before
+    assert (merged.tree / "limits.yaml").read_bytes() == merged.limits
 
 
 def test_no_seed_names_the_line() -> None:
@@ -202,7 +224,7 @@ def test_the_line_place_spans_the_deck_from_its_start_marker(
 
 
 def test_the_losing_kick_loses_the_particle_on_the_deck(monkeypatch: pytest.MonkeyPatch) -> None:
-    at = pytest.importorskip("at")
+    import at
     import numpy as np
 
     monkeypatch.syspath_prepend(str(GENERATOR.parent))

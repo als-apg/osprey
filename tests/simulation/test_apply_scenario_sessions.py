@@ -84,7 +84,7 @@ def built_view(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def make_project(built_view: Path):
     """Stage a project holding the real view and *config*."""
 
@@ -162,6 +162,19 @@ def _activate_demo_history(
     return project, config
 
 
+@pytest.fixture(scope="module")
+def activated(
+    make_project, tmp_path_factory: pytest.TempPathFactory
+) -> tuple[Path, dict[str, Any]]:
+    """One default activation of the demo history, shared by the tests that only read it.
+
+    Safe to share because every test that takes it reads the seed file or
+    stats it, and none writes to the project, its state, the environment or
+    the cwd. A test that changes any of those activates a project of its own.
+    """
+    return _activate_demo_history(make_project, tmp_path_factory.mktemp("activated"))
+
+
 def test_apply_session_default_activation_seeds_alice_and_the_host_only(make_project, tmp_path):
     project, _ = _activate_demo_history(
         make_project, tmp_path, web_terminals=_preset_web_terminals()
@@ -172,8 +185,8 @@ def test_apply_session_default_activation_seeds_alice_and_the_host_only(make_pro
         assert not _seed(project, identity).exists()
 
 
-def test_apply_session_seed_file_carries_the_state_files_anchor(make_project, tmp_path):
-    project, config = _activate_demo_history(make_project, tmp_path)
+def test_apply_session_seed_file_carries_the_state_files_anchor(activated):
+    project, config = activated
 
     seed = json.loads(_seed(project, HOST).read_text())
     _, epoch = read_active_state(resolve_simulation_state_dir(config, project))
@@ -182,8 +195,8 @@ def test_apply_session_seed_file_carries_the_state_files_anchor(make_project, tm
     assert seed["sessions"], "a seed file never carries an empty sessions list"
 
 
-def test_apply_session_seed_file_has_the_contract_shape(make_project, tmp_path):
-    project, _ = _activate_demo_history(make_project, tmp_path)
+def test_apply_session_seed_file_has_the_contract_shape(activated):
+    project, _ = activated
 
     seed = json.loads(_seed(project, HOST).read_text())
     slugs = {s["slug"] for s in seed["sessions"]}
@@ -247,8 +260,8 @@ def test_apply_session_ids_are_stable_across_calls(make_project, tmp_path):
     assert first == second
 
 
-def test_apply_session_seed_file_is_group_shared_in_a_setgid_dir(make_project, tmp_path):
-    project, _ = _activate_demo_history(make_project, tmp_path)
+def test_apply_session_seed_file_is_group_shared_in_a_setgid_dir(activated):
+    project, _ = activated
 
     seed = _seed(project, HOST)
     assert stat.S_IMODE(seed.stat().st_mode) == 0o660
@@ -378,9 +391,9 @@ def test_apply_session_naive_anchor_is_refused(make_project, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_apply_session_real_view_carries_sessions_into_the_seed(make_project, tmp_path):
+def test_apply_session_real_view_carries_sessions_into_the_seed(activated):
     """The real view's ``sessions`` reach the seed: a view that drops them seeds nothing."""
-    project, _ = _activate_demo_history(make_project, tmp_path)
+    project, _ = activated
 
     seed = json.loads(_seed(project, HOST).read_text())
     assert {s["slug"] for s in seed["sessions"]} == {

@@ -395,6 +395,11 @@ def render_theme_boot_js(tree: TokenTree) -> str:
        theme-manager. Reached only when the stored string is not
        structured JSON naming a known family and mode.
 
+    The server rung reads ``<html data-theme-mode>`` as well: ``"auto"``
+    there says the stamped id only names a family, and the rung resolves
+    to that family's OS-preferred default, as ``theme-manager.js`` does at
+    hub start-up. Absent, or ``dark``/``light``, the stamped id stands.
+
     The ``?theme=`` rung accepts only a bare token (``'auto'`` or a
     concrete valid id) — a URL carries a single value, never the
     structured pair.
@@ -597,6 +602,14 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     }}
   }}
 
+  function readServerMode() {{
+    try {{
+      return document.documentElement.getAttribute("data-theme-mode");
+    }} catch {{
+      return null;
+    }}
+  }}
+
   const queryTheme = readQueryTheme();
   const storedTheme = readStoredTheme();
   const serverTheme = readServerTheme();
@@ -622,7 +635,11 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   }} else if (isKnownId(storedTheme)) {{
     candidate = storedTheme;
   }} else if (isValidId(serverTheme)) {{
-    candidate = serverTheme;
+    // A page that states `data-theme-mode="auto"` beside its theme chose a
+    // family and left light or dark to the OS: the stamped id only names the
+    // family. Resolving it here is what theme-manager's hub start-up does a
+    // moment later, so the first paint is already the theme the page keeps.
+    candidate = readServerMode() === "auto" ? "auto" : serverTheme;
   }}
 
   let resolved = candidate === "auto" ? resolveAuto(familyForAuto) : candidate;

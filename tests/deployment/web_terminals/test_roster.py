@@ -28,6 +28,8 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_launch_token,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
+    config_pv_directory_ca_bundles,
+    config_pv_directory_credential_envs,
     configured_registry_url,
     control_identity_collision_warnings,
     control_identity_problems,
@@ -44,6 +46,8 @@ from osprey.deployment.web_terminals.roster import (
     renders_needing_graphdb_password,
     renders_needing_launch_token_by_lane,
     renders_needing_phoebus_handles,
+    renders_needing_pv_directory_ca_bundles,
+    renders_needing_pv_directory_credentials,
     renders_with_open_shell,
     resolve_access_principals,
     resolve_authorization_roles,
@@ -3147,6 +3151,144 @@ def test_renders_needing_archiver_credentials_skips_unrendered_render_projects(
     )
 
     assert renders_needing_archiver_credentials(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# PV directory services -> the variables their blocks name, and their CA files
+# ---------------------------------------------------------------------------
+
+_PV_DIRECTORY = {
+    "type": "channelfinder",
+    "settings": {
+        "url": "https://cf.example/ChannelFinder",
+        "auth": {"username": "reader", "password_env": "CF_PW"},
+    },
+    "alarm_log": {
+        "type": "phoebus_alarm_logger",
+        "settings": {"url": "https://al.example", "auth": {"token_env": "ALARM_LOG_TOKEN"}},
+    },
+    "alarm_state": {
+        "type": "phoebus_alarm_server",
+        "settings": {
+            "bootstrap_servers": "kafka.example:9093",
+            "topic": "Accelerator",
+            "auth": {"username": "reader", "password_env": "ALARM_FEED_PW", "cleartext": True},
+        },
+    },
+    "put_log": {"type": "caputlog", "settings": {"url": "https://put.example"}},
+}
+
+
+def test_config_pv_directory_credential_envs_reads_every_typed_block_in_order() -> None:
+    assert config_pv_directory_credential_envs({"pv_directory": _PV_DIRECTORY}) == (
+        "CF_PW",
+        "ALARM_LOG_TOKEN",
+        "ALARM_FEED_PW",
+    )
+
+
+def test_config_pv_directory_credential_envs_names_a_shared_variable_once() -> None:
+    section = {
+        **_PV_DIRECTORY,
+        "put_log": {
+            "type": "caputlog",
+            "settings": {
+                "url": "https://put.example",
+                "auth": {"username": "reader", "password_env": "CF_PW"},
+            },
+        },
+    }
+
+    assert config_pv_directory_credential_envs({"pv_directory": section}).count("CF_PW") == 1
+
+
+def test_config_pv_directory_credential_envs_ignores_a_block_without_a_type() -> None:
+    """A block no connector reads entitles nothing: the simulator-only form names no service."""
+    section = {
+        "settings": {"auth": {"token_env": "UNREAD_TOKEN"}},
+        "alarm_state": {
+            "replay_file": "demo:example-alarms",
+            "settings": {"auth": {"username": "u", "password_env": "UNREAD_PW"}},
+        },
+    }
+
+    assert config_pv_directory_credential_envs({"pv_directory": section}) == ()
+
+
+@pytest.mark.parametrize("config", [{}, {"pv_directory": None}, {"pv_directory": "off"}])
+def test_config_pv_directory_credential_envs_is_empty_without_a_section(config: dict) -> None:
+    assert config_pv_directory_credential_envs(config) == ()
+
+
+def test_config_pv_directory_credential_envs_refusal_names_the_block() -> None:
+    section = {
+        "alarm_state": {
+            "type": "phoebus_alarm_server",
+            "settings": {"auth": {"username": "u", "password_env": "NOT A NAME"}},
+        }
+    }
+
+    with pytest.raises(
+        ValueError, match=r"pv_directory\.alarm_state\.settings\.auth\.password_env"
+    ):
+        config_pv_directory_credential_envs({"pv_directory": section})
+
+
+def test_config_pv_directory_ca_bundles_names_each_file_on_this_host_once(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    tls = {"ca_bundle": str(ca)}
+    section = {
+        "type": "channelfinder",
+        "settings": {"url": "https://cf.example", "tls": tls},
+        "alarm_state": {
+            "type": "phoebus_alarm_server",
+            "settings": {"bootstrap_servers": "k:9093", "topic": "A", "tls": tls},
+        },
+        "put_log": {
+            "type": "caputlog",
+            "settings": {
+                "url": "https://p.example",
+                "tls": {"ca_bundle": str(tmp_path / "no.pem")},
+            },
+        },
+    }
+
+    assert config_pv_directory_ca_bundles({"pv_directory": section}) == (str(ca),)
+
+
+def test_renders_needing_pv_directory_grants_map_each_render(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    with_ca = {
+        **_PV_DIRECTORY,
+        "put_log": {
+            "type": "caputlog",
+            "settings": {"url": "https://put.example", "tls": {"ca_bundle": str(ca)}},
+        },
+    }
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(tmp_path, "rw", {"pv_directory": with_ca}),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(tmp_path, "ro", {"pv_directory": None}),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+        ],
+    )
+
+    assert renders_needing_pv_directory_credentials(config, tmp_path) == {
+        "readwrite": ("CF_PW", "ALARM_LOG_TOKEN", "ALARM_FEED_PW")
+    }
+    assert renders_needing_pv_directory_ca_bundles(config, tmp_path) == {"readwrite": (str(ca),)}
 
 
 # ---------------------------------------------------------------------------

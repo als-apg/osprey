@@ -3,13 +3,12 @@
 Each case copies a fixture tree's mapping to
 ``data/facility/imported/mml/mapping.yaml`` and imports the tree's exports
 into a fresh ``data/facility/``. The cases that only read a clean import of a
-whole tree share one import of it per module, and the parse of its records.
+whole tree share the run's one import of it (``mml_imported``), and the parse
+of its records.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import re
 import shutil
@@ -29,9 +28,9 @@ from osprey.facility.layers.mml.importer import (
 )
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
 from osprey.facility.validate import run_stages
-from tests.facility._mml_built import BuiltModel
+from tests.facility._mml_built import BuiltModel, MmlImport, load_yaml, read_yaml
 
-#: The module's readers share one import per tree, which only holds on one worker.
+#: The module's second spear3 import is made once per module, which only holds on one worker.
 pytestmark = pytest.mark.xdist_group("layer_mml_import")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -76,7 +75,8 @@ def _import(tmp_path: Path, tree: str, stems: tuple[str, ...] | None = None) -> 
 
 
 def _rows(facility: Path, name: str) -> list[dict[str, Any]]:
-    return yaml.safe_load((facility / LAYER_DIR / name).read_text(encoding="utf-8"))
+    rows: list[dict[str, Any]] = load_yaml(facility / LAYER_DIR / name)
+    return rows
 
 
 def _by_id(rows: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, Any]]:
@@ -84,8 +84,8 @@ def _by_id(rows: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, A
 
 
 @pytest.fixture(scope="module")
-def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("spear3"), "spear3")
+def spear3(mml_imported: Callable[[str], MmlImport]) -> Path:
+    return mml_imported("spear3").facility
 
 
 @pytest.fixture(scope="module")
@@ -95,27 +95,23 @@ def spear3_again(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def nsls2(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
+def nsls2(mml_imported: Callable[[str], MmlImport]) -> tuple[Path, str]:
     """The nsls2 tree imported into a fresh facility, and what the import printed."""
-    printed = io.StringIO()
-    with contextlib.redirect_stdout(printed):
-        facility = _import(tmp_path_factory.mktemp("nsls2"), "nsls2")
-    return facility, printed.getvalue()
+    imported = mml_imported("nsls2")
+    return imported.facility, imported.printed
 
 
 @pytest.fixture(scope="module")
 def parsed() -> Callable[[Path, str], list[dict[str, Any]]]:
-    """The rows of a shared import's record file, parsed on the first read.
+    """The rows of a shared import's record file, parsed once for every reader.
 
-    Only the module-scoped imports are read through it, and every reader only
-    reads the rows, so one parse serves them all.
+    Only the shared imports are read through it, and every reader only reads
+    the rows, so one parse serves them all.
     """
-    done: dict[tuple[Path, str], list[dict[str, Any]]] = {}
 
     def rows(facility: Path, name: str) -> list[dict[str, Any]]:
-        if (facility, name) not in done:
-            done[facility, name] = _rows(facility, name)
-        return done[facility, name]
+        found: list[dict[str, Any]] = read_yaml(facility / LAYER_DIR / name)
+        return found
 
     return rows
 
@@ -192,7 +188,6 @@ def _built(mml_built: Callable[[str, str], BuiltModel], tree: str) -> dict[str, 
     return mml_built(tree, TREES[tree][0]).document
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_the_build_pairs_a_setpoint_with_its_monitor(
     spear3: Path, mml_built: Callable[[str, str], BuiltModel], parsed: Callable[..., Any]
 ) -> None:
@@ -209,7 +204,6 @@ def test_the_build_pairs_a_setpoint_with_its_monitor(
     assert "pair" in built[setpoint]["provenance"]["defaults"]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_the_rf_station_pairs_its_phase_control_and_leaves_its_voltage_control_unpaired(
     mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
@@ -225,7 +219,6 @@ def test_the_rf_station_pairs_its_phase_control_and_leaves_its_voltage_control_u
     assert built[rf["VoltageCtrl"]]["unit"] != built[rf["Voltage"]]["unit"]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_a_two_coil_corrector_pairs_each_coil_with_its_own_readback(
     mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
@@ -247,7 +240,6 @@ def _first_device(facility: Path, family: str) -> tuple[str, float]:
     return read_rows(facility)["StorageRing", family][row], ao[family]["Position"][0]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_a_device_carries_the_exports_position(
     spear3: Path, mml_built: Callable[[str, str], BuiltModel], parsed: Callable[..., Any]
 ) -> None:
@@ -261,7 +253,6 @@ def test_a_device_carries_the_exports_position(
     assert "s" not in built["provenance"]["defaults"]
 
 
-@pytest.mark.xdist_group("mml_built")
 @pytest.mark.parametrize(("tree", "count"), [("spear3", 509), ("nsls2", 817)])
 def test_every_wired_position_agrees_with_the_deck(
     tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]
@@ -272,14 +263,13 @@ def test_every_wired_position_agrees_with_the_deck(
     wired = _wired_devices(model.document)
     stated = {
         row["id"]: row["s"]
-        for row in _rows(model.facility, "devices.yaml")
+        for row in read_yaml(model.facility / LAYER_DIR / "devices.yaml")
         if "s" in row and row["id"] in wired
     }
     assert len(stated) == count
     assert {device: built[device]["s"] for device in stated} == stated
 
 
-@pytest.mark.xdist_group("mml_built")
 @pytest.mark.parametrize(("tree", "count"), [("spear3", 142), ("nsls2", 246)])
 def test_unwired_devices_gain_s(
     tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]

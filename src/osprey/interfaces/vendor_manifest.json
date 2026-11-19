@@ -20,7 +20,8 @@
       "sha256": "15fabce5b65898b32b03f5ed25e9f891a729ad4c0d6d877110a7744aa847a894",
       "targets": [
         "artifacts/static/js/vendor/",
-        "web_terminal/static/vendor/"
+        "web_terminal/static/vendor/",
+        "ariel/static/vendor/"
       ]
     },
     {
@@ -32,7 +33,8 @@
       "targets": [
         "artifacts/static/js/vendor/",
         "web_terminal/static/vendor/",
-        "okf_panel/static/vendor/"
+        "okf_panel/static/vendor/",
+        "ariel/static/vendor/"
       ]
     },
     {

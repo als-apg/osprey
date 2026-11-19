@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
+from fastapi.templating import Jinja2Templates
 
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces.vendor import vendor_url
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -28,6 +30,13 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# ``index.html`` is rendered rather than served verbatim so it can name marked
+# and DOMPurify through ``vendor_url()``: the CDN by default, the locally
+# fetched ``static/vendor/`` copy under ``OSPREY_OFFLINE``. Only a template can
+# make that choice at request time.
+templates = Jinja2Templates(directory=str(STATIC_DIR))
+templates.env.globals["vendor_url"] = vendor_url
 
 #: Seconds the web app's start-up gives the ARIEL store to answer. A store that
 #: stays silent past it ends start-up, so the process exits on that line rather
@@ -546,9 +555,9 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     app.include_router(draft_router)
 
     @app.get("/")
-    async def root():
+    async def root(request: Request) -> Response:
         """Serve main index.html."""
-        return FileResponse(STATIC_DIR / "index.html")
+        return templates.TemplateResponse(request, "index.html")
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:

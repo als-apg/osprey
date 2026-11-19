@@ -165,6 +165,14 @@ def test_the_sign_in_page_asks_for_a_username_and_a_password() -> None:
     assert f'action="{entry.ENTRY_PATH}"' in response.text
 
 
+def test_the_sign_in_button_carries_its_busy_wording() -> None:
+    """The frame's busy state reads this page's own verb."""
+    body = _client().get(entry.ENTRY_PATH).text
+
+    assert 'data-busy-label="Logging in&hellip;">Log in</button>' in body
+    assert 'document.addEventListener("submit"' in body
+
+
 def test_the_sign_in_page_names_nobody_on_the_roster() -> None:
     body = _client().get(entry.ENTRY_PATH).text
 

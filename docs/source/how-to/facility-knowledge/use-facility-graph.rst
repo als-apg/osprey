@@ -258,6 +258,22 @@ file reaches the graph with:
 
    $ osprey build && osprey up
 
+The corpus is sent to the store in requests of a few megabytes each, cut
+between Turtle statements, so the heap the store needs
+(``services.graphdb.heap_max_size``) does not grow with the size of the corpus.
+A statement is never cut, and every statement that names a labelled blank node
+(``_:b0``) travels in one request, whatever its size: a corpus of your own that
+leans on labelled blank nodes is the one case where a larger heap may still be
+needed.
+
+A seed that fails does not stop the rest of the deployment from starting, and
+it does not pass for a finished one either. ``osprey up`` reports the failure
+in its step output when it happens, starts everything else, and then ends with
+the failed step as its last lines and a non-zero exit status. The store is left
+without a seed marker, so the next ``osprey up`` seeds it again. (An attached
+``osprey up``, without ``-d``, hands the terminal to the container logs and has
+no exit status of its own: there the step output is the report.)
+
 
 What the Preset Seeds
 =====================

@@ -9,7 +9,6 @@ warning, and never stops on one.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -21,7 +20,7 @@ from osprey.facility.knowledge_links import (
     dangling_links,
 )
 from osprey.facility.validate import Validated
-from tests._builds import BuiltProject, run_build
+from tests._builds import BuiltProject, init_project, run_build
 
 DOC = {
     "channels": [{"id": "SR:DIAG:BPM:01:POSITION:X"}],
@@ -175,23 +174,36 @@ def test_the_knowledge_stage_runs_after_every_stop() -> None:
     assert LATER_STAGES[-1] == ("knowledge", check_knowledge_links)
 
 
-def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
-    built_demo: BuiltProject, tmp_path: Path
-) -> None:
-    repo = tmp_path / built_demo.repo.name
-    shutil.copytree(built_demo.repo, repo, symlinks=True)
-    facility_file = built_demo.build_dir.relative_to(built_demo.repo) / "facility.json"
-    (repo / facility_file).unlink()
+#: A page whose ``device_id`` names no device of the facility file.
+GONE_PAGE = "---\ntype: device\ntitle: Gone\ndescription: Missing.\ndevice_id: NO/SUCH9\n---\n"
+
+#: A page whose body links a channel the hello-world facility holds.
+LINKED_PAGE = (
+    "---\ntype: concept\ntitle: Linked\ndescription: Held.\n---\n\n"
+    "Read [the beam current](facility:SR:BEAM:CURRENT).\n"
+)
+
+
+def _hello_world(root: Path, pages: dict[str, str]) -> Path:
+    """A hello-world repo whose facility tree holds ``pages`` under ``knowledge/``.
+
+    The knowledge stage reads only the pages and the facility file, so the
+    smallest preset's tree proves what a demo tree would.
+    """
+    repo = init_project(root, "hello-world", "demo")
     knowledge = repo / "data" / "facility" / "knowledge"
-    held = built_demo.facility["devices"][0]["id"]
-    (knowledge / "linked.md").write_text(
-        f"---\ntype: device\ntitle: Linked\ndescription: Held.\ndevice_id: {held}\n---\n",
-        encoding="utf-8",
-    )
-    (knowledge / "gone.md").write_text(
-        "---\ntype: device\ntitle: Gone\ndescription: Missing.\ndevice_id: NO/SUCH9\n---\n",
-        encoding="utf-8",
-    )
+    knowledge.mkdir(parents=True, exist_ok=True)
+    for name, text in pages.items():
+        (knowledge / name).write_text(text, encoding="utf-8")
+    return repo
+
+
+def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
+    tmp_path: Path,
+) -> None:
+    repo = _hello_world(tmp_path, {"linked.md": LINKED_PAGE, "gone.md": GONE_PAGE})
+    facility_file = repo / "build" / "facility.json"
+    assert not facility_file.exists()
 
     result = run_build(repo)
 
@@ -200,23 +212,17 @@ def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
     assert joined.count("link-dangling: page knowledge/gone.md") == 1
     assert "links device NO/SUCH9" in joined
     assert "linked.md" not in result.stderr
-    assert (repo / facility_file).is_file()
+    assert facility_file.is_file()
 
 
 def test_validate_and_show_name_a_dangling_page_on_one_stderr_line(
-    built_demo: BuiltProject, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:
     from click.testing import CliRunner
 
     from osprey.cli.main import cli
 
-    repo = tmp_path / built_demo.repo.name
-    shutil.copytree(built_demo.repo, repo, symlinks=True)
-    knowledge = repo / "data" / "facility" / "knowledge"
-    (knowledge / "gone.md").write_text(
-        "---\ntype: device\ntitle: Gone\ndescription: Missing.\ndevice_id: NO/SUCH9\n---\n",
-        encoding="utf-8",
-    )
+    repo = _hello_world(tmp_path, {"gone.md": GONE_PAGE})
     expected = (
         "facility: link-dangling: page knowledge/gone.md — links device NO/SUCH9, which the "
         "facility file does not hold; fix: set device_id to a device id of the facility file, "

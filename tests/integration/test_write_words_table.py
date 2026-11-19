@@ -24,6 +24,7 @@ PR-3 and PR-9 require them to name the key and the command.
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 import os
 import re
@@ -208,34 +209,126 @@ _BANNER_HOMES = {
 }
 
 
-def _non_docstring_strings(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    docstrings = set()
+#: An escape that can spell a word's character (``\x``, ``\u``, ``\U``,
+#: ``\N{...}``, octal), or a backslash-newline, which a string drops. The other
+#: escapes spell only a quote, a backslash or a control character, which no
+#: word here holds.
+_SPELLING_ESCAPE = re.compile(r"\\(?:[xuUN0-7]|\r|\n)")
+
+
+@functools.cache
+def _pieces_through(word: str, at: int) -> tuple[re.Pattern[str], ...]:
+    """Where string tokens can cut *word* around its character at index *at*.
+
+    Each pattern begins with that character, which is what makes it quick. The
+    one searched forwards finds a piece of *word* from it that a closing quote
+    ends; the one searched in the reversed source (second, when *at* is not 0)
+    finds a piece up to it that an opening quote starts.
+    """
+    assert word.isprintable() and not set(word) & set("{}\\\"'"), word
+    pivot, quote = re.escape(word[at]), "[\"']"
+    after = "|".join(re.escape(word[at + 1 : end]) for end in range(at + 1, len(word)))
+    before = "|".join(re.escape(word[start:at][::-1]) for start in range(1, at + 1))
+    return tuple(
+        re.compile(f"{pivot}(?:{pieces}){quote}") if pieces else re.compile("(?!)")
+        for pieces in (after, before)
+    )
+
+
+def _may_hold(source: str, words: dict[str, int], *, every: bool) -> bool:
+    """Whether *source* can parse to str constants holding any (or every) of *words*.
+
+    With no escape that spells a character, a str constant is its string
+    tokens' text joined (an f-string's ``{{`` aside, and no word has a
+    brace). The token holding a word's character at index ``words[word]``
+    holds the word whole, or a piece of it through that character which the
+    token's quote closes or opens (:func:`_pieces_through`). A file this says
+    no to cannot yield a match, so the scan below skips its parse and walk,
+    which are what it spends its time on, and finds the same offenders as a
+    scan that parses every file. A skipped file is never parsed, so one that
+    does not parse no longer fails this scan; ruff's syntax check covers that.
+    """
+    if _SPELLING_ESCAPE.search(source):
+        return True
+    backwards = source[::-1]
+
+    def spelled(word: str, at: int) -> bool:
+        after, before = _pieces_through(word, at)
+        return word in source or bool(after.search(source) or before.search(backwards))
+
+    found = (spelled(word, at) for word, at in words.items())
+    return all(found) if every else any(found)
+
+
+def _offenders(
+    tree: ast.Module, banners: set[str] | None, shell: set[str] | None
+) -> tuple[list[str], list[int | str]]:
+    """``(non-docstring strings holding a banner, lines of literals restating the shell set)``.
+
+    One walk serves both; ``None`` skips a check. A walk visits a definition
+    before its body, so its docstring is known before the walk reaches it.
+    """
+    docstrings: set[int] = set()
+    banner_values: list[str] = []
+    shell_lines: list[int | str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             body = node.body
             if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
                 docstrings.add(id(body[0].value))
-    return [
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and id(node) not in docstrings
-    ]
+        elif isinstance(node, ast.Constant):
+            if (
+                banners is not None
+                and isinstance(node.value, str)
+                and id(node) not in docstrings
+                and any(banner in node.value for banner in banners)
+            ):
+                banner_values.append(node.value)
+        elif shell is not None and shell <= _literal_strings(node):
+            shell_lines.append(getattr(node, "lineno", "?"))
+    return banner_values, shell_lines
+
+
+@functools.cache
+def _python_scan() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """``(banner offenders, shell-set offenders)`` over every framework and package module.
+
+    The two tests below read one scan, so each module is parsed and walked at
+    most once, and only when it may hold what one of them looks for; the tree
+    does not change while the suite runs.
+    """
+    banners = set(write_target.KIND_BANNERS.values())
+    shell = set(tool_names.SHELL_TOOLS)
+    shell_home = Path(tool_names.__file__).resolve()
+    # A banner pivots on its em dash, which seldom sits beside a quote.
+    banner_pivots = {banner: banner.index("—") for banner in banners}
+    shell_pivots = dict.fromkeys(shell, 0)
+    banner_offenders: list[str] = []
+    shell_offenders: list[str] = []
+    for root in (SRC, PACKAGE_SRC):
+        for path in root.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            check_banners = path not in _BANNER_HOMES and _may_hold(
+                source, banner_pivots, every=False
+            )
+            check_shell = path.resolve() != shell_home and _may_hold(
+                source, shell_pivots, every=True
+            )
+            if not (check_banners or check_shell):
+                continue
+            values, lines = _offenders(
+                ast.parse(source),
+                banners if check_banners else None,
+                shell if check_shell else None,
+            )
+            where = path.relative_to(REPO)
+            banner_offenders += [f"{where}: {value!r}" for value in values]
+            shell_offenders += [f"{where}:{line}" for line in lines]
+    return tuple(banner_offenders), tuple(shell_offenders)
 
 
 def test_no_other_python_module_spells_a_banner():
-    banners = set(write_target.KIND_BANNERS.values())
-    offenders = []
-    for root in (SRC, PACKAGE_SRC):
-        for path in root.rglob("*.py"):
-            if path in _BANNER_HOMES:
-                continue
-            for value in _non_docstring_strings(path):
-                if any(banner in value for banner in banners):
-                    offenders.append(f"{path.relative_to(REPO)}: {value!r}")
-    assert offenders == []
+    assert list(_python_scan()[0]) == []
 
 
 def test_no_other_js_module_spells_a_banner():
@@ -327,17 +420,7 @@ def _literal_strings(node: ast.AST) -> set[str]:
 
 
 def test_no_other_module_restates_the_shell_set():
-    shell = set(tool_names.SHELL_TOOLS)
-    home = Path(tool_names.__file__).resolve()
-    offenders = []
-    for root in (SRC, PACKAGE_SRC):
-        for path in root.rglob("*.py"):
-            if path.resolve() == home:
-                continue
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if shell <= _literal_strings(node):
-                    offenders.append(f"{path.relative_to(REPO)}:{getattr(node, 'lineno', '?')}")
-    assert offenders == []
+    assert list(_python_scan()[1]) == []
 
 
 # ── word lint ────────────────────────────────────────────────────────────────

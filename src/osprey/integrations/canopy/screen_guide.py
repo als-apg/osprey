@@ -93,9 +93,16 @@ def build_screen_guide(library: Path, facility: Mapping[str, Any] | None) -> Scr
 
 
 def load_facility(path: Path) -> Mapping[str, Any] | None:
-    """The build's ``facility.json``, or ``None`` when it is absent or unreadable."""
+    """The build's ``facility.json``, or ``None`` when it is absent or unreadable.
+
+    Read through :func:`~osprey.facility.views.facts.parsed_facility_file`, which every
+    render of a build shares: a large facility file is held in memory once,
+    not once more per render.
+    """
+    from osprey.facility.views.facts import parsed_facility_file
+
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = parsed_facility_file(path)
     except (OSError, ValueError):
         return None
     return document if isinstance(document, dict) else None

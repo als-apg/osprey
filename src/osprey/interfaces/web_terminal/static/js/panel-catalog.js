@@ -175,6 +175,7 @@ export const PANEL_ICONS = Object.freeze({
   bluesky: 'bluesky',
   optimizer: 'crosshair',
   'system-health': 'stethoscope',
+  roster: 'users',
 });
 
 /** The glyph of a panel {@link PANEL_ICONS} does not name. */
@@ -245,6 +246,7 @@ export const PANEL_DESCRIPTIONS = Object.freeze({
   'channel-finder': 'Find control-system channels by name or property',
   okf: 'Browse the facility knowledge bundle',
   'system-health': 'Health checks for the framework and its services',
+  roster: 'Which login opens which panel, and the file that decides it',
   bluesky: 'Write plans, run the queue and watch live results',
   optimizer: 'Review and start an optimizer run, then watch it converge',
 });

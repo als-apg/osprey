@@ -522,19 +522,136 @@ class TestImportTtl:
         assert result.triples_loaded == 0
 
 
+class _ScriptedSession(FakeSession):
+    """Answers each import request in turn from a list of result rows."""
+
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self._rows = list(rows)
+
+    def run(self, query: str, **params: Any) -> FakeResult:
+        self.calls.append((query, params))
+        return FakeResult([self._rows.pop(0)] if self._rows else [])
+
+
+def _row(status: str, loaded: int, info: str = "") -> dict[str, Any]:
+    return {
+        "terminationStatus": status,
+        "triplesLoaded": loaded,
+        "triplesParsed": loaded,
+        "extraInfo": info,
+    }
+
+
+class TestImportTtlInBoundedRequests:
+    """A corpus larger than one request is sent as several, none of them large.
+
+    The payload of a request is held whole by the server before a triple is
+    parsed, so a corpus sent in one request needs a heap sized to the corpus.
+    """
+
+    PREFIX = "@prefix ex: <http://example.org/> .\n"
+
+    def _corpus(self, statements: int = 60) -> str:
+        return self.PREFIX + "".join(f'ex:s{n} ex:p "value {n}" .\n' for n in range(statements))
+
+    def test_a_large_text_goes_out_as_several_bounded_requests(self):
+        text = self._corpus()
+        session = _ScriptedSession([_row("OK", 10)] * 100)
+
+        result = import_ttl(session, text, max_chars=300)
+
+        payloads = [params["payload"] for _, params in session.calls]
+        assert len(payloads) > 3
+        assert max(len(payload) for payload in payloads) <= 300
+        assert all("n10s.rdf.import.inline" in query for query in session.queries)
+        assert all(params["commitSize"] == COMMIT_SIZE for _, params in session.calls)
+        assert result.ok is True
+
+    def test_the_requests_are_the_text_in_order_each_with_the_prefixes(self):
+        text = self._corpus()
+        session = _ScriptedSession([_row("OK", 10)] * 100)
+
+        import_ttl(session, text, max_chars=300)
+
+        first, *rest = [params["payload"] for _, params in session.calls]
+        assert all(payload.startswith(self.PREFIX) for payload in rest)
+        assert first + "".join(payload[len(self.PREFIX) :] for payload in rest) == text
+
+    def test_the_triple_counts_are_summed_over_the_requests(self):
+        rows = [_row("OK", 7), _row("OK", 11), _row("OK", 13)] + [_row("OK", 0)] * 100
+        session = _ScriptedSession(rows)
+
+        result = import_ttl(session, self._corpus(), max_chars=300)
+
+        assert result.triples_loaded == 31
+        assert result.triples_parsed == 31
+        assert result.extra_info == ""
+
+    def test_the_import_stops_at_the_first_request_that_fails(self):
+        """What a caller gates the seed marker on: one failed request fails the
+        whole import, and nothing is sent after it."""
+        session = _ScriptedSession(
+            [_row("OK", 7), _row("KO", 2, "Bad syntax on line 3"), _row("OK", 99)]
+        )
+
+        result = import_ttl(session, self._corpus(), max_chars=300)
+
+        assert len(session.calls) == 2
+        assert result.ok is False
+        assert result.termination_status == "KO"
+        assert result.triples_loaded == 9, "what the earlier requests committed stays counted"
+        assert "request 2" in result.extra_info
+        assert "Bad syntax on line 3" in result.extra_info
+
+    def test_a_request_that_raises_ends_the_import_with_its_error(self):
+        """A server out of memory answers with an error, not a status row."""
+
+        class _Dies(_ScriptedSession):
+            def run(self, query: str, **params: Any) -> FakeResult:
+                if len(self.calls) == 1:
+                    raise RuntimeError("Java heap space")
+                return super().run(query, **params)
+
+        session = _Dies([_row("OK", 7)])
+
+        with pytest.raises(RuntimeError, match="heap space"):
+            import_ttl(session, self._corpus(), max_chars=300)
+        assert len(session.calls) == 1
+
+    def test_a_text_within_the_bound_is_one_request_carrying_the_text_itself(self):
+        text = self._corpus(3)
+        session = _ScriptedSession([_row("OK", 3)])
+
+        import_ttl(session, text)
+
+        assert [params["payload"] for _, params in session.calls] == [text]
+
+    def test_the_default_bound_is_far_below_a_default_heap(self):
+        """The bound is what keeps a request inside the store's default heap; a
+        value in the hundreds of megabytes would be the one-request import again."""
+        assert graph_seeder.IMPORT_CHUNK_CHARS <= 16 * 1024 * 1024
+
+
 # ---------------------------------------------------------------------------
 # wipe
 # ---------------------------------------------------------------------------
 
 
 class TestWipe:
-    def test_detach_deletes_everything_in_bounded_transactions(self):
+    def test_deletes_everything_in_bounded_transactions(self):
+        """Relationships first, then nodes, each batched over rows matched
+        outside the subquery. A ``MATCH`` inside the ``CALL`` would run as one
+        transaction over the whole store, and a ``DETACH DELETE`` would delete
+        every relationship of a class node in one transaction: either way a
+        large store would not be wiped inside a default heap."""
         session = FakeSession()
         wipe(session)
         assert session.queries == [
-            "CALL { MATCH (n) DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS"
+            "MATCH ()-[r]->() CALL { WITH r DELETE r } IN TRANSACTIONS OF 10000 ROWS",
+            "MATCH (n) CALL { WITH n DELETE n } IN TRANSACTIONS OF 10000 ROWS",
         ]
-        assert session.results[0].consumed
+        assert all(result.consumed for result in session.results)
 
 
 # ---------------------------------------------------------------------------

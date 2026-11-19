@@ -919,9 +919,41 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     if adapter.supports_interactive_login:
         return (
             [],
-            [f"{preamble}(provider {spec.provider}); falling back to subscription/OAuth login"],
+            [
+                f"{preamble}(provider {spec.provider}); "
+                "the agent falls back to subscription/OAuth login"
+            ],
         )
     return [f"{preamble}(provider {spec.provider} requires it)"], []
+
+
+def _probe_inner_call_keys(build_dir: Path, repo_root: Path, config_path: Path) -> list[str]:
+    """Probe 2b: name the enabled features whose own model call has no API key.
+
+    Probe 2 judges the agent's route, where a provider with an interactive
+    login can launch without a key. That login covers the agent only. The
+    features listed by :mod:`osprey.models.inner_calls` send their own
+    completion with the provider's API key, so each one whose key is missing is
+    named here, after the agent's line. Warnings only: the terminal launches
+    and the agent works.
+
+    Zero network, and silent on a config it cannot read — Probe 3 reports that.
+    """
+    import yaml
+
+    from osprey.models.inner_calls import missing_key_warnings
+
+    from .build_environment import credential_environ
+
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(config, dict):
+        return []
+    return missing_key_warnings(
+        config, environ=credential_environ(build_dir, profile_dir=repo_root)
+    )
 
 
 def _probe_config_validity(build_dir: Path, config_path: Path) -> list[str]:
@@ -984,6 +1016,7 @@ def _preflight(repo_root: Path, build_dir: Path, config_path: Path) -> tuple[lis
     auth_failures, auth_warnings = _probe_auth_secret(build_dir, repo_root)
     failures.extend(auth_failures)
     warnings.extend(auth_warnings)
+    warnings.extend(_probe_inner_call_keys(build_dir, repo_root, config_path))
     failures.extend(_probe_config_validity(build_dir, config_path))
     return failures, warnings
 

@@ -110,6 +110,34 @@ jobs:
       # virtual-accelerator: the live CA suites SKIP without it (test_live_ca_venue_guard.py reds that).
       run: uv sync --locked --extra dev --extra virtual-accelerator
 
+    - name: Start pulling the container suites' images
+      # rest-b runs the testcontainers suites (the `docker` xdist group, one worker); each fixture pulls its
+      # image on first use. Pulled here in the background, the download overlaps the CLI install and pytest's
+      # collection, a minute or more before the first test. A fixture that reaches an image still in flight
+      # pulls it, and the daemon joins that pull to the one in flight; a fixture whose image's pull here
+      # failed pulls it once itself, as without this step, so a failure here is only logged, to
+      # ci-diag/image-prepull.log in the uploaded diagnostics. The references are the fixtures' own constants.
+      if: matrix.shard == 'rest-b'
+      run: |
+        images=$(uv run python -c 'from tests._graphdb_container import NEO4J_IMAGE; from tests._mongo_container import MONGO_IMAGE; from tests._session_database import SHIPPED_POSTGRES_IMAGE; from tests.integration.test_tiled_export import TILED_IMAGE; print(NEO4J_IMAGE, MONGO_IMAGE, SHIPPED_POSTGRES_IMAGE, TILED_IMAGE)')
+        mkdir -p ci-diag
+        for image in $images; do
+          # Every stream redirected: a background job holding the step's output open would hold the step.
+          (
+            start=$SECONDS
+            if docker pull --quiet "$image" > /dev/null 2>&1; then
+              echo "pulled $image in $((SECONDS - start)) s"
+            else
+              echo "pull of $image failed after $((SECONDS - start)) s; its fixture pulls it again"
+            fi
+          ) >> ci-diag/image-prepull.log 2>&1 < /dev/null &
+        done
+
+    - name: Fetch the pinned neosemantics (n10s) jar for the graph suites
+      # Fetched here: a failed download in the session fixture would SKIP every graph suite.
+      if: matrix.shard == 'rest-b'
+      run: scripts/ci/fetch_n10s_jar.sh
+
     - &install-pinned-cli
       name: Install the pinned Claude Code CLI
       uses: ./.github/actions/install-pinned-claude-code

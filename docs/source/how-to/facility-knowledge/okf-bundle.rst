@@ -19,7 +19,8 @@ as **cross-linked Markdown files with YAML frontmatter**, so the same files can
 be read by a person, tracked in version control, and navigated by an agent. It
 was introduced by Google; see the `Google Cloud blog post
 <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>`_
-for the original description.
+for the original description. OSPREY reads and writes version 0.3 of the
+`specification <https://github.com/open-knowledge-format/open-knowledge-format/blob/main/SPEC.md>`_, and still reads bundles written for 0.1 and 0.2.
 
 OSPREY uses OKF for **facility narrative knowledge** — the descriptive,
 human-authored context that does not belong in the channel database (that is the
@@ -46,13 +47,14 @@ to discover what exists and then read only the document it needs, instead of
 loading the whole bundle. Regenerate these indexes with
 ``osprey knowledge regen-index`` after adding or removing documents.
 
-**3. Cross-links.** Documents reference each other with bundle-relative
-Markdown links, so the agent can follow references from one document to related
-ones:
+**3. Cross-links.** Documents reference each other with Markdown links, so the
+agent can follow them. A target that starts with ``/`` is read from the bundle
+root, any other from the directory of the document it is written in:
 
 .. code-block:: markdown
 
    See [Personnel Safety System](/subsystems/pss.md) for the interlock hierarchy.
+   See [Vacuum System](vacuum.md), a document in the same directory.
 
 **Facility links.** A document names a channel, a device or a place of the
 facility file with a ``facility:`` link to its address, device id or place id. Wrap the whole
@@ -149,7 +151,7 @@ Working with a Bundle
            - One-sentence summary used in indexes and search
 
       Optional fields: ``tags`` (list of strings). Documents cross-reference
-      each other with bundle-relative Markdown links, as shown in
+      each other with Markdown links, as shown in
       `The Core Ideas`_ above.
 
       **Pointing the server at the bundle.** Add a ``facility_knowledge`` block
@@ -272,9 +274,11 @@ Working with a Bundle
 
          regenerate_indexes(Path("data/facility/knowledge"))
 
-      The root ``index.md`` includes an ``okf_version`` frontmatter key;
-      sub-directory indexes contain no frontmatter (they are consumed by the
-      server, not the agent directly).  The command is idempotent — a second run
+      The root ``index.md`` holds the bundle's metadata as frontmatter:
+      ``okf_version``, and any ``title``, ``description``, ``license`` or
+      other key you add. Regeneration keeps that block as written, and writes
+      ``okf_version: "0.3"`` only into a root index without one. Sub-directory
+      indexes contain no frontmatter.  The command is idempotent — a second run
       produces bit-identical output — and never touches concept documents, only
       index files.
 
@@ -287,10 +291,13 @@ Working with a Bundle
          All files in data/facility/knowledge are valid.
 
       Concept documents are checked at the *authoring* level (``type``,
-      ``title``, and ``description`` must be present and non-empty).  Index files
-      are checked for frontmatter compliance (OKF §6/§11) and must match what
-      ``regen-index`` writes, so a page added, removed or retitled without
-      regenerating fails validation.  The command exits 0 on a clean bundle, 1
+      ``title``, and ``description`` must be present and non-empty).  A Markdown
+      file with no ``type``, such as a ``README.md``, is not a concept: it gets a
+      warning and stays out of the indexes and search.  Files and directories
+      whose name starts with ``.`` are not in the bundle.  Index files are checked
+      for frontmatter compliance (OKF §8) and must match what ``regen-index``
+      writes, so a page added, removed or retitled without regenerating fails; a
+      ``log.md`` must have no frontmatter.  The command exits 0 on a clean bundle, 1
       if any file fails.
 
       **seed-from-ttl** — seeds one OKF stub document per device of the build's

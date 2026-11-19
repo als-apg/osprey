@@ -108,6 +108,7 @@ def save_viewable_picture_as_artifact(
             "tool_source": ATTACHMENT_TO_ARTIFACT_TOOL,
             "metadata": {"sha256": sha256, "logbook_picture": provenance},
             "session_id": session_id,
+            "deliver": True,
         },
         scope=scope,
     )

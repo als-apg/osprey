@@ -28,7 +28,6 @@ one that holds no channel is
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -168,8 +167,12 @@ def read_facility_roster(source: RosterSource) -> RosterResult:
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_EMPTY`
         one when it holds no channel.
     """
+    from osprey.facility.views.facts import parsed_facility_file
+
+    # Read through the facility file's one shared parse: a build that has the
+    # document in memory hands it over instead of holding a second copy.
     try:
-        text = source.path.read_text(encoding="utf-8")
+        document = parsed_facility_file(source.path)
     except FileNotFoundError:
         logger.warning(
             f"The facility file {source.for_display()} is not built, so this build "
@@ -184,9 +187,10 @@ def read_facility_roster(source: RosterSource) -> RosterResult:
         )
     except (OSError, UnicodeDecodeError) as e:
         return _corrupt(source, str(e))
-
+    except ValueError as e:
+        return _corrupt(source, _failure(e))
     try:
-        records = tuple(channel_record(channel, source) for channel in json.loads(text)["channels"])
+        records = tuple(channel_record(channel, source) for channel in document["channels"])
     except (ValueError, KeyError, TypeError) as e:
         return _corrupt(source, _failure(e))
 

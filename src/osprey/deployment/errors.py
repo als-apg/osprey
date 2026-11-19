@@ -98,6 +98,32 @@ class ComposeInterpolationError(DeploymentError):
         )
 
 
+class DeployStepFailedError(DeploymentError):
+    """The stack was started, but a step the start does not stop for failed.
+
+    Some provisioning is deliberately not a reason to deny an operator the rest
+    of the stack: seeding the graph store is one search surface among many. A
+    step like that reports its failure where it happens and lets the start go
+    on, and this is what the start raises once everything else is up, so the
+    run that left the step undone does not end as a success.
+
+    It is the opposite of a :class:`DeploymentPreconditionError`: there nothing
+    happened, here everything else did. A handler keeps what was started and
+    ends the command with a failure that names ``step``.
+
+    Attributes:
+        step: The step that failed, as a phrase that completes "... failed".
+        cause: What went wrong, in the step's own words.
+        remedy: The one thing to do about it.
+    """
+
+    def __init__(self, step: str, cause: str, remedy: str) -> None:
+        self.step = step
+        self.cause = cause
+        self.remedy = remedy
+        super().__init__(f"{step} failed: {cause}")
+
+
 class DeploymentPreconditionError(DeploymentError):
     """A deploy verb refused to act because a precondition is not met.
 

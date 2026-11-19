@@ -1,0 +1,15 @@
+# Invented for the panels tests: an example ring of two sectors and one rack.
+- id: XR
+  level: machine
+- id: XR/XR01
+  level: sector
+- id: XR/XR02
+  level: sector
+- id: XR/XR01/RK1
+  level: rack
+- id: XR/XR02/RK2
+  level: rack
+- id: XR/XR02/SAFE
+  level: enclosure
+- id: XR/XR02/SAFE/CAB1
+  level: cabinet

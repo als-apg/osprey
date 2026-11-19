@@ -557,10 +557,11 @@ def load_project_dotenv() -> None:
     values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
     still see — and warn about — an export that disagrees with the store, and
     hand compose an environment with the shell's precedence intact. The record
-    is taken once per key against the *merged* chain, before any file is
-    loaded: the value a key ends up with is the local file's, so that is the
-    value the shell's export is judged against, and a key both files set is
-    recorded once rather than twice.
+    is taken once per key against the value the chain *applied*, as
+    :func:`apply_env_chain` parsed it (an inline ``# comment`` stripped, a
+    ``${VAR}`` interpolated): the value a key ends up with is the local file's,
+    so that is the value the shell's export is judged against, and a key both
+    files set is recorded once rather than twice.
 
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
@@ -579,7 +580,7 @@ def load_project_dotenv() -> None:
 
     repo_root = Path.cwd()
     try:
-        from osprey_connectors.dotenv import chain_files, merge_chain
+        from osprey_connectors.dotenv import chain_files
 
         paths = chain_files(repo_root)
         if not paths:
@@ -591,17 +592,15 @@ def load_project_dotenv() -> None:
         # call sees no difference and must not erase the genuine shell values
         # the first one recorded. First-seen wins; only the pre-load value is
         # the shell's own. A shell-only name is never replaced, so it is never
-        # recorded.
-        pinned = merge_chain(repo_root)
-        for name, value in pinned.items():
-            if (
-                not _is_shell_only_env_var(name)
-                and name in os.environ
-                and os.environ[name] != value
-                and name not in _dotenv_shell_overrides
-            ):
-                _dotenv_shell_overrides[name] = os.environ[name]
-        apply_env_chain(os.environ, paths)
+        # recorded. The record compares against what was applied, so it reads
+        # the files with the parser that applies them.
+        shell = dict(os.environ)
+        try:
+            apply_env_chain(os.environ, paths)
+        finally:
+            for name, value in shell.items():
+                if os.environ.get(name, value) != value and name not in _dotenv_shell_overrides:
+                    _dotenv_shell_overrides[name] = value
         logger.debug("Loaded the env chain from %s", ", ".join(str(path) for path in paths))
     except OSError as e:
         # e.g. a 0600 .env owned by another uid mounted into a non-root
@@ -617,30 +616,6 @@ class ConfigBuilder:
 
     Singleton access: use :func:`get_config_builder` or :func:`_get_config`.
     """
-
-    # Sentinel to distinguish "no default given" from "default is None".
-    _REQUIRED = object()
-
-    def _require_config(self, path: str, default: object = _REQUIRED) -> object:
-        """Get config value, raising ValueError if required (no default) and missing.
-
-        When *default* is provided, uses it with a warning. When *default* is
-        omitted (_REQUIRED sentinel), raises on missing/None values.
-        """
-        value = self.get(path)
-
-        if value is None:
-            if default is self._REQUIRED:
-                # No default provided - this is a required configuration
-                raise ValueError(
-                    f"Missing required configuration: '{path}'. For profile-built "
-                    f"projects, set it under `config:` in profile.yml and run "
-                    f"`osprey build`; otherwise add it to your config file."
-                )
-            # Default provided - use it but warn for visibility
-            logger.warning(f"Using default value for '{path}' = {default}. ")
-            return default
-        return value
 
     def __init__(self, config_path: str | Path | None = None, *, load_env: bool = True):
         """
@@ -1004,6 +979,14 @@ _default_config: ConfigBuilder | None = None
 _default_configurable: dict[str, object] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}
 
+#: Whether the default singleton was chosen by ``CONFIG_FILE`` or a
+#: :func:`config_anchored_at` scope, neither of which
+#: :func:`osprey_connectors.workspace.resolve_config_path` consults.
+#: :func:`osprey_connectors.workspace.load_osprey_config` then reads the file it
+#: resolves without making it the default, so the lookups that follow keep
+#: answering from the file the process was pointed at.
+_default_pinned = False
+
 
 def _get_config(config_path: str | None = None, set_as_default: bool = False) -> ConfigBuilder:
     """Get configuration instance (singleton pattern with optional explicit path).
@@ -1032,12 +1015,13 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
         >>> # Explicit path that becomes the default
         >>> config = _get_config("/path/to/config.yml", set_as_default=True)
     """
-    global _default_config, _default_configurable
+    global _default_config, _default_configurable, _default_pinned
 
     if config_path is None:
         if _default_config is None:
             config_file = os.environ.get("CONFIG_FILE")
             _default_config = ConfigBuilder(config_file) if config_file else ConfigBuilder()
+            _default_pinned = bool(config_file)
 
             _default_configurable = _default_config.configurable.copy()
 
@@ -1060,6 +1044,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     if set_as_default:
         _default_config = _config_cache[resolved_path]
         _default_configurable = _default_config.configurable.copy()
+        _default_pinned = False
         logger.debug(f"Set explicit config as default: {resolved_path}")
 
     return _config_cache[resolved_path]
@@ -1172,6 +1157,11 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
     verb pointed at one deployment with ``--repo`` cannot leave the next lookup
     in this process answering for it.
 
+    Held for the whole scope: a
+    :func:`~osprey_connectors.workspace.load_osprey_config` inside it (every
+    agent-data-root lookup makes one) reads the file ``OSPREY_CONFIG`` or the
+    working directory names without making it the default.
+
     Never raises. A config that will not load leaves the previous default in
     place and warns: this makes lookups honest, and an anchor that aborted its
     caller would turn a degraded lookup into a failed deploy.
@@ -1181,12 +1171,13 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
             ``<repo>/build/config.yml`` (see
             :func:`osprey_connectors.workspace.rendered_config_path`).
     """
-    global _default_config, _default_configurable
+    global _default_config, _default_configurable, _default_pinned
 
-    previous = (_default_config, _default_configurable)
+    previous = (_default_config, _default_configurable, _default_pinned)
     try:
         try:
             _get_config(str(config_path), set_as_default=True)
+            _default_pinned = True
         except Exception as exc:  # an unusable anchor must not fail the caller
             logger.warning(
                 f"Could not anchor configuration at {config_path} "
@@ -1195,7 +1186,7 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
             )
         yield
     finally:
-        _default_config, _default_configurable = previous
+        _default_config, _default_configurable, _default_pinned = previous
 
 
 def load_config(config_path: str | None = None) -> dict[str, object]:

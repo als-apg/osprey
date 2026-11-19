@@ -183,7 +183,7 @@ def _dispatch_defaults():
     return DispatchConfig(triggers="tutorial_triggers.yml")
 
 
-def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
+def _pair_blocks(*, on_host: bool, worker_count: int = 1, bus: bool = False) -> dict[str, dict]:
     """The two ``services.<half>`` blocks a dispatch build writes.
 
     Only the keys a compose render reads — ``path`` and ``additional_dirs`` are
@@ -209,6 +209,11 @@ def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
         dispatcher["network"] = "host"
         worker["network"] = "host"
         worker["worker_port_stride"] = dispatch.worker_port_stride
+    if bus:
+        # Written only on the bus, like the network: `dispatch.transport: bus`.
+        dispatcher["transport"] = "bus"
+        dispatcher["bus_port"] = dispatch.bus_port
+        worker["transport"] = "bus"
     return {"event_dispatcher": dispatcher, "dispatch_worker": worker}
 
 
@@ -250,7 +255,30 @@ class Scenario:
     stack, not per service."""
 
 
+_BRIDGES = ("gchat_bridge", "nextcloud_bridge", "teams_bridge", "slack_bridge")
+
 SCENARIOS: tuple[Scenario, ...] = (
+    # The pair on the dispatch bus (`dispatch.transport: bus`) on the compose
+    # bridge: the dispatcher binds the bus and two workers connect to it by its
+    # service name with no port of their own. Two workers, because each must
+    # name its own key file and its own bus name. The bus moves one line of each
+    # chat bridge's render (WORKER_URL), which
+    # test_bridges_on_the_bus_read_runs_through_the_dispatcher_facade pins
+    # instead of a full bridge render per topology.
+    Scenario(
+        name="pair-on-bus",
+        services=_pair_blocks(on_host=False, worker_count=2, bus=True),
+        deployed=("event_dispatcher", "dispatch_worker"),
+        templates=("event_dispatcher", "dispatch_worker"),
+    ),
+    # The same on the host network, where the bus is a host socket on loopback.
+    # One worker: the per-worker key file and bus name are pinned above.
+    Scenario(
+        name="pair-on-bus-on-host",
+        services=_pair_blocks(on_host=True, bus=True),
+        deployed=("event_dispatcher", "dispatch_worker"),
+        templates=("event_dispatcher", "dispatch_worker"),
+    ),
     # The pair itself on the host namespace, with the archiver store deployed so
     # the worker's address rewrite is in the render rather than merely possible.
     # This is the shape `dispatch.network: host` produces.
@@ -671,6 +699,35 @@ def test_pair_on_host_narrows_both_bind_addresses() -> None:
     assert worker["DISPATCH_WORKER_BIND"] == "127.0.0.1"
 
 
+def test_pair_on_bus_on_host_reads_as_private_to_the_exposure_check(tmp_path: Path) -> None:
+    """``osprey up`` sees the bus pair on the host as bound to loopback.
+
+    On the bus a worker opens no port, but the exposure check reads a host-mode
+    worker's bind address out of its rendered environment, and one with none
+    fails closed: the deployment is reported reachable from the network and the
+    stricter service-token rules apply. Run the real check over the goldens.
+    """
+    from osprey.deployment.container_lifecycle import _host_network_bound_off_host
+    from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
+
+    scenario = _scenario("pair-on-bus-on-host")
+    compose_files = []
+    services = {}
+    for key in ("event_dispatcher", "dispatch_worker"):
+        compose_file = tmp_path / "services" / key / "docker-compose.yml"
+        compose_file.parent.mkdir(parents=True)
+        compose_file.write_text(_golden_text(scenario, key), encoding="utf-8")
+        compose_files.append(str(compose_file))
+        binding = BUNDLED_HOST_BINDINGS[key].binding
+        services[key] = {
+            "path": f"./services/{key}",
+            "listens": binding.listens,
+            "bind_env": binding.bind_env,
+        }
+
+    assert _host_network_bound_off_host(compose_files, services) == []
+
+
 def test_pair_on_host_reaches_the_archiver_store_where_it_publishes() -> None:
     """The worker's dial address follows the topology, not the config block.
 
@@ -726,6 +783,31 @@ def test_bridges_on_host_address_the_pair_at_the_host() -> None:
         assert environment["WORKER_URL"] == f"http://localhost:{dispatch.worker_port_base}"
 
 
+@pytest.mark.parametrize("on_host", [False, True], ids=["compose-network", "host"])
+def test_bridges_on_the_bus_read_runs_through_the_dispatcher_facade(on_host: bool) -> None:
+    """On the bus every bridge's WORKER_URL is the dispatcher's ``/worker`` facade.
+
+    The workers listen on no port there, so a bridge left on a worker address
+    would fail its first status poll. The bridges are twins by intent, so all
+    four are checked, in both topologies.
+    """
+    dispatch = _dispatch_defaults()
+    services = _pair_blocks(on_host=on_host, bus=True)
+    if on_host:
+        services |= {bridge: {"network": "host"} for bridge in _BRIDGES}
+    scenario = Scenario(
+        name="bridges-on-bus",
+        services=services,
+        deployed=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+        templates=_BRIDGES,
+    )
+    host = "localhost" if on_host else "event-dispatcher"
+    expected = f"http://{host}:{dispatch.dispatcher_port}/worker"
+    for name, text in _render_scenario(scenario).items():
+        (service,) = yaml.safe_load(text)["services"].values()
+        assert service["environment"]["WORKER_URL"] == expected, name
+
+
 def test_two_workers_on_host_fan_out_across_ports() -> None:
     """Worker ``i`` binds ``base + (i - 1) * stride``, and its probe follows it.
 
@@ -775,16 +857,20 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
     ``env_file:`` naming a path that is not there fails ``compose up`` outright,
     so membership is fixed at render time from the files the repo actually had.
     The bridges do not render a chain; only the worker does. Every worker lists
-    its agent-record login last, whatever the shape: the record is always
-    deployed.
+    its agent-record login after the chain, whatever the shape: the record is
+    always deployed. On the dispatch bus its own bus key file follows, and no
+    other worker's.
     """
     scenario, key = case
     if key != "dispatch_worker":
         return
     document = yaml.safe_load(_golden_text(scenario, key))
+    on_bus = scenario.services.get("dispatch_worker", {}).get("transport") == "bus"
     for name, service in document["services"].items():
         expected = list(scenario.expected_chain)
         expected.append(f".env.agent-record.login.{name}")
+        if on_bus:
+            expected.append(f".env.dispatch-bus.{name}")
         assert service["env_file"] == expected, (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )

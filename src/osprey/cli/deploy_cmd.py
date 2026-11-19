@@ -19,7 +19,7 @@ import click
 
 from osprey.cli import output
 from osprey.cli.styles import Styles, console
-from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.errors import DeploymentPreconditionError, DeployStepFailedError
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
 
@@ -159,6 +159,27 @@ def _abort_unmet_precondition(
     """
     cause = exc.reason if nothing_done is None else f"{exc.reason}\n{nothing_done}"
     _abort(exc.summary, cause, exc.remedy, mark=mark)
+
+
+def _end_on_failed_step(failure: DeployStepFailedError) -> NoReturn:
+    """End a start that came up short of one step: say which, then exit 1.
+
+    The stack is running and stays running, so this is neither the refusal
+    :func:`_abort` renders nor a deployment that failed. It is the last thing
+    the verb prints, under the summary card, so the run's final line names what
+    is missing; and it exits non-zero, so a script, a service unit or a CI job
+    does not read a deployment with an unseeded store as a finished one.
+
+    Args:
+        failure: The step that failed, with its cause and remedy.
+    """
+    output.report("")
+    output.fail(
+        f"{failure.step} failed. The rest of the deployment is running.",
+        failure.cause,
+        failure.remedy,
+    )
+    raise click.exceptions.Exit(1)
 
 
 def _stdin_is_a_terminal() -> bool:
@@ -681,19 +702,25 @@ def up_verb(
         # on the detached path; the attached one os.execvpe-replaces this process.
         previous = Path.cwd()
         os.chdir(repo_root)
+        failed_step: DeployStepFailedError | None = None
         try:
             # Attached starts never close this phase: `up_as_built` hands the
             # terminal to compose with os.execvpe and this process is gone. That
             # is the documented shape — phases up to the exec point, then the
             # live log stream, and no summary card.
             with reporter.phase(f"Starting {_display_name(repo_root)}"):
-                up_as_built(
-                    repo_root,
-                    detached=detached,
-                    dev_mode=dev,
-                    keep_archiver_base=keep_archiver_base,
-                    reuse_stores=reuse_stores,
-                )
+                try:
+                    up_as_built(
+                        repo_root,
+                        detached=detached,
+                        dev_mode=dev,
+                        keep_archiver_base=keep_archiver_base,
+                        reuse_stores=reuse_stores,
+                    )
+                except DeployStepFailedError as e:
+                    # The stack did start, so the phase closes as done; the run
+                    # ends on the step below, after the card.
+                    failed_step = e
         except ForeignCheckoutError as e:
             # Another copy of this repo holds the project name. The same refusal
             # `reset` prints, named for this verb; the phase printed the ✗.
@@ -725,10 +752,13 @@ def up_verb(
         finally:
             os.chdir(previous)
 
-        # Reached only on a detached start that succeeded: every refusal above
-        # aborts, and an attached one never comes back from `up_as_built`.
+        # Reached only on a detached start that brought the stack up: every
+        # refusal above aborts, and an attached one never comes back from
+        # `up_as_built`.
         if owns_card and detached:
             print_summary_card(repo_root, "running")
+        if failed_step is not None:
+            _end_on_failed_step(failed_step)
 
 
 @click.command("down")
@@ -905,19 +935,24 @@ def restart_verb(
 
         previous = Path.cwd()
         os.chdir(repo_root)
+        failed_step: DeployStepFailedError | None = None
         try:
             # One phase for the stop and the start together, because that is what
             # the verb is: `restart_deployment` recreates the containers, and a
             # stop reported as finished while the start is still to come would
             # invite reading the ✓ as "it is down now".
             with reporter.phase(f"Restarting {_display_name(repo_root)}"):
-                restart_deployment(
-                    repo_root,
-                    detached=detached,
-                    dev_mode=dev,
-                    keep_archiver_base=keep_archiver_base,
-                    reuse_stores=reuse_stores,
-                )
+                try:
+                    restart_deployment(
+                        repo_root,
+                        detached=detached,
+                        dev_mode=dev,
+                        keep_archiver_base=keep_archiver_base,
+                        reuse_stores=reuse_stores,
+                    )
+                except DeployStepFailedError as e:
+                    # As for `up`: the stack is back, and the run ends on the step.
+                    failed_step = e
         except ForeignCheckoutError as e:
             # Same refusal as `up`, raised before the stop, so nothing stopped.
             from .foreign_refusal import render_foreign_refusal
@@ -943,6 +978,8 @@ def restart_verb(
         # ends inside compose's log stream, which the card cannot follow.
         if owns_card and detached:
             print_summary_card(repo_root, "running")
+        if failed_step is not None:
+            _end_on_failed_step(failed_step)
 
 
 @click.command("status")

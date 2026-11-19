@@ -41,6 +41,7 @@ A connector is built by `ConnectorFactory` from its registered type name, after
 | archiver | `mock_archiver` | The simulated machine's history (needs a facility built by `osprey build`) |
 | directory | `channelfinder` | A ChannelFinder directory service |
 | alarm_state | `phoebus_alarm_server` | A Phoebus alarm server's Kafka topic (needs `osprey-connectors[alarm-state]`) |
+| alarm_state | `osprey_alarm_relay` | The same state over HTTP, from `python -m osprey_connectors.alarm_state.relay` run beside the broker |
 | alarm_log | `phoebus_alarm_logger` | A Phoebus alarm logger |
 | put_log | `caputlog` | A caPutLog put-history service |
 

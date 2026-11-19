@@ -88,6 +88,7 @@ Usage::
 from __future__ import annotations
 
 import contextlib
+import functools
 import importlib.resources
 import os
 import re
@@ -3108,12 +3109,48 @@ def _osprey_version() -> str:
     return __version__
 
 
+def _presets_root() -> Path:
+    """The preset directory in force: the package's, or one a test patched in.
+
+    The key the cached values below are filed under, so a test that points the
+    presets at its own directory gets that directory's values, never the
+    package's (or the reverse).
+
+    The key is the directory's path, not its content: a test that patches in a
+    directory of its own and then edits a preset in it after the exemplar was
+    first materialized must call :func:`clear_exemplar_caches` before asking
+    again, or it is served the values from before its edit. No caller does
+    that today (each patching test either never materializes the exemplar or
+    does so in another test), which is why the path is enough.
+    """
+    from osprey.cli import build_profile_presets
+
+    return build_profile_presets._presets_dir()
+
+
+def clear_exemplar_caches() -> None:
+    """Forget every cached preset hash and exemplar source zone.
+
+    For a test that edits a patched presets directory in place after the
+    exemplar was materialized from it (see :func:`_presets_root`).
+    """
+    _preset_hash_in.cache_clear()
+    _exemplar_source_files_in.cache_clear()
+
+
 def _preset_hash(preset_name: str) -> str:
     """Content hash of a bundled preset, or the emitters' unavailable marker.
 
     A login is named kind-qualified (``tiers/readonly``, ``tiers/logbook``):
     the stem alone does not say which folder of the package it comes from.
     """
+    return _preset_hash_in(preset_name, _presets_root())
+
+
+@functools.cache
+def _preset_hash_in(preset_name: str, _presets_dir_key: Path) -> str:
+    """:func:`_preset_hash` once per preset and preset directory: the package
+    files it hashes do not change during a run."""
     from osprey.cli.build_profile_merge import compute_preset_hash
 
     return compute_preset_hash(preset_name) or "(unavailable)"
@@ -3121,9 +3158,18 @@ def _preset_hash(preset_name: str) -> str:
 
 def _providers_hash() -> str:
     """Content hash of the packaged provider catalog, as init stamps it."""
-    from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
+    from osprey.profiles.providers import packaged_catalog_path
 
-    return compute_providers_hash(packaged_catalog_path())
+    return _providers_hash_of(packaged_catalog_path())
+
+
+@functools.cache
+def _providers_hash_of(catalog: Path) -> str:
+    """:func:`_providers_hash` once per catalog path: the packaged catalog does
+    not change during a run, and hashing it parses the whole catalog."""
+    from osprey.profiles.providers import compute_providers_hash
+
+    return compute_providers_hash(catalog)
 
 
 def packaged_providers_yml() -> str:
@@ -3188,8 +3234,11 @@ def expand_sentinels(text: str) -> str:
     ``osprey init`` honest across version bumps, preset edits and additions to
     the provider catalog.
     """
-    text = text.replace(_VERSION_SENTINEL, _osprey_version())
-    text = text.replace(_PROVIDERS_HASH_SENTINEL, _providers_hash())
+    # Each value is computed only for a text that carries its sentinel.
+    if _VERSION_SENTINEL in text:
+        text = text.replace(_VERSION_SENTINEL, _osprey_version())
+    if _PROVIDERS_HASH_SENTINEL in text:
+        text = text.replace(_PROVIDERS_HASH_SENTINEL, _providers_hash())
     return _PRESET_HASH_SENTINEL.sub(lambda m: _preset_hash(m.group(1)), text)
 
 
@@ -3281,6 +3330,18 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
             are rendered from. The default False is the init-reproducible
             shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
+    """
+    # A fresh mapping every call: callers edit what they are handed.
+    return dict(_exemplar_source_files_in(with_ci, _presets_root()))
+
+
+@functools.cache
+def _exemplar_source_files_in(with_ci: bool, _presets_dir_key: Path) -> Mapping[str, str]:
+    """:func:`exemplar_source_files` once per shape and preset directory.
+
+    Everything it reads is this module's constants and installed package
+    files, none of which change during a run; materializing it re-parses the
+    provider catalog and every preset it hashes, so it is computed once.
     """
     files = {
         path: expand_sentinels(text)
