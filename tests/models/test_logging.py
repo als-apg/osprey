@@ -13,6 +13,8 @@ from osprey.models.logging import (
     _sanitize_result_for_logging,
     set_api_call_context,
 )
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 # =============================================================================
 # Test API Call Context Setting
@@ -350,10 +352,7 @@ class TestGetCallerInfo:
 
 def _enable(monkeypatch, **api_calls):
     """Point log_api_call at an ``api_calls`` config and a fixed caller."""
-    monkeypatch.setattr(
-        "osprey.models.logging.get_config_value",
-        MagicMock(return_value={"api_calls": api_calls}),
-    )
+    serve_config(config_of({"development": {"api_calls": api_calls}}))
     monkeypatch.setattr(
         "osprey.models.logging._get_caller_info",
         MagicMock(return_value={"function": "test", "module": "test", "line_number": 1}),

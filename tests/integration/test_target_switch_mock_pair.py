@@ -81,6 +81,8 @@ from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.refusals import RefusalReason
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     isolated_connector_registries,
@@ -617,19 +619,6 @@ SANDBOX_CONFIG: dict[str, Any] = {
 }
 
 
-def _config_reader(section: dict[str, Any], va_port: int):
-    """A ``get_config_value`` stand-in serving the two keys this half reads."""
-
-    def get_config_value(path, default=None, _config_path=None):
-        if path == "control_system":
-            return section
-        if path == "services.virtual_accelerator.port":
-            return va_port
-        return default
-
-    return get_config_value
-
-
 class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
@@ -651,10 +640,7 @@ class TestSandboxEndpointMatchesTheDerivation:
         """A stamped sandbox with the fake registry the factory will build from."""
         import osprey.runtime as runtime
 
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _config_reader(SANDBOX_SECTION, SANDBOX_VA_PORT),
-        )
+        serve_config(config_of(SANDBOX_CONFIG, environ={}))
         runtime._runtime_connector = None
         runtime._limits_validator = None
         with isolated_connector_registries():

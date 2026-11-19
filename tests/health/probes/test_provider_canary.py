@@ -26,6 +26,8 @@ from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe, provider_canary
 from osprey.health.probes.provider_canary import run
 from osprey.health.runtime import HealthRuntime
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 
 
 def _ctx(config: Any = None) -> ProbeContext:
@@ -216,11 +218,19 @@ async def test_hard_timeout_is_warning(monkeypatch: Any) -> None:
 
 
 async def test_api_key_falls_back_to_config_block(monkeypatch: Any) -> None:
-    def _fake_config_value(path: str, _default: Any = None) -> Any:
-        assert path == "api.providers.cborg"
-        return {"api_key": "${OSPREY_TEST_CANARY_CFG}", "base_url": "https://cfg"}
-
-    monkeypatch.setattr(provider_canary, "get_config_value", _fake_config_value)
+    serve_config(
+        config_of(
+            config_tree(
+                {
+                    "api.providers.cborg": {
+                        "api_key": "${OSPREY_TEST_CANARY_CFG}",
+                        "base_url": "https://cfg",
+                    }
+                }
+            ),
+            environ={},
+        )
+    )
     monkeypatch.setenv("OSPREY_TEST_CANARY_CFG", "cfg-secret")
 
     captured: list[dict[str, Any]] = []
@@ -265,12 +275,12 @@ async def test_reads_block_from_ctx_config(monkeypatch: Any) -> None:
 
 async def test_ctx_config_takes_precedence_over_singleton(monkeypatch: Any) -> None:
     """An explicit ``ctx.config`` is authoritative: the global singleton is never
-    consulted (``get_config_value`` would raise if it were)."""
+    consulted (reading the process config would raise if it were)."""
 
     def _boom(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("get_config_value must not be called when ctx.config is set")
+        raise AssertionError("the process config must not be read when ctx.config is set")
 
-    monkeypatch.setattr(provider_canary, "get_config_value", _boom)
+    monkeypatch.setattr(provider_canary, "current_config", _boom)
 
     captured: list[dict[str, Any]] = []
     cls = _capturing_provider(captured, (True, "ok"))
@@ -291,9 +301,9 @@ async def test_ctx_config_without_provider_block_yields_empty(monkeypatch: Any) 
     still never falls through to the global singleton."""
 
     def _boom(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("get_config_value must not be called when ctx.config is set")
+        raise AssertionError("the process config must not be read when ctx.config is set")
 
-    monkeypatch.setattr(provider_canary, "get_config_value", _boom)
+    monkeypatch.setattr(provider_canary, "current_config", _boom)
 
     captured: list[dict[str, Any]] = []
     cls = _capturing_provider(captured, (False, "no key"))

@@ -35,7 +35,7 @@ from typing import Literal, cast
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 from osprey_connectors.logger import ComponentLogger, _build_rich_handler
 
 #: Fixed wall-clock seed for every record. ``RichHandler.render`` derives the
@@ -63,16 +63,18 @@ def _prefeature_build_rich_handler() -> RichHandler:
     Copied from the shipped builder before the console parameter existed. It is
     the baseline these tests compare against, so it must never be rewritten to
     delegate to the current implementation — that would make the comparison
-    vacuous.
+    vacuous. (Its config reads go through ``current_config().get``, the
+    accessor that replaced the deleted ``get_config_value`` with the same
+    defaults; the handler construction is the frozen part.)
 
     Returns:
         A ``RichHandler`` configured exactly as non-CLI entry points used to get.
     """
     try:
         # Security-conscious defaults: hide locals to prevent sensitive data exposure
-        rich_tracebacks = get_config_value("logging.rich_tracebacks", True)
-        show_traceback_locals = get_config_value("logging.show_traceback_locals", False)
-        show_full_paths = get_config_value("logging.show_full_paths", False)
+        rich_tracebacks = current_config().get("logging.rich_tracebacks", True)
+        show_traceback_locals = current_config().get("logging.show_traceback_locals", False)
+        show_full_paths = current_config().get("logging.show_full_paths", False)
     except Exception:
         rich_tracebacks = True
         show_traceback_locals = False

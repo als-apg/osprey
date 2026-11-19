@@ -97,7 +97,7 @@ class TestHandlerInstallation:
         def boom(*args, **kwargs):
             raise RuntimeError("config unavailable")
 
-        monkeypatch.setattr("osprey_connectors.logger.get_config_value", boom)
+        monkeypatch.setattr("osprey_connectors.logger.current_config", boom)
 
         configure_logging()
 
@@ -182,7 +182,7 @@ class TestLoggingSettingsFollowTheConfig:
         def boom(*args, **kwargs):
             raise RuntimeError("config unavailable")
 
-        monkeypatch.setattr("osprey_connectors.logger.get_config_value", boom)
+        monkeypatch.setattr("osprey_connectors.logger.current_config", boom)
 
         configure_logging()
         configure_logging()

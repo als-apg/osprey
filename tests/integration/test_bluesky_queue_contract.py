@@ -69,7 +69,9 @@ from osprey.services.bluesky_bridge.session_upload import (
 )
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.config import install_config
 from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
+from osprey_connectors_tests._config_trees import serve_control_system
 from tests._control_system import IN_PROCESS, section_for
 from tests.services.bluesky_bridge._bridge_state import reset_bridge_state
 
@@ -444,27 +446,29 @@ def _isolated_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
 
 
 @pytest.fixture
-def connector(monkeypatch: pytest.MonkeyPatch) -> Callable[[str | Exception], None]:
-    """Set — or break — the ``control_system.type`` the capability check reads."""
+def connector(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Callable[[str | FileNotFoundError], None]:
+    """Set — or break — the ``control_system`` section the capability check reads.
 
-    def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, _default: Any = None) -> Any:
-            if isinstance(value, Exception):
-                raise value
-            section = section_for(value)
-            if key == "control_system.type":
-                return section["type"]
-            if key == "control_system":
-                return section
-            return value
+    A connector word serves its section as the process config; a
+    ``FileNotFoundError`` stands for a deployment with no project config
+    mounted: nothing is installed and ``OSPREY_CONFIG`` names a file that is
+    not there, so every read raises the loader's ``ConfigNotFoundError``.
+    """
 
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    def _set(value: str | FileNotFoundError) -> None:
+        if isinstance(value, FileNotFoundError):
+            install_config(None)
+            monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing" / "config.yml"))
+            return
+        serve_control_system(section_for(value))
 
     return _set
 
 
 @pytest.fixture
-def manager(connector: Callable[[str | Exception], None]) -> MockQueueServer:
+def manager(connector: Callable[[str | FileNotFoundError], None]) -> MockQueueServer:
     """An executable deployment: EPICS-like connector, reachable manager, env open."""
     connector("virtual_accelerator")
     mock = MockQueueServer()
@@ -1031,7 +1035,7 @@ def test_abort_with_nothing_running_refuses_in_the_uniform_shape(
 
 
 async def test_an_unarmed_add_racing_an_armed_start_is_refused_and_leaves_no_item(
-    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+    connector: Callable[[str | FileNotFoundError], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The FR4 acceptance race. An armed start holds the arming lock; an
     unarmed add arrives mid-start. The add must park on the lock (never reach
@@ -1093,7 +1097,7 @@ async def test_an_unarmed_add_racing_an_armed_start_is_refused_and_leaves_no_ite
 
 
 async def test_an_out_of_band_start_between_the_add_and_the_recheck_withdraws_the_item(
-    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+    connector: Callable[[str | FileNotFoundError], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Defense in depth against an actor the bridge's lock cannot serialize.
     The add is unarmed and legitimately pre-start when it enters the manager;
@@ -1131,7 +1135,7 @@ async def test_an_out_of_band_start_between_the_add_and_the_recheck_withdraws_th
 
 
 async def test_a_move_racing_a_bound_start_parks_on_the_arming_lock(
-    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+    connector: Callable[[str | FileNotFoundError], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A reorder cannot land inside a bound start's critical section.
 
@@ -1187,7 +1191,7 @@ async def test_a_move_racing_a_bound_start_parks_on_the_arming_lock(
 
 
 async def test_every_mutation_route_waits_on_the_module_arming_lock_itself(
-    connector: Callable[[str | Exception], None],
+    connector: Callable[[str | FileNotFoundError], None],
 ) -> None:
     """One lock object, not one per route.
 
@@ -1235,7 +1239,7 @@ async def test_every_mutation_route_waits_on_the_module_arming_lock_itself(
 
 
 async def test_two_enqueues_of_one_revision_yield_exactly_one_item(
-    connector: Callable[[str | Exception], None],
+    connector: Callable[[str | FileNotFoundError], None],
 ) -> None:
     """Concurrent duplicates of one pinned revision: one 200, one 409, and the
     manager holds a single item."""
@@ -1319,7 +1323,7 @@ async def _frame_where(
 
 
 async def test_the_event_stream_reports_add_reorder_remove_start_and_finish(
-    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+    connector: Callable[[str | FileNotFoundError], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The frame sequence a panel builds its live view from: a hello snapshot
     on connect, then a full snapshot for every queue change — bridge-side
@@ -1387,7 +1391,7 @@ async def test_the_event_stream_reports_add_reorder_remove_start_and_finish(
 
 
 async def test_the_event_stream_reports_a_manager_outage_without_dropping_the_stream(
-    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+    connector: Callable[[str | FileNotFoundError], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A manager that stops answering is a status the stream REPORTS, not an
     error that ends it — a panel keeps its connection and shows "unavailable"."""
@@ -1434,7 +1438,7 @@ _FAIL_CLOSED_CASES = [
 
 
 def _make_incapable(
-    reason: str, mock: MockQueueServer, connector: Callable[[str | Exception], None]
+    reason: str, mock: MockQueueServer, connector: Callable[[str | FileNotFoundError], None]
 ) -> None:
     """Put the deployment into the state that yields *reason*.
 
@@ -1461,7 +1465,7 @@ def _make_incapable(
 def test_a_deployment_that_cannot_execute_refuses_to_hold_queue_items(
     client: TestClient,
     manager: MockQueueServer,
-    connector: Callable[[str | Exception], None],
+    connector: Callable[[str | FileNotFoundError], None],
     reason: str,
     expected_status: int,
 ) -> None:
@@ -1495,7 +1499,7 @@ def test_a_deployment_that_cannot_execute_refuses_to_hold_queue_items(
 def test_health_publishes_the_capability_record_the_refusal_carries(
     client: TestClient,
     manager: MockQueueServer,
-    connector: Callable[[str | Exception], None],
+    connector: Callable[[str | FileNotFoundError], None],
     reason: str,
     expected_status: int,
 ) -> None:
@@ -1531,7 +1535,7 @@ def test_an_executable_deployment_advertises_it_on_health(client: TestClient) ->
 @pytest.mark.usefixtures("manager")
 def test_a_browse_only_refusal_names_the_command_that_flips_it(
     client: TestClient,
-    connector: Callable[[str | Exception], None],
+    connector: Callable[[str | FileNotFoundError], None],
 ) -> None:
     """The mock-connector refusal is the one an operator meets most, so it
     carries the remediation, not just the diagnosis."""
@@ -1547,7 +1551,7 @@ def test_a_browse_only_refusal_names_the_command_that_flips_it(
 def test_a_browse_only_deployment_cannot_be_started_either(
     client: TestClient,
     manager: MockQueueServer,
-    connector: Callable[[str | Exception], None],
+    connector: Callable[[str | FileNotFoundError], None],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Capability gates the start too — an armed caller on a browse-only
@@ -2036,7 +2040,7 @@ def test_an_external_worker_lane_names_the_owner_from_the_metadata_stamp(
 
 
 async def test_the_event_stream_names_the_owner_of_the_items_it_carries(
-    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+    connector: Callable[[str | FileNotFoundError], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The stream is what a live panel renders from, so both rules hold on a
     frame exactly as they hold on a read."""

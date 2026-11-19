@@ -86,7 +86,8 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import testing
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ConnectorUnavailableError
-from osprey_connectors.testing import clear_config_state
+from osprey_connectors.testing import clear_config_state, config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
@@ -1235,13 +1236,14 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
 
     @pytest.fixture
     def lane_deployment(self, monkeypatch, endpoints):
-        """Arm the Bluesky tools against this module's deployment."""
+        """Arm the Bluesky tools against this module's deployment.
+
+        The banner reads the deployment; every other reader in this process
+        reads an empty process config, so each falls to its own default.
+        """
         config = raw_config(va_port=endpoints.va, live_port=endpoints.live)
         monkeypatch.setattr(target_banner, "loaded_or_empty", lambda: config)
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda key, default=None, config_path=None: default,
-        )
+        serve_config(config_of({}))
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "va-e2e-switch-token")
         bluesky_context.initialize_server_context()
         yield

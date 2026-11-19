@@ -37,7 +37,7 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_config, with_values
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._harness._control_context_fixtures import _set_switch_to
@@ -93,11 +93,9 @@ class _RefusingConnector(FakeConnector):
         raise ConnectionError("no gateway answers")
 
 
-def _serve(monkeypatch, section):
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    serve_config_lookup(monkeypatch, get_config_value)
+def _serve(section):
+    """Serve *section* as ``control_system`` over the config file ``OSPREY_CONFIG`` names."""
+    serve_config(with_values({"control_system": section}))
 
 
 def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> Path:
@@ -150,9 +148,9 @@ def state_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def mock_va(monkeypatch, state_dir):
+def mock_va(state_dir):
     """Serve :data:`VA_SECTION` and build a fake for the virtual accelerator."""
-    _serve(monkeypatch, VA_SECTION)
+    _serve(VA_SECTION)
     _CountingFake.connects = 0
     _CountingFake.configs = []
     with isolated_connector_registries():
@@ -161,11 +159,11 @@ def mock_va(monkeypatch, state_dir):
 
 
 @pytest.fixture
-def epics_gateways(monkeypatch, state_dir):
+def epics_gateways(state_dir):
     """The virtual accelerator behind a real EPICS connector with a read and a write gateway."""
     gateway = {"address": "127.0.0.1", "port": 5064}
     block = {"gateways": {"read_only": gateway, "write_access": {**gateway, "port": 5065}}}
-    _serve(monkeypatch, {**VA_SECTION, "connector": {connector_types.VIRTUAL_ACCELERATOR: block}})
+    _serve({**VA_SECTION, "connector": {connector_types.VIRTUAL_ACCELERATOR: block}})
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(
             connector_types.VIRTUAL_ACCELERATOR, EPICSConnector
@@ -298,9 +296,9 @@ class TestOpen:
         assert not [name for name in os.environ if name.startswith("EPICS_")]
         await session.close()
 
-    async def test_the_factory_registers_the_builtins_it_builds_from(self, state_dir, monkeypatch):
+    async def test_the_factory_registers_the_builtins_it_builds_from(self, state_dir):
         """The session registers nothing itself: its first build registers the built-ins."""
-        _serve(monkeypatch, VA_SECTION)
+        _serve(VA_SECTION)
         write_record(state_dir, target="va")
         with isolated_connector_registries(clear=True):
             session = await _opened()
@@ -369,14 +367,14 @@ class TestWriteBudgetAndProcessMark:
         assert "timeout_s" not in VA_SECTION["connector"][connector_types.VIRTUAL_ACCELERATOR]
         await session.close()
 
-    async def test_a_block_below_the_budget_keeps_its_own_bounds(self, state_dir, monkeypatch):
+    async def test_a_block_below_the_budget_keeps_its_own_bounds(self, state_dir):
         section = {
             "type": connector_types.VIRTUAL_ACCELERATOR,
             "connector": {
                 connector_types.VIRTUAL_ACCELERATOR: {"timeout_s": 2, STEP_READ_TIMEOUT_KEY: 1}
             },
         }
-        _serve(monkeypatch, section)
+        _serve(section)
         _CountingFake.configs = []
         with isolated_connector_registries():
             ConnectorFactory.register_control_system(
@@ -448,8 +446,8 @@ class TestFallback:
         await session.close()
 
     @pytest.mark.usefixtures("state_dir")
-    async def test_a_standin_baseline_falls_back_to_the_va_when_one_exists(self, monkeypatch):
-        _serve(monkeypatch, STANDIN_WITH_VA_SECTION)
+    async def test_a_standin_baseline_falls_back_to_the_va_when_one_exists(self):
+        _serve(STANDIN_WITH_VA_SECTION)
         with isolated_connector_registries():
             ConnectorFactory.register_control_system(
                 connector_types.VIRTUAL_ACCELERATOR, _CountingFake
@@ -460,8 +458,8 @@ class TestFallback:
         await session.close()
 
     @pytest.mark.usefixtures("state_dir")
-    async def test_a_standin_baseline_falls_back_to_live_without_a_va(self, monkeypatch):
-        _serve(monkeypatch, STANDIN_WITH_LIVE_SECTION)
+    async def test_a_standin_baseline_falls_back_to_live_without_a_va(self):
+        _serve(STANDIN_WITH_LIVE_SECTION)
         with isolated_connector_registries():
             ConnectorFactory.register_control_system(connector_types.EPICS, _CountingFake)
             session = await _opened()
@@ -472,9 +470,9 @@ class TestFallback:
         await session.close()
 
     @pytest.mark.usefixtures("state_dir")
-    async def test_a_fallback_that_cannot_be_served_is_unservable(self, monkeypatch):
+    async def test_a_fallback_that_cannot_be_served_is_unservable(self):
         """A lone stand-in falls back to ``live``, and nothing here says which machine that is."""
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+        _serve(STANDIN_ONLY_SECTION)
 
         session = await _opened()
 
@@ -487,8 +485,8 @@ class TestFallback:
 class TestUnservable:
     """A target that cannot be resolved, built or connected raises nothing."""
 
-    async def test_a_target_the_config_cannot_resolve(self, state_dir, monkeypatch):
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+    async def test_a_target_the_config_cannot_resolve(self, state_dir):
+        _serve(STANDIN_ONLY_SECTION)
         write_record(state_dir, target="live", generation=2)
 
         session = await _opened()
@@ -511,7 +509,7 @@ class TestUnservable:
         await session.close()
 
     async def test_a_connector_type_nothing_is_registered_for(self, state_dir, monkeypatch):
-        _serve(monkeypatch, VA_SECTION)
+        _serve(VA_SECTION)
         write_record(state_dir, target="va")
         with isolated_connector_registries(clear=True):
             monkeypatch.setattr(ConnectorFactory, "_ensure_builtins", classmethod(lambda cls: None))
@@ -521,8 +519,8 @@ class TestUnservable:
         assert session.binding.connector_type == connector_types.VIRTUAL_ACCELERATOR
         await session.close()
 
-    async def test_a_connect_that_raises(self, state_dir, monkeypatch):
-        _serve(monkeypatch, VA_SECTION)
+    async def test_a_connect_that_raises(self, state_dir):
+        _serve(VA_SECTION)
         write_record(state_dir, target="va")
         with isolated_connector_registries():
             ConnectorFactory.register_control_system(
@@ -533,10 +531,8 @@ class TestUnservable:
         assert session.binding.state == "unservable"
         await session.close()
 
-    async def test_reads_and_metadata_raise_and_subscriptions_stay_disconnected(
-        self, state_dir, monkeypatch
-    ):
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+    async def test_reads_and_metadata_raise_and_subscriptions_stay_disconnected(self, state_dir):
+        _serve(STANDIN_ONLY_SECTION)
         write_record(state_dir, target="live")
         session = await _opened()
         values, connection = [], []
@@ -556,8 +552,8 @@ class TestUnservable:
         await session.unsubscribe(handle)
         await session.close()
 
-    async def test_an_unservable_session_still_sees_the_record_move(self, state_dir, monkeypatch):
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+    async def test_an_unservable_session_still_sees_the_record_move(self, state_dir):
+        _serve(STANDIN_ONLY_SECTION)
         write_record(state_dir, target="live", generation=2)
         session = await _opened()
         assert session.moved() is False
@@ -722,8 +718,8 @@ class TestWritesAreRefused:
         assert calls == []
         await session.close()
 
-    async def test_an_unservable_session_says_so(self, state_dir, monkeypatch):
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+    async def test_an_unservable_session_says_so(self, state_dir):
+        _serve(STANDIN_ONLY_SECTION)
         write_record(state_dir, target="live")
         session = await _opened()
 
@@ -851,12 +847,10 @@ class TestMoved:
         assert session.moved() is lags
         await session.close()
 
-    async def test_a_write_gateway_alone_never_lags(self, monkeypatch, state_dir):
+    async def test_a_write_gateway_alone_never_lags(self, state_dir):
         """Such a block stays on its one gateway whatever the switch says."""
         block = {"gateways": {"write_access": {"address": "127.0.0.1", "port": 5065}}}
-        _serve(
-            monkeypatch, {**VA_SECTION, "connector": {connector_types.VIRTUAL_ACCELERATOR: block}}
-        )
+        _serve({**VA_SECTION, "connector": {connector_types.VIRTUAL_ACCELERATOR: block}})
         with isolated_connector_registries():
             ConnectorFactory.register_control_system(
                 connector_types.VIRTUAL_ACCELERATOR, EPICSConnector
@@ -1079,10 +1073,7 @@ def pin_env(tmp_path, monkeypatch):
         "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
     }
 
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    serve_config_lookup(monkeypatch, get_config_value)
+    serve_config(with_values({"control_system": section}))
     testing.invalidate_cache()
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)

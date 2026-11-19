@@ -742,16 +742,17 @@ def _host_ca_op_spec(
 ) -> dict[str, Any]:
     """Build the JSON spec for one out-of-process host CA op (``_va_host_ca_op.py``).
 
-    Carries the SAME ``get_config_value`` overrides the in-process connector
-    used -- ``project_root`` is the deployment repo and
+    Carries the SAME config values the in-process connector was served, as
+    dotted keys the subprocess assembles into the config it installs as its
+    process config -- ``project_root`` is the deployment repo and
     ``limits_checking.database_path`` names the RENDER's channel_limits.json,
     the limits database the build writes from the facility's limits records.
     The sp-echo setpoints these proofs write hold the records this suite
     authored, and the per-type mode below is ``optional``: a channel with no
     record is written with no limits applied. Spelled absolute rather than repo-relative: a
-    relative ``database_path`` resolves against ``CONFIG_FILE``'s directory when
-    that is set and against ``project_root`` otherwise, and this subprocess sets
-    neither anchor to the render.
+    relative ``database_path`` resolves against the loaded config's directory,
+    else ``OSPREY_CONFIG``'s, else ``project_root``, and this subprocess sets
+    none of those anchors to the render.
 
     The mode is spelled PER CONNECTOR TYPE, on ``virtual_accelerator`` -- the
     type this proof drives -- so this lane exercises the per-type override.
@@ -1142,8 +1143,8 @@ def _sim_apply(repo: Path, *scenarios: str) -> None:
     runner pass and rebuilds at the new set, so once the container sees the file
     two ticks are enough for it to serve the set.
     """
+    from osprey_connectors.config import load_config
     from osprey_connectors.simulation import DEFAULT_TICK_S
-    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     applied = run_command(
         [str(find_osprey_console_script()), "sim", "apply", *scenarios, "--no-seed"],
@@ -1153,8 +1154,7 @@ def _sim_apply(repo: Path, *scenarios: str) -> None:
     assert applied.returncode == 0, format_failure(
         f"osprey sim apply {' '.join(scenarios)}", applied
     )
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-    state_dir = resolve_simulation_state_dir(rendered, repo)
+    state_dir = load_config(repo / "build" / "config.yml").simulation_state_dir
     written = (state_dir / "active_scenarios").read_text(encoding="utf-8")
     deadline = time.monotonic() + SCENARIO_VISIBLE_SEC
     while _active_inside_va() != written:
