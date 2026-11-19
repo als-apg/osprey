@@ -2553,3 +2553,9 @@ def test_the_vocabularys_nameplate_signals_say_what_a_device_is_with_no_table(tm
     view = device_card(graph, "XR01:IP1")
     tiles = {i.channel for s in view.sections for i in s.items if isinstance(i, KeyTile)}
     assert not {c for c in tiles if ":Plate" in c}
+    from osprey.facility.panels.view import Chain
+
+    (chain,) = [i for s in view.sections for i in s.items if isinstance(i, Chain)]
+    (own,) = [b for b in chain.blocks if b.focus]
+    # in the device's own block, each by the quantity its signal names
+    assert [r.label for r in own.rows] == ["model", "serial number", "firmware version"]

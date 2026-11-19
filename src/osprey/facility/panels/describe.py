@@ -35,6 +35,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from osprey.facility.pairing import signal_quantity
 from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
 from osprey.facility.panels.model import (
     MODEL_FRAME,
@@ -1264,6 +1265,14 @@ def _role_word(row: ChannelRole) -> str:
     return _role_title(row.role)
 
 
+def _plate_word(row: ChannelRole) -> str:
+    """A nameplate role's name in the device's block: its ``label`` as stated, else
+    the quantity its signal names (``model`` for ``model_readback``)."""
+    if row.label:
+        return row.label
+    return _role_title(signal_quantity(row.role, "readback") or row.role).lower()
+
+
 def _row_word(row: ChannelRole) -> str:
     """A role row's name on a value row of a block: its ``label`` as stated, else
     the role's name in lower case."""
@@ -1427,7 +1436,7 @@ def _default_chain(
     # a role of a nameplate signal says what the device is: its own block, no tile
     identity = [h for h in hits if h.role.role in graph.identity and h.owner == thing.id]
     rows = tuple(
-        BlockRow(h.role.role, h.channel, shown_as="value", words=_words(graph, h.channel))
+        BlockRow(_plate_word(h.role), h.channel, shown_as="value", words=_words(graph, h.channel))
         for h in identity
     )
     if not rows:
