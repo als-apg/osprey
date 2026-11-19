@@ -14,6 +14,7 @@
  * next case's events.
  */
 
+import './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 
 const JS = '../../../src/osprey/interfaces/channel_finder/static/js';

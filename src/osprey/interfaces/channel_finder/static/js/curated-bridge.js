@@ -10,6 +10,7 @@
  * a no-op and draws nothing.
  */
 
+import { LABELS } from './labels.js';
 import { state } from './state.js';
 import { esc } from './utils.js';
 import { countDirectory } from './directory-api.js';
@@ -34,7 +35,7 @@ export function bridgeHtml(words, total, size) {
     const what = text ? ` for "${text}"` : '';
     return (
       `<div class="curated-bridge curated-bridge-miss">` +
-      `<a href="${href}">Search ${esc(all)} PVs${esc(what)} &rarr;</a></div>`
+      `<a href="${href}">Search ${esc(all)} ${esc(LABELS.channels)}${esc(what)} &rarr;</a></div>`
     );
   }
   return (

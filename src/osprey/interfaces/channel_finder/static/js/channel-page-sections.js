@@ -13,7 +13,7 @@ import { icon } from '/design-system/js/icons.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { configEntries } from './alarm-text.js';
 import { sinceText } from './duration.js';
-import { LABELS } from './labels.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { severityMark, severityOf } from './severity.js';
 
@@ -295,7 +295,7 @@ export function directoryCard(section) {
     if (row?.server) {
       const link = /** @type {HTMLAnchorElement} */ (node('a', 'chp-server', row.server));
       link.href = formatRoute({ view: 'server', params: { name: row.server } });
-      pairs.push([LABELS.server, link]);
+      pairs.push([heading(LABELS.server), link]);
     }
     if (row?.host) pairs.push(['Host', row.host]);
     if (row?.record_type) pairs.push(['Record type', row.record_type]);

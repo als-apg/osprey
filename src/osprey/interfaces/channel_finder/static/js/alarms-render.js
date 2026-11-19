@@ -11,7 +11,7 @@
 
 import { configEntries } from './alarm-text.js';
 import { NO_TARGET, timeText } from './channel-page-sections.js';
-import { LABELS } from './labels.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { BAND_SEVERITIES, inBand, severityMark, severityOf, worstSeverity } from './severity.js';
 import { esc } from './utils.js';
@@ -328,7 +328,7 @@ export function feedRows(answer) {
     { label: 'Rehearsal', value: source.rehearsal ? 'yes' : 'no' },
   ];
   if (typeof answer.total === 'number')
-    rows.push({ label: 'PVs in tree', value: fmt(answer.total) });
+    rows.push({ label: `${heading(LABELS.channels)} in tree`, value: fmt(answer.total) });
   const contact = timeText(answer.last_contact);
   if (contact)
     rows.push({ label: answer.feed === 'replay' ? 'Loaded' : 'Last contact', value: contact });
@@ -426,7 +426,7 @@ export function listHtml(rows, { selected, values, stale, cut }) {
   return `
     <table class="alarms-table">
       <thead><tr>
-        <th class="alarms-sevbar"></th><th>Severity</th><th>${LABELS.channel}</th><th>Status</th>
+        <th class="alarms-sevbar"></th><th>Severity</th><th>${heading(LABELS.channel)}</th><th>Status</th>
         <th>Value now</th><th>For</th><th>Flags</th>
       </tr></thead>
       <tbody>${body}</tbody>
@@ -533,12 +533,14 @@ export function inspectorHtml({ row, facts, factsReason, value, plot, send }) {
     `<div class="alarms-insp-head">${severityMark(severity, [severity, row.status].filter(Boolean).join(' · '))}` +
     `<h2 class="alarms-insp-name">${esc(row.channel)}</h2>` +
     (dirRow?.description ? `<p class="alarms-insp-desc">${esc(dirRow.description)}</p>` : '') +
-    (factsReason ? `<p class="alarms-muted">PV facts: ${esc(factsReason)}</p>` : '') +
+    (factsReason
+      ? `<p class="alarms-muted">${esc(heading(LABELS.channel))} facts: ${esc(factsReason)}</p>`
+      : '') +
     '</div>';
 
   const actions =
     '<div class="alarms-insp-actions">' +
-    `<a class="osprey-btn" href="${esc(link)}">Open PV page</a>` +
+    `<a class="osprey-btn" href="${esc(link)}">Open ${esc(LABELS.channel)} page</a>` +
     (plot
       ? '<button type="button" class="osprey-btn primary" data-action="plot">Plot</button>'
       : '') +
@@ -580,7 +582,7 @@ export function inspectorHtml({ row, facts, factsReason, value, plot, send }) {
   if (dirRow?.server) {
     const serverLink = formatRoute({ view: 'server', params: { name: dirRow.server } });
     factRows.push(
-      `<dt>${LABELS.server}</dt><dd><a href="${esc(serverLink)}">${esc(dirRow.server)}</a></dd>`
+      `<dt>${esc(heading(LABELS.server))}</dt><dd><a href="${esc(serverLink)}">${esc(dirRow.server)}</a></dd>`
     );
   }
   const factsHtml = factRows.length

@@ -31,21 +31,22 @@ async def directory_properties(property: str, prefix: str | None = None) -> str:
     """List the values one property of the control system's channel directory holds.
 
     Directory properties are the control system's own records about each
-    channel address (its IOC, its host, a facility's own tags); the values are
+    channel address (its server, its host, a facility's own tags); the values are
     spelled as the directory spells them. Pass a value verbatim in
     directory_search ``properties`` to list the channels carrying it. A value
     that matches a word does not say what the channels carrying it measure.
 
     Args:
         property: The property name, as the directory spells it (for example
-            ``iocName`` or ``recordType``).
+            ``iocName`` or ``recordType`` in an EPICS ChannelFinder).
         prefix: Only the values starting with this text.
 
     Returns:
         JSON object: ``property``, ``prefix``, ``source``, ``values`` and ``count``.
     """
     try:
-        backend, source, reason = await get_tool_context().service.backend("channel_directory")
+        service = get_tool_context().service
+        backend, source, reason = await service.backend("channel_directory")
         if backend is None:
             refuse_unavailable(_TOOL, {"outcome": "unavailable", "reason": reason})
         deadline = _timeout(backend.spec.settings)
@@ -62,13 +63,13 @@ async def directory_properties(property: str, prefix: str | None = None) -> str:
         if isinstance(payload, Mapping):
             refuse_unavailable(
                 _TOOL,
-                {"outcome": "unavailable", "source": as_payload(source), **payload},
+                {"outcome": "unavailable", "source": as_payload(source, service.words), **payload},
             )
         values = list(payload)
         result: dict[str, Any] = {
             "property": property,
             "prefix": prefix,
-            "source": as_payload(source),
+            "source": as_payload(source, service.words),
             "values": values,
             "count": len(values),
         }

@@ -7,7 +7,7 @@
  * the archive and the control system are escaped here.
  */
 
-import { LABELS } from './labels.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { severityMark, severityOf } from './severity.js';
 import { esc } from './utils.js';
@@ -38,7 +38,9 @@ export const SIDEBAR_ORDER = /** @type {const} */ ([
 const FACET_TITLES = {
   alarm: 'Alarm',
   origin: 'Origin',
-  server: LABELS.server,
+  get server() {
+    return heading(LABELS.server);
+  },
   record_type: 'Record type',
   archived: 'Archive',
 };
@@ -141,7 +143,7 @@ export function countHtml(total) {
  * @returns {string}
  */
 export function wordsText(words) {
-  return words ? `matches ${words}` : 'every PV';
+  return words ? `matches ${words}` : `every ${LABELS.channel}`;
 }
 
 /**
@@ -342,7 +344,7 @@ export function tableHtml(
             aria-label="Select all on this page" ${all ? 'checked' : ''}></th>
         <th class="col-mark"></th><th>Name</th><th class="col-desc">Description</th>
         <th class="col-value">Value</th>${alarmColumn ? '<th>Alarm</th>' : ''}
-        <th>Record</th><th>${LABELS.server}</th>${archiveColumn ? '<th class="col-arch" title="Archived">Arch.</th>' : ''}
+        <th>Record</th><th>${heading(LABELS.server)}</th>${archiveColumn ? '<th class="col-arch" title="Archived">Arch.</th>' : ''}
       </tr></thead>
       <tbody>${body}</tbody>
     </table>`;

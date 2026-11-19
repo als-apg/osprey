@@ -54,6 +54,7 @@ import {
 } from './directory-api.js';
 import { attachSidebar, setFilterReason, setResultCount } from './panel-toolbar.js';
 import { NO_TARGET } from './channel-page-sections.js';
+import { LABELS } from './labels.js';
 import { formatRoute } from './route.js';
 import { state } from './state.js';
 import { messageOf } from './utils.js';
@@ -424,7 +425,7 @@ function renderList() {
     const message = filtered ? 'No active alarms for this filter' : 'No active alarms';
     const detail = filtered
       ? ''
-      : `The alarm feed holds ${total.toLocaleString('en-US')} PVs, all OK.`;
+      : `The alarm feed holds ${total.toLocaleString('en-US')} ${LABELS.channels}, all OK.`;
     // Drawn again only when it says something else, so a poll keeps the focus.
     const key = `state\n${message}\n${detail}`;
     if (written.get(list) === key) return;

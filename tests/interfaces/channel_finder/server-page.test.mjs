@@ -6,6 +6,7 @@
  *   npx vitest run tests/interfaces/channel_finder/server-page.test.mjs
  */
 
+import './epics-words.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

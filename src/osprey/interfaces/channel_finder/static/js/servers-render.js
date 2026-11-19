@@ -15,7 +15,7 @@
  */
 
 import { durationText } from './duration.js';
-import { LABELS } from './labels.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { esc } from './utils.js';
 
@@ -89,34 +89,35 @@ export function ageText(epoch, nowMs) {
 
 /**
  * The statement a non-`ok` answer is shown as, in the fleet tool's words.
- * None of them says anything about whether an IOC runs.
+ * None of them says anything about whether a server runs.
  * @param {FleetAnswer} answer
  * @returns {{ message: string, detail: string }}
  */
 export function outcomeStatement(answer) {
   const target = answer.target ?? 'the session target';
-  const nothing = 'This says nothing about whether any IOC runs.';
+  const { server, servers } = LABELS;
+  const nothing = `This says nothing about whether any ${server} runs.`;
   const why = answer.reason ? `${answer.reason}. ` : '';
   switch (answer.outcome) {
     case 'no_snapshot':
       return {
         message: 'No snapshot yet',
         detail:
-          `The server fleet service has no snapshot of target ${target} yet; no IOC state is ` +
+          `The server fleet service has no snapshot of target ${target} yet; no ${server} state is ` +
           `known for it until its first refresh completes. ${nothing}`,
       };
     case 'not_refreshed':
       return {
         message: 'Target not refreshed',
         detail:
-          `The server fleet service does not refresh target ${target}, so no IOC state is known ` +
+          `The server fleet service does not refresh target ${target}, so no ${server} state is known ` +
           `for it. ${nothing}`,
       };
     case 'cannot_list':
       return {
-        message: 'Cannot list the IOCs',
+        message: `Cannot list the ${servers}`,
         detail:
-          `${why}The server fleet service cannot list the IOCs of target ${target}, so no IOC ` +
+          `${why}The server fleet service cannot list the ${servers} of target ${target}, so no ${server} ` +
           `state is known for it. ${nothing}`,
       };
     case 'stale': {
@@ -135,7 +136,7 @@ export function outcomeStatement(answer) {
         message: 'server fleet unavailable',
         detail:
           `${why}The server fleet service gave no usable answer for target ${target}, so no ` +
-          `IOC state is known right now. ${nothing}`,
+          `${server} state is known right now. ${nothing}`,
       };
   }
 }
@@ -162,8 +163,9 @@ export function skeletonHtml() {
  * @returns {string}
  */
 export function countHtml(shown, total) {
-  if (shown === total) return `<strong>${fmt(total)}</strong> IOCs`;
-  return `<strong>${fmt(shown)}</strong> of ${fmt(total)} IOCs`;
+  const servers = esc(LABELS.servers);
+  if (shown === total) return `<strong>${fmt(total)}</strong> ${servers}`;
+  return `<strong>${fmt(shown)}</strong> of ${fmt(total)} ${servers}`;
 }
 
 /**
@@ -179,14 +181,16 @@ export function headerHtml(snapshot) {
     `<span data-age="${snapshot.generated_at}"></span> ago</span>`;
   const path = snapshot.read_path ?? { status: 'unverified', channel: null };
   const pv = path.channel ? ` (${esc(path.channel)})` : '';
+  const channel = esc(LABELS.channel);
+  const server = esc(LABELS.server);
   /** @type {string} */
   let readPath;
   if (path.status === 'ok') {
-    readPath = `<span class="osprey-chip osprey-chip--ok" data-role="read-path" title="The read-path PV answered${pv}"><span class="osprey-chip-label">read path ok</span></span>`;
+    readPath = `<span class="osprey-chip osprey-chip--ok" data-role="read-path" title="The read-path ${channel} answered${pv}"><span class="osprey-chip-label">read path ok</span></span>`;
   } else if (path.status === 'down') {
-    readPath = `<span class="osprey-chip osprey-chip--err" data-role="read-path" title="The read-path PV${pv} did not answer, so every IOC is unknown"><span class="osprey-chip-label">read path down: every IOC unknown</span></span>`;
+    readPath = `<span class="osprey-chip osprey-chip--err" data-role="read-path" title="The read-path ${channel}${pv} did not answer, so every ${server} is unknown"><span class="osprey-chip-label">read path down: every ${server} unknown</span></span>`;
   } else {
-    readPath = `<span class="osprey-chip osprey-chip--warn" data-role="read-path" title="No read-path PV is configured for this target, so the read path is not checked"><span class="osprey-chip-label">read path unverified</span></span>`;
+    readPath = `<span class="osprey-chip osprey-chip--warn" data-role="read-path" title="No read-path ${channel} is configured for this target, so the read path is not checked"><span class="osprey-chip-label">read path unverified</span></span>`;
   }
   const sources = (snapshot.sources ?? [])
     .map((source) => {
@@ -303,7 +307,7 @@ function rowHtml(row) {
  */
 export function tableHtml(rows, groupBy) {
   const head =
-    `<thead><tr><th>${LABELS.server}</th><th>Host</th><th>State</th><th class="num">In state</th>` +
+    `<thead><tr><th>${esc(heading(LABELS.server))}</th><th>Host</th><th>State</th><th class="num">In state</th>` +
     '<th>Findings</th><th>Directory</th><th>Sources</th></tr></thead>';
   /** @type {string} */
   let bodies;

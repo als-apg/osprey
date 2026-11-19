@@ -327,7 +327,7 @@ at least as often as it means "the facility has no such device".
 ## Control-System Directory
 
 Beside the curated channels, the directory is the control system's own list of
-every channel and IOC, read with the `mcp__channel-directory__*` tools.
+every channel and the server serving it, read with the `mcp__channel-directory__*` tools.
 
 - Check the curated channels first; search the directory only when they do not
   answer.
@@ -337,7 +337,7 @@ every channel and IOC, read with the `mcp__channel-directory__*` tools.
   the directory did not answer. Say which one you got.
 - Build queries only from the user's words or property values the directory
   listed (`directory_properties`); never guess a name pattern.
-- Each directory result carries `links.panel`, the address of its channel or IOC
+- Each directory result carries `links.panel`, the address of its channel or server
   page. Keep it beside its address in the artifact and in your reply, so the
   parent can show the page.
 

@@ -53,7 +53,13 @@ from osprey.services.channel_directory.alarm_snapshot import AlarmSnapshot
 from osprey.services.channel_directory.archive import Extent, read_extent
 from osprey.services.channel_directory.demo import resolve_replay_file
 from osprey.services.channel_directory.origin import Origin, mark
-from osprey.services.channel_directory.vocabulary import service_failed
+from osprey.services.channel_directory.vocabulary import (
+    Vocabulary,
+    Words,
+    service_failed,
+    target_words,
+    words_of,
+)
 from osprey_connectors import control_context
 from osprey_connectors.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
@@ -136,6 +142,20 @@ class DirectoryService:
         self._pending: dict[tuple[Any, ...], asyncio.Task[Any]] = {}
         self._sets: OrderedDict[tuple[Any, ...], tuple[float, Any]] = OrderedDict()
         self._lock = asyncio.Lock()
+        self._words = target_words(config)
+
+    @property
+    def words(self) -> Words:
+        """Every control target's words for a channel and a server, by target name."""
+        return self._words
+
+    def vocabulary(self, target: str) -> Vocabulary:
+        """The words of the control system *target* selects."""
+        return words_of(self._words, target)
+
+    async def target(self) -> str:
+        """The session's current control target."""
+        return await self._sync()
 
     @property
     def filter_cap(self) -> int:
@@ -150,7 +170,7 @@ class DirectoryService:
         at = self._at
         backend, source, reason = await self._resolve("channel_directory")
         if backend is None:
-            return _no_source_page(reason or NO_SOURCE_REASON, target)
+            return _no_source_page(reason or NO_SOURCE_REASON, target, self._words)
         origins, alarms, archived, server = _split_filters(fields)
         cut = bool(origins or alarms or archived)
         deadline = self._timeout()
@@ -198,13 +218,14 @@ class DirectoryService:
         rows = fields_out.pop("rows", [])
         payload: dict[str, Any] = as_payload(
             DirectoryPage(
-                searched=_searched(server, origins, alarms, archived),
+                searched=_searched(server, self.vocabulary(target), origins, alarms, archived),
                 source=source,
                 partial=partial,
                 facets=facets,
                 facets_reason=facets_reason,
                 **fields_out,
-            )
+            ),
+            self._words,
         )
         alarm_states = index if isinstance(index, dict) else None
         payload["rows"] = [_served_row(row, origin, alarm_states, held) for row, origin in rows]
@@ -218,7 +239,7 @@ class DirectoryService:
         at = self._at
         backend, source, reason = await self._resolve("channel_directory")
         if backend is None:
-            return _no_source_count(reason or NO_SOURCE_REASON, target)
+            return _no_source_count(reason or NO_SOURCE_REASON, target, self._words)
         origins, alarms, archived, server = _split_filters(fields)
         deadline = self._timeout()
         started = time.monotonic()
@@ -244,13 +265,13 @@ class DirectoryService:
             return {
                 "outcome": "unavailable",
                 "total": None,
-                "source": as_payload(source),
+                "source": as_payload(source, self._words),
                 "reason": answer.reason,
             }
         return {
             "outcome": "found" if answer else "no_match",
             "total": answer,
-            "source": as_payload(source),
+            "source": as_payload(source, self._words),
         }
 
     async def describe(self, name: str) -> dict[str, Any]:
@@ -262,11 +283,13 @@ class DirectoryService:
         origin = mark([name], dict(self._config))[name]
         backend, source, reason = await self._resolve("channel_directory")
         if backend is None:
-            payload = unavailable_payload(reason or NO_SOURCE_REASON, target=target)
+            payload = unavailable_payload(
+                reason or NO_SOURCE_REASON, target=target, words=self._words
+            )
             return {**payload, "origin": origin, "record": None}
         deadline = self._timeout()
         answer = await self._bounded(backend.describe(name, deadline), deadline)
-        payload = {"source": as_payload(source), "origin": origin, "record": None}
+        payload = {"source": as_payload(source, self._words), "origin": origin, "record": None}
         if isinstance(answer, Unavailable):
             return {**payload, "outcome": "unavailable", "reason": answer.reason}
         if answer == Outcome.NOT_LISTED:
@@ -316,7 +339,11 @@ class DirectoryService:
         if not DIRECTORY_CONNECTORS_AVAILABLE:
             if self._config.get(_SECTION_KEY) is None:
                 return {}
-            return {"channel_directory": unavailable_payload(FLOOR_REASON, target=target)}
+            return {
+                "channel_directory": unavailable_payload(
+                    FLOOR_REASON, target=target, words=self._words
+                )
+            }
         wanted = _KINDS if kinds is None else tuple(kinds)
         table = service_targets(self._config)
         asked = [
@@ -425,20 +452,21 @@ class DirectoryService:
     async def _probe(self, kind: str, target: str) -> dict[str, Any]:
         backend, source, reason = await self._resolve(kind)
         if backend is None:
-            return unavailable_payload(reason or NO_SOURCE_REASON, target=target)
+            return unavailable_payload(reason or NO_SOURCE_REASON, target=target, words=self._words)
         deadline = _seconds(backend.spec.settings.get("timeout_s"), self._timeout())
         if kind == "alarm_state":
             snapshot = await self.snapshot()
             if snapshot is None:  # the target moved during the build
-                return unavailable_payload(NO_SOURCE_REASON, target=target)
+                return unavailable_payload(NO_SOURCE_REASON, target=target, words=self._words)
             # The snapshot spends the deadline waiting; the grace only bounds a
             # backend that overruns it, so "still loading" stays the backend's word.
             answer = await self._bounded(snapshot.probe(deadline), deadline + _PROBE_GRACE_S)
         else:
             answer = await self._bounded(backend.probe(deadline), deadline)
+        served = as_payload(source, self._words)
         if isinstance(answer, str):
-            return {"outcome": "found", "source": as_payload(source), "evidence": answer}
-        return {"outcome": "unavailable", "source": as_payload(source), "reason": answer.reason}
+            return {"outcome": "found", "source": served, "evidence": answer}
+        return {"outcome": "unavailable", "source": served, "reason": answer.reason}
 
     # -- the archive -----------------------------------------------------
 
@@ -721,10 +749,10 @@ class DirectoryService:
             self._sets.popitem(last=False)
 
 
-def _no_source_page(reason: str, target: str) -> dict[str, Any]:
+def _no_source_page(reason: str, target: str, words: Words) -> dict[str, Any]:
     """The whole ``DirectoryPage`` a search answers with no source on *target*."""
     return {
-        **unavailable_payload(reason, target=target),
+        **unavailable_payload(reason, target=target, words=words),
         "searched": "",
         "request": "",
         "total": None,
@@ -736,9 +764,9 @@ def _no_source_page(reason: str, target: str) -> dict[str, Any]:
     }
 
 
-def _no_source_count(reason: str, target: str) -> dict[str, Any]:
+def _no_source_count(reason: str, target: str, words: Words) -> dict[str, Any]:
     """The count a search answers with no source on *target*: ``total`` is ``None``."""
-    return {**unavailable_payload(reason, target=target), "total": None}
+    return {**unavailable_payload(reason, target=target, words=words), "total": None}
 
 
 async def _cancel(tasks: Iterable[asyncio.Task[Any]]) -> None:
@@ -927,11 +955,12 @@ def _served_row(
 
 def _searched(
     query: Any,
+    words: Vocabulary,
     origins: tuple[str, ...],
     alarms: tuple[str, ...] = (),
     archived: tuple[str, ...] = (),
 ) -> str:
-    """The search in plain words."""
+    """The search in plain words, naming a server and a channel in *words*."""
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
@@ -940,7 +969,7 @@ def _searched(
     if query.status:
         parts.append(f"status {query.status}")
     if query.server:
-        parts.append(f"IOC {' or '.join(query.server)}")
+        parts.append(f"{words.server} {' or '.join(query.server)}")
     if query.channel_type:
         parts.append(f"record type {' or '.join(query.channel_type)}")
     parts.extend(f"{key} {value}" for key, value in query.properties.items())
@@ -950,7 +979,7 @@ def _searched(
         parts.append(f"alarm {' or '.join(alarms)}")
     if archived:
         parts.append(f"archived {' or '.join(archived)}")
-    return " · ".join(parts) or "every PV"
+    return " · ".join(parts) or f"every {words.channel}"
 
 
 def _seconds(value: Any, default: float) -> float:

@@ -70,8 +70,8 @@ NO_SOURCE_WARNING = (
 )
 
 FLEET_CANNOT_LIST = (
-    "the installed osprey-connectors cannot list a directory's IOCs: "
-    "the IOCs view answers 'cannot list' on every target"
+    "the installed osprey-connectors cannot list a directory's servers: "
+    "the server fleet view answers 'cannot list' on every target"
 )
 
 #: The context keys, in the order every consumer lists them.

@@ -5,6 +5,7 @@
  *   npx vitest run tests/interfaces/channel_finder/channels-render.test.mjs
  */
 
+import './epics-words.mjs';
 import { test, expect, describe } from 'vitest';
 import {
   chipsHtml,

@@ -99,9 +99,11 @@ async function init() {
     // Load stats badges
     refreshStatsBadges();
 
-    // The scope switch: rewritten when an All PVs page names its directory.
+    // The scope switch: rewritten when a directory page names its directory,
+    // and when an answer moves the panel to another target's words.
     renderViewSwitch();
     state.on('directoryLabel', renderViewSwitch);
+    state.on('directoryWords', renderViewSwitch);
 
     // The Alarms tab's pill: read every 15 s and when the panel is shown, while
     // it is visible on another view; the Alarms view emits the counts itself.

@@ -44,23 +44,25 @@ FACTS = {
 
 
 def _today(server: str) -> str:  # pragma: no cover - only its docstring is used
-    """Look up one IOC in the control system's own directory.
+    """Look up one server in the control system's own directory.
 
-    Answers the IOC's host, its ports, how many channels it serves (and how
-    many are inactive, and how many the curated channel list declares, with
-    ``curated_reason`` when that cannot be counted), its engineer and where
-    that came from (``engineer_source``), and ``health_channels``: the IOC's health
-    channels, each its ``name`` (address) and ``role`` (``heartbeat``,
-    ``uptime`` or ``engineer``). Names only, never values: to tell whether the
-    IOC is alive, read its health channels with channel_read; a ``heartbeat``
-    channel that advances between two reads means alive. On the simulator the
-    engineer is the address of a channel; read it with channel_read for the name.
-    With an alarm feed configured, ``alarms`` lists the IOC's channels in alarm
+    A server is the process serving channels, as the control system's
+    directory names it. Answers the server's host, its ports, how many channels it
+    serves (and how many are inactive, and how many the curated channel list
+    declares, with ``curated_reason`` when that cannot be counted), its
+    engineer and where that came from (``engineer_source``), and
+    ``health_channels``: the server's health channels, each its ``name``
+    (address) and ``role`` (``heartbeat``, ``uptime`` or ``engineer``). Names
+    only, never values: to tell whether the server is alive,
+    read its health channels with channel_read; a ``heartbeat`` channel that
+    advances between two reads means alive. On the simulator the engineer is
+    the address of a channel; read it with channel_read for the name.
+    With an alarm feed configured, ``alarms`` lists the server's channels in alarm
     now (``outcome``, ``total``, ``rows`` of channel, severity, status, latched,
-    acknowledged and time, and ``counts`` per severity over the whole IOC), or
+    acknowledged and time, and ``counts`` per severity over the whole server), or
     ``unavailable`` with the feed's ``reason``.
-    ``links.panel`` is the panel page showing this IOC. ``not_listed`` means
-    the directory lists no channel served by that IOC name.
+    ``links.panel`` is the panel page showing this server. ``not_listed`` means
+    the directory lists no channel served by that server name.
 
     Args:
         server: The server's name, as the directory records it.

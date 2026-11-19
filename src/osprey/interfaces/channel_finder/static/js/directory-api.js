@@ -12,6 +12,7 @@
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
 import { fetchJSON } from './api.js';
+import { LABELS } from './labels.js';
 import { state } from './state.js';
 
 /** @typedef {'found'|'inactive'|'not_listed'|'no_match'|'unavailable'} Outcome */
@@ -424,11 +425,38 @@ function queryString(filters) {
 }
 
 /**
+ * The target an answer says it came from: its source's, a channel page's
+ * first section's, or the fleet answer's own.
+ * @param {any} answer
+ * @returns {string|null}
+ */
+function answerTarget(answer) {
+  if (!answer || typeof answer !== 'object') return null;
+  const target =
+    answer.source?.target ?? answer.sections?.[0]?.source?.target ?? answer.target ?? null;
+  return typeof target === 'string' ? target : null;
+}
+
+/**
+ * *read*'s answer, after the panel moved to the words of the target it came
+ * from, so the words follow the target an answer shows.
+ * @template T
+ * @param {Promise<T>|T} read
+ * @returns {Promise<T>}
+ */
+function followed(read) {
+  return Promise.resolve(read).then((answer) => {
+    state.followTarget(answerTarget(answer));
+    return answer;
+  });
+}
+
+/**
  * @param {DirectoryFilters} [filters]
  * @returns {Promise<DirectoryPage>}
  */
 export function searchDirectory(filters = {}) {
-  return fetchJSON(`/api/directory/search${queryString(filters)}`);
+  return followed(fetchJSON(`/api/directory/search${queryString(filters)}`));
 }
 
 /**
@@ -447,7 +475,7 @@ export function directoryExportUrl(filters = {}) {
  * @returns {Promise<DirectoryCount>}
  */
 export function countDirectory(q) {
-  return fetchJSON(`/api/directory/count${queryString({ q })}`);
+  return followed(fetchJSON(`/api/directory/count${queryString({ q })}`));
 }
 
 /**
@@ -456,7 +484,7 @@ export function countDirectory(q) {
  * @returns {Promise<ChannelFacts>}
  */
 export function fetchChannelFacts(name, signal) {
-  return fetchJSON(`/api/directory/channel/${encodeURIComponent(name)}`, { signal });
+  return followed(fetchJSON(`/api/directory/channel/${encodeURIComponent(name)}`, { signal }));
 }
 
 /**
@@ -464,7 +492,7 @@ export function fetchChannelFacts(name, signal) {
  * @returns {Promise<ServerFacts>}
  */
 export function fetchServerFacts(name) {
-  return fetchJSON(`/api/directory/server/${encodeURIComponent(name)}`);
+  return followed(fetchJSON(`/api/directory/server/${encodeURIComponent(name)}`));
 }
 
 /** @returns {Promise<LogbookAvailability>} */
@@ -480,7 +508,9 @@ export function fetchLogbookAvailability() {
  * @returns {Promise<ActiveAlarms>}
  */
 export function fetchActiveAlarms({ severity, limit } = {}, signal) {
-  return fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`, { signal });
+  return followed(
+    fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`, { signal })
+  );
 }
 
 /**
@@ -489,7 +519,7 @@ export function fetchActiveAlarms({ severity, limit } = {}, signal) {
  * @returns {Promise<ArchiveSummary>}
  */
 export function fetchArchiveSummary(signal) {
-  return fetchJSON('/api/directory/archive', { signal });
+  return followed(fetchJSON('/api/directory/archive', { signal }));
 }
 
 /**
@@ -499,7 +529,7 @@ export function fetchArchiveSummary(signal) {
  * @returns {Promise<FleetAnswer>}
  */
 export function fetchFleet(signal) {
-  return fetchJSON('/api/directory/fleet', { signal });
+  return followed(fetchJSON('/api/directory/fleet', { signal }));
 }
 
 /**
@@ -552,7 +582,7 @@ export function plotButton(selected) {
   return {
     disabled: true,
     label: `Plot (max ${PLOT_MAX_CHANNELS})`,
-    title: `Data Browser takes at most ${PLOT_MAX_CHANNELS} PVs`,
+    title: `Data Browser takes at most ${PLOT_MAX_CHANNELS} ${LABELS.channels}`,
   };
 }
 

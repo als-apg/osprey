@@ -9,6 +9,7 @@ gated on the server being among the render's enabled servers.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +144,20 @@ def test_the_arm_renders_when_the_server_does(tmp_path: Path, template: str) -> 
 
 
 @pytest.mark.parametrize("template", [_MAIN, _APP, _SUBAGENT])
+@pytest.mark.parametrize("section", [_DIRECTORY, _FLEET], ids=["directory", "fleet"])
+def test_on_a_tango_machine_the_arm_names_no_epics_word(
+    tmp_path: Path, template: str, section: dict[str, Any]
+) -> None:
+    ctx = _context(tmp_path, section, served=True)
+    ctx["control_system"] = {"type": "tango"}
+
+    arm = _arm(template, _render(template, ctx))
+
+    assert re.search(r"\bPVs?\b|\bIOCs?\b", arm) is None, arm
+    assert "server" in arm
+
+
+@pytest.mark.parametrize("template", [_MAIN, _APP, _SUBAGENT])
 @pytest.mark.parametrize(
     ("section", "served"),
     [(None, False), (_DIRECTORY, False)],
@@ -175,7 +190,7 @@ def test_the_main_agent_reads_server_health_with_channel_read(tmp_path: Path) ->
 def test_the_app_answers_server_health_by_opening_the_server_page(tmp_path: Path) -> None:
     arm = _arm(_APP, _render(_APP, _context(tmp_path, _DIRECTORY, served=True)))
     assert "channel_read" not in arm
-    assert "IOC page" in arm
+    assert "server page" in arm
     assert "`server_record`" in arm
 
 
@@ -197,16 +212,16 @@ def test_the_subagent_frontmatter_is_unchanged_without_the_server(tmp_path: Path
     ]
 
 
-# -- IOC liveness with the fleet on and off -----------------------------------
+# -- server liveness with the fleet on and off --------------------------------
 
 #: The liveness line each arm renders with the fleet off, as before the fleet.
 _LIVENESS_WITHOUT_FLEET = {
     _MAIN: (
-        "- Whether an IOC is alive, and its engineer: `server_record` names its health "
+        "- Whether a server is alive, and its engineer: `server_record` names its health "
         "channels; read them with `channel_read`. An advancing HEARTBEAT means alive.\n"
     ),
     _APP: (
-        "- Whether an IOC is alive, and its engineer: open its IOC page, the\n"
+        "- Whether a server is alive, and its engineer: open its server page, the\n"
         "  `links.panel` of `server_record`; the page reads its health channels.\n"
     ),
 }
@@ -265,7 +280,7 @@ def test_without_the_fleet_the_arm_is_unchanged(
     assert "server_fleet" not in arm
     assert "carries its state" not in arm
     if template == _MAIN and not controls:
-        assert "open the IOC page from `server_record`'s `links.panel`" in arm
+        assert "open the server page from `server_record`'s `links.panel`" in arm
     else:
         assert _LIVENESS_WITHOUT_FLEET[template] in arm
 

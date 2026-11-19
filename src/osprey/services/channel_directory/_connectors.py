@@ -20,9 +20,10 @@ from enum import Enum
 from typing import Any
 
 from osprey.services.channel_directory.vocabulary import (
-    DIRECTORY_LABEL,
     LOGBOOK_SERVICE,
+    Words,
     source_label,
+    words_of,
 )
 
 try:
@@ -174,25 +175,30 @@ _SERVED_RECORDS = tuple(
 )
 
 
-def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
-    """The JSON form of a section with no source on *target*, giving *reason*."""
+def unavailable_payload(reason: str, *, target: str, words: Words | None = None) -> dict[str, Any]:
+    """The JSON form of a section with no source on *target*, giving *reason*.
+
+    Its label is the directory's title in *target*'s *words* (the neutral words
+    when none are given).
+    """
     return {
         "outcome": "unavailable",
         "source": {
             "target": target,
             "service": "none",
-            "label": DIRECTORY_LABEL,
+            "label": words_of(words, target).directory,
             "rehearsal": target == "standin",
         },
         "reason": reason,
     }
 
 
-def as_payload(result: Any) -> Any:
+def as_payload(result: Any, words: Words | None = None) -> Any:
     """*result*, a contract dataclass or a container of them, as plain JSON values.
 
     A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
-    by :func:`~osprey.services.channel_directory.vocabulary.source_label`; a directory
+    by :func:`~osprey.services.channel_directory.vocabulary.source_label` in its
+    target's *words* (the neutral words when none are given); a directory
     row, a put row and an alarm-state row name their fields by :data:`SERVED_FIELD`. Other
     dataclasses become mappings field by field, enum members their values,
     mappings and sequences their JSON forms; anything else is returned as it is.
@@ -201,21 +207,21 @@ def as_payload(result: Any) -> Any:
         return {
             "target": result.target,
             "service": result.service,
-            "label": source_label(result.kind, result.service),
+            "label": source_label(result.kind, result.service, words_of(words, result.target)),
             "rehearsal": result.rehearsal,
         }
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
         names = SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
         return {
-            names.get(field.name, field.name): as_payload(getattr(result, field.name))
+            names.get(field.name, field.name): as_payload(getattr(result, field.name), words)
             for field in dataclasses.fields(result)
         }
     if isinstance(result, Enum):
         return result.value
     if isinstance(result, Mapping):
-        return {key: as_payload(value) for key, value in result.items()}
+        return {key: as_payload(value, words) for key, value in result.items()}
     if isinstance(result, (list, tuple)):
-        return [as_payload(value) for value in result]
+        return [as_payload(value, words) for value in result]
     return result
 
 

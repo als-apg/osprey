@@ -30,6 +30,7 @@ from osprey.mcp_server.channel_directory import server
 from osprey.mcp_server.channel_directory.tools import properties, search
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.channel_directory import _connectors, facts, service
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
@@ -315,7 +316,9 @@ async def test_no_source_on_the_target_refuses_not_supported(tmp_path: Path) -> 
         await search.directory_search(words="SR")
 
     envelope = refused["envelope"]
-    expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="live")
+    expected = _connectors.unavailable_payload(
+        _connectors.NO_SOURCE_REASON, target="live", words={"live": EPICS_WORDS}
+    )
     assert envelope["details"] == _no_source_page(expected)
     assert envelope["error_message"] == f"directory_search: {_connectors.NO_SOURCE_REASON}"
 
@@ -526,6 +529,8 @@ async def test_modules_blocked_both_tools_refuse_with_the_upgrade_reason(
     with assert_raises_error(error_type="not_supported") as listed:
         await properties.directory_properties("iocName")
 
-    expected = _connectors.unavailable_payload(_connectors.FLOOR_REASON, target="live")
+    expected = _connectors.unavailable_payload(
+        _connectors.FLOOR_REASON, target="live", words={"live": EPICS_WORDS}
+    )
     assert searched["envelope"]["details"] == _no_source_page(expected)
     assert listed["envelope"]["details"]["reason"] == _connectors.FLOOR_REASON

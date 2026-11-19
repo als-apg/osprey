@@ -25,6 +25,7 @@ from osprey.mcp_server.channel_directory import server
 from osprey.mcp_server.channel_directory.tools import channel_record, server_record
 from osprey.mcp_server.errors import MAP_KEYS, MISSING_KEY
 from osprey.services.channel_directory import _connectors
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.directory import (
     DirectoryPage,
@@ -355,7 +356,9 @@ async def test_no_source_on_the_target_refuses_not_supported(tmp_path: Path) -> 
     with assert_raises_error(error_type="not_supported") as refused:
         await channel_record.channel_record(["SR:BPM1"])
 
-    expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="live")
+    expected = _connectors.unavailable_payload(
+        _connectors.NO_SOURCE_REASON, target="live", words={"live": EPICS_WORDS}
+    )
     assert {key: refused["envelope"]["details"][key] for key in expected} == expected
 
 

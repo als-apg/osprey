@@ -12,6 +12,7 @@
  *   npx vitest run tests/interfaces/channel_finder/curated-bridge.test.mjs
  */
 
+import './epics-words.mjs';
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

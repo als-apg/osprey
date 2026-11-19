@@ -25,6 +25,7 @@ pytest.importorskip("osprey_connectors.service_answers")
 import osprey.channel_roster as channel_roster
 from osprey.services.channel_directory import _connectors, service
 from osprey.services.channel_directory.demo import resolve_replay_file
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
@@ -283,6 +284,27 @@ async def test_search_marks_rows_and_removes_hidden_properties(tmp_path: Path) -
         {"value": "ioc-b", "count": 1},
     ]
     assert page["facets_reason"] is None
+    await directory.aclose()
+
+
+@pytest.mark.parametrize(
+    ("control_system", "label", "searched"),
+    [
+        (LIVE_BUILD, "All PVs", "IOC ioc-a"),
+        ({"type": "tango"}, "Attributes", "device server ioc-a"),
+        ({"type": "facility.Custom"}, "Channels", "server ioc-a"),
+    ],
+)
+async def test_a_search_answers_in_the_targets_words(
+    tmp_path: Path, control_system: dict[str, Any], label: str, searched: str
+) -> None:
+    FakeDirectory.rows = [_row("SR:BPM1", server="ioc-a")]
+    directory = _service(_config(tmp_path, control_system, FACILITY), tmp_path)
+
+    page = await directory.search(server=["ioc-a"])
+
+    assert page["source"]["label"] == label
+    assert page["searched"] == searched
     await directory.aclose()
 
 
@@ -1116,7 +1138,9 @@ async def test_no_source_form_at_standin(tmp_path: Path, built: list[Any], recor
     section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
     directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
 
-    expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="standin")
+    expected = _connectors.unavailable_payload(
+        _connectors.NO_SOURCE_REASON, target="standin", words={"standin": EPICS_WORDS}
+    )
 
     assert await directory.search(words="SR") == _no_source_page(expected)
     assert await directory.count() == {**expected, "total": None}
@@ -1148,7 +1172,7 @@ async def test_a_search_with_no_source_on_live_is_the_shared_fixture_page(
 ) -> None:
     record.move("live", 1)
     section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
-    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+    directory = _service(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
     shared = json.loads(_ROUTES.read_text(encoding="utf-8"))["search no source"]
 
@@ -1219,7 +1243,7 @@ async def test_probes_name_every_configured_service(tmp_path: Path, record: _Rec
     record.move("va", 1)
     on_va = await directory.probes()
     assert on_va["alarm_log"] == _connectors.unavailable_payload(
-        _connectors.NO_SOURCE_REASON, target="va"
+        _connectors.NO_SOURCE_REASON, target="va", words={"va": EPICS_WORDS}
     )
     await directory.aclose()
 
@@ -1313,7 +1337,9 @@ async def test_modules_blocked_every_read_answers_the_floor(
     directory = floor.DirectoryService(
         _config(tmp_path, LIVE_BUILD, FACILITY), project_dir=tmp_path
     )
-    expected = _connectors.unavailable_payload(_connectors.FLOOR_REASON, target="live")
+    expected = _connectors.unavailable_payload(
+        _connectors.FLOOR_REASON, target="live", words={"live": EPICS_WORDS}
+    )
 
     assert await directory.search(words="SR") == _no_source_page(expected)
     assert await directory.count() == {**expected, "total": None}

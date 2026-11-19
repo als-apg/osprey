@@ -66,7 +66,7 @@ SECTIONS = {
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 _ARM_HEADING = "## Control-System Directory"
-_SERVER_PAGE_FALLBACK = "open the IOC page from `server_record`'s `links.panel`"
+_SERVER_PAGE_FALLBACK = "open the server page from `server_record`'s `links.panel`"
 
 
 # ---------------------------------------------------------------------------

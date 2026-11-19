@@ -61,7 +61,11 @@ from osprey.services.channel_directory.health_selectors import (
 )
 from osprey.services.channel_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.channel_directory.service import DirectoryService
-from osprey.services.channel_directory.vocabulary import CONFIG_LABELS, service_failed
+from osprey.services.channel_directory.vocabulary import (
+    CONFIG_LABELS,
+    Vocabulary,
+    service_failed,
+)
 from osprey_connectors.archive_targets import archive_targets
 
 __all__ = ["ACTIVE_ALARMS_MAX_ROWS", "Facts", "panel_link"]
@@ -89,7 +93,6 @@ _SERVER_ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
 _REPLAY_BACKEND = "alarm_replay"
 #: How long past its deadline a backend call may run before the section gives up on it.
 _GRACE_S = 0.5
-_NO_HEALTH_CHANNELS = "no IOC health PVs listed for this IOC"
 #: The directory kind the IOC page names off ``va``: any directory that selects by suffix.
 _SUFFIX_DIRECTORY = "facility"
 _FEED_LOADING = "alarm feed still loading"
@@ -267,7 +270,9 @@ class Facts:
         }
         connector, source, reason = await self._service.archive(fresh=True)
         if connector is None:
-            payload = unavailable_payload(reason or NO_SOURCE_REASON, target=target)
+            payload = unavailable_payload(
+                reason or NO_SOURCE_REASON, target=target, words=self._service.words
+            )
             return {**payload, **fixed}
         extent = await self._service.archive_extent(fresh=True)
         whole, stored = await asyncio.gather(
@@ -396,7 +401,9 @@ class Facts:
         """*answer* as a section payload: a missing source answers for *target*, else the current one."""
         if not isinstance(answer, _NoSource):
             return answer
-        payload = unavailable_payload(answer.reason, target=target or await self._target())
+        payload = unavailable_payload(
+            answer.reason, target=target or await self._target(), words=self._service.words
+        )
         return {**payload, "caveats": [], **answer.fields}
 
     def _detail_properties(self, record: Mapping[str, Any] | None) -> list[str]:
@@ -433,6 +440,7 @@ class Facts:
         }
         total = await self._service.count(server=[ioc])
         source = total["source"]
+        no_health = _no_health_channels(self._service.vocabulary(str(source["target"])))
         fleet = self._fleet_entry(ioc, str(source["target"])) if self._fleet_on() else _absent()
         if total["outcome"] == "unavailable":
             return {
@@ -449,7 +457,7 @@ class Facts:
                 "channel_count": 0,
                 "inactive_count": 0,
                 "curated_count": 0,
-                "health_channels_reason": _NO_HEALTH_CHANNELS,
+                "health_channels_reason": no_health,
             }
 
         on_va = source.get("target") == "va"
@@ -458,7 +466,7 @@ class Facts:
             self._service.count(server=[ioc], status="Inactive"),
             self._curated_count(ioc),
             self._service.search(server=[ioc], page_size=1),
-            self._health_channels(ioc, on_va),
+            self._health_channels(ioc, on_va, no_health),
             self._server_alarms(ioc) if with_alarms else _absent(),
             fleet,
         )
@@ -542,7 +550,7 @@ class Facts:
         return {"curated_count": counted["total"]}
 
     async def _health_channels(
-        self, ioc: str, on_va: bool
+        self, ioc: str, on_va: bool, no_health: str
     ) -> tuple[list[dict[str, str]], str, str | None]:
         """The IOC's health PVs (name and role), the reason when none, its engineer.
 
@@ -573,7 +581,7 @@ class Facts:
             else None
         )
         failed = [page["reason"] for page in pages if page["outcome"] == "unavailable"]
-        return health, failed[0] if failed and not health else _NO_HEALTH_CHANNELS, engineer
+        return health, failed[0] if failed and not health else no_health, engineer
 
     def _health_suffixes(self) -> dict[str, str]:
         """The record-name suffix of each IOC health role: ``display.server_health_suffixes``.
@@ -775,6 +783,11 @@ def _iso(moment: datetime | None) -> str | None:
 
 def _unavailable(reason: str) -> dict[str, Any]:
     return {"outcome": "unavailable", "reason": reason}
+
+
+def _no_health_channels(words: Vocabulary) -> str:
+    """The reason a server page lists no health channels, in the target's *words*."""
+    return f"no {words.server} health {words.channels} listed for this {words.server}"
 
 
 def _caveats(backend: Any) -> list[str]:

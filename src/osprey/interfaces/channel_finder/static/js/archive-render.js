@@ -16,7 +16,7 @@
  */
 
 import { sinceText } from './duration.js';
-import { LABELS } from './labels.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { esc } from './utils.js';
 
@@ -96,9 +96,9 @@ export function tilesHtml(summary, now) {
     const of = typeof archived.of === 'number' ? archived.of : null;
     const rest =
       of === null ? '' : `of ${fmt(of)} · ${fmt(Math.max(of - archived.count, 0))} not archived`;
-    tiles.push(tile('archived', 'Archived PVs', fmt(archived.count), rest));
+    tiles.push(tile('archived', `Archived ${LABELS.channels}`, fmt(archived.count), rest));
   } else {
-    tiles.push(tile('archived', 'Archived PVs', 'unknown', archived.reason ?? ''));
+    tiles.push(tile('archived', `Archived ${LABELS.channels}`, 'unknown', archived.reason ?? ''));
   }
   const knobs = ownStore(summary);
   if (knobs) {
@@ -134,7 +134,8 @@ export function coverageHtml(summary) {
   const rows = summary.by_server ?? [];
   let body;
   if (!rows.length) {
-    body = `<p class="archive-note">${esc(summary.by_server_reason || 'No IOCs listed')}</p>`;
+    const none = `No ${LABELS.servers} listed`;
+    body = `<p class="archive-note">${esc(summary.by_server_reason || none)}</p>`;
   } else {
     const lines = rows
       .map(({ server: ioc, channels: pvs, archived }) => {
@@ -156,11 +157,12 @@ export function coverageHtml(summary) {
       })
       .join('');
     body =
-      `<table class="archive-table"><thead><tr><th>${LABELS.server}</th><th class="num">${LABELS.channels}</th>` +
+      `<table class="archive-table"><thead><tr><th>${esc(heading(LABELS.server))}</th>` +
+      `<th class="num">${esc(heading(LABELS.channels))}</th>` +
       '<th class="num">Archived</th><th class="num">Not archived</th><th>Coverage</th>' +
       `</tr></thead><tbody>${lines}</tbody></table>`;
   }
-  return card('coverage', 'Coverage by IOC', body);
+  return card('coverage', `Coverage by ${LABELS.server}`, body);
 }
 
 /**

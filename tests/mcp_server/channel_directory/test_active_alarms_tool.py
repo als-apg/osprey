@@ -21,6 +21,7 @@ from osprey.mcp_server.channel_directory import server
 from osprey.mcp_server.channel_directory.tools import active_alarms
 from osprey.services.channel_directory import _connectors
 from osprey.services.channel_directory.facts import ACTIVE_ALARMS_MAX_ROWS, panel_link
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import (
     AlarmStateRecord,
@@ -181,7 +182,9 @@ async def test_no_source_on_the_target_refuses_not_supported(
     with assert_raises_error(error_type="not_supported") as refused:
         await active_alarms.active_alarms()
 
-    expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="va")
+    expected = _connectors.unavailable_payload(
+        _connectors.NO_SOURCE_REASON, target="va", words={"va": EPICS_WORDS}
+    )
     assert {key: refused["envelope"]["details"][key] for key in expected} == expected
 
 

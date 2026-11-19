@@ -26,6 +26,7 @@ pytest.importorskip("osprey_connectors.service_answers")
 import osprey.channel_roster as channel_roster
 from osprey.services.channel_directory import _connectors, facts, service
 from osprey.services.channel_directory.alarm_snapshot import AlarmSnapshot
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_log import AlarmHistoryRow
 from osprey_connectors.alarm_state import (
@@ -1595,7 +1596,9 @@ async def test_modules_blocked_every_section_answers_the_floor(
     floor_service, floor_facts = floor
     config = _config(tmp_path, LIVE_BUILD, EVERY_SERVICE)
     page = floor_facts.Facts(floor_service.DirectoryService(config, project_dir=tmp_path), config)
-    expected = _connectors.unavailable_payload(_connectors.FLOOR_REASON, target="live")
+    expected = _connectors.unavailable_payload(
+        _connectors.FLOOR_REASON, target="live", words={"live": EPICS_WORDS}
+    )
 
     sections = _sections(await page.channel_facts("SR:BPM1"))
     ioc = await page.server_facts("ioc-a")

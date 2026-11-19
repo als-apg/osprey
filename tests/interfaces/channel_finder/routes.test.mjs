@@ -8,6 +8,7 @@
  * listener the boot added, so one case's app never answers the next case's hash.
  */
 
+import './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 
 const JS = '../../../src/osprey/interfaces/channel_finder/static/js';

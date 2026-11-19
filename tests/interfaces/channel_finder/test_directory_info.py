@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.channel_finder import directory_api
 from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
 from osprey.services.channel_directory import _connectors, service
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS, NEUTRAL_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord
 from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
@@ -209,11 +210,38 @@ def test_the_descriptor_is_present_when_configured(start) -> None:
 
     assert info["directory"] == {
         "label": "All PVs",
+        "target": "va",
+        "words": {
+            "live": NEUTRAL_WORDS.as_json(),
+            "va": EPICS_WORDS.as_json(),
+            "standin": EPICS_WORDS.as_json(),
+        },
         "configured_services": [],
         "canopy": False,
         "ariel": False,
     }
     assert info["pipeline_type"] == "in_context"
+
+
+def test_the_descriptor_serves_each_targets_words(start, record: _Record) -> None:
+    config = _config({"type": "tango"}, LABELLED)
+    config["services"] = {"virtual_accelerator": {"port": 5064}}
+    with start(config) as (_app, client):
+        on_live = client.get("/api/info").json()["directory"]
+        record.move("va", 1)
+        on_va = client.get("/api/info").json()["directory"]
+
+    assert (on_live["target"], on_live["label"]) == ("live", "Attributes")
+    assert on_live["words"]["live"] == {
+        "channel": "attribute",
+        "channels": "attributes",
+        "server": "device server",
+        "servers": "device servers",
+        "directory": "Attributes",
+        "servers_view": "Device servers",
+    }
+    assert (on_va["target"], on_va["label"]) == ("va", "All PVs")
+    assert on_va["words"] == on_live["words"]
 
 
 def test_the_label_is_all_channels_on_every_target_whatever_answers(start, record: _Record) -> None:
@@ -227,12 +255,12 @@ def test_the_label_is_all_channels_on_every_target_whatever_answers(start, recor
         assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
 
 
-def test_a_va_only_section_at_live_is_labelled_all_channels(start, record: _Record) -> None:
+def test_a_va_only_section_at_live_is_labelled_in_the_neutral_words(start, record: _Record) -> None:
     record.move("live", 1)
 
     info = _info(start, _config(VA_BUILD, {}))
 
-    assert info["directory"]["label"] == "All PVs"
+    assert info["directory"]["label"] == "Channels"
 
 
 def test_configured_services_follow_the_section(start, tmp_path: Path) -> None:
@@ -363,7 +391,7 @@ def test_the_fixture_search_is_a_directory_page() -> None:
         rehearsal=served["rehearsal"],
     )
     rebuilt = DirectoryPage(**{**page, "source": source, "rows": rows})
-    payload = _connectors.as_payload(rebuilt)
+    payload = _connectors.as_payload(rebuilt, {served["target"]: EPICS_WORDS})
     payload["rows"] = [
         service._served_row(row, served["origin"], states, held)
         for row, served in zip(rows, page["rows"], strict=True)

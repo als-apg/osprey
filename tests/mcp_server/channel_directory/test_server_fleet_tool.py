@@ -295,6 +295,35 @@ async def test_a_service_outcome_is_a_plain_statement(serve, outcome: Outcome) -
     _assert_no_server_called_down(result)
 
 
+@pytest.mark.parametrize(
+    ("control_system", "servers", "server_word"),
+    [
+        (LIVE, "IOCs", "IOC"),
+        ({"type": "tango"}, "device servers", "device server"),
+        ({"type": "facility.Custom"}, "servers", "server"),
+    ],
+)
+async def test_a_statement_names_servers_in_the_targets_words(
+    serve, control_system: dict[str, Any], servers: str, server_word: str
+) -> None:
+    server.set_tool_context(
+        server.ToolContext(
+            predicates={"channel_directory_fleet": True},
+            service=NoDirectory(),  # type: ignore[arg-type]
+            channel_facts=NoDirectory(),  # type: ignore[arg-type]
+            config={**FLEET_CONFIG, "control_system": control_system},
+        )
+    )
+    serve(_document(Snapshot.not_ok(Outcome.CANNOT_LIST, target="live", reason="r").to_json()))
+
+    statement = (await _call())["statement"]
+
+    assert f"cannot list the {servers} of target live" in statement
+    assert f"whether any {server_word} runs" in statement
+    if control_system != LIVE:
+        assert "IOC" not in statement and "PV" not in statement
+
+
 async def test_an_unreachable_service_is_a_plain_statement_not_an_error(serve) -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)

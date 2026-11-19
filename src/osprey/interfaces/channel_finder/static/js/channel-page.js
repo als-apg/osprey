@@ -34,7 +34,7 @@ import {
   readValues,
 } from './directory-api.js';
 import { sinceText } from './duration.js';
-import { LABELS } from './labels.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { severityMark, severityOf } from './severity.js';
 import { state } from './state.js';
@@ -427,7 +427,7 @@ async function load(container, name) {
     if (mounted?.container !== container) return;
     renderState(container, {
       icon: 'triangle-alert',
-      message: 'PV facts not available',
+      message: `${heading(LABELS.channel)} facts not available`,
       detail: messageOf(err),
       action: { label: 'Retry', onClick: () => void load(container, name) },
     });

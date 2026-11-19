@@ -36,7 +36,7 @@ import { renderState } from '/design-system/js/panel-state.js';
 import { durationText, sinceText } from './duration.js';
 import { fetchServerFacts, readValues } from './directory-api.js';
 import { timeText } from './channel-page-sections.js';
-import { LABELS } from './labels.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { severityMark, severityOf } from './severity.js';
 
@@ -147,7 +147,12 @@ function valueText(row) {
  * @returns {{ alive: Alive, reason: string }}
  */
 export function aliveness(name, first, second) {
-  if (!name) return { alive: 'unknown', reason: `no ${HEARTBEAT} PV listed for this IOC` };
+  if (!name) {
+    return {
+      alive: 'unknown',
+      reason: `no ${HEARTBEAT} ${LABELS.channel} listed for this ${LABELS.server}`,
+    };
+  }
   if (!first || !second) return { alive: 'unknown', reason: `${name}: second read pending` };
   for (const row of [first, second]) {
     if (row.outcome !== 'found') return { alive: 'no', reason: `${name}: ${valueText(row)}` };
@@ -185,15 +190,16 @@ export function fleetStatement(fleet, ioc) {
   const says = {
     no_snapshot: `The server fleet service has no snapshot of target ${target} yet.`,
     not_refreshed: `The server fleet service does not refresh target ${target}.`,
-    cannot_list: `The server fleet service cannot list the IOCs of target ${target}.`,
+    cannot_list: `The server fleet service cannot list the ${LABELS.servers} of target ${target}.`,
     unavailable: `The server fleet service gave no usable answer for target ${target}.`,
     stale:
       `The snapshot of target ${target} is stale: the server fleet service stopped refreshing it.` +
       (taken ? ` Last snapshot ${taken}.` : ''),
-    not_in_snapshot: `IOC ${ioc} is not in the snapshot of target ${target}.`,
+    not_in_snapshot: `${heading(LABELS.server)} ${ioc} is not in the snapshot of target ${target}.`,
   };
   const head = says[fleet.outcome] ?? `The server fleet answered ${fleet.outcome}.`;
-  return `${head} No state is known for this IOC. This says nothing about whether this IOC runs.`;
+  const server = LABELS.server;
+  return `${head} No state is known for this ${server}. This says nothing about whether this ${server} runs.`;
 }
 
 /**
@@ -317,7 +323,7 @@ function inAlarmTile(alarms) {
  * @returns {HTMLElement}
  */
 function alarmsCard(alarms) {
-  const box = card('alarms', 'Alarms on this IOC');
+  const box = card('alarms', `Alarms on this ${LABELS.server}`);
   if (alarms.outcome === 'unavailable') {
     box.append(el('p', 'cf-server-reason', alarms.reason ?? 'unavailable'));
     return box;
@@ -403,7 +409,7 @@ function renderPage(container, facts, mounted) {
   page.append(head);
 
   const tiles = el('div', 'cf-server-tiles');
-  const pvs = tile('channels', LABELS.channels);
+  const pvs = tile('channels', heading(LABELS.channels));
   pvs.value.textContent = facts.channel_count === null ? NOT_RECORDED : String(facts.channel_count);
   if (facts.inactive_count !== null) pvs.sub.textContent = `${facts.inactive_count} inactive`;
   const curated = tile('curated', 'Curated');
@@ -435,7 +441,7 @@ function renderPage(container, facts, mounted) {
   const right = el('div', 'cf-server-col');
   if (facts.alarms) left.append(alarmsCard(facts.alarms));
 
-  const health = card('health', 'IOC health PVs');
+  const health = card('health', `${heading(LABELS.server)} health ${LABELS.channels}`);
   /** @type {Map<string, HTMLElement>} */
   const cells = new Map();
   if (facts.health_channels.length) {
@@ -455,7 +461,8 @@ function renderPage(container, facts, mounted) {
       el(
         'p',
         'cf-server-reason',
-        facts.health_channels_reason ?? 'no IOC health PVs listed for this IOC'
+        facts.health_channels_reason ??
+          `no ${LABELS.server} health ${LABELS.channels} listed for this ${LABELS.server}`
       )
     );
   }
@@ -580,7 +587,7 @@ export function mountServerPage(container, params) {
   const mounted = ++generation;
   const name = params.name ?? '';
 
-  renderState(container, { icon: 'refresh', message: `Loading IOC ${name}` });
+  renderState(container, { icon: 'refresh', message: `Loading ${LABELS.server} ${name}` });
   fetchServerFacts(name).then(
     (facts) => {
       if (mounted !== generation) return;
@@ -595,7 +602,7 @@ export function mountServerPage(container, params) {
       } else {
         renderState(container, {
           icon: 'search',
-          message: `IOC ${name} is not listed in the directory`,
+          message: `${heading(LABELS.server)} ${name} is not listed in the directory`,
         });
       }
     },
@@ -603,7 +610,7 @@ export function mountServerPage(container, params) {
       if (mounted !== generation) return;
       renderState(container, {
         icon: 'x',
-        message: 'The IOC facts could not be read',
+        message: `The ${LABELS.server} facts could not be read`,
         detail: error instanceof Error ? error.message : String(error),
         action: {
           label: 'Retry',

@@ -7,6 +7,7 @@
  *   npx vitest run tests/interfaces/channel_finder/panel-toolbar.test.mjs
  */
 
+import './epics-words.mjs';
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

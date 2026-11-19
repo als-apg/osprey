@@ -1,4 +1,4 @@
-"""MCP tool: server_fleet — every IOC's liveness state on the control target, from the fleet snapshot.
+"""MCP tool: server_fleet — every server's liveness state on the control target, from the fleet snapshot.
 
 Gated on the ``channel_directory_fleet`` predicate. The tool reads the snapshot the
 server fleet service already took, through the fleet connection
@@ -25,13 +25,18 @@ from osprey.mcp_server.errors import make_error
 from osprey.server_fleet_connection import FleetAnswer, FleetOutcome
 from osprey.services.channel_directory.fleet import states as _states
 from osprey.services.channel_directory.fleet.states import Finding, State
+from osprey.services.channel_directory.vocabulary import (
+    NEUTRAL_WORDS,
+    Vocabulary,
+    target_vocabulary,
+)
 
 logger = logging.getLogger("osprey.mcp_server.channel_directory.tools.server_fleet")
 
 #: The most rows one call answers.
 SERVER_FLEET_MAX_ROWS = 1000
 
-#: The Channels panel's IOCs view, the page every answer links to.
+#: The Channels panel's server fleet view, the page every answer links to.
 VIEW_LINK = {"panel": "/panel/channel-finder/#/servers"}
 
 _STATE_BULLET = re.compile(r"^\* ``([a-z_]+)`` -- (.+?)(?=^\* |^\S|\Z)", re.MULTILINE | re.DOTALL)
@@ -49,23 +54,25 @@ def _state_meanings() -> dict[str, str]:
 STATE_MEANINGS = _state_meanings()
 
 #: What each non-``ok`` outcome means, as a plain statement about the snapshot
-#: and never about any IOC: none of these is evidence that an IOC is not running.
+#: and never about any server: none of these is evidence that a server is not
+#: running. ``{server}`` and ``{servers}`` are the target's own words.
 _STATEMENTS = {
     FleetOutcome.NO_SNAPSHOT: (
-        "The server fleet service has no snapshot of target {target} yet; no IOC state is known "
-        "for it until its first refresh completes. This says nothing about whether any IOC runs."
+        "The server fleet service has no snapshot of target {target} yet; no {server} state is "
+        "known for it until its first refresh completes. This says nothing about whether any "
+        "{server} runs."
     ),
     FleetOutcome.NOT_REFRESHED: (
-        "The server fleet service does not refresh target {target}, so no IOC state is known for it. "
-        "This says nothing about whether any IOC runs."
+        "The server fleet service does not refresh target {target}, so no {server} state is known "
+        "for it. This says nothing about whether any {server} runs."
     ),
     FleetOutcome.CANNOT_LIST: (
-        "The server fleet service cannot list the IOCs of target {target}, so no IOC state is known "
-        "for it. This says nothing about whether any IOC runs."
+        "The server fleet service cannot list the {servers} of target {target}, so no {server} "
+        "state is known for it. This says nothing about whether any {server} runs."
     ),
     FleetOutcome.UNAVAILABLE: (
-        "The server fleet service gave no usable answer for target {target}, so no IOC state is "
-        "known right now. This says nothing about whether any IOC runs."
+        "The server fleet service gave no usable answer for target {target}, so no {server} state "
+        "is known right now. This says nothing about whether any {server} runs."
     ),
     FleetOutcome.STALE: (
         "The snapshot of target {target} is stale: the server fleet service stopped refreshing it. "
@@ -123,7 +130,9 @@ def _matches(row: Any, group_by: str | None, filters: dict[str, Any]) -> bool:
     return True
 
 
-def _answer(answer: FleetAnswer, filters: dict[str, Any], limit: int) -> dict[str, Any]:
+def _answer(
+    answer: FleetAnswer, filters: dict[str, Any], limit: int, words: Vocabulary = NEUTRAL_WORDS
+) -> dict[str, Any]:
     taken = _iso(answer.generated_at)
     body: dict[str, Any] = {
         "outcome": answer.outcome.value,
@@ -136,7 +145,9 @@ def _answer(answer: FleetAnswer, filters: dict[str, Any], limit: int) -> dict[st
         "links": dict(VIEW_LINK),
     }
     if answer.outcome is not FleetOutcome.OK:
-        body["statement"] = _STATEMENTS[answer.outcome].format(target=answer.target, taken=taken)
+        body["statement"] = _STATEMENTS[answer.outcome].format(
+            target=answer.target, taken=taken, server=words.server, servers=words.servers
+        )
     snapshot = answer.snapshot
     if snapshot is None:
         return body
@@ -174,27 +185,29 @@ async def server_fleet(
     text: str | None = None,
     limit: int = 100,
 ) -> str:
-    """List the IOCs of the deployment's control target with their liveness state, from the fleet snapshot.
+    """List the servers of the deployment's control target with their liveness state, from the fleet snapshot.
 
-    Answers which IOCs are alive, stalled, silent, unreached or unknown, and
-    which carry a finding, as of the snapshot the server fleet service took on
-    its last refresh. Reads no channel and queries no directory: do not read
-    heartbeat channels to answer a fleet question. ``unreached`` and
-    ``unknown`` mean the state could not be established, not that an IOC
-    stopped. Rows come in the view's order, most urgent first.
+    A server is the process serving channels, as the control system's
+    directory names it. Answers which servers are alive, stalled, silent,
+    unreached or unknown, and which carry a finding, as of the snapshot the
+    server fleet service took on its last refresh. Reads no channel and queries no
+    directory: do not read heartbeat channels to answer a fleet question.
+    ``unreached`` and ``unknown`` mean the state could not be established, not
+    that a server stopped. Rows come in the view's order, most urgent first.
 
     Every answer carries ``outcome`` (``ok``, ``stale``, ``no_snapshot``,
     ``not_refreshed``, ``cannot_list`` or ``unavailable``), ``target``,
     ``statement`` (what a non-``ok`` outcome means, in plain words; ``None``
     on ``ok``), ``reason``, ``generated_at`` and ``snapshot_time`` (when the
     snapshot was taken, epoch seconds and ISO UTC), ``meanings`` (each state's
-    meaning in one line) and ``links.panel`` (the IOCs view). A non-``ok``
-    outcome other than ``stale`` has no rows: no IOC state is known, which is
-    never evidence that an IOC is not running. ``stale`` keeps the rows of the
-    last snapshot; they are its states, not the current ones.
+    meaning in one line) and ``links.panel`` (the server fleet view). A
+    non-``ok`` outcome other than ``stale`` has no rows: no server state is
+    known, which is never evidence that a server is not running. ``stale``
+    keeps the rows of the last snapshot; they are its states, not the current
+    ones.
 
     With a snapshot, the answer also carries ``read_path`` (``status`` ``ok``,
-    ``down`` or ``unverified``, and its ``channel``; when ``down``, every IOC is
+    ``down`` or ``unverified``, and its ``channel``; when ``down``, every server is
     ``unknown``), ``group_by``, ``matched`` (rows passing the filters),
     ``rows`` and ``truncated``. Without any filter it carries ``counts``
     (``by_state``, ``by_finding``, every state and finding keyed), ``total``
@@ -202,17 +215,17 @@ async def server_fleet(
     ``reason``); with one, ``filters`` echoes them. A row holds ``name``,
     ``host``, ``class_name``, ``group``, ``state``, ``since``, ``reason``,
     ``findings``, ``directory_status``, ``listed``, ``sources``,
-    ``liveness``, ``health`` and ``links.panel``, the IOC's page.
+    ``liveness``, ``health`` and ``links.panel``, the server's page.
 
     Args:
-        state: Only IOCs in one of these states.
-        finding: Only IOCs carrying one of these findings (``degraded``,
+        state: Only servers in one of these states.
+        finding: Only servers carrying one of these findings (``degraded``,
             ``expected_running_not_alive``, ``expected_stopped_alive``,
             ``alive_unexpected``).
-        group: Only IOCs whose value of the snapshot's grouping field
+        group: Only servers whose value of the snapshot's grouping field
             (``group_by``: host, class or roster group) is this.
-        host: Only IOCs on this host.
-        text: Only IOCs whose name, host, class or group contains this,
+        host: Only servers on this host.
+        text: Only servers whose name, host, class or group contains this,
             case-insensitive.
         limit: The most rows answered, 0 to 1000; a cut sets ``truncated``.
 
@@ -233,9 +246,11 @@ async def server_fleet(
         "text": (text or "").strip() or None,
     }
     try:
-        config = get_tool_context().config
+        context = get_tool_context()
+        config = context.config
         answer = await server_fleet_connection.fetch_snapshot(config, _control_target(config))
-        return json.dumps(_answer(answer, filters, limit))
+        words = target_vocabulary(config.get("control_system"), answer.target)
+        return json.dumps(_answer(answer, filters, limit, words))
     except ToolError:
         raise
     except Exception as exc:
@@ -252,6 +267,6 @@ def register(server: FastMCP) -> Any:
     return server.tool(
         server_fleet,
         name="server_fleet",
-        title="List the IOCs and their liveness",
+        title="List the servers and their liveness",
         annotations=ToolAnnotations(readOnlyHint=True),
     )

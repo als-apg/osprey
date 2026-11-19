@@ -34,6 +34,7 @@ from osprey.mcp_server.channel_directory.tools import (
 )
 from osprey.services.channel_directory import _connectors
 from osprey.services.channel_directory.facts import panel_link
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord
 from osprey_connectors.factory import ConnectorFactory
@@ -388,7 +389,9 @@ async def test_alarm_state_with_no_source_on_the_target_refuses_not_supported(
     with assert_raises_error(error_type="not_supported") as refused:
         await alarm_state.alarm_state(["SR:BPM1", "SR:BPM2"])
 
-    expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="va")
+    expected = _connectors.unavailable_payload(
+        _connectors.NO_SOURCE_REASON, target="va", words={"va": EPICS_WORDS}
+    )
     assert {key: refused["envelope"]["details"][key] for key in expected} == expected
 
 

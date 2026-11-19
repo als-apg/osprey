@@ -5,6 +5,7 @@
  *   npx vitest run tests/interfaces/channel_finder/archive.test.mjs
  */
 
+import './epics-words.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, vi, afterEach, describe } from 'vitest';

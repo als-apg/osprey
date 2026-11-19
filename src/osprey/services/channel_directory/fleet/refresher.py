@@ -918,7 +918,7 @@ async def _build_directory(config: Mapping[str, Any], target: str, project_dir: 
     if not DIRECTORY_CONNECTORS_AVAILABLE:
         return None, "", FLOOR_REASON, None
     if not DIRECTORY_LISTING_AVAILABLE:
-        return None, "", "the installed connectors package cannot list a directory's IOCs", None
+        return None, "", "the installed connectors package cannot list a directory's servers", None
     spec = service_targets(config)["directory"].get(target)
     if spec is None:
         return None, "", f"the target {target!r} has no channel directory", None

@@ -36,6 +36,7 @@ import {
   skeletonHtml,
   tableHtml,
 } from './servers-render.js';
+import { LABELS } from './labels.js';
 import { claimToolbar, searchInput, setFilterReason, setResultCount } from './panel-toolbar.js';
 import { messageOf } from './utils.js';
 
@@ -47,7 +48,7 @@ import { messageOf } from './utils.js';
 export const POLL_MS = 5000;
 
 /** The toolbar's sidebar toggle has nothing to show here. */
-const NO_SIDEBAR = 'The IOCs view has no sidebar';
+const noSidebar = () => `The ${LABELS.serversView} view has no sidebar`;
 
 /**
  * The mounted view's state; null while nothing is mounted.
@@ -146,7 +147,7 @@ export function mountServers(container) {
     },
     { signal }
   );
-  setFilterReason(NO_SIDEBAR);
+  setFilterReason(noSidebar());
 
   renderState(part('.servers-state'), { icon: 'cpu', message: 'Reading the server fleet' });
   // A tick waits for a read still in flight: a newer read would drop it.
@@ -188,7 +189,7 @@ async function poll() {
     current.snapshot = null;
     showStatement(
       'The server fleet route did not answer',
-      `${messageOf(err)}. This says nothing about whether any IOC runs.`
+      `${messageOf(err)}. This says nothing about whether any ${LABELS.server} runs.`
     );
     return;
   } finally {
@@ -270,7 +271,9 @@ function renderList() {
   list.hidden = false;
   if (!rows.length) {
     const filtered = view.tile !== null || view.text.trim() !== '';
-    const message = filtered ? 'No IOC for this filter' : 'The snapshot lists no IOC';
+    const message = filtered
+      ? `No ${LABELS.server} for this filter`
+      : `The snapshot lists no ${LABELS.server}`;
     const key = `state\n${message}`;
     if (written.get(list) === key) return;
     renderState(list, {

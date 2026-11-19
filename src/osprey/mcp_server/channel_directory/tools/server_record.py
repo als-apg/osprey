@@ -1,10 +1,10 @@
-"""MCP tool: server_record — one IOC's facts from the control system's own directory.
+"""MCP tool: server_record — one server's facts from the control system's own directory.
 
-With the ``channel_directory_fleet`` predicate true, the facts carry the IOC's
+With the ``channel_directory_fleet`` predicate true, the facts carry the server's
 ``fleet`` entry (its row in the server fleet snapshot of the session's target, or
-an outcome). The tool then presents that entry as the IOC's state, findings and
+an outcome). The tool then presents that entry as the server's state, findings and
 read time, or the outcome as a plain statement, and its description says so in
-place of telling the agent to read the IOC's heartbeat. With the predicate false
+place of telling the agent to read the server's heartbeat. With the predicate false
 the description and the answer are the directory's facts, exactly as before.
 """
 
@@ -27,13 +27,19 @@ from osprey.mcp_server.channel_directory.server import (
     refuse_unavailable,
 )
 from osprey.mcp_server.errors import make_error
+from osprey.services.channel_directory.vocabulary import (
+    NEUTRAL_WORDS,
+    Vocabulary,
+    target_vocabulary,
+)
 
 logger = logging.getLogger("osprey.mcp_server.channel_directory.tools.server_record")
 
-TITLE = "Look up an IOC"
+TITLE = "Look up a server"
 
-#: What a ``fleet`` entry's non-``ok`` outcome means for one IOC, in plain words;
-#: none of these is evidence that the IOC is not running.
+#: What a ``fleet`` entry's non-``ok`` outcome means for one server, in plain
+#: words; none of these is evidence that the server is not running.
+#: ``{servers}`` is the target's own word for its servers.
 _STATEMENTS = {
     "no_snapshot": (
         "The server fleet service has no snapshot of target {target} yet, so the state of {server} "
@@ -44,8 +50,8 @@ _STATEMENTS = {
         "known. This says nothing about whether it runs."
     ),
     "cannot_list": (
-        "The server fleet service cannot list the IOCs of target {target}, so the state of {server} "
-        "is not known. This says nothing about whether it runs."
+        "The server fleet service cannot list the {servers} of target {target}, so the state of "
+        "{server} is not known. This says nothing about whether it runs."
     ),
     "unavailable": (
         "The server fleet service gave no usable answer for target {target}, so the state of {server} "
@@ -73,10 +79,12 @@ def _iso(epoch: Any) -> str | None:
     return datetime.fromtimestamp(epoch, UTC).isoformat(timespec="seconds")
 
 
-def present_fleet(server: str, entry: Mapping[str, Any]) -> dict[str, Any]:
-    """The IOC's ``fleet`` entry as the agent reads it.
+def present_fleet(
+    server: str, entry: Mapping[str, Any], words: Vocabulary = NEUTRAL_WORDS
+) -> dict[str, Any]:
+    """The server's ``fleet`` entry as the agent reads it, a statement in the target's *words*.
 
-    An ``ok`` entry becomes the IOC's ``state``, ``since``, ``reason`` (why that
+    An ``ok`` entry becomes the server's ``state``, ``since``, ``reason`` (why that
     state), ``findings``, ``read_at`` and ``read_time`` (when its liveness was
     read, epoch seconds and ISO UTC) and ``liveness_channel``, with ``statement``
     ``None``; any other outcome becomes a ``statement`` that no state is known,
@@ -110,30 +118,36 @@ def present_fleet(server: str, entry: Mapping[str, Any]) -> dict[str, Any]:
         return body
     template = _STATEMENTS.get(outcome, _OTHER_OUTCOME)
     body["statement"] = template.format(
-        server=server, target=target, taken=taken or "at an unknown time", outcome=outcome
+        server=server,
+        servers=words.servers,
+        target=target,
+        taken=taken or "at an unknown time",
+        outcome=outcome,
     )
     body["reason"] = entry.get("reason")
     return body
 
 
 async def server_record(server: str) -> str:
-    """Look up one IOC in the control system's own directory.
+    """Look up one server in the control system's own directory.
 
-    Answers the IOC's host, its ports, how many channels it serves (and how
-    many are inactive, and how many the curated channel list declares, with
-    ``curated_reason`` when that cannot be counted), its engineer and where
-    that came from (``engineer_source``), and ``health_channels``: the IOC's health
-    channels, each its ``name`` (address) and ``role`` (``heartbeat``,
-    ``uptime`` or ``engineer``). Names only, never values: to tell whether the
-    IOC is alive, read its health channels with channel_read; a ``heartbeat``
-    channel that advances between two reads means alive. On the simulator the
-    engineer is the address of a channel; read it with channel_read for the name.
-    With an alarm feed configured, ``alarms`` lists the IOC's channels in alarm
+    A server is the process serving channels, as the control system's
+    directory names it. Answers the server's host, its ports, how many channels it
+    serves (and how many are inactive, and how many the curated channel list
+    declares, with ``curated_reason`` when that cannot be counted), its
+    engineer and where that came from (``engineer_source``), and
+    ``health_channels``: the server's health channels, each its ``name``
+    (address) and ``role`` (``heartbeat``, ``uptime`` or ``engineer``). Names
+    only, never values: to tell whether the server is alive,
+    read its health channels with channel_read; a ``heartbeat`` channel that
+    advances between two reads means alive. On the simulator the engineer is
+    the address of a channel; read it with channel_read for the name.
+    With an alarm feed configured, ``alarms`` lists the server's channels in alarm
     now (``outcome``, ``total``, ``rows`` of channel, severity, status, latched,
-    acknowledged and time, and ``counts`` per severity over the whole IOC), or
+    acknowledged and time, and ``counts`` per severity over the whole server), or
     ``unavailable`` with the feed's ``reason``.
-    ``links.panel`` is the panel page showing this IOC. ``not_listed`` means
-    the directory lists no channel served by that IOC name.
+    ``links.panel`` is the panel page showing this server. ``not_listed`` means
+    the directory lists no channel served by that server name.
 
     Args:
         server: The server's name, as the directory records it.
@@ -147,13 +161,16 @@ async def server_record(server: str) -> str:
     """
     name = server.strip()
     if not name:
-        make_error("validation_error", "server_record needs an IOC name.", ["Name one IOC."])
+        make_error("validation_error", "server_record needs a server name.", ["Name one server."])
     try:
-        facts = await get_tool_context().channel_facts.server_facts(name)
+        context = get_tool_context()
+        facts = await context.channel_facts.server_facts(name)
         if facts.get("outcome") == "unavailable":
             refuse_unavailable("server_record", facts)
         if "fleet" in facts:
-            facts = {**facts, "fleet": present_fleet(name, facts["fleet"])}
+            target = str(facts["source"]["target"])
+            words = target_vocabulary(context.config.get("control_system"), target)
+            facts = {**facts, "fleet": present_fleet(name, facts["fleet"], words)}
         return json.dumps(facts)
     except ToolError:
         raise
@@ -167,32 +184,34 @@ async def server_record(server: str) -> str:
 
 
 #: The description with the server fleet configured: the ``fleet`` entry answers
-#: whether the IOC is alive, so it asks for no channel read to find out.
-FLEET_DESCRIPTION = """Look up one IOC in the control system's own directory.
+#: whether the server is alive, so it asks for no channel read to find out.
+FLEET_DESCRIPTION = """Look up one server in the control system's own directory.
 
-Answers the IOC's host, its ports, how many channels it serves (and how
-many are inactive, and how many the curated channel list declares, with
-``curated_reason`` when that cannot be counted), its engineer and where
-that came from (``engineer_source``), and ``health_channels``: the IOC's health
-channels, each its ``name`` (address) and ``role`` (``heartbeat``,
-``uptime`` or ``engineer``). Names only, never values.
-``fleet`` says whether the IOC is alive, from the server fleet snapshot of the
+A server is the process serving channels, as the control system's
+directory names it. Answers the server's host, its ports, how many channels it
+serves (and how many are inactive, and how many the curated channel list
+declares, with ``curated_reason`` when that cannot be counted), its
+engineer and where that came from (``engineer_source``), and
+``health_channels``: the server's health channels, each its ``name``
+(address) and ``role`` (``heartbeat``, ``uptime`` or ``engineer``). Names
+only, never values.
+``fleet`` says whether the server is alive, from the server fleet snapshot of the
 session's target: with ``outcome`` ``ok``, its ``state`` (``alive``,
 ``stalled``, ``silent``, ``unreached`` or ``unknown``), ``since``,
 ``reason``, ``findings``, and ``read_at``/``read_time`` (when its liveness
 was read) with ``snapshot_time`` (when the snapshot was taken); with any
 other outcome, a ``statement`` that no state is known and the ``reason``,
-which is never evidence that the IOC is not running. Answer liveness from
-``fleet``: the snapshot already read the IOC's channels. ``unreached`` and
-``unknown`` mean the state could not be established, not that the IOC stopped.
+which is never evidence that the server is not running. Answer liveness from
+``fleet``: the snapshot already read the server's channels. ``unreached`` and
+``unknown`` mean the state could not be established, not that the server stopped.
 On the simulator the engineer is the address of a channel; read it with
 channel_read for the name.
-With an alarm feed configured, ``alarms`` lists the IOC's channels in alarm
+With an alarm feed configured, ``alarms`` lists the server's channels in alarm
 now (``outcome``, ``total``, ``rows`` of channel, severity, status, latched,
-acknowledged and time, and ``counts`` per severity over the whole IOC), or
+acknowledged and time, and ``counts`` per severity over the whole server), or
 ``unavailable`` with the feed's ``reason``.
-``links.panel`` is the panel page showing this IOC. ``not_listed`` means
-the directory lists no channel served by that IOC name.
+``links.panel`` is the panel page showing this server. ``not_listed`` means
+the directory lists no channel served by that server name.
 
 Args:
     server: The server's name, as the directory records it.

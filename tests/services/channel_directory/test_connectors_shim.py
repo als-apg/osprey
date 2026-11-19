@@ -18,6 +18,7 @@ from types import ModuleType
 import pytest
 
 from osprey.services.channel_directory import _connectors, resolve
+from osprey.services.channel_directory.vocabulary import EPICS_WORDS, NEUTRAL_WORDS
 
 _NEW_MODULES = (
     "osprey_connectors.service_answers",
@@ -101,11 +102,21 @@ class _Outer:
 
 
 def test_unavailable_payload_is_the_no_source_form() -> None:
-    assert _connectors.unavailable_payload("not available for this target", target="standin") == {
+    payload = _connectors.unavailable_payload(
+        "not available for this target", target="standin", words={"standin": EPICS_WORDS}
+    )
+
+    assert payload == {
         "outcome": "unavailable",
         "source": {"target": "standin", "service": "none", "label": "All PVs", "rehearsal": True},
         "reason": "not available for this target",
     }
+
+
+def test_without_words_the_no_source_form_is_labelled_in_the_neutral_words() -> None:
+    payload = _connectors.unavailable_payload("not available for this target", target="live")
+
+    assert payload["source"]["label"] == NEUTRAL_WORDS.directory == "Channels"
 
 
 def test_as_payload_converts_nested_dataclasses_and_enums() -> None:
@@ -156,7 +167,7 @@ def test_as_payload_of_a_contract_record() -> None:
         outcome=_connectors.Outcome.UNAVAILABLE, source=source, reason="login page"
     )
 
-    assert _connectors.as_payload(page) == {
+    assert _connectors.as_payload(page, {"live": EPICS_WORDS}) == {
         "outcome": "unavailable",
         "source": {
             "target": "live",
@@ -177,14 +188,16 @@ def test_a_source_is_served_with_the_label_the_framework_names() -> None:
         kind="directory", target="standin", service="channelfinder", rehearsal=True
     )
     put_log = _connectors.Source(kind="put_log", target="live", service="caputlog", rehearsal=False)
+    words = {"standin": EPICS_WORDS, "live": EPICS_WORDS}
 
-    assert _connectors.as_payload(directory) == {
+    assert _connectors.as_payload(directory, words) == {
         "target": "standin",
         "service": "channelfinder",
         "label": "All PVs",
         "rehearsal": True,
     }
-    assert _connectors.as_payload(put_log)["label"] == "caputlog"
+    assert _connectors.as_payload(directory)["label"] == "Channels"
+    assert _connectors.as_payload(put_log, words)["label"] == "caputlog"
 
 
 def test_rows_are_served_under_the_epics_words() -> None:

@@ -28,7 +28,6 @@ from osprey.interfaces.channel_finder import (
 from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.services.channel_directory.resolve import ResolvedSection, predicates
-from osprey.services.channel_directory.vocabulary import DIRECTORY_LABEL, source_label
 from osprey_connectors.archive_targets import archive_targets
 
 __all__ = ["ariel_configured", "directory_descriptor", "router"]
@@ -69,12 +68,15 @@ async def directory_descriptor(
         service: The lifespan's ``DirectoryService``.
 
     Returns:
-        ``{label, configured_services, canopy, ariel}``; ``label`` is the
-        directory's served label, the same with or without a source.
+        ``{label, target, words, configured_services, canopy, ariel}``;
+        ``label`` is the directory's served label, the same with or without a
+        source. ``words`` holds each control target's words for a channel and
+        a server, by target name, and ``target`` names the current one, so the
+        panel shows the words of the target an answer comes from.
         ``configured_services`` names ``fleet`` when the server fleet is on, and
         ``archive`` when the deployment's archive serves some target.
     """
-    _backend, source, _reason = await service.backend("channel_directory")
+    target = await service.target()
     flags = predicates(resolved)
     ariel = ariel_configured(config)
     services = [name for name in _SERVICES if flags[f"channel_directory_{name}"]]
@@ -83,7 +85,9 @@ async def directory_descriptor(
     if ariel:
         services.append("logbook")
     return {
-        "label": DIRECTORY_LABEL if source is None else source_label(source.kind, source.service),
+        "label": service.vocabulary(target).directory,
+        "target": target,
+        "words": {name: words.as_json() for name, words in service.words.items()},
         "configured_services": services,
         "canopy": panel_spec_enabled(_panels(config).get(CANOPY_PANEL_ID)),
         "ariel": ariel,
