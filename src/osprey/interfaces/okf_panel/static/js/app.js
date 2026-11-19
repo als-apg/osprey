@@ -34,6 +34,7 @@ import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { debounce } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { renderState } from '/design-system/js/panel-state.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import {
   el,
   FACILITY_SCHEME,
@@ -42,8 +43,6 @@ import {
   graphHash,
   graphTarget,
   hashChangeTarget,
-  imageFailureReason,
-  imageFallback,
   isFallback,
   linkedConceptId,
   readPanelParams,
@@ -52,6 +51,7 @@ import {
   tagList,
 } from './helpers.js';
 import { createGraphView } from './graph-view.js';
+import { watchImageFailures } from './image-failures.js';
 import { currentView, graphAvailable, initViews, showView } from './views.js';
 import {
   initTree,
@@ -186,46 +186,6 @@ export function renderMarkdownInto(target, markdown, conceptId = '') {
 }
 
 /**
- * Show an in-bundle image that fails to load as its alt text and a short
- * reason. The image's URL is requested once more to read the asset route's
- * error code; a reply without a known code (an image the browser cannot
- * decode is served normally) gives a generic reason.
- *
- * @param {ParentNode} container - a freshly rendered reading pane
- * @returns {void}
- */
-export function watchImageFailures(container) {
-  const images = /** @type {NodeListOf<HTMLImageElement>} */ (container.querySelectorAll('img'));
-  images.forEach(function (img) {
-    if (img.dataset.okfWatched === '1') return;
-    img.dataset.okfWatched = '1';
-    img.addEventListener('error', () => void explainImageFailure(img), { once: true });
-  });
-}
-
-/**
- * @param {HTMLImageElement} img
- * @returns {Promise<void>}
- */
-async function explainImageFailure(img) {
-  const src = img.getAttribute('src') || '';
-  let code = '';
-  if (src.includes('/api/asset?')) {
-    try {
-      const resp = await fetch(src);
-      if (!resp.ok) {
-        const body = await resp.json();
-        if (body && typeof body.error === 'string') code = body.error;
-      }
-    } catch {
-      // No reply, or not JSON: the generic reason.
-    }
-  }
-  const alt = img.getAttribute('alt') || '';
-  img.replaceWith(imageFallback(img.ownerDocument, alt, imageFailureReason(code)));
-}
-
-/**
  * @param {string} id
  * @returns {HTMLElement}
  */
@@ -273,6 +233,20 @@ function requireEl(id) {
    */
   let knowledgeLoc = null;
 
+  /**
+   * The navigations of the reading pane: only the newest is current, and
+   * opening the Graph view retires the one in flight. A load that is no longer
+   * current returns at its next await and draws nothing, so the pane, the
+   * breadcrumb and the history follow the newest navigation.
+   */
+  const readerNav = createLatestRequest();
+
+  /**
+   * Whether the Knowledge view shows what `knowledgeLoc` names: false while a
+   * load is in flight, and after the Graph view superseded one before it drew.
+   */
+  let knowledgeDrawn = false;
+
   const graph = graphAvailable()
     ? createGraphView({
         onPage(id) {
@@ -307,6 +281,7 @@ function requireEl(id) {
    */
   function openGraph(node) {
     if (!graph) return;
+    readerNav.cancel();
     enterView('graph');
     graph.show(node);
   }
@@ -317,9 +292,20 @@ function requireEl(id) {
    */
   function showInGraph(record) {
     if (!graph) return;
+    readerNav.cancel();
     enterView('graph');
     history.pushState({ id: GRAPH_MARKER, node: null }, '', graphHash(null));
     graph.showRecord(record.kind, record.id);
+  }
+
+  /**
+   * Show the Knowledge view on what it last showed; a load the Graph view
+   * superseded before it drew starts again.
+   */
+  function resumeKnowledge() {
+    if (knowledgeDrawn) enterView('knowledge');
+    else if (knowledgeLoc && knowledgeLoc !== STRUCTURE_MARKER) loadConcept(knowledgeLoc);
+    else loadStructure({ push: false });
   }
 
   initViews({
@@ -331,7 +317,7 @@ function requireEl(id) {
       } else if (knowledgeLoc === null) {
         loadStructure();
       } else {
-        enterView('knowledge');
+        resumeKnowledge();
         history.pushState({ id: knowledgeLoc }, '', '#' + knowledgeLoc);
       }
     },
@@ -450,7 +436,7 @@ function requireEl(id) {
       // The entry the panel opened on holds no state: it is the knowledge
       // page that was showing before the Graph view.
       if (knowledgeLoc === null) loadStructure({ push: false });
-      else enterView('knowledge');
+      else resumeKnowledge();
     }
   });
 
@@ -531,43 +517,35 @@ function requireEl(id) {
    * @param {string} id
    */
   async function loadConcept(id) {
+    const nav = readerNav.begin();
     enterView('knowledge');
     knowledgeLoc = id;
+    knowledgeDrawn = false;
     showContentsFor('page');
     showOpenPage({ id, title: conceptTitles.get(id) ?? id });
     showReaderState({ icon: 'refresh', message: 'Loading the page' });
-    const retry = () => loadConcept(id);
-    let resp;
+    let resp = null;
+    let doc = null;
     try {
-      resp = await fetch('/api/concept?id=' + encodeURIComponent(id));
+      resp = await fetch('/api/concept?id=' + encodeURIComponent(id), { signal: nav.signal });
+      if (resp.ok) doc = await resp.json();
     } catch {
-      renderLoadFailure('The page did not load', retry);
-      return;
+      /* no reply, or an unreadable one: reported below */
     }
-
-    if (resp.status === 404) {
+    if (!nav.isCurrent()) return;
+    knowledgeDrawn = true;
+    if (resp && resp.status === 404) {
       showReaderState({
         icon: 'search',
         message: 'No concept has this id',
         detail: id,
         action: { label: 'Browse', onClick: () => loadStructure() },
       });
-      return;
+    } else if (doc) {
+      renderConcept(doc);
+    } else {
+      renderLoadFailure('The page did not load', () => loadConcept(id));
     }
-
-    let doc = null;
-    if (resp.ok) {
-      try {
-        doc = await resp.json();
-      } catch {
-        /* unreadable: reported below */
-      }
-    }
-    if (!doc) {
-      renderLoadFailure('The page did not load', retry);
-      return;
-    }
-    renderConcept(doc);
   }
 
   // Single render path for the reading pane — always ends by calling
@@ -634,19 +612,25 @@ function requireEl(id) {
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
+    const nav = readerNav.begin();
     enterView('knowledge');
     knowledgeLoc = STRUCTURE_MARKER;
+    knowledgeDrawn = false;
     showContentsFor('browse');
     highlightStructure();
     showOpenPage(null);
     showReaderState({ icon: 'refresh', message: 'Loading the overview' });
 
-    let data;
+    let data = null;
     try {
-      const resp = await fetch('/api/structure');
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      data = await resp.json();
+      const resp = await fetch('/api/structure', { signal: nav.signal });
+      if (resp.ok) data = await resp.json();
     } catch {
+      /* no reply, or an unreadable one: reported below */
+    }
+    if (!nav.isCurrent()) return;
+    knowledgeDrawn = true;
+    if (!data) {
       renderLoadFailure('The overview did not load', () => loadStructure(opts));
       return;
     }

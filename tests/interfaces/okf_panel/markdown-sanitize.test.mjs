@@ -23,6 +23,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 
 import { mountShell } from './page-shell.mjs';
 import { sanitizeMarkdownHtml } from '../../../src/osprey/interfaces/okf_panel/static/js/helpers.js';
+import { watchImageFailures } from '../../../src/osprey/interfaces/okf_panel/static/js/image-failures.js';
 
 const HOSTILE = [
   '# Title',
@@ -451,7 +452,7 @@ describe('an image that fails to load', () => {
     const container = document.createElement('div');
     container.innerHTML = sanitized(`![${alt}](figures/gone.png)`, 'devices/bpm');
     const img = /** @type {HTMLImageElement} */ (container.querySelector('img'));
-    app.watchImageFailures(container);
+    watchImageFailures(container);
     return { container, img };
   }
 
@@ -531,7 +532,7 @@ describe('an image that fails to load', () => {
     }));
     vi.stubGlobal('fetch', fetchSpy);
     const { container, img } = failingImage('Once');
-    app.watchImageFailures(container);
+    watchImageFailures(container);
 
     img.dispatchEvent(new Event('error'));
     img.dispatchEvent(new Event('error'));
