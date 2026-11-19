@@ -50,7 +50,7 @@ def _lifespan_client(
     The file is the project's, named by ``OSPREY_CONFIG``, so the lifespan's own
     reset of the process default finds it again: ``shared_root`` becomes
     ``agent_data.base_dir`` (absolute, so it survives anchoring untouched),
-    which is what ``resolve_shared_data_root`` derives the feedback store from,
+    which is what ``process_agent_data_root`` derives the feedback store from,
     and *overrides* (dotted keys) are set over it; a key not named is absent,
     so the other lifespan blocks (``web.theme``, ``web.chat_*``) resolve to
     their own defaults. ``watch_dir`` — when given — is the ``web_terminal``

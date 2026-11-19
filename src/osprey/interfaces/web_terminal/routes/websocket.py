@@ -239,7 +239,7 @@ def _record_available() -> bool:
     """Whether the control-context record has a location at all.
 
     :func:`~osprey_connectors.control_context.record_path` is the ONE path rule
-    (env ``OSPREY_AGENT_DATA_ROOT``, else ``resolve_shared_data_root()``), and
+    (env ``OSPREY_AGENT_DATA_ROOT``, else ``process_agent_data_root()``), and
     it answers ``None`` rather than raising when neither resolves. A deployment
     with no location for its record is ``store_available: false`` on the GET
     and the 503 on a gesture: there is nowhere to record a context the agent

@@ -455,10 +455,10 @@ def config_backup_path(config_path: Path) -> Path:
         # reader would look for that copy anyway.
         config = None
 
-    # The SAME precedence workspace.resolve_project_root applies, in the same
+    # The SAME precedence LoadedConfig.repo_root applies, in the same
     # order: the config's own ``project_root`` when it names a directory that
     # exists here, and filesystem truth otherwise. Mirrored rather than
-    # delegated because resolve_project_root() re-reads the ambient config
+    # delegated because process_repo_root() re-reads the ambient config
     # (OSPREY_CONFIG / the process-global cache), which would anchor a panel
     # driving another project on whichever project this PROCESS was started in.
     # The config is already loaded above, so the key can be read from it

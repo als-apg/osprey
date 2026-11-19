@@ -144,7 +144,7 @@ def _prepare(tmp_path, monkeypatch, *, session=None, config=_CONFIG):
     one module, because two readers resolve it here — the record library and
     ``target_state``, which still owns the approval stamps — and a test that
     pointed only one of them at ``tmp_path`` would silently read the developer's
-    own deployment for the other. ``resolve_shared_data_root`` is patched as
+    own deployment for the other. ``process_agent_data_root`` is patched as
     well so the unstamped derivation lands in the same place.
 
     *session* is this process's ``OSPREY_POSTURE_SESSION``: the identity

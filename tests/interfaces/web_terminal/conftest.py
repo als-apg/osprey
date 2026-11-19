@@ -33,7 +33,7 @@ request — and those would otherwise land in the developer's or the runner's ow
 ``var/spool/<identity>/``, indistinguishable from records of things that really
 happened. A test reads what it recorded through ``recorded_entries("audit")``.
 
-The **feedback store** is sited under ``resolve_shared_data_root()``, which
+The **feedback store** is sited under ``process_agent_data_root()``, which
 reads ``agent_data.base_dir`` anchored on the project root and never consults
 ``OSPREY_AGENT_DATA_ROOT``. ``tests/interfaces/conftest.py::_agent_data_root_in_tmp``
 stamps that variable for every test in this tree, and it moves the
@@ -271,7 +271,7 @@ def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
 
     ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
     ``write_switch`` both prefer — the stamp this feature puts in every
-    session child's environment. Patching ``resolve_shared_data_root`` instead
+    session child's environment. Patching ``process_agent_data_root`` instead
     would redirect only one of them: ``write_switch`` binds the resolver at
     import, so the other half would write into the repository's own
     ``var/agent_data``. Every variable that changes a write verdict behind a
@@ -359,7 +359,7 @@ def short_process_waits() -> Iterator[None]:
 def isolated_app(tmp_path) -> Callable[[], AbstractContextManager[TestClient]]:
     """A factory booting the whole app with its agent-data stores on ``tmp_path``.
 
-    The agent-data stores sit under ``resolve_shared_data_root()``, which an
+    The agent-data stores sit under ``process_agent_data_root()``, which an
     unpatched lifespan resolves to the per-worker shared root, so an app booted
     without this shares its stores with every other test on the worker. Here
     the resolver always answers ``tmp_path / "agent_data"``, the watched tree is

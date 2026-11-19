@@ -3,7 +3,7 @@
 ``target_state`` derives its state directory three ways — the
 ``OSPREY_CONTROL_CONTEXT_DIR`` bind a container carries, the
 ``OSPREY_AGENT_DATA_ROOT`` stamp a session sets, and the deployment's own
-``resolve_shared_data_root`` where there is neither — in that order of
+``process_agent_data_root`` where there is neither — in that order of
 precedence. A test that redirects the root by patching the resolver alone is
 inert wherever either environment rung is present, so this clears both as well
 as patching the resolver: the directory is pinned whichever rule ``state_dir``

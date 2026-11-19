@@ -108,7 +108,7 @@ it any more, and pinning it empty keeps that true rather than accidental.
 
 The agent-data root is stamped with ``OSPREY_AGENT_DATA_ROOT``, which is the
 one seam the record reader and ``write_switch`` both prefer — patching
-``resolve_shared_data_root`` would redirect one of them and leave the other
+``process_agent_data_root`` would redirect one of them and leave the other
 writing into the repository's own ``var/agent_data``.
 
 Run:

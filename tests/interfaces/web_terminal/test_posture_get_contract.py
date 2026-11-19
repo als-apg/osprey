@@ -282,7 +282,7 @@ def agent_data_root(tmp_path, monkeypatch):
 
     ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
     ``write_switch`` both prefer, and the ONLY way this route reaches either —
-    patching ``resolve_shared_data_root`` would redirect one of them and leave
+    patching ``process_agent_data_root`` would redirect one of them and leave
     the other reading the repository's own ``var/agent_data``.
     """
     root = tmp_path / "agent_data"

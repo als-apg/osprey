@@ -36,7 +36,7 @@ def _in_flight_markers_land_in_tmp(tmp_path, monkeypatch):
     in-flight marker contextmanager (``executor.py``): it calls
     ``target_state.state_dir()`` and ``mkdir(parents=True)`` before writing.
     With ``OSPREY_AGENT_DATA_ROOT`` unset — which ``session_posture_leak_guard``
-    guarantees — that resolves through ``resolve_shared_data_root()`` to the
+    guarantees — that resolves through ``process_agent_data_root()`` to the
     repository, so the run creates ``<repo>/var/agent_data/control_target/``.
     The marker itself is unlinked on the way out, which is why the leak was
     invisible: an empty, gitignored directory.

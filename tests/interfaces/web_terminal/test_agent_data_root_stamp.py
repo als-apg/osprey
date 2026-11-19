@@ -100,7 +100,7 @@ def shared_root(tmp_path, monkeypatch):
     first of which makes the choice mandatory rather than merely preferable:
 
     * ``resolve_agent_data_root`` (``operator_session.py``) imports
-      ``resolve_shared_data_root`` at call time and never reads
+      ``process_agent_data_root`` at call time and never reads
       ``OSPREY_AGENT_DATA_ROOT`` at all. A stamp would not reach it, so the
       root these spawn seams report would still be the real repo's.
     * the stamp is also what this file pins as *absent* from a keyless spawn.

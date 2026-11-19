@@ -124,7 +124,7 @@ def _hub_server(workspace_dir: Path, data_root: Path) -> Iterator[str]:
     """Launch a real web-terminal hub with its shared data under *data_root*.
 
     ``app.py``'s lifespan sites the server's own stores under
-    ``resolve_shared_data_root()``, deliberately not on ``workspace_dir``. That
+    ``process_agent_data_root()``, deliberately not on ``workspace_dir``. That
     resolver reads the deployment's config, so it is patched at its source
     module (the lifespan imports it lazily) to keep what this suite writes
     inside ``tmp_path``.

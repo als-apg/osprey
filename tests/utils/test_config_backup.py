@@ -100,7 +100,7 @@ class TestConfigBackup:
         assert not (tmp_path / "var").exists()
 
     def test_backup_follows_the_configs_own_project_root_key(self, tmp_path):
-        """The anchor mirrors ``resolve_project_root``, key first.
+        """The anchor mirrors ``process_repo_root``, key first.
 
         The shape the two rules disagree on, and it is a real one: a project
         directory literally NAMED ``build`` reads as a render to
@@ -125,7 +125,7 @@ class TestConfigBackup:
     def test_backup_ignores_a_project_root_that_is_not_here(self, tmp_path):
         """A build recorded on another machine names a path that is not here.
 
-        Same qualifier ``resolve_project_root`` applies: the key wins only when
+        Same qualifier ``process_repo_root`` applies: the key wins only when
         it names a directory that exists, so a container reading a config staged
         on the host does not anchor its state zone on the host's path.
         """
