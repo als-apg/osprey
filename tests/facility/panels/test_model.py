@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import PanelGraph, PanelTableError, load_graph
+from osprey.facility.panels import PanelGraph, load_graph
 from tests.facility.panels._fixture import (
     PANELS_DIR,
     RING_FRAME,
@@ -175,26 +175,26 @@ def test_members_and_within(panel_graph: PanelGraph) -> None:
         panel_graph.within("XR01:QF1")
 
 
-def test_the_ring_frame_is_the_frame_with_most_true_positions(panel_graph: PanelGraph) -> None:
-    assert panel_graph.ring_frame == RING_FRAME
+def test_the_beam_frame_is_the_frame_with_most_true_positions(panel_graph: PanelGraph) -> None:
+    assert panel_graph.beam_frames == frozenset({RING_FRAME})  # XR-GIRDER: a local frame
 
 
-def test_pose_prefers_the_ring_frame_row(panel_graph: PanelGraph) -> None:
+def test_pose_prefers_the_beam_frame_row(panel_graph: PanelGraph) -> None:
     pose = panel_graph.pose("XR01:QF1")
     assert pose is not None
-    assert (pose.frame, pose.s_m, pose.is_ring_position) == (RING_FRAME, 1.25, True)
+    assert (pose.frame, pose.s_m, pose.is_beam_position) == (RING_FRAME, 1.25, True)
     assert [row.frame for row in panel_graph.poses("XR01:QF1")] == [RING_FRAME, "XR-GIRDER"]
     rack = panel_graph.pose("XR/XR01/RK1")
     assert rack is not None
-    assert (rack.frame, rack.is_ring_position) == ("XR-HALL", False)
+    assert (rack.frame, rack.is_beam_position) == ("XR-HALL", False)
 
 
-def test_a_derived_ring_row_is_not_a_ring_position(panel_graph: PanelGraph) -> None:
+def test_a_derived_ring_row_is_not_a_beam_position(panel_graph: PanelGraph) -> None:
     pose = panel_graph.pose("XR01:BEND1")
     assert pose is not None
     assert pose.frame == RING_FRAME
     assert pose.derived_assumes
-    assert not pose.is_ring_position
+    assert not pose.is_beam_position
 
 
 def test_two_things_at_one_s_are_both_placed(panel_graph: PanelGraph) -> None:
@@ -209,14 +209,27 @@ def test_a_thing_with_a_pose_and_no_channel(panel_graph: PanelGraph) -> None:
     assert panel_graph.pose("XR02:QD1") is None
 
 
-def test_the_ring_frame_can_be_passed(panel_facility: Path, panel_tables: Path) -> None:
-    graph = load_graph(panel_facility, panel_tables, ring_frame="XR-GIRDER")
-    pose = graph.pose("XR01:QF1")
-    assert pose is not None
-    assert (pose.frame, pose.is_ring_position) == ("XR-GIRDER", True)
-    other = graph.pose("XR02:QF1")
-    assert other is not None
-    assert (other.frame, other.is_ring_position) == (RING_FRAME, False)
+def test_each_model_has_its_own_beam_frame(tmp_path: Path, panel_facility: Path) -> None:
+    import json
+
+    document = json.loads(panel_facility.read_text(encoding="utf-8"))
+    for device in document["devices"]:
+        if device["id"].startswith("XR02:"):
+            device["model"] = "XB"  # a second ring, posed in a frame of its own
+    facility = tmp_path / "facility.json"
+    facility.write_text(json.dumps(document), encoding="utf-8")
+    tables = copy_tables(tmp_path / "panels")
+    rows = (tables / "positions.csv").read_text(encoding="utf-8").splitlines()
+    rows = [r.replace("XR02:QF1,XR-RING", "XR02:QF1,XB-RING") for r in rows]
+    rows.append("XR02:SHIELD1,XB-RING,0,0,0,0,0,0,4.0,0,0,,,stated,XR-LAYOUT,A,released,sheet 9")
+    (tables / "positions.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    graph = load_graph(facility, tables)
+    assert graph.beam_frames == frozenset({RING_FRAME, "XB-RING"})
+    other = graph.thing("XR02:QF1", "device")
+    assert graph.beam_position(other) == ("XB-RING", 11.0)  # its own ring
+    shield = graph.pose("XR02:SHIELD1")  # also posed in XR-RING: the other model's frame
+    assert shield is not None and (shield.frame, shield.s_m) == ("XB-RING", 4.0)
+    assert graph.beam_position(graph.thing("XR01:QF1", "device")) == (RING_FRAME, 1.25)
 
 
 def test_rule_returns_every_row_of_every_source(panel_graph: PanelGraph) -> None:
@@ -321,20 +334,22 @@ def test_a_ring_row_without_s_is_not_a_ring_position(panel_graph: PanelGraph) ->
     pose = panel_graph.pose("XR02:IP1")
     assert pose is not None
     assert (pose.frame, pose.s_m, pose.derived_assumes) == (RING_FRAME, None, None)
-    assert pose.in_ring_frame
-    assert not pose.is_ring_position
+    assert pose.on_beam
+    assert not pose.is_beam_position
 
 
 def test_poses_put_the_ring_row_first_then_file_order(panel_graph: PanelGraph) -> None:
     assert [pose.frame for pose in panel_graph.poses("XR01:QD1")] == [RING_FRAME, "XR-GIRDER"]
-    assert [pose.in_ring_frame for pose in panel_graph.poses("XR01:QD1")] == [True, False]
+    assert [pose.on_beam for pose in panel_graph.poses("XR01:QD1")] == [True, False]
     assert len(panel_graph.poses("XR02:SHIELD1")) == 1
     assert panel_graph.poses("XR02:QD1") == []
     assert panel_graph.poses(EXCLUDED_THING) == []
     assert panel_graph.poses("XR09:NOPE") == []
 
 
-def test_a_tie_between_ring_frames_is_refused(tmp_path: Path, panel_facility: Path) -> None:
+def test_a_tie_between_beam_frames_goes_to_the_frame_with_most_rows(
+    tmp_path: Path, panel_facility: Path
+) -> None:
     tables = copy_tables(tmp_path / "panels")
     header = (tables / "positions.csv").read_text(encoding="utf-8").splitlines()[0]
     rows = [
@@ -342,12 +357,10 @@ def test_a_tie_between_ring_frames_is_refused(tmp_path: Path, panel_facility: Pa
         "XR01:QD1,XR-B,0,0,0,0,0,0,2.0,0,0,,,stated,XR-LAYOUT,A,released,sheet 1",
     ]
     (tables / "positions.csv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
-    with pytest.raises(PanelTableError, match=r"positions\.csv.*XR-A, XR-B.*ring frame") as raised:
-        load_graph(panel_facility, tables)
-    assert raised.value.line is None
-    graph = load_graph(panel_facility, tables, ring_frame="XR-B")
-    assert graph.ring_frame == "XR-B"
-    assert graph.pose("XR01:QD1").is_ring_position  # type: ignore[union-attr]
+    graph = load_graph(panel_facility, tables)
+    assert graph.beam_frames == frozenset({"XR-A"})  # equal rows: by name
+    assert graph.pose("XR01:QF1").is_beam_position  # type: ignore[union-attr]
+    assert not graph.pose("XR01:QD1").is_beam_position  # type: ignore[union-attr]
 
 
 def test_rules_lists_every_row_of_every_held_channel(panel_graph: PanelGraph) -> None:

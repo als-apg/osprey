@@ -87,6 +87,7 @@ __all__ = [
     "CardRule",
     "CARD_ACTIONS",
     "CARD_CONDITIONS",
+    "WALKED_RELATIONS",
     "StripSymbol",
     "Metric",
     "CalibrationKind",
@@ -465,7 +466,8 @@ def _walked_relations() -> tuple[str, ...]:
 #: parts', or those of the device a relation of the device names (any relation
 #: type of the vocabulary from a device to a device: what reads it out, controls
 #: it, interlocks it, ...).
-ROLE_SCOPES: tuple[str, ...] = ("device", "parts", *_walked_relations())
+WALKED_RELATIONS: tuple[str, ...] = _walked_relations()
+ROLE_SCOPES: tuple[str, ...] = ("device", "parts", *WALKED_RELATIONS)
 #: How a card shows a channel of a role: a number, its state word, a lamp, or a
 #: control (a typed entry, one segment of a choice, an action button).
 SHOWN_AS: tuple[str, ...] = ("value", "word", "lamp", "entry", "choice", "action")
@@ -633,7 +635,7 @@ class Pose:
     """One row of ``positions.csv``: where a thing sits in one frame.
 
     Numbers are ``None`` where the row leaves them empty.
-    ``in_ring_frame`` is set by the graph, which knows the ring frame.
+    ``on_beam`` is set by the graph, which knows each model's beam frame.
     """
 
     thing: str
@@ -654,12 +656,13 @@ class Pose:
     version: str | None
     state: str | None
     locator: str | None
-    in_ring_frame: bool = False
+    on_beam: bool = False
 
     @property
-    def is_ring_position(self) -> bool:
-        """Whether ``s_m`` is a true ring position: stated, in the ring frame, nothing assumed."""
-        return self.in_ring_frame and self.s_m is not None and not self.derived_assumes
+    def is_beam_position(self) -> bool:
+        """Whether ``s_m`` is a position along a beam path: stated, in the thing's beam
+        frame, nothing assumed."""
+        return self.on_beam and self.s_m is not None and not self.derived_assumes
 
 
 @dataclass(frozen=True)

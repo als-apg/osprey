@@ -839,3 +839,8 @@ def test_a_row_s_devices_pattern_takes_or_leaves_out_devices_of_its_class(tmp_pa
     but = graph_with("!XR01:QF1")  # every device of the class but that one
     assert not but.pictures("Quadrupole", "XR01:QF1")
     assert but.pictures("Quadrupole", "XR02:QF1")
+
+
+def test_a_signal_resolves_on_a_device_any_relation_names(panel_graph) -> None:
+    # the magnet's own channels and parts hold no supply state; its powered_by does
+    assert panel_graph.picture_matches("XR01:QF1", "*:On-Sts") == [("XR01:PS1", "XR01-PS1:On-Sts")]
