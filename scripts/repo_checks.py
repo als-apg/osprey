@@ -2353,6 +2353,7 @@ LANES: tuple[Lane, ...] = (
         "test_scenario_reload.py",
         "test_sim_apply_va.py",
         "test_va_put_surface.py",
+        "test_va_labelled_follow.py",
         "test_planted_journal.py",
         "test_substrate_parity.py",
         "test_chain_boot.py",
