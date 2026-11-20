@@ -455,7 +455,7 @@ except Exception as e:
 # Execution directory for wrapper outputs (results, figures, artifacts).
 # User code cwd stays at the project root so relative paths like
 # "_agent_data/data/002_archiver_read.json" resolve correctly.
-_execution_dir = Path(r"{execution_folder}")
+_execution_dir = Path({str(execution_folder)!r})
 if not _execution_dir.exists():
     print(f"Warning: Execution directory {{_execution_dir}} does not exist")
 """
@@ -484,7 +484,7 @@ if not _execution_dir.exists():
             try:
                 import osprey.runtime as _write_ledger_runtime
 
-                _write_ledger_path = r"{ledger_path}"
+                _write_ledger_path = {str(ledger_path)!r}
 
                 def _write_ledger_observer(address, phase):
                     if phase != "attempt":
