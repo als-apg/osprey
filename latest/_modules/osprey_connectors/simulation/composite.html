@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 19, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 20, 2026"/>
   </head>
   
   
@@ -447,6 +447,14 @@
 <span class="sd">child&#39;s own variables that no channel names (faults, optics) are reached as</span>
 <span class="sd">``&lt;model&gt;/&lt;name&gt;`` through :meth:`Composite.model_get` and</span>
 <span class="sd">:meth:`Composite.model_set` only.</span>
+
+<span class="sd">**Several addresses of one record.** A wiring record of a physics child may</span>
+<span class="sd">state further addresses under ``also``. Each is a channel of the view, and the</span>
+<span class="sd">composite serves it as the record&#39;s ``address``: a read of it is that</span>
+<span class="sd">address&#39;s read at the same instant, motion, readout and channel fault</span>
+<span class="sd">included; a write to it is a write to that address; and it is emitted and</span>
+<span class="sd">moving when that address is. No child and no texture channel is keyed by a</span>
+<span class="sd">further address.</span>
 
 <span class="sd">**Server health.** ``supported_variables`` also holds the view&#39;s server health</span>
 <span class="sd">addresses, ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;``, read-only and served for every model</span>
@@ -879,9 +887,19 @@
         <span class="n">physics</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">models</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span> <span class="o">=</span> <span class="n">TextureModel</span><span class="p">(</span><span class="n">variables</span><span class="p">,</span> <span class="n">view</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SEEDS_FILE</span><span class="p">),</span> <span class="n">clock</span><span class="o">=</span><span class="n">clock</span><span class="p">)</span>
+        <span class="c1">#: Each further address a served record states, mapped to the record&#39;s</span>
+        <span class="c1">#: address, and each such record&#39;s further addresses.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_further</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">physics</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">binding</span> <span class="ow">in</span> <span class="n">models</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">bindings</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">binding</span><span class="o">.</span><span class="n">also</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_further</span><span class="p">[</span><span class="n">binding</span><span class="o">.</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">binding</span><span class="o">.</span><span class="n">also</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">(</span><span class="n">binding</span><span class="o">.</span><span class="n">also</span><span class="p">,</span> <span class="n">binding</span><span class="o">.</span><span class="n">address</span><span class="p">))</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">address</span><span class="p">:</span> <span class="p">(</span><span class="n">owner</span> <span class="k">if</span> <span class="p">(</span><span class="n">owner</span> <span class="o">:=</span> <span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;owner&quot;</span><span class="p">)))</span> <span class="ow">in</span> <span class="n">physics</span> <span class="k">else</span> <span class="n">TEXTURE_OWNER</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">record</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">address</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span>
         <span class="p">}</span>
         <span class="n">children</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_child</span><span class="p">(</span><span class="n">models</span><span class="p">[</span><span class="n">name</span><span class="p">])</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">physics</span><span class="p">}</span>
         <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">children</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
@@ -912,12 +930,13 @@
 
         <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Variable</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">channels</span><span class="p">():</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">==</span> <span class="n">TEXTURE_OWNER</span><span class="p">:</span>
+            <span class="n">own</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">own</span><span class="p">]</span> <span class="o">==</span> <span class="n">TEXTURE_OWNER</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">supported_variables</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="n">child</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">address</span><span class="p">]]</span>
+                <span class="n">child</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">own</span><span class="p">]]</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">channel_variable</span><span class="p">(</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_value</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_value</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">own</span><span class="p">)</span>
                 <span class="p">)</span>
         <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_status</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">StrVariable</span><span class="p">(</span>
@@ -1181,8 +1200,21 @@
                 <span class="n">fired</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">addresses</span><span class="p">)</span>
             <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_fail</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
-        <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">fired</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_with_further</span><span class="p">(</span><span class="n">fired</span><span class="p">)</span></div>
 
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_own</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The addresses ``names`` are served as, each once, in first-named order.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_with_further</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">addresses</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;``addresses`` and every further address their records state.&quot;&quot;&quot;</span>
+        <span class="n">named</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">addresses</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_further</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">named</span>
+        <span class="k">return</span> <span class="n">named</span><span class="o">.</span><span class="n">union</span><span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_further</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">())</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">named</span><span class="p">))</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_client_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">forwarded</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Hand each child the client writes that reached its model.&quot;&quot;&quot;</span>
@@ -1352,6 +1384,7 @@
             <span class="k">if</span> <span class="n">fault</span><span class="o">.</span><span class="n">write</span><span class="p">:</span>
                 <span class="n">held</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">))</span>
             <span class="n">pair</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pair&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">address</span><span class="p">)</span>
+            <span class="n">pair</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">pair</span><span class="p">,</span> <span class="n">pair</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">fault</span><span class="o">.</span><span class="n">read</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="k">continue</span>
             <span class="k">if</span> <span class="n">pair</span> <span class="o">!=</span> <span class="n">address</span> <span class="ow">and</span> <span class="n">pair</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">:</span>
@@ -1399,7 +1432,7 @@
 <span class="sd">        term moves it.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_moving</span></div>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_with_further</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_moving</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="Composite.stopped">
@@ -1495,15 +1528,16 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
         <span class="n">t_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_advance</span><span class="p">(</span><span class="n">t_s</span><span class="p">)</span>
-        <span class="n">outputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_served</span><span class="p">(</span><span class="n">names</span><span class="p">,</span> <span class="n">t_s</span><span class="p">)</span>
-        <span class="n">outputs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held_demands</span><span class="p">(</span><span class="n">names</span><span class="p">))</span>
-        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+        <span class="n">own</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_own</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
+        <span class="n">outputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_served</span><span class="p">(</span><span class="n">own</span><span class="p">,</span> <span class="n">t_s</span><span class="p">)</span>
+        <span class="n">outputs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held_demands</span><span class="p">(</span><span class="n">own</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">own</span><span class="p">:</span>
             <span class="n">fault</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_faulted</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">fault</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">fault</span><span class="o">.</span><span class="n">read</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">outputs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">fault</span><span class="o">.</span><span class="n">read</span><span class="p">(</span>
                     <span class="n">channel_value_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">name</span><span class="p">]),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_snapshot</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
                 <span class="p">)</span>
-        <span class="k">return</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">outputs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">}</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">outputs</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">)]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">}</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_served</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The channels as served at ``t_s`` without the channel faults.&quot;&quot;&quot;</span>
@@ -1636,16 +1670,19 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The channels a read of ``address`` reads with it, ``address`` among them.</span>
 
 <span class="sd">        A monitor plane of a physics child is read with its partner planes;</span>
-<span class="sd">        any other channel alone.</span>
+<span class="sd">        any other channel alone. A further address of a record stands in its</span>
+<span class="sd">        group where the record&#39;s address does.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ValueError: ``address`` is not a channel of the view.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">([</span><span class="n">address</span><span class="p">])</span>
-        <span class="n">owner</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">owner</span> <span class="o">==</span> <span class="n">TEXTURE_OWNER</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_moving_readback</span><span class="p">(</span><span class="n">address</span><span class="p">):</span>
+        <span class="n">own</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+        <span class="n">owner</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">own</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">owner</span> <span class="o">==</span> <span class="n">TEXTURE_OWNER</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_moving_readback</span><span class="p">(</span><span class="n">own</span><span class="p">):</span>
             <span class="k">return</span> <span class="p">(</span><span class="n">address</span><span class="p">,)</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="p">[</span><span class="n">owner</span><span class="p">]</span><span class="o">.</span><span class="n">partners</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">(</span><span class="n">address</span><span class="p">,))</span></div>
+        <span class="n">group</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="p">[</span><span class="n">owner</span><span class="p">]</span><span class="o">.</span><span class="n">partners</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">own</span><span class="p">,</span> <span class="p">(</span><span class="n">own</span><span class="p">,))</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">address</span> <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="n">own</span> <span class="k">else</span> <span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">group</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="Composite.readings">
@@ -1673,12 +1710,18 @@
 <span class="sd">            ValueError: A name is not a float channel of the view, or a</span>
 <span class="sd">                monitor plane&#39;s partner has no level.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">levels</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+        <span class="n">named</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">levels</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">(</span><span class="n">named</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">named</span><span class="p">:</span>
             <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">channel</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">is_float_channel</span><span class="p">(</span><span class="n">channel</span><span class="p">):</span>
                 <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> is not a float channel of the view&quot;</span><span class="p">)</span>
+        <span class="c1"># A further address reads as its record&#39;s address does on the level</span>
+        <span class="c1"># given for it; the level of the record&#39;s own address stands over it.</span>
+        <span class="n">given</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">levels</span><span class="p">)</span>
+        <span class="n">levels</span> <span class="o">=</span> <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span> <span class="n">given</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">named</span><span class="p">)}</span>
+        <span class="n">levels</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">given</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">named</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="p">})</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">levels</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
         <span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">t_s</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
         <span class="n">out</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1702,7 +1745,7 @@
                 <span class="n">out</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">times</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">math</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">owned</span><span class="p">})</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">out</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_moving_readbacks</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">owned</span><span class="p">,</span> <span class="n">times</span><span class="p">))</span>
-        <span class="k">return</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">out</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">}</span></div>
+        <span class="k">return</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">out</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">)]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">named</span><span class="p">}</span></div>
 
 
 <div class="viewcode-block" id="Composite.held">
@@ -1724,8 +1767,9 @@
 <span class="sd">        Raises:</span>
 <span class="sd">            ValueError: A name is not a channel or status address of the view.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">wanted</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">(</span><span class="n">wanted</span><span class="p">)</span>
+        <span class="n">named</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">(</span><span class="n">named</span><span class="p">)</span>
+        <span class="n">wanted</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_own</span><span class="p">(</span><span class="n">named</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_advance</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()))</span>
         <span class="n">outputs</span><span class="p">,</span> <span class="n">texture</span><span class="p">,</span> <span class="n">physics</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_partition</span><span class="p">(</span><span class="n">wanted</span><span class="p">)</span>
@@ -1738,7 +1782,7 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">outputs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">read</span><span class="p">)</span>
         <span class="n">outputs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held_demands</span><span class="p">(</span><span class="n">wanted</span><span class="p">))</span>
-        <span class="k">return</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">outputs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">wanted</span><span class="p">}</span></div>
+        <span class="k">return</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">outputs</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">)]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">named</span><span class="p">}</span></div>
 
 
 <div class="viewcode-block" id="Composite.output_severity">
@@ -1757,11 +1801,12 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
         <span class="n">severities</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
-            <span class="n">child</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">TEXTURE_OWNER</span><span class="p">))</span>
+            <span class="n">own</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="n">child</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">own</span><span class="p">,</span> <span class="n">TEXTURE_OWNER</span><span class="p">))</span>
             <span class="k">if</span> <span class="n">child</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">child</span><span class="o">.</span><span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">severities</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;condition&quot;</span><span class="p">:</span> <span class="n">_UDF</span><span class="p">}</span>
-            <span class="k">elif</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fault_severity</span><span class="p">:</span>
-                <span class="n">severities</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;condition&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fault_severity</span><span class="p">[</span><span class="n">name</span><span class="p">]}</span>
+            <span class="k">elif</span> <span class="n">own</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fault_severity</span><span class="p">:</span>
+                <span class="n">severities</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;condition&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fault_severity</span><span class="p">[</span><span class="n">own</span><span class="p">]}</span>
         <span class="k">return</span> <span class="n">severities</span></div>
 
 
@@ -1788,7 +1833,8 @@
 
 <span class="sd">        Args:</span>
 <span class="sd">            values_by_name: Values by channel address; a waveform as a flat or</span>
-<span class="sd">                nested list.</span>
+<span class="sd">                nested list. A further address of a record writes the record&#39;s</span>
+<span class="sd">                address; of two values for one record the later stands.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            WriteRefusedError: (a ``ValueError``) A name is not a channel of the</span>
@@ -1829,14 +1875,15 @@
             <span class="k">if</span> <span class="n">variable</span><span class="o">.</span><span class="n">read_only</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="n">ReadOnlyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Variable &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is read-only. Cannot be set.&quot;</span><span class="p">)</span>
             <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+            <span class="n">own</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="n">coerced</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">coerce</span><span class="p">(</span>
+                <span class="n">coerced</span><span class="p">[</span><span class="n">own</span><span class="p">]</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">coerce</span><span class="p">(</span>
                     <span class="n">value</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="k">else</span> <span class="n">value</span><span class="p">,</span>
                     <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">),</span>
                     <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;options&quot;</span><span class="p">),</span>
                     <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">),</span>
                 <span class="p">)</span>
-                <span class="n">variable</span><span class="o">.</span><span class="n">validate_value</span><span class="p">(</span><span class="n">_for_variable</span><span class="p">(</span><span class="n">variable</span><span class="p">,</span> <span class="n">coerced</span><span class="p">[</span><span class="n">name</span><span class="p">]))</span>
+                <span class="n">variable</span><span class="o">.</span><span class="n">validate_value</span><span class="p">(</span><span class="n">_for_variable</span><span class="p">(</span><span class="n">variable</span><span class="p">,</span> <span class="n">coerced</span><span class="p">[</span><span class="n">own</span><span class="p">]))</span>
             <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span> <span class="n">address</span><span class="o">=</span><span class="n">name</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
         <span class="n">t_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span>
@@ -1850,7 +1897,9 @@
 
     <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_forward</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_forward</span><span class="p">(</span>
+            <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_forward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span>

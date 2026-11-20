@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 19, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 20, 2026"/>
   </head>
   
   
@@ -756,7 +756,8 @@
                 <span class="k">continue</span>
             <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;wiring&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]:</span>
                 <span class="k">if</span> <span class="s2">&quot;default&quot;</span> <span class="ow">in</span> <span class="n">record</span><span class="p">:</span>
-                    <span class="n">defaults</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]),</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">])</span>
+                    <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">],</span> <span class="o">*</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;also&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">())):</span>
+                        <span class="n">defaults</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">),</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">defaults</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_echoed</span><span class="p">(</span>

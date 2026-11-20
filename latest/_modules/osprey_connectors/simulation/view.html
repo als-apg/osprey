@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 19, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 20, 2026"/>
   </head>
   
   
@@ -447,6 +447,12 @@
 <span class="sd">with a setpoint or not; a reader wanting the readback of a setpoint reads that</span>
 <span class="sd">setpoint channel&#39;s ``pair``.</span>
 
+<span class="sd">A wiring record may state further addresses of its variable under ``also``.</span>
+<span class="sd">Each is a channel of the view whose ``owner`` is the record&#39;s model, and it is</span>
+<span class="sd">served as the record&#39;s ``address`` is: :meth:`SimulatorView.record_address`</span>
+<span class="sd">gives the address a channel is served as, and :attr:`Binding.addresses` every</span>
+<span class="sd">address of a record.</span>
+
 <span class="sd">The module imports only the standard library and ``osprey_connectors``, so a</span>
 <span class="sd">reader that must not load a model can open a view.</span>
 <span class="sd">&quot;&quot;&quot;</span>
@@ -721,6 +727,8 @@
 <span class="sd">        id: The wiring record&#39;s id.</span>
 <span class="sd">        model: The model the record belongs to.</span>
 <span class="sd">        address: The channel address the record serves.</span>
+<span class="sd">        also: The further addresses that serve what ``address`` serves; empty</span>
+<span class="sd">            when the record states none.</span>
 <span class="sd">        direction: ``write`` or ``read``.</span>
 <span class="sd">        engine_role: One of :data:`ENGINE_ROLES`.</span>
 <span class="sd">            A ``readback`` reads an element&#39;s setting, paired with a setpoint</span>
@@ -746,6 +754,12 @@
     <span class="n">element</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
     <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span>
     <span class="n">marks</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
+    <span class="n">also</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">addresses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every address the record serves: ``address``, then each of ``also``.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">address</span><span class="p">,</span> <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">also</span><span class="p">)</span>
 
 <div class="viewcode-block" id="Binding.from_record">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Binding.from_record">[docs]</a>
@@ -774,6 +788,7 @@
             <span class="n">element</span><span class="o">=</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;element&quot;</span><span class="p">),</span>
             <span class="n">record</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">record</span><span class="p">))),</span>
             <span class="n">marks</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">mark</span><span class="p">)</span> <span class="k">for</span> <span class="n">mark</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_MARKS_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
+            <span class="n">also</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;also&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
         <span class="p">)</span></div>
 </div>
 
@@ -834,6 +849,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_models</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Model</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">ADDRESSES_FILE</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
             <span class="k">raise</span> <span class="n">NoSimulatorView</span><span class="p">(</span><span class="n">_NO_VIEW_MESSAGE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">))</span>
@@ -1163,6 +1179,30 @@
         <span class="k">return</span> <span class="kc">None</span></div>
 
 
+<div class="viewcode-block" id="SimulatorView.record_address">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.record_address">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">record_address</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The address ``address`` is served as.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            address: A channel address.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The ``address`` of the served physics model&#39;s wiring record that</span>
+<span class="sd">            names ``address`` under ``also``; ``address`` itself for any other</span>
+<span class="sd">            channel.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="n">further</span><span class="p">:</span> <span class="n">binding</span><span class="o">.</span><span class="n">address</span>
+                    <span class="k">for</span> <span class="n">binding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_all_bindings</span><span class="p">(</span><span class="n">served_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">further</span> <span class="ow">in</span> <span class="n">binding</span><span class="o">.</span><span class="n">also</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span></div>
+
+
 <div class="viewcode-block" id="SimulatorView.seed">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.seed">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">seed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SeedRecord</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
@@ -1209,6 +1249,7 @@
         <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.envelope</span><span class="w"> </span><span class="kn">import</span> <span class="n">active_envelopes</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_active_scenarios</span>
 
+        <span class="n">address</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_address</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
         <span class="n">key</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">resolve_active_scenarios</span><span class="p">(</span><span class="n">active</span><span class="p">))</span>
         <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">active_envelopes</span><span class="p">(</span>

@@ -68,6 +68,12 @@ into the facility file:
   ``event``, one that changes with each event the engine raises, such as a
   shot.
 
+A wiring record that states further addresses under ``also`` is still one
+record and one engine variable, named by its ``address``. The served composite
+answers a read, a write or a readout group under a further address as it
+answers the record's address, so every address of a record shows one value at
+one instant; no engine sees a further address.
+
 Each channel also names the node it is ``on``.
 
 The server publishes channel values in *passes*: one after each write, one at

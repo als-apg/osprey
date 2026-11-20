@@ -117,7 +117,7 @@ filters the file's own channel records and names a model or a place.
      - Document order, each once.
      - Empty, also for an unknown id.
    * - ``wired(address)``
-     - The one wiring record naming an address, as the file holds it.
+     - The one wiring record naming an address, as its ``address`` or under ``also``, as the file holds it.
      -
      - ``None`` for an address no model wires.
    * - ``resolve(target)``

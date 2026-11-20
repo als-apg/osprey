@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 19, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 20, 2026"/>
   </head>
   
   
@@ -1437,6 +1437,33 @@ value and the engine’s physics value, as a <code class="docutils literal notra
 <code class="docutils literal notranslate"><span class="pre">table</span></code>. Channels no served model wires are served by the texture model from
 their seeds. Which models a deployment serves, and what a failed one looks like, is
 in <a class="reference internal" href="../architecture/facility-file.html#architecture-simulation-models"><span class="std std-ref">Simulation models</span></a>.</p>
+<p>A value served under more than one address has one wiring record. Each
+further address is a channel of its own:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LINE:RACK:03:UNIT:01:X</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM 01 horizontal position, as the rack unit names it</span>
+</pre></div>
+</div>
+<p>and the record lists it under <code class="docutils literal notranslate"><span class="pre">also</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LINE:DIAG:BPM:01:POSITION:X</span>
+<span class="w">  </span><span class="nt">also</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">LINE</span><span class="p p-Indicator">:</span><span class="nv">RACK</span><span class="p p-Indicator">:</span><span class="nv">03</span><span class="p p-Indicator">:</span><span class="nv">UNIT</span><span class="p p-Indicator">:</span><span class="nv">01</span><span class="p p-Indicator">:</span><span class="nv">X</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM01</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">axis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">x</span>
+</pre></div>
+</div>
+<p>Each address under <code class="docutils literal notranslate"><span class="pre">also</span></code> is a channel of <code class="docutils literal notranslate"><span class="pre">records/channels.yaml</span></code> with the
+<code class="docutils literal notranslate"><span class="pre">role</span></code>, <code class="docutils literal notranslate"><span class="pre">value_type</span></code>, <code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code> of the record’s <code class="docutils literal notranslate"><span class="pre">address</span></code>,
+and the same <code class="docutils literal notranslate"><span class="pre">unit</span></code> when both state one. It reads what <code class="docutils literal notranslate"><span class="pre">address</span></code> reads at
+the same instant, with the same calibration, motion and readout noise, and a
+write to it is a write to <code class="docutils literal notranslate"><span class="pre">address</span></code>. It carries no seed of its own, and a
+limit is still stated per address. A pair is stated between
+records’ <code class="docutils literal notranslate"><span class="pre">address</span></code> names: the build stops when an address under <code class="docutils literal notranslate"><span class="pre">also</span></code>
+states a <code class="docutils literal notranslate"><span class="pre">pair</span></code>, and when a setpoint’s <code class="docutils literal notranslate"><span class="pre">pair</span></code> names an address under
+<code class="docutils literal notranslate"><span class="pre">also</span></code>. A fault variable is named by <code class="docutils literal notranslate"><span class="pre">address</span></code>
+only (<code class="docutils literal notranslate"><span class="pre">LINE:DIAG:BPM:01:POSITION:X/offset</span></code>); a scenario block keyed by channel address
+(<code class="docutils literal notranslate"><span class="pre">overrides</span></code>, <code class="docutils literal notranslate"><span class="pre">noise</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_faults</span></code>, <code class="docutils literal notranslate"><span class="pre">still</span></code>) may name
+either. An address belongs to one wiring record: the build stops when two
+records name it, and when two records read the same axis of one monitor.</p>
 </section>
 <section id="measurement">
 <h2>Measurement<a class="headerlink" href="#measurement" title="Link to this heading">#</a></h2>

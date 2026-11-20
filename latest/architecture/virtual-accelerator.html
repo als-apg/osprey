@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 19, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 20, 2026"/>
   </head>
   
   
@@ -572,6 +572,11 @@ the fast period, <code class="docutils literal notranslate"><span class="pre">si
 <code class="docutils literal notranslate"><span class="pre">event</span></code>, one that changes with each event the engine raises, such as a
 shot.</p></li>
 </ul>
+<p>A wiring record that states further addresses under <code class="docutils literal notranslate"><span class="pre">also</span></code> is still one
+record and one engine variable, named by its <code class="docutils literal notranslate"><span class="pre">address</span></code>. The served composite
+answers a read, a write or a readout group under a further address as it
+answers the record’s address, so every address of a record shows one value at
+one instant; no engine sees a further address.</p>
 <p>Each channel also names the node it is <code class="docutils literal notranslate"><span class="pre">on</span></code>.</p>
 <p>The server publishes channel values in <em>passes</em>: one after each write, one at
 start-up, the periodic passes, and the timed passes of a view holding a
