@@ -2961,8 +2961,7 @@ def _render_project(
     }
     if build_profile.channel_finder_mode is not None:
         manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
-    if build_profile.claude_md_template:
-        manifest_context["claude_md_template"] = build_profile.claude_md_template
+    manifest_context["claude_md_template"] = build_profile.claude_md_template
     manager.generate_manifest(
         project_dir=render_dir,
         project_name=project_name,
@@ -5136,8 +5135,7 @@ def _repo_render_context(
         context["default_panel"] = build_profile.default_panel
     if build_profile.panel_presets:
         context["panel_presets"] = build_profile.panel_presets
-    if build_profile.claude_md_template:
-        context["claude_md_template"] = build_profile.claude_md_template
+    context["claude_md_template"] = build_profile.claude_md_template
     context["ariel_server_on"] = _ariel_server_enabled(build_profile)
 
     python_env = build_profile.python_env or "project"
