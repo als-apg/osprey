@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import json
 import multiprocessing
+import os
 import signal
 import time
 from collections.abc import Generator
@@ -31,6 +32,7 @@ from osprey_optimizer.api.job_control import (
     KILL_WAIT_SECONDS,
     SHUTDOWN_KILLED_MESSAGE,
     TERMINATE_WAIT_SECONDS,
+    cancel_with_reread,
     launch_job,
     persist_created_job,
     stop_launched_jobs,
@@ -1721,34 +1723,45 @@ class TestWorkerSignalHandler:
             token.wait_if_paused()
 
 
+def _launch_worker(target, job_id: str):  # type: ignore[no-untyped-def]
+    """Create and start a job as the API does, with a real spawn worker running ``target``."""
+    tracker = JobTracker()
+    ready = _SPAWN.Event()
+    persist_created_job(
+        tracker=tracker,
+        job_id=job_id,
+        payload_json="{}",
+        make_writer=get_optimization_writer,
+    )
+    launch_job(
+        tracker=tracker,
+        job_id=job_id,
+        config_json="{}",
+        make_writer=get_optimization_writer,
+        spawn_target=target,
+        spawn_args=(job_id, ready),
+    )
+    assert ready.wait(60), "worker never became ready"
+    return tracker, job_control._launched[job_id]
+
+
+def _watch_settled(job_id: str) -> None:
+    """Wait until the launcher's watch of the job's worker has done its work."""
+    watch = getattr(job_control, "_watches", {}).get(job_id)
+    assert watch is not None, f"the launcher started no watch for job {job_id}"
+    watch.thread.join(30)
+    assert not watch.thread.is_alive(), f"the watch of job {job_id} never ended"
+
+
 @pytest.mark.usefixtures("tracker")
 class TestStopLaunchedJobsIntegration:
     """Real Redis and real spawn workers: the shutdown end to end."""
 
-    def _launch(self, target, job_id: str):  # type: ignore[no-untyped-def]
-        tracker = JobTracker()
-        ready = _SPAWN.Event()
-        persist_created_job(
-            tracker=tracker,
-            job_id=job_id,
-            payload_json="{}",
-            make_writer=get_optimization_writer,
-        )
-        launch_job(
-            tracker=tracker,
-            job_id=job_id,
-            config_json="{}",
-            make_writer=get_optimization_writer,
-            spawn_target=target,
-            spawn_args=(job_id, ready),
-        )
-        assert ready.wait(60), "worker never became ready"
-        return tracker, job_control._launched[job_id]
-
     def test_a_cooperative_worker_records_its_own_cancel(self):
-        tracker, process = self._launch(_shutdown_workers.cooperative_job, "shutdown-coop")
+        tracker, process = _launch_worker(_shutdown_workers.cooperative_job, "shutdown-coop")
 
         stop_launched_jobs(tracker, grace_s=30)
+        _watch_settled("shutdown-coop")
 
         assert process.exitcode == 1  # the CancellationError propagates out of the run
         writer = get_optimization_writer("shutdown-coop")
@@ -1757,10 +1770,11 @@ class TestStopLaunchedJobsIntegration:
         assert tracker.get_active_job() is None
 
     def test_a_stuck_worker_is_killed_and_its_slot_freed(self):
-        tracker, process = self._launch(_shutdown_workers.stubborn_job, "shutdown-stuck")
+        tracker, process = _launch_worker(_shutdown_workers.stubborn_job, "shutdown-stuck")
         started = time.monotonic()
 
         stop_launched_jobs(tracker, grace_s=0.5)
+        _watch_settled("shutdown-stuck")
 
         elapsed = time.monotonic() - started
         assert process.exitcode == -signal.SIGKILL
@@ -1771,3 +1785,71 @@ class TestStopLaunchedJobsIntegration:
         str_client = get_redis_client(binary=False)
         assert str_client.get(ACTIVE_JOB_KEY) is None
         assert tracker.claim_active_job("next-job", 0)
+
+
+def _kill_mid_run(job_id: str) -> JobTracker:
+    """Launch a real worker, make it the current job, and SIGKILL it mid-run."""
+    tracker, process = _launch_worker(_shutdown_workers.cooperative_job, job_id)
+    tracker.set_current_job(job_id)
+    os.kill(process.pid, signal.SIGKILL)
+    process.join(30)
+    assert process.exitcode == -signal.SIGKILL
+    _watch_settled(job_id)
+    return tracker
+
+
+@pytest.mark.usefixtures("tracker")
+class TestWorkerWatchIntegration:
+    """Real Redis and real spawn workers: the launcher ends the job of a worker that died."""
+
+    def test_a_worker_killed_mid_run_ends_its_job_as_a_readable_error(self):
+        job = "killed-mid-run"
+        tracker = _kill_mid_run(job)
+
+        status = js.read_job_status(tracker, job)
+        assert status.status is JobStatus.ERROR
+        expected = (
+            "The worker process exited before the run ended; check the machine before the next run."
+        )
+        assert status.error_message == job_control.WORKER_EXITED_MESSAGE == expected
+        full = build_optimization_response(job, "full", tracker)
+        assert full.status is JobStatus.ERROR
+        assert full.error_message == expected
+        meta = tracker.get_job(job)
+        assert meta is not None
+        assert meta.status is JobStatus.COMPLETED
+        str_client = get_redis_client(binary=False)
+        keys = _job_keys(job)
+        assert keys
+        for key in keys:
+            assert RUNNING_STATE_TTL_SECONDS < str_client.ttl(key) <= TERMINAL_STATE_TTL_SECONDS, (
+                key
+            )
+        assert str_client.get(ACTIVE_JOB_KEY) is None
+        assert tracker.claim_active_job("next-job", 0)
+        assert tracker.get_current_job() == job
+
+    def test_a_worker_that_recorded_its_own_cancel_is_left_as_it_ended(self):
+        job = "cancelled-then-exited"
+        tracker, process = _launch_worker(_shutdown_workers.cooperative_job, job)
+
+        cancel_with_reread(job, get_optimization_writer(job), get_cancellation_token(job), tracker)
+        process.join(30)
+        _watch_settled(job)
+
+        writer = get_optimization_writer(job)
+        assert writer.get_status() is JobStatus.CANCELLED
+        assert writer.get_error_message() == CANCELLED_MESSAGE
+
+    def test_a_cancel_after_the_watch_ended_the_job_is_refused(self):
+        job = "killed-then-cancelled"
+        tracker = _kill_mid_run(job)
+        writer = get_optimization_writer(job)
+        assert writer.get_status() is JobStatus.ERROR
+
+        with pytest.raises(HTTPException) as refused:
+            cancel_with_reread(job, writer, get_cancellation_token(job), tracker)
+
+        assert refused.value.status_code == 409
+        assert "already error" in refused.value.detail
+        assert writer.get_error_message() == job_control.WORKER_EXITED_MESSAGE
