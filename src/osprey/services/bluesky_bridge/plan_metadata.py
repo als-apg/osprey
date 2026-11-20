@@ -16,6 +16,7 @@ Kept pydantic-only (no bluesky/ophyd/tiled imports) so it can be imported from
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -87,6 +88,25 @@ class PlanMetadata(BaseModel):
                 seen.add(name)
         return rows
 
+    summary: list[str] | None = None
+    """The one-line readout above the form's footer, as a list of parts.
+
+    Each part is text with ``{parameter}`` placeholders; ``{{`` and ``}}`` are
+    literal braces. The panel joins the parts it shows with " · ", shows a
+    part only once every parameter it names has a value, and fills a list
+    parameter in as its count. A placeholder is a bare parameter name: no
+    conversion, format spec, index or attribute.
+    """
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_parts_name_bare_parameters(cls, parts: list[str] | None) -> list[str] | None:
+        if parts is None:
+            return None
+        for part in parts:
+            _placeholders(part)
+        return parts
+
 
 def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadata:
     """Validate ``raw`` (a plan module's ``PLAN_METADATA`` dict) into a `PlanMetadata`.
@@ -120,6 +140,44 @@ def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadat
         raise PlanMetadataError(message) from exc
 
 
+_SUMMARY_TOKEN = re.compile(r"\{\{|\}\}|\{([^{}]*)\}")
+"""One summary token: a doubled brace, or a placeholder and the text inside it.
+
+The same grammar as the panel's ``SUMMARY_TOKEN`` in ``plan-presentation.js``,
+so a part the loader accepts is a part the panel fills.
+"""
+
+
+def _placeholders(part: str) -> list[str]:
+    """The parameter names one summary part's placeholders use, in order.
+
+    Raises:
+        ValueError: the part is empty, a brace is left unpaired, or a
+            placeholder is anything but a bare parameter name.
+    """
+    if not part:
+        raise ValueError("a summary part is empty")
+    names: list[str] = []
+    for match in _SUMMARY_TOKEN.finditer(part):
+        name = match.group(1)
+        if name is None:
+            continue
+        if not name.isidentifier():
+            raise ValueError(
+                f"summary part {part!r} has a placeholder that is not a bare parameter name"
+            )
+        names.append(name)
+    rest = _SUMMARY_TOKEN.sub("", part)
+    if "{" in rest or "}" in rest:
+        raise ValueError(f"summary part {part!r} has an unpaired brace")
+    return names
+
+
+def summary_parameters(meta: PlanMetadata) -> set[str]:
+    """Every parameter name the summary's placeholders use; empty without a summary."""
+    return {name for part in meta.summary or () for name in _placeholders(part)}
+
+
 def check_presentation_names(
     meta: PlanMetadata, field_names: Iterable[str], *, source: str
 ) -> None:
@@ -133,11 +191,15 @@ def check_presentation_names(
         PlanMetadataError: naming the key and every unknown name, sorted.
     """
     known = set(field_names)
-    if meta.layout is not None:
-        unknown = sorted({name for row in meta.layout for name in row} - known)
+    named = {
+        "layout": {name for row in meta.layout or () for name in row},
+        "summary": summary_parameters(meta),
+    }
+    for key, names in named.items():
+        unknown = sorted(names - known)
         if unknown:
             raise PlanMetadataError(
-                f"{source}: PLAN_METADATA layout names unknown parameter(s): {', '.join(unknown)}"
+                f"{source}: PLAN_METADATA {key} names unknown parameter(s): {', '.join(unknown)}"
             )
 
 

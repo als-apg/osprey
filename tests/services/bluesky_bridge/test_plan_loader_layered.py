@@ -891,3 +891,29 @@ def test_a_plan_with_a_layout_registers_and_serves_it(
 
     spec = plan_loader.get_facility_plans().plans["laid_out"]
     assert spec.to_dict()["metadata"]["layout"] == [["count", "label"]]
+
+
+def test_summary_naming_an_unknown_parameter_is_quarantined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "good_plan.py", _valid_plan_source("good_plan"))
+    _write(
+        layer_dir,
+        "stray_summary.py",
+        _plan_with_presentation(
+            "stray_summary", '    "summary": ["{label}", "{count} of {total} at {rate}"],\n'
+        ),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "stray_summary" not in facility.plans
+    assert "good_plan" in facility.plans
+    assert any(
+        "PLAN_METADATA summary names unknown parameter(s): rate, total" in message
+        for message in _quarantine_warnings(caplog)
+    )
