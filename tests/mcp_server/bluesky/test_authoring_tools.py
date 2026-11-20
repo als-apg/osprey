@@ -370,7 +370,7 @@ def test_generated_metadata_block_is_exactly_the_three_declared_fields(
         "writes": False,
     }
     parsed = parse_plan_metadata_dict(metadata, source="three_field_plan.py")
-    assert parsed.model_dump() == metadata
+    assert parsed.model_dump(exclude_none=True) == metadata
 
 
 def test_write_session_plan_overwrite_changes_the_hash(client: TestClient):

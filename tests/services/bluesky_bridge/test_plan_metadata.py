@@ -1,9 +1,10 @@
 """Coverage for the plan-metadata model, its parser, and `PlanSpec`'s
 `metadata`/`provenance` fields.
 
-The model is a closed three-field contract — `name`, `description`, `writes` —
-and nothing else: which channels a plan touches is read off its role-typed
-parameter fields, not re-declared here.
+The model is a closed contract — three required fields (`name`, `description`,
+`writes`) and two optional presentation fields — and nothing else: which
+channels a plan touches is read off its role-typed parameter fields, not
+re-declared here.
 
 Pure pydantic — no bluesky import, so this runs in the fast import-clean lane
 alongside the rest of `plan_types.py`'s own tests.
@@ -44,8 +45,43 @@ def test_well_formed_dict_parses_into_plan_metadata_with_all_fields() -> None:
     assert metadata.writes is True
 
 
-def test_model_declares_exactly_the_three_contract_fields() -> None:
-    assert set(PlanMetadata.model_fields) == {"name", "description", "writes"}
+def test_model_declares_three_required_and_two_optional_fields() -> None:
+    required = {name for name, field in PlanMetadata.model_fields.items() if field.is_required()}
+    optional = set(PlanMetadata.model_fields) - required
+
+    assert required == {"name", "description", "writes"}
+    assert optional == {"layout"}
+
+
+def test_layout_rows_parse() -> None:
+    rows = [["correctors", "readbacks"], ["span", "num"], ["sweep"]]
+
+    metadata = parse_plan_metadata_dict({**_WELL_FORMED, "layout": rows}, source="test")
+
+    assert metadata.layout == rows
+
+
+def test_layout_defaults_to_none() -> None:
+    assert parse_plan_metadata_dict(_WELL_FORMED, source="test").layout is None
+
+
+def test_layout_refuses_a_repeated_name() -> None:
+    raw = {**_WELL_FORMED, "layout": [["span", "num"], ["num"]]}
+
+    with pytest.raises(PlanMetadataError, match="layout") as excinfo:
+        parse_plan_metadata_dict(raw, source="test")
+
+    assert "num" in str(excinfo.value)
+
+
+def test_layout_refuses_an_empty_row() -> None:
+    with pytest.raises(PlanMetadataError, match="layout"):
+        parse_plan_metadata_dict({**_WELL_FORMED, "layout": [["span"], []]}, source="test")
+
+
+def test_layout_refuses_an_empty_name() -> None:
+    with pytest.raises(PlanMetadataError, match="layout"):
+        parse_plan_metadata_dict({**_WELL_FORMED, "layout": [["span", ""]]}, source="test")
 
 
 def test_well_formed_module_parses_via_parse_plan_metadata() -> None:
