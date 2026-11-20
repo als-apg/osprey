@@ -10,6 +10,7 @@ this module fails until someone has looked.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import shutil
@@ -106,3 +107,61 @@ def test_no_osprey_is_reported_not_raised(
 ) -> None:
     assert contract.main(["--root", str(tmp_path)]) == 2
     assert "no OSPREY with an app contract found" in capsys.readouterr().out
+
+
+def _module_path(module: str) -> str | None:
+    """The package-relative file of an ``osprey.*`` *module*, or ``None`` if it is not one."""
+    if module != "osprey" and not module.startswith("osprey."):
+        return None
+    parts = module.split(".")[1:]
+    candidates = [
+        "/".join(parts) + ".py" if parts else "__init__.py",
+        "/".join([*parts, "__init__.py"]),
+    ]
+    return next((c for c in candidates if (_PACKAGE / c).is_file()), None)
+
+
+def _module_level_imports(relative: str) -> set[str]:
+    """The ``osprey.*`` modules *relative*'s module-level imports name, as files."""
+    tree = ast.parse((_PACKAGE / relative).read_text(encoding="utf-8"))
+    package = ["osprey", *Path(relative).parent.parts]
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = package[: len(package) - node.level + 1] if node.level else []
+            module = ".".join([*base, *([node.module] if node.module else [])])
+            names.add(module)
+            names.update(f"{module}.{alias.name}" for alias in node.names)
+    return {path for name in names if (path := _module_path(name)) is not None}
+
+
+def _watched(contract: ModuleType, relative: str) -> bool:
+    return any(
+        relative == entry or (entry.endswith("/") and relative.startswith(entry))
+        for entry, _defines, _sections in contract.WATCHED
+    )
+
+
+def test_every_module_the_app_check_judges_with_is_watched_or_named_not_contract(
+    contract: ModuleType,
+) -> None:
+    """A rule module the check reaches is either one the skill rests on or named as not."""
+    not_contract = {path for path, _reason in contract.NOT_CONTRACT}
+    reached: set[str] = set()
+    walk = ["cli/app_cmd.py"]
+    while walk:
+        for module in _module_level_imports(walk.pop()):
+            if module in reached:
+                continue
+            reached.add(module)
+            if _watched(contract, module):
+                walk.append(module)
+    unnamed = sorted(m for m in reached if not _watched(contract, m) and m not in not_contract)
+    assert not unnamed, (
+        "osprey app check reaches modules app_contract.py neither watches nor names as "
+        f"not contract: {unnamed}"
+    )
+    stale = sorted(not_contract - reached)
+    assert not stale, f"NOT_CONTRACT names modules the check no longer reaches: {stale}"

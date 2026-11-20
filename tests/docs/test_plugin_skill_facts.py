@@ -12,7 +12,11 @@ import json
 import re
 
 from osprey.interfaces.design_system.panels.page_ready import DESIGN_SYSTEM_STATIC
-from osprey.interfaces.design_system.panels.validator import PanelRule, assert_valid_panel
+from osprey.interfaces.design_system.panels.validator import (
+    PanelRule,
+    assert_valid_panel,
+    validate_panel,
+)
 from tests.docs.test_environment_variable_page import _REPO_ROOT
 from tests.interfaces.test_embedded_identity_contract import FRAMED_ONLY_RULE
 
@@ -63,6 +67,7 @@ def test_every_panel_skill_page_and_sheet_passes_the_validator(tmp_path) -> None
         (panel / "index.html").write_text(page, encoding="utf-8")
         (panel / "manifest.json").write_text(manifest, encoding="utf-8")
         assert_valid_panel(panel)
+        assert validate_panel(panel) == []
     for number, sheet in enumerate(sheets):
         panel = tmp_path / f"sheet-{number}"
         panel.mkdir()
@@ -70,6 +75,7 @@ def test_every_panel_skill_page_and_sheet_passes_the_validator(tmp_path) -> None
         (panel / "manifest.json").write_text(manifest, encoding="utf-8")
         (panel / "panel.css").write_text(sheet, encoding="utf-8")
         assert_valid_panel(panel)
+        assert validate_panel(panel) == []
 
 
 def test_every_page_ready_wait_names_the_writers_two_end_values() -> None:
@@ -89,3 +95,10 @@ def test_every_page_ready_wait_names_the_writers_two_end_values() -> None:
 def test_the_panel_rule_table_lists_every_rule() -> None:
     listed = set(re.findall(r"^\| `([A-Z_]+)` \|", _PANEL_SKILL, re.M))
     assert listed == {rule.name for rule in PanelRule}
+
+
+def test_the_panel_rule_table_states_each_rules_consequence() -> None:
+    rows = re.findall(r"^\| `([A-Z_]+)` \| ([a-z]+) \|", _PANEL_SKILL, re.M)
+    assert {name for name, _ in rows} == {rule.name for rule in PanelRule}
+    for name, consequence in rows:
+        assert consequence == PanelRule[name].consequence.value, name
