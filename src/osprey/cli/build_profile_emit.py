@@ -554,8 +554,8 @@ _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
 # service; excluded_plans removes shipped plans from the catalog. The bridge
 # and the Tiled catalog take the bluesky and tiled slots of this deployment's
 # port block, so neither is a number you write here: move the whole block with
-# `config: deployment.port_base`, or pin this one service outside it with the
-# override below.""",
+# `config: deployment.port_base`, or pin this one service outside it with a
+# `port` key in this block.""",
         """\
 # bluesky:
 #   port: <host port>
@@ -594,8 +594,8 @@ _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
 # with no store container, and 14 days of retention.
 #
 # The block is the deployment's, so a tier file may not spell it. The service
-# takes the agent_record slot of this deployment's port block; `port` below
-# pins it outside that block instead of moving the block with
+# takes the agent_record slot of this deployment's port block; a `port` key in
+# this block pins it outside that block instead of moving the block with
 # `config: deployment.port_base`.
 #
 # A named reader reads only the kinds it lists (every kind when `kinds` is
@@ -667,8 +667,9 @@ _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
 #
 # The password is never written here: `osprey up` mints it into the
 # deployment's .env under the name password_env gives. The store takes the
-# mongo slot of this deployment's port block; port_host below pins it outside
-# that block instead of moving the block with `config: deployment.port_base`.
+# mongo slot of this deployment's port block; a `port_host` key in this block
+# pins it outside that block instead of moving the block with
+# `config: deployment.port_base`.
 #
 # An attached project (deploy_services: false) deploys no store of its own and
 # must set `host` to the machine whose archive it reads.""",
@@ -680,8 +681,8 @@ _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
         """\
 # --- Bluesky web panels ------------------------------------------------------
 # Scan-monitoring panels for the web terminal (requires the bluesky block). The
-# sidecar takes the bluesky_web slot of this deployment's port block; the
-# override below pins it outside that block.""",
+# sidecar takes the bluesky_web slot of this deployment's port block; a `port`
+# key in this block pins it outside that block.""",
         """\
 # bluesky_web:
 #   port: <host port>
@@ -706,8 +707,8 @@ _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
 # --- Optimizer web panel -----------------------------------------------------
 # The OPTIMIZER tab for the web terminal (requires the optimizer block): where
 # a person reviews and starts the run an agent drafted. The sidecar takes the
-# optimizer_web slot of this deployment's port block; the override below pins
-# it outside that block.""",
+# optimizer_web slot of this deployment's port block; a `port` key in this
+# block pins it outside that block.""",
         """\
 # optimizer_web:
 #   port: <host port>
@@ -826,7 +827,7 @@ def _commented_template(field: str) -> str:
     return f"\n{header}\n#\n{example}"
 
 
-# Append order for the commented templates, so two emissions of the same preset
+# Slot order for the opt-in blocks, so two emissions of the same preset
 # are byte-identical and diffs between presets stay readable. Deployment-shaping
 # keys first, facility extension points next, optional services last.
 _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
@@ -1764,9 +1765,11 @@ def emit_standalone_profile_yaml(
     # commented base contributes most comments and each child layer brings the
     # comments for the keys it introduces.
     doc: CommentedMap | None = None
+    chain_texts: list[str] = []
     for layer_path in reversed(chain):
-        with open(layer_path, encoding="utf-8") as f:
-            layer_doc = _yaml.load(f)
+        layer_text = layer_path.read_text(encoding="utf-8")
+        chain_texts.append(layer_text)
+        layer_doc = _yaml.load(layer_text)
         if not isinstance(layer_doc, CommentedMap):  # pragma: no cover - presets are mappings
             continue
         if doc is None:
@@ -1793,16 +1796,28 @@ def emit_standalone_profile_yaml(
         doc.insert(list(doc.keys()).index("name") + 1, "project_name", project_name)
         _relocate_trailing(doc, "name", "project_name")
 
-    _sync_to_resolved(doc, resolved)
+    # An opt-in block the preset's text does not place (a `--set` or an extra
+    # layer made it) is written in its own slot, under its section header,
+    # rather than appended by the sync. A preset that carries the block's
+    # commented key at column 0 keeps that placement instead.
+    slots = {
+        field: CommentedMap({field: resolved[field]})
+        for field in _COMMENTED_TEMPLATE_ORDER
+        if field in resolved
+        and field not in doc
+        and not any(re.search(rf"^# {field}:", layer, re.MULTILINE) for layer in chain_texts)
+    }
+    _sync_to_resolved(doc, {key: value for key, value in resolved.items() if key not in slots})
 
     # Each written default says what it bounds or names, the comments aligned
     # two columns past the longest written line. The trailing block a key holds
     # (the next section's header, which the sync moved onto the last appended
     # key) is lifted off and put back so the end-of-line comment sits before it.
     for block, keys in block_filled.items():
-        node = doc[block]
+        holder = slots.get(block, doc)
+        node = holder[block]
         if not isinstance(node, CommentedMap):
-            node = doc[block] = CommentedMap(node)
+            node = holder[block] = CommentedMap(node)
         column = max(len(f"  {key}: {node[key]}") for key in keys) + 2
         for key in keys:
             trailing = _take_trailing(node, key)
@@ -1856,11 +1871,16 @@ def emit_standalone_profile_yaml(
     # so the opt-in surface of the six selection lists is visible in place.
     text = _insert_artifact_menus(text)
 
-    # Opt-in knobs the resolved profile does not carry appear as documented
-    # commented templates, so no configurable surface is invisible. A preset
-    # whose own comments already carry the commented key keeps that one, so
-    # uncommenting either can never produce a duplicate key.
+    # Each opt-in slot in order: a slotted block live under its section header,
+    # and a knob the resolved profile does not carry as its documented commented
+    # template, so no configurable surface is invisible. A preset whose own
+    # comments already carry the commented key keeps that one, so uncommenting
+    # either can never produce a duplicate key.
     for field in _COMMENTED_TEMPLATE_ORDER:
-        if field not in resolved and f"\n# {field}:" not in text:
+        if field in slots:
+            rendered = io.StringIO()
+            _yaml.dump(slots[field], rendered)
+            text += f"\n{_COMMENTED_TEMPLATES[field][0]}\n{rendered.getvalue()}"
+        elif field not in resolved and f"\n# {field}:" not in text:
             text += _commented_template(field)
     return text
