@@ -1034,9 +1034,72 @@ async def test_external_plan_catalog_is_the_managers_own(connector, fast_backend
     assert scan["provenance"] == "facility"
     assert scan["description"] == "Run one validated ScanRequest."
     assert scan["schema"]["required"] == ["request"]
-    assert scan["schema"]["properties"]["dry_run"]["default"] == "False"
+    assert scan["schema"]["properties"]["dry_run"]["default"] is False
+    assert scan["schema"]["properties"]["dry_run"]["type"] == "boolean"
     # A non-mapping description still yields a name-only entry.
     assert catalog[0]["schema"]["properties"] == {}
+
+
+async def test_external_catalog_decodes_the_managers_default_text(connector, fast_backend) -> None:
+    """Each default the manager encodes as literal text is stated as its value."""
+    from bluesky_queueserver.manager.profile_ops import _process_plan
+
+    def plan(
+        detector="abc",
+        num=10,
+        step=0.5,
+        positions=[1.0, 2.5],  # noqa: B006
+        md=None,
+        flag=False,
+        label="it's",
+    ):
+        yield (detector, num, step, positions, md, flag, label)
+
+    connector("epics")
+    described = _process_plan(plan, existing_devices={}, existing_plans={})
+    manager = FakeManager(plans_allowed={"success": True, "plans_allowed": {"plan": described}})
+    catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    schema = catalog[0]["schema"]
+    props = schema["properties"]
+    assert (props["detector"]["default"], props["detector"]["type"]) == ("abc", "string")
+    assert props["num"]["default"] == 10
+    assert props["num"]["type"] == "number"
+    assert (props["step"]["default"], props["step"]["type"]) == (0.5, "number")
+    assert props["flag"]["default"] is False
+    assert props["flag"]["type"] == "boolean"
+    assert (props["label"]["default"], props["label"]["type"]) == ("it's", "string")
+    for pname in ("positions", "md"):
+        assert "default" not in props[pname]
+        assert "type" not in props[pname]
+    assert "required" not in schema
+
+
+async def test_external_catalog_states_no_default_it_cannot_decode(connector, fast_backend) -> None:
+    """A default that is not literal text leaves the parameter optional, value unstated."""
+    connector("epics")
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {
+                "plan": {
+                    "name": "plan",
+                    "parameters": [
+                        {"name": "computed", "default": "make_it()"},
+                        {"name": "raw", "default": 5},
+                    ],
+                }
+            },
+        }
+    )
+    catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    schema = catalog[0]["schema"]
+    assert schema["properties"] == {
+        "computed": {"title": "computed"},
+        "raw": {"title": "raw"},
+    }
+    assert "required" not in schema
 
 
 async def test_external_catalog_grafts_a_facility_published_parameter_schema(
