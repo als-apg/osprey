@@ -25,6 +25,7 @@ Every size, spacing and font size is in the constants block below.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import itertools
 import json
 import math
@@ -535,6 +536,8 @@ _SCALED_FROM = "scaled from the {}"
 _SCHEMATIC = "{} at default proportions"
 _BEAM_AXIS = "beam axis"
 _ELLIPSIS = "\u2026"
+#: While :func:`render` runs with ``cuts``: the list each label cut to fit is added to.
+_CUTS: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar("cuts", default=None)
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
 _WHOLE_KINDS = frozenset({"state", "command"})  # an enum, a two-valued output: printed whole
@@ -6651,6 +6654,9 @@ def _cut(text: str, width: float, size: float) -> str:
     """*text* cut to fit *width* at *size* by :func:`text_width`, an ellipsis marking the cut."""
     if text_width(text, size) <= width:
         return text
+    cuts = _CUTS.get()
+    if cuts is not None:
+        cuts.append(text)
     room = math.floor((width - TEXT_PAD) / (size * CHAR_WIDTH))
     return text[: room - 1] + _ELLIPSIS if room > 1 else ""
 
@@ -6998,6 +7004,7 @@ def render(
     screens: Callable[[Target], str | None],
     doc_id: str,
     colours: Mapping[str, str] = MappingProxyType({}),
+    cuts: list[str] | None = None,
 ) -> dict[str, Any]:
     """The view as a Screen-IR 1.1 document.
 
@@ -7011,8 +7018,14 @@ def render(
         colours: The fill of each symbol on a strip, by symbol name (the
             drawing settings' ``colours``); a symbol not named is filled with
             the panel's ground.
+        cuts: When given, each label the layout cuts to fit is added to it, as it
+            was before the cut.
 
     Returns:
         The document, as JSON-ready data. Equal inputs give equal documents.
     """
-    return _Page(view, graph, screens, doc_id, colours).draw()
+    token = _CUTS.set(cuts)
+    try:
+        return _Page(view, graph, screens, doc_id, colours).draw()
+    finally:
+        _CUTS.reset(token)
