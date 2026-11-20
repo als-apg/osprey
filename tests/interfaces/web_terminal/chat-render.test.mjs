@@ -37,6 +37,7 @@ import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
 
 import { qs } from '../_support/dom.mjs';
 
+import { initChatAnnounce } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-announce.js';
 import { renderMarkdownInto } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-markdown.js';
 import { createChatRenderer } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
 import {
@@ -1136,17 +1137,66 @@ describe('createChatRenderer', () => {
       }
     );
 
-    test('a waiting approval takes focus on its primary control where it sits under the row', () => {
-      document.body.append(container);
-      try {
-        const r = createChatRenderer(container, { answerPermission: vi.fn() });
-        r.handleEvent(call('t1'));
-        r.handleEvent(ask('t1', 'req-1'));
-        expect(document.activeElement).toBe(qs(container, '.op-btn-primary'));
-      } finally {
-        container.remove();
+    test.each([
+      ['in a text field', () => document.createElement('input')],
+      ['on a panel iframe', () => document.createElement('iframe')],
+    ])(
+      'a new approval or question leaves the focus %s, is announced, and a Space or Enter there answers nothing',
+      async (_where, make) => {
+        const holder = make();
+        const host = document.createElement('div');
+        host.append(holder, container);
+        document.body.append(host);
+        const stopAnnounce = initChatAnnounce({ container: host });
+        try {
+          const region = qs(host, '.op-announce');
+          holder.focus();
+          expect(document.activeElement).toBe(holder);
+          const answerPermission = vi.fn(async () => {});
+          const r = createChatRenderer(container, { answerPermission });
+
+          r.handleEvent(call('t1'));
+          r.handleEvent(ask('t1', 'req-1'));
+          expect(document.activeElement).toBe(holder);
+          expect(region.textContent).toBe('Approval needed: Execute');
+
+          r.handleEvent({
+            type: 'permission_request',
+            request_id: 'q-1',
+            kind: 'question',
+            input: {
+              questions: [
+                {
+                  question: 'Which lattice?',
+                  header: 'Lattice',
+                  multiSelect: false,
+                  options: [
+                    { label: 'Top-off', description: '' },
+                    { label: 'Hybrid', description: '' },
+                  ],
+                },
+              ],
+            },
+          });
+          expect(document.activeElement).toBe(holder);
+          expect(region.textContent).toBe('Question from the agent');
+
+          for (const key of [' ', 'Enter']) {
+            for (const type of ['keydown', 'keyup']) {
+              holder.dispatchEvent(
+                new KeyboardEvent(type, { key, bubbles: true, cancelable: true })
+              );
+            }
+          }
+          await settle();
+          expect(answerPermission).not.toHaveBeenCalled();
+          expect(container.querySelectorAll('.op-card[data-state="pending"]')).toHaveLength(2);
+        } finally {
+          stopAnnounce();
+          host.remove();
+        }
       }
-    });
+    );
 
     test('a call allowed and then failed reads as one row: the decision, then the failure in its result', async () => {
       const r = createChatRenderer(container, { answerPermission: vi.fn(async () => {}) });

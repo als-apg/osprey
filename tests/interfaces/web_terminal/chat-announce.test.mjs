@@ -7,7 +7,7 @@
  * approval or question that needs the operator, each error, and each notice
  * the console puts in the log, once and live only. Replayed history is silent.
  * Every control the keyboard reaches is a named native control, and a new
- * card never takes focus from the composer.
+ * card never takes focus.
  */
 
 import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
@@ -514,25 +514,18 @@ describe('the keyboard path', () => {
 
 describe('focus', () => {
   test.each([
-    ['stays in the composer while it is typed in', { focused: true, disabled: false }, 'composer'],
-    [
-      'goes to the card when the composer is not in use',
-      { focused: false, disabled: false },
-      'card',
-    ],
-    [
-      'goes to the card when the composer is disabled for the turn',
-      { focused: true, disabled: true },
-      'card',
-    ],
-  ])('a new card: focus %s', (_name, composer, owner) => {
+    ['in the composer while it is typed in', { focused: true, disabled: false }],
+    ['where it is when the composer is not in use', { focused: false, disabled: false }],
+    ['where it is when the composer is disabled for the turn', { focused: true, disabled: true }],
+  ])('a new approval or question leaves the focus %s', (_name, composer) => {
     if (composer.focused) textarea.focus();
     else textarea.blur();
     textarea.disabled = composer.disabled;
+    const before = document.activeElement;
     r.beginTurn();
     askLive();
-    const expected = owner === 'composer' ? textarea : qs(container, '.op-btn-primary');
-    expect(document.activeElement).toBe(expected);
+    r.handleEvent(question('q-1'));
+    expect(document.activeElement).toBe(before);
   });
 
   test('a replayed approval takes no focus, because history is only drawn', () => {
