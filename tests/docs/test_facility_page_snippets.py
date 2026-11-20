@@ -155,12 +155,28 @@ def _by(key: str) -> Callable[[Path, Any], None]:
     return paste
 
 
+def _wiring_of(model: str) -> Callable[[Path, Any], None]:
+    """``models.yaml`` with each of *block*'s slots stated on *model*'s record of that address."""
+
+    def paste(path: Path, block: Any) -> None:
+        models = _load(path)
+        (named,) = [row for row in models if row.get("name") == model]
+        for record in block:
+            (wired,) = [row for row in named["wiring"] if row["address"] == record["address"]]
+            wired.update(record)
+        _dump(path, models)
+
+    return paste
+
+
 #: Blocks that state whole records, by first line: the preset file they belong
 #: to and how they go into it.
 PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "code: ca": ("identity.yaml", _update),
     "- id: SR/SECT1": ("records/places.yaml", _by("id")),
     "- id: SR:MAG:QF:01:CURRENT:SP": ("records/channels.yaml", _by("id")),
+    "- id: LINE:RACK:03:UNIT:01:X": ("records/channels.yaml", _by("id")),
+    "- address: LINE:DIAG:BPM:01:POSITION:X": ("models.yaml", _wiring_of("LINE")),
     "- class: Undulator": ("classes.yaml", _by("class")),
     "- name: taper_setpoint": ("signals.yaml", _by("name")),
     "# data/facility/imported/names/channels.yaml": (

@@ -734,6 +734,38 @@ value and the engine's physics value, as a ``linear`` gain and offset or a
 their seeds. Which models a deployment serves, and what a failed one looks like, is
 in :ref:`architecture-simulation-models`.
 
+A value served under more than one address has one wiring record. Each
+further address is a channel of its own:
+
+.. code-block:: yaml
+
+   - id: LINE:RACK:03:UNIT:01:X
+     label: BPM 01 horizontal position, as the rack unit names it
+
+and the record lists it under ``also``:
+
+.. code-block:: yaml
+
+   - address: LINE:DIAG:BPM:01:POSITION:X
+     also: [LINE:RACK:03:UNIT:01:X]
+     element: BPM01
+     engine:
+       axis: x
+
+Each address under ``also`` is a channel of ``records/channels.yaml`` with the
+``role``, ``value_type``, ``options`` and ``shape`` of the record's ``address``,
+and the same ``unit`` when both state one. It reads what ``address`` reads at
+the same instant, with the same calibration, motion and readout noise, and a
+write to it is a write to ``address``. It carries no seed of its own, and a
+limit is still stated per address. A pair is stated between
+records' ``address`` names: the build stops when an address under ``also``
+states a ``pair``, and when a setpoint's ``pair`` names an address under
+``also``. A fault variable is named by ``address``
+only (``LINE:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
+(``overrides``, ``noise``, ``couple``, ``channel_faults``, ``still``) may name
+either. An address belongs to one wiring record: the build stops when two
+records name it, and when two records read the same axis of one monitor.
+
 Measurement
 ===========
 
