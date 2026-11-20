@@ -1126,6 +1126,69 @@ def test_proxy_guard_accepts_the_declared_arg_idiom():
     assert carries_proxy_idiom(run_instructions(from_arg)[0])
 
 
+# ── The shell a RUN body runs under ─────────────────────────────────────────
+#
+# The RUN-body probes execute under dash because every recipe builds on a Debian
+# base, whose /bin/sh is dash, and none sets SHELL. Both halves are read here.
+
+#: Every recipe the probes stand in for: the literal files and the project template.
+EVERY_RECIPE = [*SHIPPED_DOCKERFILES, TEMPLATES_DIR / "project" / "Dockerfile.j2"]
+
+#: The ``FROM`` image past an optional Jinja platform block and the registry
+#: prefix (a Jinja expression may sit inside the image name), and the ``AS``
+#: name it declares.
+_FROM = re.compile(
+    r"^FROM\s+(?:\{%.*?%\}.*?\{%\s*endif\s*%\}\s*)?(?:--platform=\S+\s+)?"
+    r"(?:\$\{OSPREY_BASE_REGISTRY\}/library/)?(?P<image>(?:\{\{[^}]*\}\}|\S)+)(?:\s+AS\s+(?P<stage>\S+))?\s*$",
+    re.IGNORECASE,
+)
+_DEBIAN_BASE = re.compile(r"^(?:python:.+-slim|node:.*-bookworm.*)$")
+
+
+def _shell_failures(text: str) -> list[str]:
+    """What in a recipe breaks the premise that its RUN bodies run under dash."""
+    failures: list[str] = []
+    stages: set[str] = set()
+    for keyword, line in _instructions(text):
+        if keyword.upper() == "SHELL":
+            failures.append(f"sets a shell: {line}")
+        elif keyword.upper() == "FROM":
+            match = _FROM.match(line)
+            if match is None:
+                failures.append(f"unreadable base: {line}")
+                continue
+            image = match["image"]
+            if image not in stages and not _DEBIAN_BASE.match(image):
+                failures.append(f"not a Debian base: {line}")
+            if match["stage"]:
+                stages.add(match["stage"])
+    return failures
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    EVERY_RECIPE,
+    ids=[str(p.parent.relative_to(TEMPLATES_DIR)) + "/" + p.name for p in EVERY_RECIPE],
+)
+def test_no_template_dockerfile_sets_a_shell(dockerfile):
+    assert _shell_failures(dockerfile.read_text()) == []
+
+
+@pytest.mark.parametrize(
+    ("recipe", "failure"),
+    [
+        (
+            'FROM python:3.11-slim\nSHELL ["/bin/bash", "-c"]\nRUN true\n',
+            'sets a shell: SHELL ["/bin/bash", "-c"]',
+        ),
+        ("FROM alpine:3.20\nRUN true\n", "not a Debian base: FROM alpine:3.20"),
+        ("FROM base AS next\n", "not a Debian base: FROM base AS next"),
+    ],
+)
+def test_the_shell_guard_catches_a_recipe_off_dash(recipe, failure):
+    assert _shell_failures(recipe) == [failure]
+
+
 # ── Claude Code CLI pin parity ───────────────────────────────────────────────
 #
 # The framework's default CLI pin is spelled once in code
