@@ -25,13 +25,24 @@
 import { h } from './hyperscript.js';
 
 /**
+ * A plan's authoring metadata as the catalog serves it: three required keys
+ * and the optional presentation keys, `null` where the plan states none.
+ *
+ * @typedef {object} PlanMetadata
+ * @property {string} name
+ * @property {string} description
+ * @property {boolean} writes
+ * @property {string[][]|null} [layout]
+ */
+
+/**
  * One plan as the bridge's catalog (`GET /plans`) reports it.
  *
  * @typedef {object} PlanSummary
  * @property {string} name
  * @property {string} [description]
  * @property {import('./schema-form.js').JsonSchemaNode} [schema]
- * @property {unknown} [metadata]
+ * @property {PlanMetadata|null} [metadata]
  * @property {string} provenance
  */
 
