@@ -1,1 +1,1 @@
-When no container runtime is installed, the message now names Docker Engine 20.10 or newer as well as Docker Desktop 4.0 and Podman 4.0, so a Linux host is told which engine to install.
+When no container runtime is installed, the message now names Docker Engine 20.10 or newer, Docker Desktop 4.0 or newer and Podman 4.1 or newer, so a Linux host is told which engine to install; the deployment guide and the ARIEL setup page state the same floors. The Podman floor is 4.1 because older Podman cannot build the locked cache mounts the shipped images use.

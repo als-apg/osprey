@@ -18,7 +18,7 @@ up to date.
    - Overriding service images, and mirroring every image into one registry
    - Where the deeper reference lives: compose templates, networking, and the ``.env`` chain each have their own subpage
 
-   **Prerequisites:** Docker or Podman installed locally.
+   **Prerequisites:** Docker Engine 20.10 or newer (Docker Desktop 4.0 or newer on macOS and Windows) or Podman 4.1 or newer, and a supported compose provider (see :ref:`compose-provider-compatibility`).
 
 .. tip::
 
