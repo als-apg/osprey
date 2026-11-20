@@ -21,8 +21,9 @@ import pytest
 
 from osprey.deployment import runtime_helper
 from osprey.deployment.runtime_helper import (
-    PODMAN_COMPOSE_MIN_VERSION,
+    RUNTIME_FLOORS,
     ComposeProvider,
+    RuntimeProduct,
     UnsupportedComposeProviderError,
     detect_compose_provider,
     get_ps_command,
@@ -413,10 +414,12 @@ class TestDetectComposeProvider:
         message = str(excinfo.value)
         # Names both the version found and the floor it fell short of.
         assert "1.0.3" in message
-        assert ".".join(str(part) for part in PODMAN_COMPOSE_MIN_VERSION) in message
+        assert (
+            ".".join(str(part) for part in RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE]) in message
+        )
 
     def test_podman_compose_at_floor_is_accepted(self, monkeypatch):
-        floor = ".".join(str(part) for part in PODMAN_COMPOSE_MIN_VERSION)
+        floor = ".".join(str(part) for part in RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE])
         monkeypatch.setattr(
             runtime_helper.subprocess,
             "run",
@@ -426,7 +429,7 @@ class TestDetectComposeProvider:
         info = detect_compose_provider(["podman", "compose"])
 
         assert info.provider is ComposeProvider.PODMAN_COMPOSE
-        assert info.version == PODMAN_COMPOSE_MIN_VERSION
+        assert info.version == RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE]
 
     def test_unrecognized_banner_fails_closed_citing_supported_providers(self, monkeypatch):
         monkeypatch.setattr(
