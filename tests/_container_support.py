@@ -26,11 +26,13 @@ import functools
 import json
 import logging
 import shutil
+import socket
 import subprocess
 import time
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import Any, Literal, TypeVar
 
 import pytest
 import requests
@@ -542,6 +544,77 @@ class ForeignListenerError(AssertionError):
 
 #: How a readiness wait that a foreign listener ended opens its ``ending``.
 _FOREIGN_ENDING = "a foreign listener answered on the published port"
+
+
+#: Bytes of a reply :func:`probe_published_port` reads: enough for an HTTP
+#: status line, or to quote whatever else answered.
+_PORT_ANSWER_HEAD_BYTES = 64
+
+
+@dataclass(frozen=True)
+class PortAnswer:
+    """What answered one connection to a published port.
+
+    Attributes:
+        kind: ``"refused"`` when nothing took the connection, or something took
+            it and closed it without a byte; ``"http"`` when the reply opens
+            with an HTTP status line; ``"foreign"`` for any other reply.
+        status: The HTTP status code of an ``"http"`` answer, else ``None``.
+        head: The first bytes of the reply, empty for ``"refused"``.
+    """
+
+    kind: Literal["refused", "foreign", "http"]
+    status: int | None = None
+    head: bytes = b""
+
+
+def probe_published_port(
+    port: int, *, host: str = "127.0.0.1", path: str = "/health", timeout: float
+) -> PortAnswer:
+    """Say what answers on *host*:*port*: nothing, an HTTP server, or something else.
+
+    One raw connection, one ``GET`` and the reply's first line, so the answer
+    does not depend on any client library's reading of a reply that is not its
+    protocol. A reset or a close with no byte reads as refused, the same
+    reading :func:`_is_refused_connection` gives a wrapped client error: a
+    forwarder whose far side is not listening accepts and drops at once. A
+    listener that writes a few bytes and holds the connection open is read by
+    the bytes it wrote.
+
+    Args:
+        port: The published port on *host*.
+        host: The address the port is published on.
+        path: The request path sent, so an HTTP server answers a real request.
+        timeout: Seconds the connection and the read may each take.
+
+    Raises:
+        OSError: When the connection or the read neither succeeds nor is
+            refused within *timeout*, and no byte of a reply arrived.
+    """
+    head = b""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.sendall(f"GET {path} HTTP/1.0\r\nHost: {host}\r\n\r\n".encode("ascii"))
+            while len(head) < _PORT_ANSWER_HEAD_BYTES and b"\n" not in head:
+                chunk = sock.recv(_PORT_ANSWER_HEAD_BYTES - len(head))
+                if not chunk:
+                    break
+                head += chunk
+    except (ConnectionRefusedError, ConnectionResetError):
+        # A reset after the reply began still leaves the bytes that answered.
+        if not head:
+            return PortAnswer(kind="refused")
+    except TimeoutError:
+        # A listener that wrote and then held the connection is read by what it wrote.
+        if not head:
+            raise
+    if not head:
+        return PortAnswer(kind="refused")
+    if head.startswith(b"HTTP/"):
+        fields = head.split(maxsplit=2)
+        status = int(fields[1]) if len(fields) > 1 and fields[1].isdigit() else None
+        return PortAnswer(kind="http", status=status, head=head)
+    return PortAnswer(kind="foreign", head=head)
 
 
 class RuntimeContainer:
