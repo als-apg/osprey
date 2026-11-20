@@ -2030,8 +2030,48 @@ Files an earlier run listed and that are no screen any more are deleted;
 nothing else is touched, and a non-empty <code class="docutils literal notranslate"><span class="pre">--out</span></code> without an
 <code class="docutils literal notranslate"><span class="pre">index.json</span></code> is refused. <code class="docutils literal notranslate"><span class="pre">--kind</span></code> (repeatable) and <code class="docutils literal notranslate"><span class="pre">--under</span></code> write
 only the screens that match; links to the others are still written. The
-command prints the screen count and size per view kind and the <code class="docutils literal notranslate"><span class="pre">--top</span></code>
-largest screens (default 10).</p>
+command prints the screen count and size per view kind, the class summary
+(see <code class="docutils literal notranslate"><span class="pre">panels</span> <span class="pre">classes</span></code>) and the <code class="docutils literal notranslate"><span class="pre">--top</span></code> largest screens (default 10).</p>
+<p>Each entry of <code class="docutils literal notranslate"><span class="pre">index.json</span></code> names its screen’s <code class="docutils literal notranslate"><span class="pre">class</span></code>, and the index’s
+<code class="docutils literal notranslate"><span class="pre">classes</span></code> table states, per class, its key, its <code class="docutils literal notranslate"><span class="pre">standard</span></code> screen, its
+member count, how many members are <code class="docutils literal notranslate"><span class="pre">off_standard</span></code>, how many have a <code class="docutils literal notranslate"><span class="pre">cut</span></code>
+label, a <code class="docutils literal notranslate"><span class="pre">layout</span></code> hash and a <code class="docutils literal notranslate"><span class="pre">sample</span></code>; <code class="docutils literal notranslate"><span class="pre">class_summary</span></code> holds the counts
+a gate reads, with the classes of one screen per view kind. Two screens are
+of one class when they have one key: for a device’s card and its channel
+list, the device’s class, the card recipe it is drawn from and the set of
+signal roles the card shows (a role played by two channels counts once; the
+driver-internal role and channels with no role are not in it); for a
+calibration overview, its calibration kind and its structure (a gain and an
+offset are judged apart even where they are drawn alike); for every other
+screen (a set, a place, a rack, a roll-up, a checkout, the card of a place or
+a group), its view kind, the kind of thing it shows and its structure. The
+device types of a set’s members are names, not a layout, and are not in its
+key.</p>
+<p>Sameness is measured on what a screen shows, not on its file. Its structure
+is its sections and the kinds of item, block and relation they hold. Left
+out are text and numbers; how many items a repeated block holds and their
+order (a size); the parts that state what is known rather than what is drawn,
+such as a source, a unit, a stated position or a link to the thing’s screen
+(a gap where one is missing); and data-state flags such as inferred,
+contested or writable. The standard is the member whose structure most
+members share (a tie goes to the smaller structure hash), and the <code class="docutils literal notranslate"><span class="pre">layout</span></code>
+hash covers the standard’s structure, the panels format and the drawing
+settings: it changes when the class’s typical screen changes, not when a
+member is added or renamed.</p>
+<p>An entry off its standard lists how under <code class="docutils literal notranslate"><span class="pre">differs</span></code>, in words: a section,
+a kind of item, a block or a relation present or missing (<code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">tiles</span>
+<span class="pre">section</span></code>, <code class="docutils literal notranslate"><span class="pre">relations:</span> <span class="pre">a</span> <span class="pre">value</span> <span class="pre">row,</span> <span class="pre">which</span> <span class="pre">the</span> <span class="pre">standard</span> <span class="pre">has</span> <span class="pre">not</span></code>). What
+varies from the standard without making another screen is under
+<code class="docutils literal notranslate"><span class="pre">varies</span></code>: sizes (<code class="docutils literal notranslate"><span class="pre">foot:</span> <span class="pre">where:</span> <span class="pre">4,</span> <span class="pre">the</span> <span class="pre">standard</span> <span class="pre">3</span></code>), gaps, flags and
+drawing variants (a channel list drawn as a count above its size). Each
+entry also states its own <code class="docutils literal notranslate"><span class="pre">sizes</span></code>, <code class="docutils literal notranslate"><span class="pre">gaps</span></code> (per gap the count, such as
+<code class="docutils literal notranslate"><span class="pre">unit</span></code> or <code class="docutils literal notranslate"><span class="pre">where</span> <span class="pre">without</span> <span class="pre">a</span> <span class="pre">link</span></code>, for a checker to total per class),
+<code class="docutils literal notranslate"><span class="pre">flags</span></code>, its longest <code class="docutils literal notranslate"><span class="pre">label</span></code> in characters, and under <code class="docutils literal notranslate"><span class="pre">cuts</span></code> the labels
+the layout cut to fit. A class’s <code class="docutils literal notranslate"><span class="pre">sample</span></code> names the members a reviewer
+opens: the standard, the smallest, the largest, the one with the longest
+label, the first off standard, and one member on each side of every
+variation that changes the drawing (a part drawn with or without a stated
+position, a channel list drawn as a grid or a count).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">check</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--strict]</span> <span class="pre">[--max-bytes</span> <span class="pre">N]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--tables</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--facility</span> <span class="pre">FILE]</span> <span class="pre">[--draw</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Regenerate every screen and compare it with the files under <code class="docutils literal notranslate"><span class="pre">--out</span></code>;
 nothing is written. It prints the count of each problem kind and the first
@@ -2040,15 +2080,29 @@ nothing is written. It prints the count of each problem kind and the first
 <code class="docutils literal notranslate"><span class="pre">stamp</span></code>, <code class="docutils literal notranslate"><span class="pre">invalid</span></code>, <code class="docutils literal notranslate"><span class="pre">incomplete</span></code>, <code class="docutils literal notranslate"><span class="pre">oversize</span></code> (over
 <code class="docutils literal notranslate"><span class="pre">--max-bytes</span></code>), <code class="docutils literal notranslate"><span class="pre">unrolled</span></code> (a rule channel no roll-up reads),
 <code class="docutils literal notranslate"><span class="pre">static_rollup</span></code>, <code class="docutils literal notranslate"><span class="pre">long_formula</span></code> (an expression over the viewer’s
-length limit) or <code class="docutils literal notranslate"><span class="pre">over_budget</span></code> (more rules or channels than one screen
-may bind). A link outside the written set, a card or checkout over its
+length limit), <code class="docutils literal notranslate"><span class="pre">over_budget</span></code> (more rules or channels than one screen
+may bind) or <code class="docutils literal notranslate"><span class="pre">stale_class</span></code> (a screen’s class or what its entry states about
+it, or the class table or its summary, in <code class="docutils literal notranslate"><span class="pre">index.json</span></code> other than the
+model gives now). A link outside the written set, a card or checkout over its
 budget, a probe row whose signal no channel states, and a <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>
 row whose signal binds no channel (<code class="docutils literal notranslate"><span class="pre">unbound_picture</span></code>) or channels of two
 devices (<code class="docutils literal notranslate"><span class="pre">ambiguous_picture</span></code>) are notes, and fail only with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>.
 Before the problems it prints the device classes by how <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>
 draws them (with a drawing, with parts only, with none) and, per class, the
 parts not placed (no position and no angle): information, never a problem.
-A clean set prints <code class="docutils literal notranslate"><span class="pre">The</span> <span class="pre">written</span> <span class="pre">screens</span> <span class="pre">match</span> <span class="pre">the</span> <span class="pre">model.</span></code></p>
+After the problems it prints the class summary from the index. A clean set
+prints <code class="docutils literal notranslate"><span class="pre">The</span> <span class="pre">written</span> <span class="pre">screens</span> <span class="pre">match</span> <span class="pre">the</span> <span class="pre">model.</span></code></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">classes</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--differs]</span></code></dt><dd><p>Print the class table of the <code class="docutils literal notranslate"><span class="pre">index.json</span></code> under <code class="docutils literal notranslate"><span class="pre">--out</span></code>; nothing else is
+read. One row per class, the largest first: its members, those off the
+standard, those with a cut label, the class and its standard’s file; the
+first <code class="docutils literal notranslate"><span class="pre">--limit</span></code> rows (default 30, <code class="docutils literal notranslate"><span class="pre">0</span></code> for all). Then one row per view
+kind: its screens, classes, classes of one screen, screens off their
+standard and screens with a cut label. <code class="docutils literal notranslate"><span class="pre">--differs</span></code> adds every screen off
+its standard, and how. The last line is the summary a gate reads:
+<code class="docutils literal notranslate"><span class="pre">classes:</span> <span class="pre">N</span> <span class="pre">classes</span> <span class="pre">(S</span> <span class="pre">of</span> <span class="pre">more</span> <span class="pre">than</span> <span class="pre">one</span> <span class="pre">screen),</span> <span class="pre">M</span> <span class="pre">screens</span> <span class="pre">off</span> <span class="pre">their</span>
+<span class="pre">standard,</span> <span class="pre">C</span> <span class="pre">with</span> <span class="pre">a</span> <span class="pre">label</span> <span class="pre">cut;</span> <span class="pre">single:</span> <span class="pre">&lt;view&gt;</span> <span class="pre">&lt;count&gt;,</span> <span class="pre">...</span></code>. Exits 1 when
+the index is missing or holds no class table.</p>
 <p>Where a screen needs a widget the Screen-IR format lacks (a five-state
 light, a hatched fill, a scrolling table, clickable text, a condition on an
 enum label, a viewer- or server-side aggregate state, a rule longer than
