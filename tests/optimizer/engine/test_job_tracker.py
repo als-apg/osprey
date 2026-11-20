@@ -205,6 +205,7 @@ class TestClaimActiveJob:
         [
             pytest.param(1, True, id="claim_won"),  # Lua: NX claim won, meta written
             pytest.param(0, False, id="claim_lost"),  # Lua: slot already held, nothing written
+            pytest.param(-1, False, id="not_a_draft"),  # Lua: job started or ended, nothing written
         ],
     )
     def test_claim_active_job_uses_atomic_script(self, redis_mocks, lua_result: int, claimed: bool):
@@ -227,6 +228,7 @@ class TestClaimActiveJob:
         assert meta["status"] == JobStatus.RUNNING.value
         assert meta["pid"] == 0
         assert call_kwargs["args"][2] == RUNNING_STATE_TTL_SECONDS
+        assert call_kwargs["args"][3] == JobStatus.CREATED.value
         mock_redis.delete.assert_not_called()
 
     def test_claim_failure_preserves_created_meta(self, tracker: JobTracker) -> None:
@@ -261,6 +263,18 @@ class TestClaimActiveJob:
 
         assert tracker.claim_active_job("next-job", 0) is True
         assert tracker._get_redis().get(ACTIVE_JOB_KEY) == "next-job"
+
+    def test_the_claim_takes_nothing_from_an_ended_job(self, tracker: JobTracker) -> None:
+        """A job that has ended is no draft: the claim takes no slot and keeps its record."""
+        redis = tracker._get_redis()
+        job = _draft(tracker, "ended-draft")
+        _cancel(tracker, job)
+        before = redis.get(meta_key(job))
+
+        assert tracker.claim_active_job(job, 0) is False
+
+        assert redis.get(ACTIVE_JOB_KEY) is None
+        assert redis.get(meta_key(job)) == before
 
     def test_claim_success_sets_active_and_running_meta(self, tracker: JobTracker) -> None:
         """An uncontended claim takes the slot and writes RUNNING meta atomically."""
@@ -718,6 +732,31 @@ class TestOneEndStepIntegration:
             (JobStatus.RUNNING, JobStatus.RUNNING),
         } or (pair[0].is_terminal and pair[1] is JobStatus.COMPLETED), pair
 
+    def test_starting_a_cancelled_draft_twice_writes_nothing(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _draft(tracker, "cancelled-draft")
+        _cancel(tracker, job)
+        keys = _age_to(job, 100)
+        before = str_client.get(meta_key(job))
+        spawn_target = MagicMock()
+
+        for _ in range(2):
+            with pytest.raises(HTTPException) as exc:
+                launch_job(
+                    tracker=tracker,
+                    job_id=job,
+                    config_json="{}",
+                    make_writer=get_optimization_writer,
+                    spawn_target=spawn_target,
+                    spawn_args=(),
+                )
+            assert exc.value.status_code == 409
+
+        assert str_client.get(meta_key(job)) == before
+        _assert_ttls_within(keys, 100)
+        spawn_target.assert_not_called()
+        assert tracker.get_active_job() is None
+
 
 def _status_and_message(job_id: str) -> tuple[JobStatus, str | None]:
     writer = get_optimization_writer(job_id)
@@ -1056,16 +1095,26 @@ def _call(
         )
 
 
-def test_claim_failure_raises_409_without_spawning() -> None:
+@pytest.mark.parametrize(
+    ("current", "detail"),
+    [
+        pytest.param(JobStatus.CREATED, "A job is already running", id="slot_held"),
+        pytest.param(JobStatus.CANCELLED, "expected status 'created'", id="not_a_draft"),
+    ],
+)
+def test_claim_failure_raises_409_without_spawning(current: JobStatus, detail: str) -> None:
     tracker = MagicMock()
     tracker.claim_active_job.return_value = False
     make_writer = MagicMock()
+    make_writer.return_value.get_status.return_value = current
 
     with patch(f"{_JC}.multiprocessing") as mp, pytest.raises(HTTPException) as exc:
         _call(tracker, make_writer)
 
     assert exc.value.status_code == 409
-    make_writer.assert_not_called()
+    assert detail in exc.value.detail
+    tracker.start_claimed_job.assert_not_called()
+    tracker.end_job.assert_not_called()
     mp.get_context.assert_not_called()
 
 

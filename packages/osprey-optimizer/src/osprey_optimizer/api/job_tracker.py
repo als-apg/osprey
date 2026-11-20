@@ -48,11 +48,18 @@ ACTIVE_JOB_KEY = "api:active_job"
 # here, including a CREATED draft. get_current_job self-heals a vanished target.
 CURRENT_JOB_KEY = "api:current_job"
 
-# Atomic single-active-slot claim. KEYS[1]=ACTIVE_JOB_KEY, KEYS[2]=meta_key.
-# ARGV[1]=job_id, ARGV[2]=running-meta JSON, ARGV[3]=ttl seconds.
-# Only writes the RUNNING meta if the NX claim on the active slot succeeds, so a
-# lost race leaves any pre-existing (e.g. CREATED) meta at KEYS[2] untouched.
+# Atomic single-active-slot claim, for a draft only. KEYS[1]=ACTIVE_JOB_KEY,
+# KEYS[2]=meta_key. ARGV[1]=job_id, ARGV[2]=running-meta JSON, ARGV[3]=ttl
+# seconds, ARGV[4]=the CREATED status value. Returns -1 when the job has a
+# record that is not a draft's (it has started or ended), 0 when another job
+# holds the slot, and writes nothing in either case; else takes the slot, writes
+# the RUNNING meta and returns 1. A lost race leaves any pre-existing (e.g.
+# CREATED) meta at KEYS[2] untouched.
 _CLAIM_ACTIVE_JOB_LUA = """
+local meta = redis.call('GET', KEYS[2])
+if meta and cjson.decode(meta)['status'] ~= ARGV[4] then
+    return -1
+end
 if redis.call('SET', KEYS[1], ARGV[1], 'NX') then
     redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
     return 1
@@ -470,14 +477,16 @@ class JobTracker:
         logger.info("Registered CREATED job %s (slot not claimed)", job_id)
 
     def claim_active_job(self, job_id: str, pid: int) -> bool:
-        """Atomically claim the single active-job slot for a brand-new job.
+        """Atomically claim the single active-job slot for a draft.
 
         Runs one Lua script: ``SET ACTIVE_JOB_KEY job_id NX`` and, only if that
         succeeds, ``SET meta_key running-meta EX ttl`` — so a concurrent
         :meth:`get_active_job` observes a RUNNING job the instant the active key
         appears, while a *lost* race writes nothing and leaves the job's
-        pre-existing (CREATED) metadata intact. Returns False if another job
-        already holds the slot.
+        pre-existing (CREATED) metadata intact. A job whose record is not a
+        draft's (it has started or ended) is refused before the slot is tried,
+        and nothing is written. Returns False when another job holds the slot or
+        the job is not a draft.
 
         A slot left by a job that died without releasing it (its keys expired
         with its heartbeat) is cleared first, by :meth:`get_active_job`; the
@@ -490,11 +499,15 @@ class JobTracker:
                 job_id,
                 _meta_json(job_id, pid, JobStatus.RUNNING),
                 RUNNING_STATE_TTL_SECONDS,
+                JobStatus.CREATED.value,
             ],
         )
         if claimed == 1:
             logger.info("Claimed active slot for job %s with PID %s", job_id, pid)
             return True
+        if claimed == -1:
+            logger.info("Job %s is not a draft; the active slot was not claimed", job_id)
+            return False
         logger.info("Job %s could not claim active slot; another job is already active", job_id)
         return False
 
