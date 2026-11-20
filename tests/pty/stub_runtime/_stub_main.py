@@ -24,9 +24,9 @@ Three contracts the callers depend on, each load-bearing:
   deploy is broken", which is the harder failure to read. Unrecognized calls are
   recorded with ``"handled": false`` instead, and the gate reads that flag.
 * **Every invocation is logged**, one JSON object per line, to
-  ``$OSPREY_STUB_RUNTIME_LOG`` — argv, cwd, stdin, the resolved seam, and
-  whether it was handled. Appended under an exclusive lock, because compose
-  invocations overlap.
+  ``$OSPREY_STUB_RUNTIME_LOG`` — argv, cwd, stdin, the resolved seam,
+  whether it was handled, and which compose files each reader opened.
+  Each line is one append-mode write, because compose invocations overlap.
 * **Answers are plausible, and consistent with each other.** ``compose up``
   reads the service names out of the very compose files it was handed and
   records them in ``$OSPREY_STUB_RUNTIME_STATE``, so the ``ps`` that follows
@@ -299,6 +299,23 @@ def write_state(state: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+#: The compose files this invocation opened, per reader (``services`` or
+#: ``labels``), in the order opened. Logged with the invocation, so a test sees
+#: what the stub read and not only what it was handed: a file that declares no
+#: services (the base network file) changes nothing else the stub reports.
+_FILES_READ: dict[str, list[str]] = {}
+
+
+def _read_compose_file(reader: str, compose_file: Path) -> list[str] | None:
+    """*compose_file*'s lines, noted as read by *reader*; ``None`` if unreadable."""
+    try:
+        lines = compose_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    _FILES_READ.setdefault(reader, []).append(str(compose_file))
+    return lines
+
+
 #: A ``services:`` key: two spaces of indent under the top-level block. Crude on
 #: purpose — the stub reads rendered compose files, which are emitted by
 #: OSPREY's own generator in exactly this shape, and a YAML dependency in a
@@ -319,9 +336,8 @@ def services_in(compose_file: Path) -> list[tuple[str, str]]:
     itself would name it if it had to: the service name stands in, and the
     caller prefixes the project.
     """
-    try:
-        lines = compose_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    lines = _read_compose_file("services", compose_file)
+    if lines is None:
         return []
 
     found: list[tuple[str, str]] = []
@@ -354,9 +370,8 @@ def labels_in(compose_file: Path) -> dict[str, list[str]]:
     path selects this checkout's containers by one of them, so a started
     container has to carry them.
     """
-    try:
-        lines = compose_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    lines = _read_compose_file("labels", compose_file)
+    if lines is None:
         return {}
 
     found: dict[str, list[str]] = {}
@@ -801,6 +816,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     raw = list(sys.argv if argv is None else argv)
     args = raw[1:]
+    _FILES_READ.clear()
     stdin_text = _read_stdin()
     is_compose, seam, remainder = split_argv(args)
 
@@ -818,6 +834,7 @@ def main(argv: list[str] | None = None) -> int:
                 "compose": is_compose,
                 "seam": f"compose {seam}".strip() if is_compose else seam,
                 "handled": handled,
+                "read": {reader: list(files) for reader, files in _FILES_READ.items()},
                 "cwd": os.getcwd(),
                 "stdin": stdin_text,
                 "pid": os.getpid(),

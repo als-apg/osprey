@@ -64,3 +64,12 @@ def test_an_opted_out_login_names_the_switch_in_its_config(built: Path, login: s
     config = yaml.safe_load((built / f"{REPO}-{login}" / "config.yml").read_text(encoding="utf-8"))
 
     assert config["claude_code"]["servers"][SERVER]["enabled"] is False
+
+
+@pytest.mark.parametrize(
+    "render", ["", *(f"{REPO}-{login}" for login in LOGINS)], ids=["host", *LOGINS]
+)
+def test_the_configured_section_reaches_the_render(built: Path, render: str) -> None:
+    config = yaml.safe_load((built / render / "config.yml").read_text(encoding="utf-8"))
+
+    assert config["channel_directory"] == SECTION
