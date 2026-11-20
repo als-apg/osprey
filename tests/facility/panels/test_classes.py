@@ -2,22 +2,51 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import types
+import typing
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from osprey.facility.panels import load_graph
-from osprey.facility.panels.classes import Sample, standard, summary
+from osprey.facility.panels.classes import (
+    FLAGS,
+    GAP_PARTS,
+    SIZE_PARTS,
+    STRUCTURE_FLAGS,
+    STRUCTURE_PARTS,
+    VALUE_FLAGS,
+    Measure,
+    Sample,
+    classify,
+    measure,
+    standard,
+    summary,
+    summary_line,
+)
 from osprey.facility.panels.emit import Draw, check, load_draw, write
 from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import Target
+from osprey.facility.panels.view import (
+    ChainBlock,
+    Fact,
+    Link,
+    Section,
+    Target,
+    ValueRow,
+    View,
+)
 from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
 
 PUMP_CARDS = ("card-xr01-ip2", "card-xr02-ip1", "card-xr02-ip2")
 #: Of the four pumps, XR01:IP1 also states a status (XR02:IP2's interlock is excluded).
 PUMP_APART = "card-xr01-ip1"
+#: XR02:IP1 states a pose in the ring frame and cites its source; the other pumps do not.
+PUMP_KNOWN_MORE = "card-xr02-ip1"
+#: Of the two dipoles, one has a calibration and its card a calibration section.
+DIPOLE_OFF = "card-xr02-bend1"
 
 
 def _graph(tmp_path: Path, change=None, name: str = "f") -> PanelGraph:
@@ -48,6 +77,19 @@ def test_every_screen_states_a_class_the_table_counts(written):
         members = [e["file"] for e in entries if e["class"] == name]
         assert row["standard"] in members
         assert row["members"] == len(members)
+        assert row["sample"][0] == row["standard"]
+        assert set(row["sample"]) <= set(members)
+
+
+def test_differs_means_off_standard_and_nothing_else(written):
+    table = written["classes"]
+    assert sum(1 for e in written["screens"] if e.get("differs")) == sum(
+        c["off_standard"] for c in table.values()
+    )
+    for entry in written["screens"]:
+        if entry["file"] == table[entry["class"]]["standard"]:
+            assert "differs" not in entry
+            assert "varies" not in entry
 
 
 def test_pumps_with_one_set_of_signals_share_a_class(written):
@@ -62,11 +104,14 @@ def test_pumps_with_one_set_of_signals_share_a_class(written):
     }
 
 
-def test_a_place_and_a_rollup_are_each_their_own_class(written):
-    for entry in written["screens"]:
-        if entry["kind"] in ("place", "rack", "rollup", "checkout", "home"):
-            assert entry["class"] == entry["id"]
-            assert written["classes"][entry["id"]]["members"] == 1
+def test_places_and_checkouts_built_alike_share_a_class(written):
+    entries = _entries(written)
+    (checkouts,) = {entries[c]["class"] for c in ("checkout-xr-xr01", "checkout-xr-xr02")}
+    key = written["classes"][checkouts]["key"]
+    assert key["view"] == "checkout"
+    assert key["kind"] == "place"
+    assert len(key["structure"]) == 16
+    assert entries["place-xr-xr01"]["class"] == entries["place-xr-xr02"]["class"]
 
 
 def test_the_class_id_depends_on_the_key_alone(tmp_path, written):
@@ -84,7 +129,7 @@ def test_the_class_id_depends_on_the_key_alone(tmp_path, written):
     assert fewer["card-xr01-ip2"]["class"].startswith("card-class-pump-default-")
 
 
-def test_a_repeated_role_stays_in_the_class_and_its_count_is_stated(tmp_path, written):
+def test_a_repeated_role_keeps_the_class_and_only_what_it_draws_otherwise_is_off(tmp_path, written):
     def second_gauge(document: dict[str, Any]) -> None:
         document["channels"].append(
             {
@@ -96,45 +141,57 @@ def test_a_repeated_role_stays_in_the_class_and_its_count_is_stated(tmp_path, wr
             }
         )
 
-    entries = _entries(_written(_graph(tmp_path, second_gauge), tmp_path / "out"))
-    assert entries["card-xr02-ip2"]["class"] == _entries(written)["card-xr02-ip2"]["class"]
-    # three members of three structures: the standard is the smallest hash, so either side
-    words = {w for e in entries.values() for w in e.get("differs", ())}
-    assert words & {
-        "2 rows of vacuum_readback, the standard has 1",
-        "1 row of vacuum_readback, the standard has 2",
-    }
+    index = _written(_graph(tmp_path, second_gauge), tmp_path / "out")
+    entries = _entries(index)
+    pump = entries["card-xr02-ip2"]
+    assert pump["class"] == _entries(written)["card-xr02-ip2"]["class"]
+    # two readbacks of the key role have no one key tile: a section is missing
+    assert pump["differs"] == ["no tiles section"]
+    assert index["classes"][pump["class"]]["off_standard"] == 1
+    assert "all channels: rows: 2, the standard 1" in pump["varies"]
 
 
-def test_a_member_off_its_standard_says_how_in_words(written):
+def test_what_is_known_varies_and_its_gaps_are_named(written):
     entries = _entries(written)
-    # XR02:IP1 states a pose in the ring frame and cites its source; the standard does not
-    assert "foot: 2 lines under where, the standard has 1" in entries["card-xr02-ip1"]["differs"]
-    assert "foot: 1 source, the standard has 0" in entries["card-xr02-ip1"]["differs"]
-    assert written["classes"][entries["card-xr02-ip1"]["class"]]["off_standard"] == 1
-    for card in PUMP_CARDS:
-        if entries[card]["file"] == written["classes"][entries[card]["class"]]["standard"]:
-            assert "differs" not in entries[card]
+    known = entries[PUMP_KNOWN_MORE]
+    assert "differs" not in known
+    assert "foot: where: 4, the standard 3" in known["varies"]
+    assert "foot: citations: 1, the standard 0" in known["varies"]
+    assert known["gaps"]["where without a link"] == 1  # the pose is plain text, no link
+    assert "where without a link" not in entries["card-xr01-ip2"]["gaps"]
 
 
-def test_a_label_the_layout_cuts_is_stated(written):
-    cut = [w for e in written["screens"] for w in e.get("differs", ()) if w.startswith("label cut")]
-    assert "label cut: XR02-QD1:Current-RB" in cut
+def test_a_section_present_or_missing_puts_a_member_off_standard(written):
+    entries = _entries(written)
+    off = entries[DIPOLE_OFF]
+    assert off["differs"] == ["a calibration section, which the standard has not"]
+    row = written["classes"][off["class"]]
+    assert row["off_standard"] == 1
+    assert off["file"] in row["sample"]
+
+
+def test_a_label_the_layout_cuts_is_stated_apart_from_the_class(written):
+    cut = [w for e in written["screens"] for w in e.get("cuts", ())]
+    assert "XR02-QD1:Current-RB" in cut
+    assert not [w for e in written["screens"] for w in e.get("differs", ()) if "cut" in w]
     assert sum(c["cut"] for c in written["classes"].values()) == sum(
-        any(w.startswith("label cut") for w in e.get("differs", ())) for e in written["screens"]
+        bool(e.get("cuts")) for e in written["screens"]
     )
 
 
-def test_the_summary_counts_classes_and_screens_off_their_standard(written):
+def test_the_summary_is_in_the_index_and_counts_single_classes_per_view(written):
     table = written["classes"]
-    shared = sum(1 for c in table.values() if c["members"] > 1)
-    off = sum(c["off_standard"] for c in table.values())
-    assert summary(table).startswith(f"{len(table)} classes ({shared} of more than one screen), ")
-    assert f"{off} screens off their standard" in summary(table)
+    counts = written["class_summary"]
+    assert counts == summary(table)
+    assert counts["shared"] == sum(1 for c in table.values() if c["members"] > 1)
+    assert sum(counts["single"].values()) == counts["classes"] - counts["shared"]
+    line = summary_line(counts)
+    assert line.startswith(f"{len(table)} classes ({counts['shared']} of more than one screen), ")
+    assert f"{counts['off_standard']} screens off their standard" in line
 
 
-def _sample(file: str, structure: str) -> Sample:
-    return Sample(file, Target("card", "device", file), "c", {}, structure, 100)
+def _sample(file: str, structure: str, **measured: Any) -> Sample:
+    return Sample(file, Target("card", "device", file), "c", {}, Measure((), structure, **measured))
 
 
 def test_the_standard_is_the_structure_most_members_share_not_the_first_file():
@@ -143,6 +200,98 @@ def test_the_standard_is_the_structure_most_members_share_not_the_first_file():
     assert standard(reversed(members)).file == "b"  # whatever the order
     tie = [_sample("a", "f1"), _sample("b", "e2")]
     assert standard(tie).file == "b"  # the smaller structure hash
+
+
+def test_the_sample_spans_sizes_labels_and_each_side_of_a_drawing_variant():
+    grid = {"channel list": "ChannelGrid"}
+    members = [
+        _sample("a", "s", sizes={"rows": 3}, label=10, variants=grid),
+        _sample("b", "s", sizes={"rows": 3}, label=10, variants=grid),
+        _sample("c", "s", sizes={"rows": 1}, label=10, variants=grid),
+        _sample("d", "s", sizes={"rows": 9}, label=10, variants=grid),
+        _sample("e", "s", sizes={"rows": 3}, label=40, variants=grid),
+        _sample("f", "s", sizes={"rows": 3}, label=10, variants={"channel list": "ChannelCount"}),
+        _sample("g", "t", sizes={"rows": 3}, label=10, variants=grid),
+        _sample("h", "s", sizes={"rows": 3}, label=10, variants=grid, gaps={"x_mm": 1}),
+    ]
+    table, entries = classify(members, stamp="x")
+    picked = table["c"]["sample"]
+    assert picked[:5] == ["a", "c", "d", "e", "g"]  # standard, smallest, largest, label, off
+    assert "f" in picked  # drawn as a count, not a grid
+    assert "h" in picked  # a part drawn without a stated position
+    assert "b" not in picked
+    assert entries["f"]["varies"] == [
+        "channel list drawn as ChannelCount, the standard as ChannelGrid"
+    ]
+    assert entries["g"]["differs"]
+    assert "differs" not in entries["f"]
+
+
+def _view(*items: Any) -> View:
+    return View(Target("card", "device", "x"), "x", (), (Section("relations", tuple(items)),))
+
+
+def _block(title: str, *, link: Link | None = None, inferred: str | None = None) -> ChainBlock:
+    return ChainBlock(title, rows=(), link=link, inferred=inferred)
+
+
+def test_counts_order_text_and_flags_are_not_structure():
+    one = _view(_block("a"), _block("b", inferred="a rule"))
+    linked = Link("z", Target("card", "device", "z"))
+    other = _view(_block("z", link=linked), _block("y"), _block("x"))
+    assert measure(one).structure == measure(other).structure
+    assert measure(one).flags == {"inferred": 1}
+    assert measure(other).sizes == {"relations: items": 3}
+    assert measure(one).gaps == {"no link": 2}
+
+
+def test_a_kind_of_item_present_or_missing_is_structure():
+    row = ValueRow("Current", "X:I", None, None, False)
+    assert measure(_view(_block("a"))).structure != measure(_view(_block("a"), row)).structure
+    fact = Fact("Pose", "1 m")
+    assert measure(_view(fact)).structure != measure(_view(fact, row)).structure
+
+
+def _decided_fields() -> list[str]:
+    """Every field of a view part that may be absent, of several kinds, or yes/no."""
+    found: list[str] = []
+    seen: set[type] = set()
+    todo: list[type] = [View]
+
+    def parts(tp: Any) -> list[type]:
+        out = [tp] if isinstance(tp, type) and dataclasses.is_dataclass(tp) else []
+        for arg in typing.get_args(tp):
+            out.extend(parts(arg))
+        return out
+
+    def open_kind(tp: Any) -> bool:
+        if typing.get_origin(tp) in (typing.Union, types.UnionType):
+            return bool(parts(tp))
+        return any(open_kind(arg) for arg in typing.get_args(tp))
+
+    while todo:
+        cls = todo.pop()
+        if cls in seen:
+            continue
+        seen.add(cls)
+        hints = typing.get_type_hints(cls)
+        for f in dataclasses.fields(cls):
+            tp = hints[f.name]
+            todo.extend(parts(tp))
+            if tp is bool or open_kind(tp):
+                found.append(f"{cls.__name__}.{f.name}")
+    return sorted(found)
+
+
+def test_every_optional_typed_part_and_yes_no_field_has_a_decision():
+    """A part of a view that may be absent, be of several kinds, or be yes/no is
+    placed in one table: structure, gap, size or flag. None is left to a default."""
+    tables = [GAP_PARTS, SIZE_PARTS, STRUCTURE_PARTS, FLAGS, STRUCTURE_FLAGS, set(VALUE_FLAGS)]
+    decided = set().union(*tables)
+    assert [name for name in _decided_fields() if name not in decided] == []
+    for i, a in enumerate(tables):
+        for b in tables[i + 1 :]:
+            assert not a & b  # each field is decided once
 
 
 def test_the_layout_hash_moves_with_the_drawing_settings_not_with_a_member(tmp_path, written):
@@ -155,7 +304,7 @@ def test_the_layout_hash_moves_with_the_drawing_settings_not_with_a_member(tmp_p
     assert again["classes"][pump]["layout"] == layout  # a rebuild of the same facility
 
 
-def test_check_finds_a_class_table_the_model_does_not_give(tmp_path):
+def test_check_finds_what_the_index_states_and_the_model_does_not_give(tmp_path):
     graph = _graph(tmp_path)
     draw = load_draw(PANELS_DIR / "draw.json")
     out = tmp_path / "out"
@@ -164,7 +313,10 @@ def test_check_finds_a_class_table_the_model_does_not_give(tmp_path):
     entry = next(e for e in index["screens"] if e["id"] == "card-xr01-ip2")
     entry["class"] = "card-class-somewhere-else-00000000"
     index["classes"]["card-class-somewhere-else-00000000"] = {"members": 1}
+    known = next(e for e in index["screens"] if e["id"] == PUMP_KNOWN_MORE)
+    known["gaps"] = {}
     (out / "index.json").write_text(json.dumps(index))
     found = [p for p in check(graph, out, draw=draw) if p.kind == "stale_class"]
-    assert {p.file for p in found} == {entry["file"], "index.json"}
+    assert {p.file for p in found} == {entry["file"], known["file"], "index.json"}
+    assert any("gaps" in p.detail for p in found if p.file == known["file"])
     assert all(p.failing for p in found)

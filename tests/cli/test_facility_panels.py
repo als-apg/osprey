@@ -344,13 +344,15 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
 
 
 def test_classes_prints_the_table_and_the_summary_a_gate_reads(facility_file, tmp_path):
-    from osprey.facility.panels.classes import summary
+    from osprey.facility.panels.classes import summary, summary_line
 
     out = tmp_path / "out"
     written = _run(facility_file, "write", "--out", str(out))
     assert written.exit_code == 0, written.output
-    table = json.loads((out / "index.json").read_text())["classes"]
-    line = f"classes: {summary(table)}"
+    index = json.loads((out / "index.json").read_text())
+    table = index["classes"]
+    assert index["class_summary"] == summary(table)
+    line = f"classes: {summary_line(summary(table))}"
     assert line in written.output
     checked = _run(facility_file, "check", "--out", str(out))
     assert line in checked.output
@@ -362,7 +364,10 @@ def test_classes_prints_the_table_and_the_summary_a_gate_reads(facility_file, tm
     biggest = min(table, key=lambda name: (-table[name]["members"], name))  # the first row
     assert biggest in result.output
     assert f"... and {len(table) - 2} more" in result.output
-    assert "label cut: " in result.output  # --differs lists each screen's differences
+    # the table per view kind, and --differs lists each screen off its standard
+    assert re.search(r"^card +\d+ +\d+ +\d+ +\d+ +\d+$", result.output, re.MULTILINE)
+    off = next(e for e in index["screens"] if e.get("differs"))
+    assert f"{off['file']} ({off['class']}):" in result.output
 
 
 def test_classes_without_an_index_fails(tmp_path):

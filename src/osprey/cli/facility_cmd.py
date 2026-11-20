@@ -1304,7 +1304,7 @@ def panels_write(
     from collections import Counter
 
     from osprey.facility.panels import emit
-    from osprey.facility.panels.classes import summary
+    from osprey.facility.panels.classes import summary, summary_line
 
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
     draw = _panel_draw(tables_dir, draw_file)
@@ -1336,7 +1336,7 @@ def panels_write(
     for entry in screens:
         sizes[entry["kind"]] += entry["bytes"]
     report(f"{len(screens)} screens, {_megabytes(index['total_bytes'])}, in {out}")
-    report(f"  classes: {summary(index['classes'])}")
+    report(f"  classes: {summary_line(summary(index['classes']))}")
     for kind in _PANEL_VIEWS:
         if count[kind]:
             report(f"  {kind}: {count[kind]} screens, {_megabytes(sizes[kind])}")
@@ -1502,9 +1502,9 @@ def panels_check(
             report(f"  ... and {count[kind] - len(shown)} more")
     table = _index_classes(out)
     if table is not None:
-        from osprey.facility.panels.classes import summary
+        from osprey.facility.panels.classes import summary, summary_line
 
-        report(f"classes: {summary(table)}")
+        report(f"classes: {summary_line(summary(table))}")
     failing = [p for p in problems if p.failing or strict]
     if failing:
         fail(f"{len(failing)} problems in the written screens.")
@@ -1542,14 +1542,16 @@ def panels_classes(ctx: click.Context, out: Path, limit: int, show_differs: bool
     """Print the screen classes the index under OUT records; reads nothing else.
 
     One row per class, by member count: members, screens off the standard,
-    screens with a label cut, the class and its standard's file. The last line
-    is the summary a gate reads. With --differs, every screen that differs from
-    its standard, and how.
+    screens with a label cut, the class and its standard's file. Then per view
+    kind its screens, classes, classes of one screen, screens off their standard
+    and screens with a label cut. The last line is the summary a gate reads.
+    With --differs, every screen off its standard, and how.
     """
     import json
+    from collections import Counter
 
     from osprey.facility.panels import emit
-    from osprey.facility.panels.classes import summary
+    from osprey.facility.panels.classes import summary, summary_line
 
     classes = _index_classes(out)
     if classes is None:
@@ -1565,6 +1567,22 @@ def panels_classes(ctx: click.Context, out: Path, limit: int, show_differs: bool
         )
     if len(rows) > len(shown):
         report(f"  ... and {len(rows) - len(shown)} more")
+    per_view: dict[str, Counter[str]] = {}
+    for row in classes.values():
+        view = str(row.get("key", {}).get("view", ""))
+        tally = per_view.setdefault(view, Counter())
+        tally["screens"] += row.get("members", 0)
+        tally["classes"] += 1
+        tally["single"] += row.get("members", 0) == 1
+        tally["off"] += row.get("off_standard", 0)
+        tally["cut"] += row.get("cut", 0)
+    report(f"{'view':<12} {'screens':>8} {'classes':>8} {'single':>7} {'off':>6} {'cut':>6}")
+    for view in sorted(per_view, key=lambda v: -per_view[v]["screens"]):
+        t = per_view[view]
+        report(
+            f"{view:<12} {t['screens']:>8} {t['classes']:>8} {t['single']:>7}"
+            f" {t['off']:>6} {t['cut']:>6}"
+        )
     if show_differs:
         index = json.loads((out / emit.INDEX).read_text(encoding="utf-8"))
         for entry in index.get("screens", ()):
@@ -1572,4 +1590,4 @@ def panels_classes(ctx: click.Context, out: Path, limit: int, show_differs: bool
                 report(f"{entry['file']} ({entry.get('class')}):")
                 for words in entry["differs"]:
                     report(f"  {words}")
-    report(f"classes: {summary(classes)}")
+    report(f"classes: {summary_line(summary(classes))}")

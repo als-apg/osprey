@@ -41,9 +41,12 @@ The stamp
     bytes on any machine.
 
 Classes
-    Each index entry names its screen's ``class`` and, when the screen differs
-    from its class's standard, how (``differs``); the index's ``classes`` table
-    holds each class's key, standard, counts and layout hash
+    Each index entry names its screen's ``class``; how it is off its class's
+    standard (``differs``); what varies from the standard in sizes, gaps, flags
+    and drawing variants (``varies``); the labels the layout cut (``cuts``); and
+    its own ``sizes``, ``gaps``, ``flags`` and longest ``label``. The index's
+    ``classes`` table holds each class's key, standard, counts, layout hash and
+    sample, and ``class_summary`` the counts a gate reads
     (:mod:`osprey.facility.panels.classes`). A write of a subset draws the kept
     screens again in memory to class them; ``check`` compares all of it.
 
@@ -586,31 +589,19 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
-    cls, key = screen_classes.class_key(graph, target, ids[target])
-    sample = screen_classes.Sample(
-        own,
-        target,
-        cls,
-        key,
-        screen_classes.structure(view),
-        int(document["metadata"]["size"]["height"]),
-        tuple(dict.fromkeys(cuts)),
-    )
+    measure = screen_classes.measure(view)
+    cls, key = screen_classes.class_key(graph, target, measure.structure)
+    sample = screen_classes.Sample(own, target, cls, key, measure, tuple(dict.fromkeys(cuts)))
     return _Drawn(
         (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked)), sample
     )
 
 
 def _classes(
-    graph: PanelGraph, samples: list[screen_classes.Sample], draw: Draw
-) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
-    """The class table and the differences of the screens *samples* stands for."""
-    return screen_classes.classify(
-        graph,
-        samples,
-        lambda target: describe(graph, target, annotate=draw.annotate),
-        stamp=f"format {FORMAT_VERSION}, draw {draw.digest}",
-    )
+    samples: list[screen_classes.Sample], draw: Draw
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """The class table and what each screen's index entry states about its class."""
+    return screen_classes.classify(samples, stamp=f"format {FORMAT_VERSION}, draw {draw.digest}")
 
 
 def _atomic(path: Path, data: bytes) -> None:
@@ -808,6 +799,7 @@ def write(
         index = {
             **head,
             "classes": dict(table or {}),
+            "class_summary": screen_classes.summary(table or {}),
             "state": state,
             "total_bytes": sum(e.get("bytes", 0) for e in screens),
             "screens": sorted(screens, key=lambda e: e["file"]),
@@ -848,11 +840,9 @@ def write(
             )
     for relative in sorted(owned.keys() - paths):
         _remove(out, relative, seen)
-    table, differs = _classes(graph, samples, draw)
+    table, stated = _classes(samples, draw)
     for sample in samples:
-        entries[sample.file]["class"] = sample.cls
-        if sample.file in differs:
-            entries[sample.file]["differs"] = differs[sample.file]
+        entries[sample.file].update(stated[sample.file], **{"class": sample.cls})
     put_index("complete", list(entries.values()), outside, table)
     return written
 
@@ -1172,6 +1162,10 @@ def check(
     return problems
 
 
+#: What an index entry states about its screen's class, beside the class itself.
+CLASS_FIELDS = ("differs", "varies", "cuts", "sizes", "gaps", "flags", "label")
+
+
 def _check_classes(
     graph: PanelGraph,
     index: Mapping[str, Any],
@@ -1179,9 +1173,10 @@ def _check_classes(
     samples: list[screen_classes.Sample],
     draw: Draw,
 ) -> list[Problem]:
-    """``stale_class`` problems: an entry's class or differences, or the class table,
-    other than the model gives now."""
-    table, differs = _classes(graph, samples, draw)
+    """``stale_class`` problems: an entry's class or what it states about it, or the
+    class table or its summary, other than the model gives now."""
+    del graph  # the samples carry what the model gives
+    table, stated = _classes(samples, draw)
     problems = [
         Problem(
             "stale_class",
@@ -1195,13 +1190,21 @@ def _check_classes(
         Problem(
             "stale_class",
             sample.file,
-            "its differences from the class standard are not the index's",
+            "what it states about its class ("
+            + ", ".join(
+                name
+                for name in CLASS_FIELDS
+                if listed[sample.file].get(name) != stated[sample.file].get(name)
+            )
+            + ") is not what the model gives now",
         )
         for sample in samples
         if listed[sample.file].get("class") == sample.cls
-        and list(listed[sample.file].get("differs", ())) != differs.get(sample.file, [])
+        and any(
+            listed[sample.file].get(name) != stated[sample.file].get(name) for name in CLASS_FIELDS
+        )
     )
-    if index.get("classes") != table:
+    if index.get("classes") != table or index.get("class_summary") != screen_classes.summary(table):
         changed = sorted(
             set(table) ^ set(index.get("classes") or {})
             | {c for c in table if (index.get("classes") or {}).get(c) != table[c]}
@@ -1210,7 +1213,8 @@ def _check_classes(
             Problem(
                 "stale_class",
                 INDEX,
-                f"the class table is not what the model gives now: {_named(tuple(changed))}",
+                "the class table or its summary is not what the model gives now"
+                + (f": {_named(tuple(changed))}" if changed else ""),
             )
         )
     return problems
