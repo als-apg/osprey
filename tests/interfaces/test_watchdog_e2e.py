@@ -49,6 +49,9 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.models.jev.config import TYPESAFE_KEY_ENV
+from osprey.services.watchdog.config import ENGINE_DECISION
+from osprey.services.watchdog.definitions import load_watchdogs
+from osprey.services.watchdog.runner import WatchdogRunner, prompt_budget_s
 from osprey.services.watchdog.verdict import SURFACE_SAFETY_WATCHDOG
 from osprey_connectors.session_hold import is_held, open_flags
 from tests.e2e import sdk_helpers
@@ -104,6 +107,9 @@ TIMEOUT_MS = 15_000
 #: A first prompt launches the agent and its MCP servers, then the watchdogs judge it.
 TURN_TIMEOUT_MS = 120_000
 HTTP_TIMEOUT_S = 180.0
+#: How many times its verdict bound a watchdog may take, counted from the
+#: intake's receipt of the prompt, before its silence fails the test.
+VERDICT_BOUND_FACTOR = 2
 #: The SDK's initialize wait, in ms: longer than any per-test timeout, so it never
 #: decides on its own (the SDK takes an integer here, not "no limit").
 _NO_BUDGET_MS = str(24 * 3600 * 1000)
@@ -133,7 +139,10 @@ class Served:
     events: dict[str, Any]
     conductor: Conductor
     jev: FakeJev
+    verdict_bound_s: float
     audit: list[dict[str, Any]] = field(default_factory=list)
+    #: ``(session key, received_at)`` for each prompt the intake handed to a runner.
+    receipts: list[tuple[str | None, float]] = field(default_factory=list)
     keys: set[str] = field(default_factory=set)
     app: Any = None
     base_url: str = ""
@@ -198,12 +207,21 @@ class Served:
 
         A flag counts while it is open, and once it has been judged or answered:
         the model may ask for the turn after the operator has already answered
-        the dialog, and an answered flag is closed. No wall-clock budget: the two
-        judgements end on their own however slowly a loaded host runs them. A
-        verdict that is not a flag, filed after this prompt was set up, ends the
-        wait at once; the per-test timeout is the hang breaker.
+        the dialog, and an answered flag is closed. A verdict that is not a flag,
+        filed after this prompt was set up, ends the wait at once. The wait gives
+        up ``VERDICT_BOUND_FACTOR`` times the deployment's verdict bound after the
+        intake received the prompt: past that bound each judgement owes a
+        recorded verdict, and an expired one files ``unavailable``. Every caller
+        of the returned wait shares that one deadline.
         """
         since = len(self.audit)
+        receipts_since = len(self.receipts)
+
+        def deadline() -> float | None:
+            for session_key, received_at in self.receipts[receipts_since:]:
+                if session_key == key:
+                    return received_at + VERDICT_BOUND_FACTOR * self.verdict_bound_s
+            return None
 
         def wait() -> None:
             while True:
@@ -224,6 +242,12 @@ class Served:
                 }
                 if seen >= WATCHDOGS:
                     return
+                ends = deadline()
+                if ends is not None and time.monotonic() > ends:
+                    raise AssertionError(
+                        f"no flag or verdict from {sorted(WATCHDOGS - seen)} within "
+                        f"{VERDICT_BOUND_FACTOR} x {self.verdict_bound_s} s of the prompt's receipt"
+                    )
                 time.sleep(0.05)
 
         return wait
@@ -249,6 +273,18 @@ class Served:
             and entry.get("session") == key
             and entry["decision"] not in {"flagged", "clear", "unavailable"}
         ]
+
+
+def _verdict_bound_s(config_path: Path) -> float:
+    """The longest any enabled watchdog of the deployment takes to owe its verdict.
+
+    A decision run ends at the prompt budget; an agent run at its own ``timeout_s``.
+    """
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    return max(
+        prompt_budget_s(config) if defn.engine == ENGINE_DECISION else defn.timeout_s
+        for defn in load_watchdogs(config, config_path.parent)
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -328,6 +364,7 @@ def served(
         },
         conductor=conductor,
         jev=jev,
+        verdict_bound_s=_verdict_bound_s(config_path),
     )
 
     record = audit_writer.record
@@ -337,6 +374,14 @@ def served(
         return record(**fields)
 
     monkeypatch.setattr(audit_writer, "record", keep_and_record)
+
+    on_prompt = WatchdogRunner.on_prompt
+
+    def keep_receipt(runner: WatchdogRunner, **fields: Any) -> Any:
+        stack.receipts.append((fields["session_key"], fields["received_at"]))
+        return on_prompt(runner, **fields)
+
+    monkeypatch.setattr(WatchdogRunner, "on_prompt", keep_receipt)
 
     stack.start()
     # Read when a child starts, so the trigger hook posts to this app.
@@ -402,8 +447,8 @@ def _flag_in_composer(
 ) -> str:
     """Type a prompt both watchdogs flag; returns once its dialog shows both flags.
 
-    The judgements are waited on where they are recorded, with no budget of
-    their own; the dialog then has only its own drawing to do.
+    The judgements are waited on where they are recorded, up to a multiple of
+    the product's verdict bound; the dialog then has only its own drawing to do.
     """
     both_flagged = served.until_both_flagged(key)
     prompt = served.next_prompt(
