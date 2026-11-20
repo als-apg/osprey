@@ -36,11 +36,13 @@ _launched: dict[str, BaseProcess] = {}
 TERMINATE_WAIT_SECONDS = 1.0
 KILL_WAIT_SECONDS = 1.0
 
+# The hint every message that ends a job without its worker's outcome closes with.
+CHECK_THE_MACHINE = "check the machine before the next run."
+
 SHUTDOWN_KILLED_MESSAGE = (
     "Cancelled: the service shut down and the worker did not stop within the shutdown "
     "grace, so it was killed. No partial results were saved, and setpoints are as the "
-    "worker left them, possibly part-way through a write; check the machine before the "
-    "next run."
+    f"worker left them, possibly part-way through a write; {CHECK_THE_MACHINE}"
 )
 
 # Write a draft's config and start notice, with the draft's TTL, only while its
@@ -440,7 +442,7 @@ def _end_stopped_job(
         new = JobStatus.ERROR
         message = (
             f"The worker exited (code {process.exitcode}) without recording an outcome while "
-            "the service shut down; check the machine before the next run."
+            f"the service shut down; {CHECK_THE_MACHINE}"
         )
     if tracker.end_job(job_id, new, message) is JobEnd.ENDED:
         logger.warning("Job %s ended %s on shutdown: %s", job_id, new.value, message)
