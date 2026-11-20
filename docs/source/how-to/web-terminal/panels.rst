@@ -445,7 +445,8 @@ Once the panel is written and validated:
    (``web_terminals.panel_not_served``) for each invalid panel in the render it
    builds. The panels list, ``GET /api/panels``, carries every panel the
    running web terminal skipped under ``refused``, including one added after
-   the build.
+   the build. A finding that only reports does not count: the panel is served
+   and the log names it.
 
 .. warning::
 
@@ -636,7 +637,9 @@ server's tools.
          Discovered panels are served straight from disk, with no proxy. They
          run at an opaque origin, not the terminal's own; see
          :ref:`web-terminal-panels-opaque-origin`. Discovery is
-         **fail-closed**: only a fully valid panel is ever served. The
+         **fail-closed**: a panel that breaks a rule which refuses it is never
+         served. A rule that only reports, a class with no CSS rule, is logged
+         and the panel is served. The
          ``allow_runtime_panels`` switch is deliberately off by default because
          it is also what lets the agent register panels at runtime. Turning it
          on is your explicit decision to trust the panels the terminal makes

@@ -199,41 +199,41 @@ Exact shape:
 
 ## Step 5 — Self-check with the validator (required)
 
-There is no CLI wrapper. Run the validator with this one-liner, replacing
-`PATH/TO/PANEL_DIR` with your panel directory. It prints nothing and exits 0
-when the panel is valid; it raises `PanelValidationError` (listing every
-failure) when it is not:
+Run the validator's command, replacing `PATH/TO/PANEL_DIR` with your panel
+directory:
 
 ```bash
-uv run python -c "from osprey.interfaces.design_system.panels.validator import assert_valid_panel; assert_valid_panel('PATH/TO/PANEL_DIR')"
+uv run python -m osprey.interfaces.design_system.panels.validator PATH/TO/PANEL_DIR
 ```
 
-If it raises, fix each reported `PanelRule` and re-run until it is silent:
+It prints every finding. A finding of a rule that refuses makes it print
+`PANEL INVALID` and exit 1: the web terminal will not serve the panel. A finding
+of a rule that only reports ends in `[<rule>: report]`; the panel is still
+served. Fix each reported `PanelRule` and re-run:
 
-| Rule | Meaning | Fix |
-|---|---|---|
-| `MANIFEST_MISSING` | no `manifest.json` in the dir | add it (Step 4) |
-| `MANIFEST_INVALID` | bad JSON, missing/empty/wrong-typed field, or `id` not a kebab slug | fix the manifest (Step 4) |
-| `ENTRY_MISSING` | the `entry` file doesn't exist on disk | create it, or fix the `entry` value |
-| `MISSING_DESIGN_SYSTEM_LINK` | entry HTML doesn't link all three sheets: `tokens.css`, `base.css`, `primitives.css` | add the missing `<link>` (Step 1) |
-| `MISSING_THEME_BOOT` | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
-| `MISSING_FONT_LINK` | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
-| `RAW_HEX_COLOR` | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
-| `PAGE_READY` | the entry page never declares `data-page-ready="pending"`, does not load `page-ready.js` first, or no script it loads calls `markPageReady()` | add what is missing (Step 1) |
+| Rule | Consequence | Meaning | Fix |
+|---|---|---|---|
+| `MANIFEST_MISSING` | refuse | no `manifest.json` in the dir | add it (Step 4) |
+| `MANIFEST_INVALID` | refuse | bad JSON, missing/empty/wrong-typed field, or `id` not a kebab slug | fix the manifest (Step 4) |
+| `ENTRY_MISSING` | refuse | the `entry` file doesn't exist on disk | create it, or fix the `entry` value |
+| `MISSING_DESIGN_SYSTEM_LINK` | refuse | entry HTML doesn't link all three sheets: `tokens.css`, `base.css`, `primitives.css` | add the missing `<link>` (Step 1) |
+| `MISSING_THEME_BOOT` | refuse | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
+| `MISSING_FONT_LINK` | refuse | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
+| `RAW_HEX_COLOR` | refuse | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
+| `PAGE_READY` | refuse | the entry page never declares `data-page-ready="pending"`, does not load `page-ready.js` first, or no script it loads calls `markPageReady()` | add what is missing (Step 1) |
+| `UNDEFINED_CLASS` | report | the panel's HTML or JS sets a class with no rule in a `<style>` block of the page, the panel's own `*.css` or a linked design-system sheet | add the rule, or drop the class; a state that carries no style belongs in a `data-` attribute |
 
 Note the `RAW_HEX_COLOR` scan is a raw text scan: a URL fragment whose name is
 all hex digits and exactly 3/4/6/8 long (e.g. `href="#abc"` or
 `href="#deadbeef"`) is flagged as if it were a color. If that happens, rename
 the fragment — never loosen the token-only rule.
 
-The panel is complete when the one-liner raises nothing.
+The panel is complete when the command prints `PANEL OK` and no line.
 
 A panel that belongs to an application (`apps/<name>/panel/`) is judged by
 `osprey app check`, which runs these same rules on `panel/index.html` (an app
-panel has no manifest) and adds one: every class the panel's HTML or JS sets has
-a rule in a `<style>` block of the page, its own `*.css` or a linked
-design-system sheet (`undefined_class`). Run it from the deployment and fix
-until it passes.
+panel has no manifest): a rule that refuses fails the check, a rule that only
+reports is printed. Run it from the deployment and fix until it passes.
 
 ---
 
@@ -259,7 +259,7 @@ Do NOT:
 
 - Reorder the head — `theme-boot.js` must be first, then the page-ready
   writer, then `tokens.css`, `base.css`, `primitives.css`.
-- Set a class no stylesheet defines — `osprey app check` refuses it.
+- Set a class no stylesheet defines — the validator reports it.
 - Convert the boot script to `type="module"` — it must run synchronously,
   pre-paint.
 - Use any raw hex color literal, anywhere, in HTML/CSS/JS — always a `var(--…)`.
@@ -267,7 +267,8 @@ Do NOT:
   `tokens.css`.
 - Give the manifest `id` uppercase, spaces, or underscores — kebab slug only.
 - Point `entry` at a file that doesn't exist.
-- Skip the Step 5 validator self-check — a panel is not done until it is silent.
+- Skip the Step 5 validator self-check — a panel is not done until it prints
+  `PANEL OK` and no line.
 - Expect live cross-origin `postMessage` re-theming (Step 6).
 - Draw a header of the panel's own, or write a `body.embedded` rule: the tile
   bar is the one header (Step 3).
