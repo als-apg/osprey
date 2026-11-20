@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_profile import _parse_profile, load_profile
-from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
+from osprey.cli.build_profile_emit import _commented_template
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, ROOT_ONLY_KEYS
 from osprey.cli.profile_conventions import KNOWN_ROOT_ENTRIES, is_protected_key
 from osprey.mcp_server.python_executor.executor import (
@@ -615,7 +615,7 @@ def test_a_clean_agent_watchdog_validates_against_the_full_classification(tmp_pa
 def test_block_is_a_known_root_only_key_with_a_commented_template() -> None:
     assert "watchdogs" in _KNOWN_PROFILE_KEYS
     assert "watchdogs" in ROOT_ONLY_KEYS
-    template = _COMMENTED_TEMPLATES["watchdogs"]
+    template = _commented_template("watchdogs")
     assert "# watchdogs:" in template
     assert "max_cost_usd: 0.25" in template and "timeout_s: 90" in template
 

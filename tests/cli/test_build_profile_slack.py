@@ -302,7 +302,7 @@ def test_slack_bridge_has_a_commented_template_ordered_after_teams() -> None:
 def test_slack_bridge_stanza_names_both_tokens_as_runtime_env() -> None:
     """The stanza tells the operator the two Slack tokens are env.required runtime
     env, never profile keys, and shows the block with its defaults."""
-    stanza = emit._COMMENTED_TEMPLATES["slack_bridge"]
+    stanza = emit._commented_template("slack_bridge")
     assert "SLACK_BOT_TOKEN" in stanza
     assert "SLACK_APP_TOKEN" in stanza
     assert "`env.required`" in stanza
@@ -312,7 +312,7 @@ def test_slack_bridge_stanza_names_both_tokens_as_runtime_env() -> None:
 def test_slack_bridge_stanza_is_comment_only_and_its_header_is_column_79() -> None:
     """Every stanza line is a comment (the stanza never activates the block) and the
     section header rule ends at column 79 like its neighbours."""
-    lines = emit._COMMENTED_TEMPLATES["slack_bridge"].strip("\n").splitlines()
+    lines = emit._commented_template("slack_bridge").strip("\n").splitlines()
     assert all(line.startswith("#") for line in lines)
     assert lines[0].startswith("# --- Slack bridge ")
     assert len(lines[0]) == 79

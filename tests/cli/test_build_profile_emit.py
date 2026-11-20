@@ -344,7 +344,8 @@ def test_every_key_an_active_block_writes_has_a_note(block: str) -> None:
 
 def test_the_archiver_example_states_the_dataclass_defaults() -> None:
     """The commented ``va_archiver:`` example shows each knob at the value it builds with."""
-    lines = build_profile_emit._COMMENTED_TEMPLATES["va_archiver"].splitlines()
+    _header, example = build_profile_emit._COMMENTED_TEMPLATES["va_archiver"]
+    lines = example.splitlines()
     start = lines.index("# va_archiver:")
     body = "\n".join(line.removeprefix("#").removeprefix(" ") for line in lines[start:])
     example = yaml.safe_load(body)["va_archiver"]
