@@ -76,7 +76,7 @@ from osprey.utils.module_loading import load_by_path
 
 from .figure import REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, Figure, RowWindow
 from .plan_fields import MOVABLE_ROLE, channel_roles, validate_field_value
-from .plan_metadata import parse_plan_metadata
+from .plan_metadata import check_presentation_names, parse_plan_metadata
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body
 from .session_dir import resolve_session_plan_dir
@@ -431,7 +431,10 @@ def _load_plan_file(
     same gate holds every default of ``PARAMS`` -- written or made by a
     factory -- to its field's own rule, like a typed value
     (`_check_defaults`): a plan whose own default breaks its own bounds is
-    refused here rather than run with a value no operator could have typed.
+    refused here rather than run with a value no operator could have typed. The
+    gate also holds the metadata's presentation keys to the plan's own
+    parameters (`check_presentation_names`): a layout naming a field
+    ``PARAMS`` lacks is an authoring error, not a row the form drops.
 
     An optional module-level ``render`` is resolved onto the spec by
     `_resolve_render`, which is total: no ``render`` attribute, an unusable
@@ -465,6 +468,7 @@ def _load_plan_file(
             raise PlanLoaderError(
                 f"{path}: PARAMS must be a pydantic BaseModel subclass, got {params_attr!r}"
             )
+        check_presentation_names(meta, params_schema.model_fields, source=str(path))
         roles = tuple(channel_roles(params_schema))
         if meta.writes and not any(role == MOVABLE_ROLE for _, role in roles):
             raise PlanLoaderError(
