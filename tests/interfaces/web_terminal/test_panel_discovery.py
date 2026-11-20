@@ -32,7 +32,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
-from osprey.interfaces.design_system.panels.validator import validate_panel
+from osprey.interfaces.design_system.panels.validator import PanelRule, validate_panel
 from osprey.interfaces.opaque_origin import OPAQUE_CSP
 from osprey.interfaces.web_terminal.panel_discovery import (
     DiscoveredPanel,
@@ -68,6 +68,8 @@ _VALID_HTML = f"""<!DOCTYPE html>
 
 
 _UNMARKED_HTML = _VALID_HTML.replace(' data-page-ready="pending"', "").replace(_MARK, "")
+#: A compliant page whose one finding is a class no stylesheet has a rule for.
+_UNSTYLED_CLASS_HTML = _VALID_HTML.replace("<h1>", '<h1 class="demo-title">')
 
 
 def _write_panel(root, dirname, *, manifest, html=_VALID_HTML, entry="index.html"):
@@ -113,6 +115,25 @@ class TestDiscoverPanels:
         [refused] = result.refused
         assert refused.id == "unmarked"
         assert "page-ready mark" in refused.findings[0].message
+
+    def test_a_panel_whose_only_finding_is_an_unstyled_class_is_served_with_it(self, tmp_path):
+        _write_panel(tmp_path, "demo", manifest=_manifest(), html=_UNSTYLED_CLASS_HTML)
+        result = discover_panels(tmp_path)
+        assert result.refused == ()
+        [panel] = result.served
+        [finding] = panel.reported
+        assert finding.rule is PanelRule.UNDEFINED_CLASS
+        assert finding.message.endswith("class demo-title")
+
+    def test_a_refusing_finding_still_stops_a_panel_that_also_has_a_report_only_one(self, tmp_path):
+        html = _UNSTYLED_CLASS_HTML.replace(' data-page-ready="pending"', "").replace(_MARK, "")
+        _write_panel(tmp_path, "demo", manifest=_manifest(), html=html)
+        result = discover_panels(tmp_path)
+        assert result.served == ()
+        [refused] = result.refused
+        [finding] = refused.findings
+        assert finding.rule is PanelRule.PAGE_READY
+        assert "page-ready mark" in finding.message
 
     def test_a_refused_bundle_is_returned_with_the_validators_findings(self, tmp_path):
         _write_panel(tmp_path, "unmarked", manifest=_manifest(), html=_UNMARKED_HTML)
@@ -294,6 +315,30 @@ class TestApplyDiscoveredPanels:
         assert "is not served: 1 validation error(s)" in record.getMessage()
         assert "page-ready mark" in record.getMessage()
 
+    def test_a_panel_whose_only_finding_is_an_unstyled_class_is_served_and_named(
+        self, tmp_path, caplog
+    ):
+        _write_panel(tmp_path / "panels", "demo", manifest=_manifest(), html=_UNSTYLED_CLASS_HTML)
+        app = _fake_app(allow=True, project_cwd=tmp_path)
+        with caplog.at_level(logging.INFO):
+            assert [p.id for p in apply_discovered_panels(app)] == ["demo"]
+        [record] = [r for r in caplog.records if "reported finding" in r.getMessage()]
+        assert record.levelno == logging.INFO
+        assert "'demo'" in record.getMessage()
+        assert "is served with 1 reported finding(s)" in record.getMessage()
+        assert "class demo-title" in record.getMessage()
+        assert not any("not served" in r.getMessage() for r in caplog.records)
+        assert app.state.refused_panels == []
+
+    def test_a_panel_with_an_unstyled_class_reaches_the_rail(self, tmp_path):
+        _write_panel(tmp_path / "panels", "demo", manifest=_manifest(), html=_UNSTYLED_CLASS_HTML)
+        app = _fake_app(allow=True, project_cwd=tmp_path)
+        apply_discovered_panels(app)
+        entry = next(cp for cp in app.state.custom_panels if cp["id"] == "demo")
+        assert entry["url"] == "/panel-static/demo/"
+        assert "demo" in app.state.visible_panels
+        assert "demo" in app.state.discovered_panel_dirs
+
     def test_a_malformed_manifest_is_logged_naming_its_directory(self, tmp_path, caplog):
         _write_panel(tmp_path / "panels", "broken", manifest="{ not valid json ")
         app = _fake_app(allow=True, project_cwd=tmp_path)
@@ -376,6 +421,23 @@ class TestApplyBuildPanels:
         assert entry["configDefined"] is True
         assert app.state.discovered_panel_dirs["roster"].entry == "index.html"
         assert app.state.visible_panels == ["roster"]
+
+    def test_a_built_panel_with_an_unstyled_class_is_wired_and_named(self, tmp_path, caplog):
+        _write_panel(
+            tmp_path / ".osprey" / "panels",
+            "roster",
+            manifest=_manifest("roster", "Roster"),
+            html=_UNSTYLED_CLASS_HTML,
+        )
+        app = _fake_app(
+            allow=False, project_cwd=tmp_path, custom=[dict(self._BLOCK)], visible=["roster"]
+        )
+        with caplog.at_level(logging.INFO):
+            assert [p.id for p in apply_build_panels(app)] == ["roster"]
+        assert app.state.custom_panels[0]["url"] == "/panel-static/roster/"
+        [record] = [r for r in caplog.records if "reported finding" in r.getMessage()]
+        assert "'roster' is served with 1 reported finding(s)" in record.getMessage()
+        assert not any("not served" in r.getMessage() for r in caplog.records)
 
     def test_a_declared_panel_without_a_bundle_leaves_the_rail(self, tmp_path, caplog):
         app = _fake_app(
