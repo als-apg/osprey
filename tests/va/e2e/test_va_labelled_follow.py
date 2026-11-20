@@ -41,6 +41,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_connectors.simulation.view import VARIABLES_FILE
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
@@ -137,15 +138,12 @@ def _stage_data_root() -> Path:
         with (facility / "seeds.yaml").open("a", encoding="utf-8") as seeds:
             seeds.write(yaml.safe_dump(PAIR_SEEDS))
         _doc, view = e2e_conftest._render_view(facility, root)
-    pairs = {
-        pair["readback"]: pair
-        for pair in json.loads((root / "simulator" / "follows.json").read_text())["pairs"]
-    }
-    for status in (LATCH_STATUS, MODE_STATUS):
-        assert (pairs[status]["follow"], pairs[status].get("copy")) == ("seed", "index"), pairs[
-            status
-        ]
-    assert view is not None
+    # each command carries its status as its pair, as the served simulation reads it;
+    # the copy by index is what the puts below prove on the served path
+    channels = {c["address"]: c for c in view.document(VARIABLES_FILE)["channels"]}
+    for command, status in ((LATCH_COMMAND, LATCH_STATUS), (MODE_COMMAND, MODE_STATUS)):
+        assert channels[command]["pair"] == status, channels[command]
+        assert channels[status]["options"], channels[status]
     return root
 
 
