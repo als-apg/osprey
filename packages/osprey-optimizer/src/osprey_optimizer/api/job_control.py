@@ -11,7 +11,7 @@ from typing import NoReturn
 
 from fastapi import HTTPException, status
 
-from osprey_optimizer.api.job_tracker import HEARTBEAT_INTERVAL_SECONDS, JobTracker
+from osprey_optimizer.api.job_tracker import HEARTBEAT_INTERVAL_SECONDS, JobEnd, JobTracker
 from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.protocols import JobStateWriter
 from osprey_optimizer.optimization.state import get_optimization_writer
@@ -212,11 +212,12 @@ def cancel_with_reread(
         return
 
     # A CREATED draft has no worker: nothing else will ever end it, so the
-    # cancel does, and releases its footprint under the terminal TTL.
+    # cancel does, in one step, only while it is still a draft.
     if current is JobStatus.CREATED:
-        if not writer.set_status_cas(current, JobStatus.CANCELLED):
+        if tracker.end_job(job_id, JobStatus.CANCELLED, None, expect=JobStatus.CREATED) is not (
+            JobEnd.ENDED
+        ):
             raise_control_conflict_409(job_id, "cancel", None, writer)
-        tracker.mark_completed(job_id)
         return
 
     # A launched job is ended by its worker, not here: the worker may be mid-write
@@ -310,7 +311,7 @@ def launch_job(
         started = tracker.start_claimed_job(job_id, config_json)
     except Exception as e:
         logger.exception("Failed to pre-initialize job state")
-        tracker.mark_completed(job_id)
+        tracker.end_job(job_id, JobStatus.ERROR, f"Failed to initialize job state: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Failed to initialize job state (Redis unavailable): {e}",
@@ -320,7 +321,7 @@ def launch_job(
         if current.is_terminal:
             # A cancel ended the draft before the claim, which overwrote the
             # meta the cancel left: put back what the cancel wrote.
-            tracker.mark_completed(job_id)
+            tracker.end_job(job_id, current, None)
         require_created_or_409(job_id, "start", current)
         raise draft_changed_409(job_id)
 
@@ -335,7 +336,7 @@ def launch_job(
     except OSError as e:
         logger.exception("Failed to start job process")
         keep_alive.stop(timeout=HEARTBEAT_INTERVAL_SECONDS + 1)
-        tracker.mark_completed(job_id)
+        tracker.end_job(job_id, JobStatus.ERROR, f"Failed to start job process: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start job process: {e}",
@@ -434,9 +435,8 @@ def _end_stopped_job(
     A worker that stopped through the cancel path set its own terminal status;
     that is left as is. One that was killed, or exited without recording an
     outcome, leaves the job non-terminal: it is ended here with the reason.
-    The status CAS keeps a terminal status from being overwritten.
+    :meth:`JobTracker.end_job` keeps a terminal status from being overwritten.
     """
-    writer = get_optimization_writer(job_id)
     if killed:
         new, message = JobStatus.CANCELLED, SHUTDOWN_KILLED_MESSAGE
     else:
@@ -445,14 +445,5 @@ def _end_stopped_job(
             f"The worker exited (code {process.exitcode}) without recording an outcome while "
             "the service shut down; check the machine before the next run."
         )
-    # Re-read on a lost CAS: only a concurrent API cancel (RUNNING -> CANCELLING)
-    # can move a job whose worker is gone.
-    for _ in range(3):
-        current = writer.get_status()
-        if current.is_terminal:
-            break
-        if writer.set_status_cas(current, new):
-            writer.set_error_message(message)
-            logger.warning("Job %s ended %s on shutdown: %s", job_id, new.value, message)
-            break
-    tracker.mark_completed(job_id)
+    if tracker.end_job(job_id, new, message) is JobEnd.ENDED:
+        logger.warning("Job %s ended %s on shutdown: %s", job_id, new.value, message)
