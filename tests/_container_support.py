@@ -529,7 +529,19 @@ class ContainerExitedError(AssertionError):
     """
 
 
-class ForeignListenerError(AssertionError):
+class PublishedPortContradiction(AssertionError):
+    """What answers on the subject's published port contradicts the subject itself.
+
+    A probe raises it when the host side of the port says something the subject
+    cannot be saying: the subject logged that it serves, and the port still
+    refuses after the forwarder has had time to bind, or another process
+    answers in its place. Waiting longer reads the same port again, so a
+    readiness wait ends on it at once. An ``AssertionError``, so a caller that
+    does nothing special reports it as the real failure it is.
+    """
+
+
+class ForeignListenerError(PublishedPortContradiction):
     """Something other than the subject answered on the subject's published port.
 
     A probe raises it when the reply is not the subject's protocol at all. On a
@@ -544,6 +556,10 @@ class ForeignListenerError(AssertionError):
 
 #: How a readiness wait that a foreign listener ended opens its ``ending``.
 _FOREIGN_ENDING = "a foreign listener answered on the published port"
+
+#: How a readiness wait that any other published-port contradiction ended
+#: opens its ``ending``.
+_CONTRADICTION_ENDING = "the published port contradicted the subject's own ready signal"
 
 
 #: Bytes of a reply :func:`probe_published_port` reads: enough for an HTTP
@@ -750,8 +766,10 @@ def wait_until_ready(
     Raises:
         ContainerExitedError: If the wait ended because *container* reached a
             terminal state. A subclass of ``AssertionError``.
-        ForeignListenerError: At once, re-raised with the wait's account, when
-            *probe* raises it: another process answers on the port.
+        PublishedPortContradiction: At once, re-raised as the probe's own type
+            with the wait's account, when *probe* raises one: another process
+            answers on the port (:class:`ForeignListenerError`), or the port
+            refuses a subject that logged ready.
         AssertionError: If no call succeeded before the wait ended for any
             other reason.
     """
@@ -771,9 +789,13 @@ def wait_until_ready(
             attempts += 1
             try:
                 probe()
-            except ForeignListenerError as exc:
+            except PublishedPortContradiction as exc:
                 last = exc
-                ending = _FOREIGN_ENDING
+                ending = (
+                    _FOREIGN_ENDING
+                    if isinstance(exc, ForeignListenerError)
+                    else _CONTRADICTION_ENDING
+                )
                 break
             except Exception as exc:  # any other failure means "not ready yet"
                 last = exc
@@ -802,8 +824,8 @@ def wait_until_ready(
 
         if ending.startswith(_EXITED_ENDING_PREFIX):
             failure: type[AssertionError] = ContainerExitedError
-        elif ending == _FOREIGN_ENDING:
-            failure = ForeignListenerError
+        elif isinstance(last, PublishedPortContradiction):
+            failure = type(last)
         else:
             failure = AssertionError
         raise failure(
@@ -919,6 +941,12 @@ def _readiness_failure(
             f"{label}: started, but never reached — {ending} after {elapsed:.1f}s "
             f"and {attempts} attempt(s): its reply is not the subject's protocol, so "
             f"another process on this host holds the port the runtime published."
+        )
+    elif ending == _CONTRADICTION_ENDING:
+        message = (
+            f"{label}: started, but never reached — {ending} after {elapsed:.1f}s "
+            f"and {attempts} attempt(s): the port the runtime published does not "
+            f"answer for the subject that logged it serves."
         )
     else:
         if only_refusals:
