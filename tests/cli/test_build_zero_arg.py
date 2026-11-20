@@ -315,7 +315,9 @@ class TestCarriedOverFlags:
             encoding="utf-8"
         )
 
-    def test_stream_is_accepted_as_the_short_flag(self, runner, lifecycle_repo):
-        result = _build(runner, lifecycle_repo, "-s")
+    def test_s_is_the_short_flag_of_stream(self):
+        """Parsed, not built: a build here skips the lifecycle, the only steps that stream."""
+        params = build.make_context("build", ["-s"]).params
 
-        assert result.exit_code == 0, result.output
+        assert params["stream"] is True
+        assert params["skip_lifecycle"] is False

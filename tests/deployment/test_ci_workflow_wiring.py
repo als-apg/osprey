@@ -1787,8 +1787,8 @@ def test_render_name_refuses_an_expression_it_does_not_evaluate() -> None:
 #:
 #:  * every live module scripts/va/live_ca/gate.py runs — its Channel Access
 #:    suites, and in --pva mode its PVAccess suites too — runs one pytest
-#:    process per module through that gate, in a step of the unit job itself
-#:    that is gated on a single matrix cell. libca is process-global and not
+#:    process per module through that gate, in a step of the serial-suites
+#:    job that is gated on Linux. libca is process-global and not
 #:    thread-safe, so a shared xdist worker is precisely what they cannot have,
 #:    and the gate — not a path in a run step — is what proves they ran.
 UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
@@ -1798,6 +1798,8 @@ UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
         "tests/va/test_timed_passes_live.py",
         "tests/va/test_injection_live.py",
         "tests/va/test_turn_by_turn_live.py",
+        "tests/va/test_stopped_servers_live.py",
+        "tests/va/test_server_fleet_live.py",
     }
 )
 

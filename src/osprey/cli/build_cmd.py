@@ -1308,10 +1308,20 @@ def _render_compose_files(
         # the service directories the config names — is spelled relative to the
         # staged tree, which is what the render itself was rooted at.
         network_errors = _network_check_errors(config, compose_files)
+        from osprey.deployment import run_once
+        from osprey.deployment.container_lifecycle import merged_compose_services
+
+        run_once_errors = run_once.declaration_errors(
+            merged_compose_services([Path(path) for path in compose_files])
+        )
     finally:
         os.chdir(previous)
     if network_errors:
         raise click.UsageError("Network axis check failed:\n  - " + "\n  - ".join(network_errors))
+    if run_once_errors:
+        raise click.UsageError(
+            "Run-once declarations are refused:\n  - " + "\n  - ".join(run_once_errors)
+        )
     # Not reported here: the render phase's `compose files` step fires the
     # moment this returns and says the same thing.
     logger.debug("Rendered %d compose file(s)", len(compose_files))

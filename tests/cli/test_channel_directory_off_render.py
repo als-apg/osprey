@@ -211,8 +211,12 @@ class Seen:
             for path in repo.rglob("*")
             if stat.S_ISREG(path.lstat().st_mode)
         ]
+        #: The digest of each file :meth:`_compared_apart` normalised, which
+        #: :func:`snapshot` reuses rather than reading and normalising it again.
+        self._normalised: dict[str, str] = {}
         self.unseen = frozenset(relative for relative in files if self._compared_apart(relative))
-        self.digests = snapshot(repo, unseen_rows=self.unseen)
+        self.digests = snapshot(repo, unseen_rows=self.unseen, normalised_digests=self._normalised)
+        self._normalised.clear()
         for relative in files:
             mode = self.digests[relative].split()[0]
             if _matches(relative, SOURCE_ZONE):
@@ -231,7 +235,9 @@ class Seen:
         if _is_manifest(relative):
             return False
         content = (self.repo / relative).read_bytes()
-        return normalise(relative, content) != content
+        normalised = normalise(relative, content)
+        self._normalised[relative] = hashlib.sha256(normalised).hexdigest()
+        return normalised != content
 
     def text(self, relative: str) -> str | None:
         """The compared text of a file, or None for a binary or missing one."""
@@ -477,6 +483,48 @@ def test_a_moved_value_null_is_seen_by_the_off_guard(tmp_path: Path) -> None:
     same = tree("same", "simulation:\n  models: null\n")
     assert compare(off, moved, (OFF_SPELLING,))[0] == ["build/config.yml"]
     assert compare(off, same, (OFF_SPELLING,))[0] == []
+
+
+_TINY_RENDER = {
+    "build/plain.txt": "hello\n",
+    "build/config.yml": "env:\n  OSPREY_VERSION: 2026.11.0\nx: 1\n",
+    "build/docker-compose.yml": "services: {}\n",
+}
+
+
+def _tiny_render(root: Path, **changed: str) -> Path:
+    """:data:`_TINY_RENDER` under *root*, with the files named by stem replaced."""
+    for relative, text in _TINY_RENDER.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(changed.get(PurePosixPath(relative).stem, text), encoding="utf-8")
+    return root
+
+
+def test_a_stray_edit_in_a_plain_file_is_seen_by_the_off_guard(tmp_path: Path) -> None:
+    left = _tiny_render(tmp_path / "left")
+    right = _tiny_render(tmp_path / "right", plain="hello\nstray: 1\n")
+
+    assert compare(left, right, ())[0] == ["build/plain.txt"]
+
+
+def test_a_moved_stamp_is_masked_and_a_stray_edit_beside_it_is_seen(tmp_path: Path) -> None:
+    config = _TINY_RENDER["build/config.yml"]
+    left = _tiny_render(tmp_path / "left")
+    moved = _tiny_render(tmp_path / "moved", config=config.replace("2026.11.0", "2099.1.0"))
+    stray = _tiny_render(tmp_path / "stray", config=f"{config}y: 2\n")
+
+    assert compare(left, moved, ())[0] == []
+    assert compare(left, stray, ())[0] == ["build/config.yml"]
+
+
+def test_the_digests_seen_reuses_are_the_ones_a_snapshot_computes(tmp_path: Path) -> None:
+    """:class:`Seen` hands :func:`snapshot` the digests it normalised; they must be its own."""
+    repo = _tiny_render(tmp_path / "render")
+    seen = Seen(repo, ())
+
+    assert seen.unseen == {"build/config.yml"}
+    assert seen.digests == snapshot(repo, unseen_rows=seen.unseen)
 
 
 def test_the_off_spelling_renders_what_no_section_renders(store: Path, no_section: Path) -> None:

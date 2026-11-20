@@ -22,6 +22,7 @@ from osprey.cli.build_profile import (
 )
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
+from tests._builds import BuiltProject
 from tests._preset_data import bundle_data_root
 from tests.cli._lifecycle_build import invoke_build
 
@@ -3261,7 +3262,9 @@ class TestVAArchiverConfigDerivation:
 # ---------------------------------------------------------------------------
 
 
-def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: Path) -> None:
+def test_graph_mode_renders_its_search_index_and_no_paradigm_database(
+    built_demo: BuiltProject,
+) -> None:
     """The graph paradigm builds, and its render flattens no paradigm database.
 
     What it DOES stage under ``data/channel_databases`` is the search index
@@ -3269,27 +3272,13 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
     keyword tool read instead of parsing the corpus again. The builder itself is
     pinned in tests/cli/test_build_graph_index.py; here it is the render's own
     inventory that has to name it.
+
+    The graph paradigm is the demo preset's own, so its render is the session's
+    shared demo build; the precondition says so.
     """
-    from click.testing import CliRunner
-
-    from osprey.cli.init_cmd import init
-
-    repo = tmp_path / "graphed"
-    runner = CliRunner()
-    created = runner.invoke(
-        init,
-        [
-            str(repo),
-            "--preset",
-            "demo",
-            "--no-git",
-            *_set_args({"channel_finder_mode": "graph"}),
-        ],
-    )
-    assert created.exit_code == 0, created.output
-    rendered = invoke_build(repo)
-    assert rendered.exit_code == 0, rendered.output
-    render = repo / "build"
+    profile = yaml.safe_load((built_demo.repo / "profile.yml").read_text(encoding="utf-8"))
+    assert profile["channel_finder_mode"] == "graph", "the shared build is not a graph render"
+    render = built_demo.build_dir
 
     servers = json.loads((render / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert servers["channel-finder"]["args"] == [

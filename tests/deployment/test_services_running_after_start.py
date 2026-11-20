@@ -17,7 +17,7 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import repo_identity
-from osprey.deployment.container_lifecycle import services_without_a_running_container
+from osprey.deployment.container_lifecycle import check_started_services
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.errors import ServicesNotRunningError
 from osprey.deployment.web_terminals.artifacts import web_compose_file
@@ -59,6 +59,11 @@ class _RuntimePs:
         return subprocess.CompletedProcess(cmd, 0, stdout=_docker(*kept), stderr="")
 
 
+def _missing(repo: Path, services: dict) -> dict[str, str]:
+    """The services the check names as neither running nor done."""
+    return check_started_services(repo, services).missing
+
+
 def _docker(*rows: dict) -> str:
     """Docker's NDJSON listing, its labels one comma-joined string."""
     return "\n".join(
@@ -95,7 +100,7 @@ def test_docker_rows_satisfy_their_service_by_compose_label(repo, monkeypatch):
     )  # fmt: skip
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(listing))
 
-    assert services_without_a_running_container(repo, {"api": {}, "worker": {}}) == {}
+    assert _missing(repo, {"api": {}, "worker": {}}) == {}
 
 
 def test_podman_rows_satisfy_their_service_by_compose_label(repo, monkeypatch):
@@ -105,7 +110,7 @@ def test_podman_rows_satisfy_their_service_by_compose_label(repo, monkeypatch):
     )
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(listing))
 
-    assert services_without_a_running_container(repo, {"api": {}, "worker": {}}) == {}
+    assert _missing(repo, {"api": {}, "worker": {}}) == {}
 
 
 def test_a_service_with_no_row_is_named_no_container(repo, monkeypatch):
@@ -116,7 +121,7 @@ def test_a_service_with_no_row_is_named_no_container(repo, monkeypatch):
     )  # fmt: skip
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(listing))
 
-    assert services_without_a_running_container(repo, {"api": {}}) == {"api": "no container"}
+    assert _missing(repo, {"api": {}}) == {"api": "no container"}
 
 
 def test_an_exited_container_is_named_with_its_exit_code(repo, monkeypatch):
@@ -128,7 +133,7 @@ def test_an_exited_container_is_named_with_its_exit_code(repo, monkeypatch):
     )  # fmt: skip
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(listing))
 
-    assert services_without_a_running_container(repo, {"api": {}, "worker": {}}) == {
+    assert _missing(repo, {"api": {}, "worker": {}}) == {
         "api": "exited (1)",
         "worker": "restarting",
     }
@@ -146,7 +151,7 @@ def test_a_run_once_service_that_exited_zero_is_satisfied(repo, monkeypatch):
         "api": {"depends_on": {"init": {"condition": "service_completed_successfully"}}},
     }
 
-    assert services_without_a_running_container(repo, services) == {}
+    assert _missing(repo, services) == {}
 
 
 def test_a_daemon_that_exited_zero_is_not_satisfied(repo, monkeypatch):
@@ -157,7 +162,7 @@ def test_a_daemon_that_exited_zero_is_not_satisfied(repo, monkeypatch):
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(listing))
     services = {"api": {"depends_on": {"db": {"condition": "service_healthy"}}}}
 
-    assert services_without_a_running_container(repo, services) == {"api": "exited (0)"}
+    assert _missing(repo, services) == {"api": "exited (0)"}
 
 
 def _running(labels: dict) -> dict:
@@ -169,7 +174,7 @@ def test_a_running_container_without_the_checkout_label_satisfies_its_service(re
     ps = _RuntimePs(_running({PROJECT_LABEL: "demo", SERVICE_LABEL: "qmd-okf"}))
     monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
 
-    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {}
+    assert _missing(repo, {"qmd-okf": {}}) == {}
 
 
 def test_another_checkouts_container_does_not_satisfy_the_service(repo, monkeypatch):
@@ -178,9 +183,7 @@ def test_another_checkouts_container_does_not_satisfy_the_service(repo, monkeypa
     )
     monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
 
-    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {
-        "qmd-okf": "no container"
-    }
+    assert _missing(repo, {"qmd-okf": {}}) == {"qmd-okf": "no container"}
 
 
 def test_this_checkouts_labelled_container_satisfies_its_service(repo, monkeypatch):
@@ -191,16 +194,14 @@ def test_this_checkouts_labelled_container_satisfies_its_service(repo, monkeypat
     )
     monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
 
-    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {}
+    assert _missing(repo, {"qmd-okf": {}}) == {}
 
 
 def test_another_projects_container_does_not_satisfy_the_service(repo, monkeypatch):
     ps = _RuntimePs(_running({PROJECT_LABEL: "other", SERVICE_LABEL: "qmd-okf"}))
     monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
 
-    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {
-        "qmd-okf": "no container"
-    }
+    assert _missing(repo, {"qmd-okf": {}}) == {"qmd-okf": "no container"}
 
 
 def _compose(path: Path, services: str) -> None:
@@ -272,9 +273,9 @@ def test_a_start_that_returns_is_checked_once(repo, monkeypatch):
 
     def _spy(_repo_root, services):
         checked.append(list(services))
-        return {}
+        return container_lifecycle.StartCheck({}, {})
 
-    monkeypatch.setattr(container_lifecycle, "services_without_a_running_container", _spy)
+    monkeypatch.setattr(container_lifecycle, "check_started_services", _spy)
 
     container_lifecycle._start_as_built(
         repo,

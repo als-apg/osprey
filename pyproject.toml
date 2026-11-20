@@ -1673,6 +1673,7 @@ forbidden_modules = [
 ignore_imports = [
     # phase 5 — the framework's `osprey facility panels` command.
     "osprey.cli.facility_cmd -> osprey.facility.panels",
+    "osprey.cli.facility_cmd -> osprey.facility.panels.classes",
     "osprey.cli.facility_cmd -> osprey.facility.panels.describe",
     "osprey.cli.facility_cmd -> osprey.facility.panels.emit",
     "osprey.cli.facility_cmd -> osprey.facility.panels.view",

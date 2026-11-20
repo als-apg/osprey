@@ -30,8 +30,9 @@ that it dials someone else's ports.
 
 The demo preset is the only shipped one whose build injects
 anything, so the end-to-end cells here use it. Each is a real ``osprey init`` +
-``osprey build`` (``slow``, tens of seconds), built once per module and shared;
-the rest are unit tests of the two merges and cost nothing.
+``osprey build`` (``slow``, tens of seconds): the deploying cell reads the
+session's shared demo build, the attached cell is built once per module; the
+rest are unit tests of the two merges and cost nothing.
 """
 
 from __future__ import annotations
@@ -50,6 +51,7 @@ from osprey.cli.build_profile_ports import layout_port_fill
 from osprey.deployment.graphdb_service import DEFAULT_TTL_PATH
 from osprey.deployment.reach import REACH_CONTRACTS, render_local_keys
 from osprey.port_layout import DEFAULT_PORT_BASE
+from tests._builds import BuiltProject
 from tests.fixtures.explicit_config.freeze import (
     FIXTURE_ROOT,
     PROJECT_NAME,
@@ -148,44 +150,32 @@ def _service_leaves(document: dict[str, Any]) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One real ``osprey init`` + ``osprey build`` of the cell, shared by the module.
+def built_project(built_demo: BuiltProject) -> Path:
+    """The session's real ``osprey init`` + ``osprey build --skip-deps`` of the cell.
 
-    Invoked as the fixture freeze invoked it — same verbs, same fixed project
-    name, same ``*_API_KEY``-stripped environment — so what it renders is
-    comparable to what was frozen. The build skips the venv the freeze's build
-    installed: nothing here reads it, and the interpreter it would record is
-    the one key the freeze masks. No source directories are prepended to
-    ``PYTHONPATH``: the CLI imports OSPREY as installed, which is the tree under
-    test. A subprocess, so the in-process index stub ``tests/conftest.py``
-    installs does not reach it: every render's search index here is the one
-    the real build step wrote, or did not.
+    ``built_demo`` is the bare demo preset, whose ``channel_finder_mode`` is
+    the frozen cell's ``graph``. This module used to build the cell in a fresh
+    subprocess, invoked as the freeze invoked it, and each of its guards still
+    holds or no longer applies:
+
+    - *Stripped ``*_API_KEY`` and pinned audit identity.* What is compared with
+      the frozen file is ``deployed_services`` and its order; the rest reads
+      ``services:`` blocks and the renders' corpus and index. No injector reads
+      ``os.environ``, and none of these names a credential or the build account.
+    - *The fixed project name.* ``deployed_services`` does not carry it, and
+      render directories are found from the repo's own name (``demo``).
+    - *A fresh process.* It kept out the function-scoped index stub
+      ``tests/conftest.py`` installs. The shared build's index is a real parse
+      all the same, because pytest sets up session fixtures before that stub,
+      so every render's search index here is the one the real build step
+      wrote, or did not.
 
     Returns:
         The deployment repo, with its ``build/`` rendered.
     """
-    scratch = tmp_path_factory.mktemp("deployed-services-injection")
-    env = _cli_env([])
-
-    result = _run_cli(
-        [
-            "init",
-            PROJECT_NAME,
-            "--preset",
-            PRESET,
-            "--no-git",
-            "--set",
-            f"channel_finder_mode={MODE}",
-        ],
-        cwd=scratch,
-        env=env,
-    )
-    assert result.returncode == 0, f"osprey init refused the cell:\n{_failure_reason(result)}"
-
-    project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
-    assert result.returncode == 0, f"osprey build refused the cell:\n{_failure_reason(result)}"
-    return project
+    profile = yaml.safe_load((built_demo.repo / "profile.yml").read_text(encoding="utf-8"))
+    assert profile["channel_finder_mode"] == MODE, "the shared build is not the frozen cell"
+    return built_demo.repo
 
 
 @pytest.fixture(scope="module")

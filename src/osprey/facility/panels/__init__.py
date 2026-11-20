@@ -10,7 +10,8 @@ say what each screen contains, without layout;
 :mod:`~osprey.facility.panels.layout` draws a view as a Screen-IR document with
 the symbols and theme roles of :mod:`~osprey.facility.panels.symbols`;
 :mod:`~osprey.facility.panels.emit` writes the screens to disk and checks a
-written set against the model.
+written set against the model; :mod:`~osprey.facility.panels.classes` groups the
+written screens into classes, each judged by one standard screen.
 """
 
 from osprey.facility.panels.describe import (

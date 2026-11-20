@@ -45,6 +45,7 @@ import pytest
 import yaml
 
 from osprey.cli.templates.manager import TemplateManager
+from tests._builds import BuiltProject
 from tests._preset_data import create_project_as_built
 from tests._vocabulary import hardcoded_vocabulary_hits
 from tests.cli._lifecycle_build import invoke_build
@@ -311,7 +312,9 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
     return repo
 
 
-def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path):
+def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(
+    built_demo_hierarchical: BuiltProject,
+):
     """The build verb completes, the facility-knowledge-graph subagent gets the
     tools, and the channel-finder subagent rendered beside it gets none of them
     — the direction ``create_project`` cannot prove, since the build runs its
@@ -319,13 +322,14 @@ def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path)
 
     The halves belong in one test: a build where the tools reached neither
     surface would satisfy the channel-finder assertion on its own.
+
+    The build read is the session's shared build of the demo preset in the
+    hierarchical paradigm (``built_demo_hierarchical``), not the hand-written
+    ``extends: demo`` profile of :func:`_write_profile`. The ``extends:`` path
+    with the graph server off is still driven through the build by the test
+    below.
     """
-    repo = _write_profile(tmp_path / "graph-on")
-
-    result = invoke_build(repo)
-    assert result.exit_code == 0, result.output
-
-    project = repo / "build"
+    project = built_demo_hierarchical.build_dir
     _assert_graph_session_surface(project)
 
     agent = project / ".claude" / "agents" / "channel-finder.md"
