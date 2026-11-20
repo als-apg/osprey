@@ -110,7 +110,8 @@ class TestWritingBlueskyPlansSkillStructure:
     # --- plan-file format ---
 
     def test_documents_plan_metadata(self, skill_text):
-        """``PLAN_METADATA`` is exactly three keys, and the section says so.
+        """``PLAN_METADATA`` is three required keys and two optional ones, and the
+        section says so.
 
         The retired ``category``/``required_devices`` keys are asserted absent
         from that section rather than from the whole file: an author who reads
@@ -119,7 +120,7 @@ class TestWritingBlueskyPlansSkillStructure:
         """
         assert "PLAN_METADATA" in skill_text
         section = _metadata_section(skill_text)
-        for field in ("name", "description", "writes"):
+        for field in ("name", "description", "writes", "layout", "summary"):
             assert field in section, f"PLAN_METADATA section never names {field!r}"
         for retired in ("category", "required_devices"):
             assert retired not in section, (
@@ -169,6 +170,12 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "dry-run gate:" in prose
         assert "opened a run that declares no point count" in prose
         assert "declares that it moves channels but opened no run" in prose
+
+    def test_documents_the_default_gate(self, skill_text):
+        """A default its own field refuses quarantines the plan at load."""
+        prose = _prose(skill_text)
+        assert "every default, written or made by a factory, is held to the field's own" in prose
+        assert "a plan whose default fails is quarantined at load" in prose
 
     def test_documents_params_and_build_plan(self, skill_text):
         assert "PARAMS" in skill_text
