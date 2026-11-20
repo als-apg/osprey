@@ -1,0 +1,1 @@
+A profile whose `claude_md_template` is empty, not a name, or names no bundled CLAUDE.md render is now refused when the profile loads, and the message lists the bundled renders. Before this change an empty value silently built the default; leave the key out for the default.
