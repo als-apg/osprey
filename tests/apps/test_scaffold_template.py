@@ -21,7 +21,7 @@ from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY
 from osprey.interfaces.common_middleware import WebAuthMiddleware
 from osprey.mcp_server.startup import application_server
-from tests.test_offline_build_env import NO_ROUTE
+from tests._builds import NO_ROUTE
 
 TEMPLATE = Path(osprey.apps.__file__).resolve().parent / "scaffold-app"
 APP_NAME = "scaffold-app"

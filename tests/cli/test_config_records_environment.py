@@ -35,6 +35,7 @@ from click.testing import CliRunner
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.config import ConfigBuilder
+from tests._builds import BuiltProject
 from tests._config_render_context import CONFIG_TEMPLATES, MINIMAL_CONFIG_CONTEXT
 from tests.cli._lifecycle_build import invoke_build
 
@@ -67,17 +68,19 @@ def _interpreter_paths(config: dict) -> list[tuple[str, str]]:
 
 
 def _build_project(output_dir: Path, project_name: str, *init_set_args: str) -> Path:
-    """Materialize the demo preset, build it, and return build/.
+    """Materialize the hello-world preset, build it, and return build/.
 
     ``--skip-deps --skip-lifecycle`` keeps the build Docker- and network-free:
     the rendered config.yml is all these tests read. Any ``--set`` pairs are
     profile-time, so they go to ``osprey init`` — the deployment repo it
-    creates is what ``osprey build`` then renders.
+    creates is what ``osprey build`` then renders. hello-world because the
+    ``execution:`` block is the config template's, whatever the preset: the
+    smallest preset renders it as the largest does.
     """
     repo_dir = output_dir / project_name
     init_result = CliRunner().invoke(
         init,
-        [str(repo_dir), "--preset", "demo", "--no-git", *init_set_args],
+        [str(repo_dir), "--preset", "hello-world", "--no-git", *init_set_args],
     )
     assert init_result.exit_code == 0, init_result.output
 
@@ -166,11 +169,9 @@ class TestGeneratedConfigRecordsNoInterpreterPath:
     """
 
     @pytest.fixture(scope="class")
-    def built_config_text(self, tmp_path_factory) -> str:
-        """Build once per class — every test here only reads the rendered config."""
-        output_dir = tmp_path_factory.mktemp("records-environment")
-        project_dir = _build_project(output_dir, "plain-build")
-        return (project_dir / "config.yml").read_text(encoding="utf-8")
+    def built_config_text(self, built_demo: BuiltProject) -> str:
+        """The session's demo build — every test here only reads the rendered config."""
+        return (built_demo.build_dir / "config.yml").read_text(encoding="utf-8")
 
     @pytest.fixture(scope="class")
     def built_config(self, built_config_text: str) -> dict:

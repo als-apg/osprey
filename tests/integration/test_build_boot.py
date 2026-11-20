@@ -57,6 +57,7 @@ from pathlib import Path
 import psutil
 import pytest
 
+from tests._builds import NO_ROUTE
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP, ORBIT_BUMP
 from tests.integration._mcp_handshake import (
@@ -64,7 +65,6 @@ from tests.integration._mcp_handshake import (
     assert_tools_superset,
     list_mcp_tools,
 )
-from tests.test_offline_build_env import NO_ROUTE
 
 pytestmark = pytest.mark.slow
 
