@@ -241,19 +241,21 @@ def test_every_probe_name_is_shell_only():
 
 
 @pytest.mark.parametrize("override", [True, False])
-@pytest.mark.parametrize("name", PROBE_NAMES)
-def test_shell_value_is_kept(chain, name, override):
-    environ = {name: _shell_value(name)}
+def test_shell_value_is_kept(chain, override):
+    """Every probe name set from the shell, in one application: the chain decides
+    each name on its own, so one call answers for all of them."""
+    environ = {name: _shell_value(name) for name in PROBE_NAMES}
     apply_env_chain(environ, chain, override=override)
-    assert environ[name] == _shell_value(name)
+    replaced = [name for name in PROBE_NAMES if environ.get(name) != _shell_value(name)]
+    assert replaced == [], f"the chain replaced the shell's value of {replaced}"
 
 
 @pytest.mark.parametrize("override", [True, False])
-@pytest.mark.parametrize("name", PROBE_NAMES)
-def test_absent_name_stays_absent(chain, name, override):
+def test_absent_name_stays_absent(chain, override):
     environ: dict[str, str] = {}
     apply_env_chain(environ, chain, override=override)
-    assert name not in environ
+    set_by_chain = [name for name in PROBE_NAMES if name in environ]
+    assert set_by_chain == [], f"the chain set {set_by_chain}"
 
 
 @pytest.mark.parametrize("override", [True, False])

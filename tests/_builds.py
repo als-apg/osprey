@@ -446,6 +446,13 @@ def built_demo_watchdog_on(
 #: What a real ``osprey build`` runs under so its install reads uv's cache alone.
 OFFLINE_BUILD_ENV = {"UV_OFFLINE": "1"}
 
+#: Any request a subprocess makes goes to a port nothing listens on.
+NO_ROUTE = dict.fromkeys(
+    ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"),
+    "http://127.0.0.1:9",
+)
+NO_ROUTE["NO_PROXY"] = NO_ROUTE["no_proxy"] = ""
+
 #: Under xdist, the file in the run's shared base temp directory that says uv's
 #: cache was shown to hold what a build installs.
 SHARED_CACHE_RECORD = "uv-cache-serves-the-build"
@@ -507,22 +514,32 @@ def fill_uv_cache(parent: Path) -> None:
 
     A cache that already can is left alone and nothing is fetched. One that
     cannot is filled by one install with the network on, then shown to serve.
+    Served means installed under :data:`OFFLINE_BUILD_ENV` with no route to an
+    index (:data:`NO_ROUTE`), into a venv that then imports osprey.
     """
-    offline = {**os.environ, **OFFLINE_BUILD_ENV}
+    offline = {**os.environ, **OFFLINE_BUILD_ENV, **NO_ROUTE}
     # The venv only proves the install, so it goes with the fill.
     with tempfile.TemporaryDirectory(prefix="uv-fill-", dir=parent) as scratch:
         venv = Path(scratch) / "venv"
-        if install_osprey_into(venv, offline).returncode == 0:
-            return
-        filled = install_osprey_into(venv, os.environ)
-        assert filled.returncode == 0, (
-            "uv's cache does not hold what an osprey build installs, and it could not be "
-            f"fetched:\n{filled.stdout}{filled.stderr}"
+        if install_osprey_into(venv, offline).returncode != 0:
+            filled = install_osprey_into(venv, os.environ)
+            assert filled.returncode == 0, (
+                "uv's cache does not hold what an osprey build installs, and it could not be "
+                f"fetched:\n{filled.stdout}{filled.stderr}"
+            )
+            served = install_osprey_into(venv, offline)
+            assert served.returncode == 0, (
+                "uv's cache was filled and still does not serve an osprey build's install:\n"
+                f"{served.stdout}{served.stderr}"
+            )
+        probe = subprocess.run(
+            [str(venv / "bin" / "python"), "-c", "import osprey"],
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
-        served = install_osprey_into(venv, offline)
-        assert served.returncode == 0, (
-            "uv's cache was filled and still does not serve an osprey build's install:\n"
-            f"{served.stdout}{served.stderr}"
+        assert probe.returncode == 0, (
+            f"osprey installed from uv's cache alone and does not import:\n{probe.stderr}"
         )
 
 

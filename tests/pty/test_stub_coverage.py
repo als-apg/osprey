@@ -41,7 +41,9 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
+from tests._builds import BuiltProject
 from tests._coverage_handoff import without_coverage_handoff
 from tests.pty.conftest import StubRuntime, repo_root, stub_runtime_dir
 from tests.pty.stub_runtime import _stub_main
@@ -490,13 +492,16 @@ class TestStubIsReachable:
 class TestStubAnswersPlausibly:
     """Exit 0 is not enough: the answers have to be usable ones."""
 
-    def test_compose_up_starts_the_services_the_exemplar_declares(
-        self, stub: StubRuntime, exemplar_repo: Path, tmp_path: Path
+    def test_compose_up_starts_the_services_the_build_declares(
+        self, stub: StubRuntime, built_demo: BuiltProject, tmp_path: Path
     ) -> None:
-        """The stub reads the rendered compose files rather than inventing services.
+        """The stub reads every rendered compose file rather than inventing services.
 
         This is what makes the ``ps`` that follows an ``up`` say something true:
-        the containers it lists are the ones the repo under test declares.
+        the containers it lists are the ones the repo under test declares, in
+        every compose file it renders. The shared demo build renders several,
+        so a stub that read only some of them would start too few. The stub
+        only reads the repo, and keeps its state under ``tmp_path``.
         """
         from osprey.deployment.container_lifecycle import (
             as_built_compose_files,
@@ -504,11 +509,20 @@ class TestStubAnswersPlausibly:
         )
         from osprey_connectors.config import load_project_config
 
-        config = load_project_config(str(as_built_config_path(exemplar_repo)), wrap_errors=True)
-        compose_files = as_built_compose_files(config, exemplar_repo)
-        assert compose_files, f"the exemplar rendered no compose files into {exemplar_repo}/build"
+        repo = built_demo.repo
+        config = load_project_config(str(as_built_config_path(repo)), wrap_errors=True)
+        compose_files = as_built_compose_files(config, repo)
+        assert len(compose_files) > 1, f"one compose file cannot show all are read: {compose_files}"
+        # Compose reads a file without ``services:`` too (the base network file).
+        declared = {
+            service
+            for path in compose_files
+            for service in yaml.safe_load((repo / path).read_text(encoding="utf-8")).get(
+                "services", {}
+            )
+        }
 
-        argv = ["compose", "--project-directory", str(exemplar_repo)]
+        argv = ["compose", "--project-directory", str(repo)]
         for path in compose_files:
             argv += ["-f", str(path)]
 
@@ -522,7 +536,21 @@ class TestStubAnswersPlausibly:
         records = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
         assert records, "ps saw nothing after a compose up"
         assert all(record["Project"] == "ptyproj" for record in records)
-        assert {record["Service"] for record in records} == {"agent-record"}
+        started = {record["Service"] for record in records}
+        assert started == declared, (
+            f"declared but not started: {sorted(declared - started)}; "
+            f"started but not declared: {sorted(started - declared)}"
+        )
+        # A file that declares no services (the base network file) changes no
+        # service above, so the stub's own record of what it opened is checked:
+        # each of its readers opened every file it was handed.
+        handed = {(repo / path).resolve() for path in compose_files}
+        (up_record,) = [r for r in stub.invocations() if r["seam"] == "compose up"]
+        for reader in ("services", "labels"):
+            opened = {Path(p).resolve() for p in up_record["read"].get(reader, [])}
+            assert opened == handed, (
+                f"the stub's {reader} reader did not open {sorted(str(p) for p in handed - opened)}"
+            )
 
         down = _run_stub([*argv, "-p", "ptyproj", "down"], stub, tmp_path)
         assert down.returncode == 0

@@ -112,6 +112,16 @@ def _axis_seconds(axis: list[str]) -> list[float]:
     return [datetime.fromisoformat(stamp).replace(tzinfo=tz).timestamp() for stamp in axis]
 
 
+#: The plot's time axis, what the rewrite stores there and over which windows, and the base
+#: seed's values there: ``(seconds, seeded, spans, base)``.
+ArchiveAtPlot = tuple[
+    list[float],
+    dict[str, dict[int, Any]],
+    dict[str, tuple[float, float]],
+    dict[str, list[Any]],
+]
+
+
 def _seeded(
     project: Path, config: dict, epochs: list[float]
 ) -> tuple[dict[str, dict[int, Any]], dict[str, tuple[float, float]]]:
@@ -153,6 +163,14 @@ def _base(project: Path, epochs: list[float]) -> dict[str, list[Any]]:
         return archive.samples([DCCT, SR07], epochs)
 
 
+@pytest.fixture(scope="module")
+def archive_at_plot(project: Path, config: dict, plot) -> ArchiveAtPlot:
+    """The archive at the loss plot's instants, computed once for the tests that read it."""
+    seconds = _axis_seconds(plot[DCCT]["x"])
+    seeded, spans = _seeded(project, config, seconds)
+    return seconds, seeded, spans, _base(project, seconds)
+
+
 # ---------------------------------------------------------------------------
 # One clock
 # ---------------------------------------------------------------------------
@@ -173,13 +191,10 @@ def test_the_burst_is_at_1432_yesterday_in_the_facility_zone() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_archived_values_are_the_plotted_values(project: Path, config: dict, plot) -> None:
-    seconds = _axis_seconds(plot[DCCT]["x"])
+def test_the_archived_values_are_the_plotted_values(archive_at_plot: ArchiveAtPlot, plot) -> None:
+    seconds, seeded, spans, base = archive_at_plot
     assert _axis_seconds(plot[SR07]["x"]) == seconds
     event = _event_instant()
-
-    seeded, spans = _seeded(project, config, seconds)
-    base = _base(project, seconds)
 
     for pv in (DCCT, SR07):
         low, high = spans[pv]
@@ -200,13 +215,11 @@ def test_the_archived_values_are_the_plotted_values(project: Path, config: dict,
 
 
 def test_the_archive_drops_and_spikes_at_the_plotted_instant(
-    project: Path, config: dict, plot
+    archive_at_plot: ArchiveAtPlot, plot
 ) -> None:
     event = _event_instant()
-    seconds = _axis_seconds(plot[DCCT]["x"])
+    seconds, seeded, _spans, base = archive_at_plot
     at = seconds.index(event)
-    seeded, _spans = _seeded(project, config, seconds)
-    base = _base(project, seconds)
     # Only the stretch around the burst, where the two scenarios' events cannot mix.
     near = [i for i, t in enumerate(seconds) if abs(t - event) <= NEAR_S]
     at = near.index(at)
