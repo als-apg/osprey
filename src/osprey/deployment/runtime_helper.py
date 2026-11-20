@@ -1,7 +1,7 @@
 """Simple container runtime detection for Docker and Podman.
 
 Detects available container runtime and provides command helpers.
-Requires modern runtimes: Docker Desktop 4.0+ or Podman 4.0+.
+The oldest supported runtimes are the ones :data:`RUNTIME_FLOORS` names.
 
 Examples:
     Basic usage::
@@ -34,6 +34,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from osprey_connectors.logger import configure_logging, get_logger
@@ -399,10 +400,32 @@ class ComposeProvider(StrEnum):
     PODMAN_COMPOSE = "podman-compose"
 
 
-#: Oldest podman-compose OSPREY's compose invocation is compatible with. Chosen
-#: because it is what EPEL 8 ships stock (EPEL 9 ships 1.5.0), so facilities on
-#: distribution packages are covered without building anything from source.
-PODMAN_COMPOSE_MIN_VERSION: tuple[int, ...] = (1, 0, 6)
+class RuntimeProduct(StrEnum):
+    """A container runtime or compose provider OSPREY states a floor for."""
+
+    DOCKER_ENGINE = "Docker Engine"
+    DOCKER_DESKTOP = "Docker Desktop"
+    PODMAN = "Podman"
+    PODMAN_COMPOSE = "podman-compose"
+
+
+#: The oldest version of each runtime product OSPREY supports.
+RUNTIME_FLOORS: Mapping[RuntimeProduct, tuple[int, ...]] = MappingProxyType(
+    {
+        # The builtin BuildKit frontend of Engine 20.10 is what every shipped
+        # recipe is held to: it builds ``RUN --mount`` without a syntax directive.
+        RuntimeProduct.DOCKER_ENGINE: (20, 10),
+        # Desktop 4.0 ships Engine 20.10.
+        RuntimeProduct.DOCKER_DESKTOP: (4, 0),
+        # Podman 4.1 vendors the first buildah that accepts ``sharing=`` on a
+        # cache mount, which the shipped recipes use.
+        RuntimeProduct.PODMAN: (4, 1),
+        # What EPEL 8 ships stock (EPEL 9 ships 1.5.0), so facilities on
+        # distribution packages are covered without building anything from
+        # source; OSPREY's compose invocation is compatible with it.
+        RuntimeProduct.PODMAN_COMPOSE: (1, 0, 6),
+    }
+)
 
 #: ``podman-compose version 1.0.6``, however it is embedded in the surrounding
 #: dispatcher chatter. Requires the literal hyphenated name, so the docker
@@ -427,7 +450,7 @@ class ComposeProviderInfo:
     Attributes:
         provider: Which supported implementation answered the probe.
         version: Parsed version as an int tuple, directly comparable
-            (``info.version >= PODMAN_COMPOSE_MIN_VERSION``).
+            (``info.version >= RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE]``).
         version_text: The version exactly as the provider printed it.
         banner: The trimmed stdout+stderr of the probe, kept for diagnostics.
     """
@@ -450,6 +473,11 @@ def _format_version(version: tuple[int, ...]) -> str:
     return ".".join(str(part) for part in version)
 
 
+def _floor(product: RuntimeProduct) -> str:
+    """``<product> <floor>``, e.g. ``Podman 4.0``."""
+    return f"{product} {_format_version(RUNTIME_FLOORS[product])}"
+
+
 def _parse_version(text: str) -> tuple[int, ...]:
     return tuple(int(part) for part in text.split("."))
 
@@ -459,8 +487,8 @@ def _unsupported_provider_message(base: Sequence[str], detail: str, banner: str)
     lines = [
         f"Unsupported compose provider behind `{' '.join(base)}`: {detail}",
         "",
-        "OSPREY supports Docker Compose v2 and podman-compose "
-        f"{_format_version(PODMAN_COMPOSE_MIN_VERSION)} or newer. See the container "
+        "OSPREY supports Docker Compose v2 and "
+        f"{_floor(RuntimeProduct.PODMAN_COMPOSE)} or newer. See the container "
         "runtime compatibility statement in the deployment guide "
         "(https://als-apg.github.io/osprey/how-to/deploy-project/index.html) for the "
         "supported providers and the "
@@ -488,7 +516,7 @@ def detect_compose_provider(
     follows the provider that parses the argv, not the binary that forwards it.
 
     Anything else fails closed rather than guessing: an unrecognized banner, a
-    podman-compose older than :data:`PODMAN_COMPOSE_MIN_VERSION`, a Compose v1,
+    podman-compose older than its :data:`RUNTIME_FLOORS` entry, a Compose v1,
     or a probe that could not be run at all or did not answer within the hang
     guard. Guessing would mean emitting an
     argv the provider silently mis-parses, which surfaces much later as a
@@ -536,12 +564,12 @@ def detect_compose_provider(
     podman_match = _PODMAN_COMPOSE_BANNER.search(banner)
     if podman_match:
         version = _parse_version(podman_match.group(1))
-        if version < PODMAN_COMPOSE_MIN_VERSION:
+        if version < RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE]:
             raise UnsupportedComposeProviderError(
                 _unsupported_provider_message(
                     base,
                     f"podman-compose {podman_match.group(1)} is older than the supported "
-                    f"floor {_format_version(PODMAN_COMPOSE_MIN_VERSION)}",
+                    f"floor {_format_version(RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE])}",
                     banner,
                 )
             )
