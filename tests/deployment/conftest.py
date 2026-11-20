@@ -178,7 +178,7 @@ def _empty_host_for_the_ownership_check(monkeypatch):
     Tests that record every runtime call need that answer to be "an empty host".
     """
     monkeypatch.setattr(
-        "osprey.deployment.container_lifecycle._ownership_probe", lambda config: _EmptyHost()
+        "osprey.deployment.container_lifecycle._ownership_probe", lambda config, **_: _EmptyHost()
     )
 
 

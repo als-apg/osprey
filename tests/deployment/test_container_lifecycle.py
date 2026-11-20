@@ -4793,7 +4793,7 @@ def _ownership_probe_with(monkeypatch, containers=(), *, fails: bool = False):
         def volumes_for_project(self, project):
             return [Resource("volume", f"{project}_data", {})]
 
-    monkeypatch.setattr(container_lifecycle, "_ownership_probe", lambda config: _Probe())
+    monkeypatch.setattr(container_lifecycle, "_ownership_probe", lambda config, **_: _Probe())
 
 
 def _start_until_the_host(monkeypatch, tmp_path, *, web_terminals: bool = True):
