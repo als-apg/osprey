@@ -316,6 +316,34 @@ class TestLogbookSubmit:
             path.endswith(f"{draft_id}-metadata.json") for path in draft_data["attachment_paths"]
         ), "metadata.json not in attachment_paths"
 
+    def test_submit_reports_a_missing_browser_with_the_install_command(self, app_client, tmp_path):
+        """An artifact that needs the absent browser answers 503 with the converter's sentence."""
+        from osprey.mcp_server.export.converter import (
+            BROWSER_MISSING_MESSAGE,
+            PlaywrightNotInstalledError,
+        )
+
+        with (
+            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
+            patch(
+                "osprey.agent_runner.artifact_resolve.resolve_artifact_paths",
+                AsyncMock(side_effect=PlaywrightNotInstalledError(BROWSER_MISSING_MESSAGE)),
+            ),
+        ):
+            resp = app_client.post(
+                "/api/logbook/submit",
+                json={"subject": "Test", "details": "Details.", "artifact_ids": ["plot"]},
+            )
+
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == BROWSER_MISSING_MESSAGE
+        drafts = [
+            f
+            for f in (tmp_path / "drafts").glob("draft-*.json")
+            if not f.name.endswith("-metadata.json")
+        ]
+        assert drafts == []
+
 
 class TestAssemblePrompt:
     """Tests for assemble_prompt() and POST /api/logbook/assemble-prompt."""
