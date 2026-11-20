@@ -14,15 +14,19 @@ from __future__ import annotations
 
 import logging
 import types
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel, Field
 
+import osprey
+from osprey.services.bluesky_bridge import plan_metadata
 from osprey.services.bluesky_bridge.plan_metadata import (
     PlanMetadata,
     PlanMetadataError,
     parse_plan_metadata,
     parse_plan_metadata_dict,
+    summary_parameters,
 )
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 
@@ -50,7 +54,7 @@ def test_model_declares_three_required_and_two_optional_fields() -> None:
     optional = set(PlanMetadata.model_fields) - required
 
     assert required == {"name", "description", "writes"}
-    assert optional == {"layout"}
+    assert optional == {"layout", "summary"}
 
 
 def test_layout_rows_parse() -> None:
@@ -82,6 +86,44 @@ def test_layout_refuses_an_empty_row() -> None:
 def test_layout_refuses_an_empty_name() -> None:
     with pytest.raises(PlanMetadataError, match="layout"):
         parse_plan_metadata_dict({**_WELL_FORMED, "layout": [["span", ""]]}, source="test")
+
+
+def test_summary_parts_parse() -> None:
+    parts = ["gap {gap}", "{start} to {stop}", "{num} points", "{{fixed}} {monitors}"]
+
+    metadata = parse_plan_metadata_dict({**_WELL_FORMED, "summary": parts}, source="test")
+
+    assert metadata.summary == parts
+    assert summary_parameters(metadata) == {"gap", "start", "stop", "num", "monitors"}
+
+
+def test_summary_defaults_to_none() -> None:
+    metadata = parse_plan_metadata_dict(_WELL_FORMED, source="test")
+
+    assert metadata.summary is None
+    assert summary_parameters(metadata) == set()
+
+
+@pytest.mark.parametrize(
+    "part",
+    ["", "{a!r}", "{a!}", "{a:>3}", "{a:}", "{a[0]}", "{a.b}", "{}", "{0}", "{a", "a}"],
+    ids=[
+        "empty-part",
+        "conversion",
+        "empty-conversion",
+        "format-spec",
+        "empty-format-spec",
+        "index",
+        "attribute",
+        "empty-placeholder",
+        "positional",
+        "unclosed",
+        "stray-close",
+    ],
+)
+def test_summary_refuses_a_format_spec(part: str) -> None:
+    with pytest.raises(PlanMetadataError, match="summary"):
+        parse_plan_metadata_dict({**_WELL_FORMED, "summary": ["{num} points", part]}, source="t")
 
 
 def test_well_formed_module_parses_via_parse_plan_metadata() -> None:
@@ -287,3 +329,11 @@ def test_a_required_field_beside_a_factory_default_stays_required() -> None:
     schema = _spec_over(_FactoryDefaultParams).to_dict()["schema"]
 
     assert schema["required"] == ["target"]
+
+
+def test_summary_token_grammar_is_the_panels() -> None:
+    """The loader accepts exactly the placeholders the panel fills."""
+    panel = (
+        Path(osprey.__file__).parent / "interfaces/bluesky_web/panels/bluesky/plan-presentation.js"
+    ).read_text()
+    assert f"const SUMMARY_TOKEN = /{plan_metadata._SUMMARY_TOKEN.pattern}/g;" in panel
