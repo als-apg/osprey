@@ -4559,18 +4559,26 @@ def _report_port_conflicts(conflicts):
     logger.key_info(report)
 
 
-def _ownership_probe(config: dict) -> Any:
+def _ownership_probe(
+    config: dict | None, *, runtime: str | None = None, project: str | None = None
+) -> Any:
     """The runtime seam the foreign-checkout check reads the host through.
 
     Imported here, not at module scope: :mod:`osprey.deployment.reset` imports
     THIS module, so a top-level import would close a cycle. ``subprocess.run``
     is resolved at call time so the probe runs whatever this module runs.
+
+    Args:
+        config: The as-built config, or ``None`` when the build holds none.
+        runtime: The runtime to ask; the configured one when not given.
+        project: The compose project to pin in the runtime's environment;
+            the config's when not given.
     """
     from osprey.deployment.reset import RuntimeProbe
 
     return RuntimeProbe(
-        get_runtime_command(config)[0],
-        env=runtime_env(config, dict(os.environ)),
+        runtime or get_runtime_command(config)[0],
+        env=runtime_env(config, dict(os.environ), project=project),
         run=subprocess.run,
     )
 
