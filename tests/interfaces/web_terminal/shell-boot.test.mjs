@@ -70,8 +70,9 @@ function stubFetch(body, ok = true) {
  */
 function failToLoad(tag, url) {
   const el = document.createElement(tag);
-  if (el instanceof HTMLScriptElement) el.src = url;
-  else if (el instanceof HTMLLinkElement) {
+  if (el instanceof HTMLScriptElement) {
+    if (url) el.src = url;
+  } else if (el instanceof HTMLLinkElement) {
     el.rel = 'stylesheet';
     el.href = url;
   }
@@ -82,6 +83,7 @@ function failToLoad(tag, url) {
 
 beforeEach(() => {
   root.setAttribute(BOOT_ATTRIBUTE, 'loading');
+  root.removeAttribute('data-page-ready');
   mountVeil();
   /** @type {any} */ (globalThis).__OSPREY_EARLY__ = undefined;
   /** @type {any} */ (window).__OSPREY_PREFIX__ = '';
@@ -282,6 +284,48 @@ describe('load failure', () => {
     );
 
     expect(boot()).toBe('loading');
+  });
+
+  test('an inline module of the page whose import failed ends the wait', () => {
+    stubFetch({});
+    runBoot();
+
+    failToLoad('script', '');
+
+    expect(boot()).toBe('failed');
+  });
+
+  test.each(/** @type {const} */ (['script', 'link']))(
+    'a pending page whose own %s fails to load is marked failed',
+    (tag) => {
+      root.setAttribute('data-page-ready', 'pending');
+      stubFetch({});
+      runBoot();
+
+      failToLoad(tag, `${window.location.origin}/static/js/app.js`);
+
+      expect(root.getAttribute('data-page-ready')).toBe('failed');
+    }
+  );
+
+  test('a page already marked ready keeps its mark', () => {
+    root.setAttribute('data-page-ready', 'true');
+    stubFetch({});
+    runBoot();
+
+    failToLoad('script', `${window.location.origin}/static/js/app.js`);
+
+    expect(root.getAttribute('data-page-ready')).toBe('true');
+  });
+
+  test('a vendor bundle leaves the mark pending', () => {
+    root.setAttribute('data-page-ready', 'pending');
+    stubFetch({});
+    runBoot();
+
+    failToLoad('script', `${window.location.origin}/static/vendor/xterm.min.js`);
+
+    expect(root.getAttribute('data-page-ready')).toBe('pending');
   });
 
   test('a failure after the reveal leaves the page revealed', () => {
