@@ -14,7 +14,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.app_cmd import app
-from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT
+from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT, WRITER_TAG
 from tests.apps import _installed
 from tests.apps._installed import DIST, MODULE, NAME, entry_point
 from tests.cli._lifecycle_build import invoke_build
@@ -293,11 +293,14 @@ def _page(
     html: str = PENDING,
     head: str = INLINE_MARK,
     fonts: bool = True,
+    writer: bool = True,
 ) -> str:
     links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
     font = FONT_LINK if fonts else ""
+    first = f"{WRITER_TAG}\n" if writer else ""
     return (
-        f"{html}\n<head>\n{BOOT_SCRIPT}{links}{font}{head}</head>\n<body>{body}</body>\n</html>\n"
+        f"{html}\n<head>\n{BOOT_SCRIPT}{first}{links}{font}{head}</head>\n"
+        f"<body>{body}</body>\n</html>\n"
     )
 
 
@@ -475,6 +478,18 @@ def test_a_panel_whose_scripts_never_mark_it_ready_is_refused_with_the_line_to_a
     assert "apps/knob/panel/index.html: " in result.output
     assert READY_IMPORT.strip() in result.output
     assert result.output.count("[page_ready]") == 1
+
+
+def test_a_panel_that_does_not_load_the_writer_first_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", writer=False))
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[page_ready]")]
+    assert "page-ready.js" in line
 
 
 def test_a_panel_with_no_script_is_refused(runner: CliRunner, lifecycle_repo: Path) -> None:

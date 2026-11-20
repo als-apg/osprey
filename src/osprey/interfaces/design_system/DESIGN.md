@@ -524,19 +524,24 @@ writer (`markPageReady(doc = document)`, idempotent). A page takes one route:
 | Page | Markup | Who marks it |
 |---|---|---|
 | Plain (draws on parse) | nothing | `initTheme()`, once the `DOMContentLoaded` handlers have run |
-| Late (fetches, draws a first state) | `<html data-page-ready="pending">` | the page, `markPageReady()` at the end of its start-up, on the failure path too; the writer marks it `failed` if it throws first |
+| Late (fetches, draws a first state) | `<html data-page-ready="pending">` and the writer's tag first | the page, `markPageReady()` at the end of its start-up, on the failure path too; the writer marks it `failed` if it throws first |
 | No script at all | `<html data-page-ready="true">` | the markup |
 
 `failed` is the writer's value, never markup: a pending page that throws an
-uncaught error or leaves a rejection unhandled before its call is marked
-`failed` and stays so. A waiter stops on either end state.
+uncaught error, leaves a rejection unhandled, or one of its own scripts fails to
+load before its call is marked `failed` and stays so; a vendor bundle is exempt.
+A late page loads the writer by its own tag,
+`<script type="module" src="/design-system/js/page-ready.js"></script>`, ahead
+of every other module and deferred script, and loads no own module `async`, so
+the writer hears every one of them. A waiter stops on either end state.
 
 `pending` is markup, never a call: only the markup is early enough to stop the
 shared start-up marking the page first. Ready means "can be driven", not "has
 data". The hub marks itself once its rail, direct visit and dock grid are up;
 a pane's own window is marked by the hub once dressed, and never copies the
-hub's mark. A panel takes the late route: `pending` in its markup and
-`markPageReady()` once its first state is drawn, error or not. The panel
+hub's mark. A panel takes the late route: `pending` in its markup, the writer's tag ahead
+of its scripts and `markPageReady()` once its first state is drawn, error or
+not. The panel
 validator refuses one that does not, so discovery does not serve it and
 `osprey app check` fails it.
 

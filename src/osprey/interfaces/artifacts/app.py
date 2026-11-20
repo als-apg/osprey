@@ -28,6 +28,7 @@ from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.artifacts import inline_assets
 from osprey.interfaces.artifacts.content_sandbox import ContentSandboxMiddleware, not_content
+from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
 from osprey.interfaces.opaque_origin import document_headers, opaque_headers
 from osprey.interfaces.vendor import html_has_plotly_bundle, is_offline, vendor_url
 from osprey.utils.timeseries import (
@@ -75,8 +76,9 @@ _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 # (design-system/js/page-ready.js). The snippet is injected into a document the
 # gallery did not write, so it carries the attribute on an ``<html>`` start tag
 # of its own: the HTML parser adds the attributes of a later ``<html>`` tag to
-# the root element, wherever in the head or body the tag lands.
-_PAGE_READY_PENDING = '<html data-page-ready="pending">'
+# the root element, wherever in the head or body the tag lands. It loads the
+# writer of the mark first, ahead of its own module.
+_PAGE_READY_PENDING = '<html data-page-ready="pending">\n' + WRITER_TAG
 
 # Every page below is served into the content sandbox's opaque origin
 # (``self.origin === 'null'``). Each one's module script calls theme-manager.js's
