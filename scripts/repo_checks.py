@@ -693,6 +693,36 @@ def _guard() -> ModuleType | None:
     return module
 
 
+#: Owns which folders hold release notes: each tree's changelog and fragments.
+CHANGELOG_MODULE = "changelog_fragments.py"
+
+
+@functools.cache
+def _changelog_fragments() -> ModuleType:
+    """The changelog tool, loaded by path from beside this module."""
+    # The tool is this checkout's code, as this module is.
+    spec = importlib.util.spec_from_file_location(
+        "_repo_checks_changelog_fragments", Path(__file__).resolve().parent / CHANGELOG_MODULE
+    )
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load scripts/{CHANGELOG_MODULE}")
+    module = importlib.util.module_from_spec(spec)
+    # Registered before exec: its dataclasses resolve their annotations through
+    # their module's entry in sys.modules.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _changelog_paths() -> tuple[tuple[str, ...], frozenset[str]]:
+    """Every tree's fragment directory, as a path prefix, and every tree's changelog."""
+    tool = _changelog_fragments()
+    return (
+        tuple(f"{tree.prefix}{tool.FRAGMENT_DIR}/" for tree in tool.TREES),
+        frozenset(f"{tree.prefix}{tool.CHANGELOG}" for tree in tool.TREES),
+    )
+
+
 def _hosted_outside_sweep(path: str) -> bool:
     """Whether the parallel sweep leaves *path* to another check or to a lane."""
     for ignored, _host in UNIT_SELECTION.ignores:
@@ -953,10 +983,14 @@ def _select_pytest(
 ) -> Selection:
     chosen: list[str] = []
     sources: dict[str, tuple[str, set[str] | None]] = {}
+    fragment_dirs, changelogs = _changelog_paths()
     for path in paths:
         name = path.rsplit("/", 1)[-1]
         suffix = PurePosixPath(path).suffix
         if _hosted_outside_sweep(path):
+            continue
+        # The changelog tool owns which folders hold release notes; no test reads them.
+        if path.startswith(fragment_dirs) or path in changelogs:
             continue
         if suffix == ".py":
             root = _sweep_root(path)

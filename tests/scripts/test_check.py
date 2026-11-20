@@ -2050,6 +2050,28 @@ def test_the_first_widening_path_is_the_one_named() -> None:
     assert got.reason == f"uv.lock: {fw.WIDENS_PROJECT}"
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/osprey-connectors/changelog.d/x.added.md",
+        "packages/osprey-connectors/CHANGELOG.md",
+        "changelog.d/x.fixed.md",
+        "CHANGELOG.md",
+    ],
+)
+def test_a_changelog_fragment_or_changelog_places_no_pytest_test(path: str) -> None:
+    assert selected("quick", path)["pytest"].state == check.NOT_TOUCHED
+
+
+def test_every_changelog_tree_places_no_pytest_test() -> None:
+    tool = fw._changelog_fragments()
+    for tree in tool.TREES:
+        fragment = f"{tree.prefix}{tool.FRAGMENT_DIR}/x.added.md"
+        changelog = f"{tree.prefix}{tool.CHANGELOG}"
+        for path in (fragment, changelog):
+            assert selected("quick", path)["pytest"].state == check.NOT_TOUCHED, path
+
+
 def test_no_selector_widens_without_a_reason() -> None:
     import inspect
 
