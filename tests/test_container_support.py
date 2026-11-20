@@ -23,16 +23,19 @@ from tests import _container_support
 from tests._container_support import (
     CONTAINER_STATE_TIMEOUT,
     DOCKER_CLI_PROBE_TIMEOUT,
+    PUBLISHED_PORT_SETTLE_S,
     ContainerExitedError,
     ContainerRuntimeNotAnswering,
     ForeignListenerError,
     PortAnswer,
     PublishedPortContradiction,
+    PublishedPortWatch,
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
     ensure_image,
     probe_published_port,
+    published_port_contradiction,
     require_container_runtime,
     runtime_command,
     start_or_skip,
@@ -1054,3 +1057,93 @@ def test_an_http_listener_is_read_as_http_with_its_status(handler, status):
     assert answer.kind == "http"
     assert answer.status == status
     assert answer.head.startswith(b"HTTP/")
+
+
+# ---------------------------------------------------------------------------
+# published_port_contradiction — an answer read against the ready line
+# ---------------------------------------------------------------------------
+
+_REFUSED = PortAnswer(kind="refused")
+_FOREIGN = PortAnswer(kind="foreign", head=b"ACK\n")
+_HTTP = PortAnswer(kind="http", status=503, head=b"HTTP/1.1 503 Service Unavailable\r\n")
+
+#: Seconds since the first probe that saw the ready line: not logged yet, just
+#: logged, half the settle window, and the whole of it.
+_NOT_READY = None
+_JUST_READY = 0.0
+_SETTLING = PUBLISHED_PORT_SETTLE_S / 2
+_SETTLED = PUBLISHED_PORT_SETTLE_S
+
+
+@pytest.mark.parametrize(
+    ("answer", "ready_for", "expected"),
+    [
+        pytest.param(_REFUSED, _NOT_READY, None, id="refused-before-ready"),
+        pytest.param(_REFUSED, _JUST_READY, None, id="refused-as-ready-is-logged"),
+        pytest.param(_REFUSED, _SETTLING, None, id="refused-inside-the-settle-window"),
+        pytest.param(
+            _REFUSED, _SETTLED, PublishedPortContradiction, id="refused-past-the-settle-window"
+        ),
+        pytest.param(_FOREIGN, _NOT_READY, ForeignListenerError, id="foreign-before-ready"),
+        pytest.param(_FOREIGN, _JUST_READY, ForeignListenerError, id="foreign-after-ready"),
+        pytest.param(_HTTP, _NOT_READY, None, id="http-before-ready"),
+        pytest.param(_HTTP, _SETTLED, None, id="http-after-ready"),
+    ],
+)
+def test_an_answer_contradicts_the_subject_only_when_it_cannot_be_the_subject(
+    answer, ready_for, expected
+):
+    contradiction = published_port_contradiction(
+        answer, host="127.0.0.1", port=8181, ready_for=ready_for
+    )
+
+    if expected is None:
+        assert contradiction is None
+    else:
+        assert type(contradiction) is expected
+        assert "127.0.0.1:8181" in str(contradiction)
+
+
+def test_a_foreign_answer_is_quoted():
+    contradiction = published_port_contradiction(
+        _FOREIGN, host="127.0.0.1", port=8181, ready_for=_NOT_READY
+    )
+
+    assert repr(b"ACK\n") in str(contradiction)
+
+
+def test_a_settled_refusal_says_the_subject_logged_ready():
+    contradiction = published_port_contradiction(
+        _REFUSED, host="127.0.0.1", port=8181, ready_for=_SETTLED
+    )
+
+    message = str(contradiction)
+    assert "logged ready" in message
+    assert "still refused connections" in message
+
+
+class _SteppedClock:
+    """A clock that reads the next of *readings* each time it is asked."""
+
+    def __init__(self, readings: list[float]) -> None:
+        self._readings = list(readings)
+
+    def __call__(self) -> float:
+        return self._readings.pop(0)
+
+
+def test_a_watch_measures_the_refusal_from_the_first_probe_that_saw_the_ready_line(
+    reserve_port,
+):
+    port = reserve_port()
+    first_ready = 100.0
+    clock = _SteppedClock([50.0, first_ready, first_ready + _SETTLING, first_ready + _SETTLED])
+    watch = PublishedPortWatch(port, timeout=_PORT_PROBE_CEILING, clock=clock)
+
+    assert watch.contradiction(logged_ready=False) is None
+    assert watch.contradiction(logged_ready=True) is None
+    assert watch.contradiction(logged_ready=True) is None
+    contradiction = watch.contradiction(logged_ready=True)
+
+    assert type(contradiction) is PublishedPortContradiction
+    assert f"127.0.0.1:{port}" in str(contradiction)

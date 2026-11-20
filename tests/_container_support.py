@@ -633,6 +633,95 @@ def probe_published_port(
     return PortAnswer(kind="foreign", head=head)
 
 
+#: Seconds a published port may go on refusing after the subject logged that
+#: it serves. The ready line is written inside the container; the host side of
+#: the port is bound by a forwarder the runtime starts on its own schedule, so
+#: for a short while after the line a refusal is that forwarder still binding,
+#: not a contradiction.
+PUBLISHED_PORT_SETTLE_S = 10.0
+
+
+def published_port_contradiction(
+    answer: PortAnswer, *, host: str, port: int, ready_for: float | None
+) -> PublishedPortContradiction | None:
+    """The contradiction *answer* states about a subject, or ``None`` when it states none.
+
+    A foreign answer always contradicts: whatever replied is not the subject.
+    A refusal contradicts only once the subject has logged ready and the
+    refusal has outlasted :data:`PUBLISHED_PORT_SETTLE_S`; before that it is
+    the port not being bound yet. An HTTP answer is the subject's to judge.
+
+    Args:
+        answer: What :func:`probe_published_port` read on the port.
+        host: The address the port is published on, for the message.
+        port: The published port, for the message.
+        ready_for: Seconds since the first probe that saw the subject's ready
+            line, or ``None`` when no probe has seen it yet.
+    """
+    if answer.kind == "foreign":
+        return ForeignListenerError(
+            f"{host}:{port} answered {answer.head!r}, which is not an HTTP reply"
+        )
+    if answer.kind == "refused" and ready_for is not None and ready_for >= PUBLISHED_PORT_SETTLE_S:
+        return PublishedPortContradiction(
+            f"started and logged ready, but the published port {host}:{port} still refused "
+            f"connections {ready_for:.1f}s after a probe first saw the ready line"
+        )
+    return None
+
+
+class PublishedPortWatch:
+    """A subject's published port, read against the subject's own ready line.
+
+    Each :meth:`contradiction` probes the port once and says whether the answer
+    contradicts the subject. The settle window a refusal is allowed runs from
+    the first call that reported the ready line logged.
+
+    Args:
+        port: The published port on *host*.
+        host: The address the port is published on.
+        path: The request path the probe sends.
+        timeout: Seconds one probe's connection and read may each take.
+        clock: Monotonic seconds; ``time.monotonic`` when omitted.
+    """
+
+    def __init__(
+        self,
+        port: int,
+        *,
+        host: str = "127.0.0.1",
+        path: str = "/health",
+        timeout: float,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        self.port = port
+        self.host = host
+        self.path = path
+        self.timeout = timeout
+        self._clock = clock if clock is not None else time.monotonic
+        self._ready_seen_at: float | None = None
+
+    def contradiction(self, *, logged_ready: bool) -> PublishedPortContradiction | None:
+        """Probe the port once and return the contradiction it states, if any.
+
+        Args:
+            logged_ready: Whether the subject's log holds its ready line now.
+
+        Raises:
+            OSError: When the probe neither connects nor is refused in time.
+        """
+        answer = probe_published_port(
+            self.port, host=self.host, path=self.path, timeout=self.timeout
+        )
+        now = self._clock()
+        if logged_ready and self._ready_seen_at is None:
+            self._ready_seen_at = now
+        ready_for = None if self._ready_seen_at is None else now - self._ready_seen_at
+        return published_port_contradiction(
+            answer, host=self.host, port=self.port, ready_for=ready_for
+        )
+
+
 class RuntimeContainer:
     """A container known only by name, read through its runtime's CLI.
 
