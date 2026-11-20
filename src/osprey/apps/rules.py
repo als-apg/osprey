@@ -46,14 +46,15 @@ __all__ = [
     "fixed_names",
     "framework_pins",
     "refuse_shadowed_packages",
+    "reserved_tool_name",
     "shadows_installed",
     "taken_package",
     "validate",
 ]
 
 #: Built-in tools the approval hook dispatches on their short name alone, whatever
-#: server they come from. An application tool spelled the same would be read as
-#: the built-in. Restated from ``osprey_approval.py`` (a hook script this package
+#: server they come from. An application or facility tool spelled the same would
+#: be read as the built-in. Restated from ``osprey_approval.py`` (a hook script this package
 #: cannot import); ``tests/apps/test_manifest_rules.py`` pins them to the hook.
 HOOK_DISPATCHED_TOOLS: tuple[str, ...] = (
     "execute",
@@ -426,6 +427,24 @@ def taken_package(package: str) -> bool:
     return keyword.iskeyword(package) or package in TAKEN_PACKAGES
 
 
+def reserved_tool_name(name: str) -> tuple[str, str] | None:
+    """Why no application or facility tool may be named *name*, as ``(rule, reason)``.
+
+    The write hooks recognise these names on the bare tool name, whatever
+    server serves the tool, so a tool spelled the same would be handled as the
+    framework's own. ``None`` when the name is free.
+    """
+    if name in HOOK_DISPATCHED_TOOLS:
+        return "builtin_tool_name", f"{name!r} is a built-in tool the approval hook handles by name"
+    if name in QUEUE_CONTROL_TOOLS or name in QUEUE_TOOLS or name.startswith(QUEUE_TOOL_PREFIX):
+        return (
+            "queue_tool_name",
+            f"{name!r} is a queue tool name ({QUEUE_TOOL_PREFIX}*), which the write "
+            "gates address by lane",
+        )
+    return None
+
+
 def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
     tools = m.tools
     assert tools is not None
@@ -464,21 +483,8 @@ def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
     named = [(f"tools.read.{i}", name) for i, name in enumerate(tools.read)]
     named += [(f"tools.approval.{i}.tool", e.tool) for i, e in enumerate(tools.approval)]
     for field, name in named:
-        if name in HOOK_DISPATCHED_TOOLS:
-            refuse(
-                field,
-                "builtin_tool_name",
-                f"{name!r} is a built-in tool the approval hook handles by name",
-            )
-        elif (
-            name in QUEUE_CONTROL_TOOLS or name in QUEUE_TOOLS or name.startswith(QUEUE_TOOL_PREFIX)
-        ):
-            refuse(
-                field,
-                "queue_tool_name",
-                f"{name!r} is a queue tool name ({QUEUE_TOOL_PREFIX}*), which the write "
-                "gates address by lane",
-            )
+        if (taken := reserved_tool_name(name)) is not None:
+            refuse(field, *taken)
 
     get_routes = {r.path for r in m.panel.agent_routes if r.method == "GET"} if m.panel else set()
     for index, entry in enumerate(tools.approval):

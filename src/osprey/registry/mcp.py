@@ -2267,6 +2267,9 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
     # answers well inside it.
     approval = _APPROVAL_PREFLIGHT if app else _APPROVAL
     if writes is not None:
+        refusal = reserved_write_tool_refusal(name, writes, perms)
+        if refusal is not None:
+            raise ValueError(refusal)
         hooks_pre.extend(
             HookRule(matcher=f"mcp__{name}__{tool}", hooks=[_WRITES_CHECK, approval])
             for tool in _declared_write_rule_tools(name, writes, spec.get("permissions", {}))
@@ -2374,6 +2377,29 @@ def _declared_write_rule_tools(name: str, writes: tuple[str, ...], perms: dict) 
     about those; the gate does not wait for it.
     """
     return [*writes, *(tool for tool, _asked in write_window_tools(name, writes, perms))]
+
+
+def reserved_write_tool_refusal(name: str, writes: tuple[str, ...], perms: dict) -> str | None:
+    """Why a declaring server's write tools cannot be gated, or ``None`` when they can.
+
+    A write tool, declared or in the warning window, may not take a name the
+    framework reserves for its own tools (:func:`osprey.apps.rules.reserved_tool_name`),
+    the rule applications follow. The registry and the profile loader both
+    refuse with this text.
+    """
+    # Imported lazily: the application rules load the application manifest
+    # model, which only a server that declares writes needs here.
+    from osprey.apps.rules import reserved_tool_name
+
+    for tool in _declared_write_rule_tools(name, writes, perms):
+        taken = reserved_tool_name(tool)
+        if taken is not None:
+            entry = "writes entry" if tool in writes else "permissions entry"
+            return (
+                f"MCP server '{name}' {entry} {tool!r} takes a name the framework "
+                f"reserves: {taken[1]}. Rename the tool on the server."
+            )
+    return None
 
 
 #: Characters that make a permission entry a pattern rather than one tool name.
