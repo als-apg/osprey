@@ -612,6 +612,58 @@ async def test_entry_create_draft_refuses_an_artifact_that_cannot_be_converted(
     assert not drafts_dir.exists() or not any(drafts_dir.iterdir())
 
 
+@pytest.mark.parametrize("draft", [True, False], ids=["draft", "direct"])
+async def test_entry_create_reports_a_missing_browser_as_dependency_missing(
+    tmp_path, monkeypatch, ariel_registry, draft
+):
+    """An artifact that needs the absent browser answers dependency_missing, in both modes."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+    from osprey.mcp_server.export.converter import (
+        BROWSER_MISSING_MESSAGE,
+        PlaywrightNotInstalledError,
+    )
+
+    ariel_registry()
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    from osprey.stores.artifact_store import ArtifactStore
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    art = store.save_file(
+        file_content=b"<html><body>plot</body></html>",
+        filename="plot.html",
+        artifact_type="html",
+        title="Plot",
+        mime_type="text/html",
+        tool_source="test",
+    )
+
+    mock_service = AsyncMock()
+    with (
+        patch_ariel_service(mock_service),
+        patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
+        patch(
+            "osprey.agent_runner.artifact_resolve.resolve_artifact_path",
+            side_effect=PlaywrightNotInstalledError(BROWSER_MISSING_MESSAGE),
+        ),
+    ):
+        fn = _get_entry_create()
+        with assert_raises_error(error_type="dependency_missing") as _exc_ctx:
+            await fn(
+                subject="Test",
+                details="Plot that needs the browser",
+                artifact_ids=[art.id],
+                draft=draft,
+            )
+
+    envelope = _exc_ctx["envelope"]
+    assert envelope["error_type"] == "dependency_missing"
+    assert envelope["error_message"] == BROWSER_MISSING_MESSAGE
+    assert not drafts_dir.exists() or not any(drafts_dir.iterdir())
+    mock_service.repository.upsert_entry.assert_not_called()
+
+
 async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     """Draft mode with artifact_ids stores attachment_paths in draft JSON."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
