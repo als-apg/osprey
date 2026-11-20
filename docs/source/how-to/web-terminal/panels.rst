@@ -627,8 +627,8 @@ server's tools.
          validator enforces both: it must **boot the shared theme before the page
          paints** (so it never flashes the wrong colors), and it must use **only
          design tokens** for color — never a raw hex value. It must also say
-         when it can be driven: ``<html data-page-ready="pending">`` and a
-         ``markPageReady()`` call. Copy OSPREY's reference panel and you start
+         when it can be driven: ``<html data-page-ready="pending">``, the
+         page-ready writer loaded first, and a ``markPageReady()`` call. Copy OSPREY's reference panel and you start
          compliant.
 
       .. tab-item:: Serving & discovery
