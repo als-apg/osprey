@@ -4643,6 +4643,32 @@ def _refuse_foreign_checkout(config: dict, repo_root: Path | str) -> None:
         raise claim.refusal(START_REFUSAL, extra_remedy=rename)
 
 
+def _refuse_stop_over_another_copy(
+    config: dict | None, repo_root: Path, *, runtime: str, project: str
+) -> None:
+    """Refuse to stop *project* while another copy of this repo holds it.
+
+    The stop's counterpart of :func:`_refuse_foreign_checkout`, and unlike it
+    fails closed: a stop that proceeds without an answer is the stop this check
+    exists to prevent.
+
+    Raises:
+        ForeignCheckoutError: When another checkout's containers hold the name.
+        RuntimeError: When the runtime cannot list the project's containers.
+    """
+    from osprey.deployment.container_ownership import DOWN_REFUSAL, host_claim
+
+    probe = _ownership_probe(config, runtime=runtime, project=project)
+    try:
+        claim = host_claim(project, repo_identity(repo_root), probe=probe)
+    except (RuntimeError, OSError) as exc:
+        raise RuntimeError(
+            f"Could not check which copy of this repo holds project {project}: {exc}"
+        ) from exc
+    if claim.held_elsewhere:
+        raise claim.refusal(DOWN_REFUSAL)
+
+
 def _reconcile_orphan_terminals(config):
     """Remove this deployment's terminal containers whose user left the roster.
 
@@ -8268,6 +8294,12 @@ def down_deployment(
     (:func:`_down_recorded_services`); a record that names none, and a caller
     that passes the pair, get the repo-label sweep (:func:`_down_by_label`).
 
+    While another copy of this repo holds the compose project, the stop is
+    refused, as ``up`` and ``restart`` refuse: the two copies share the name,
+    so a stop from here would stop that copy's containers too. The check runs
+    wherever a compose project is named — from the record or by the caller —
+    and fails closed: a runtime that cannot list the project stops nothing.
+
     Args:
         repo_root: The deployment repo — the directory holding ``profile.yml``.
         runtime: The runtime to stop with, given together with ``project``.
@@ -8277,7 +8309,10 @@ def down_deployment(
         DeploymentRecordError: The record is read and is unreadable; the
             message names ``osprey reset`` as the remedy.
         ValueError: Only one of ``runtime`` and ``project`` is given.
-        RuntimeError: When the runtime does not answer, or the compose
+        ForeignCheckoutError: When another copy of this repo's containers hold
+            the project name. Nothing is stopped.
+        RuntimeError: When the runtime does not answer, cannot list the
+            project's containers (nothing is stopped), or the compose
             ``down``, or the label sweep standing in for it, fails.
     """
     repo_root = Path(repo_root)
@@ -8304,6 +8339,7 @@ def down_deployment(
     is_running, error_msg = verify_runtime_is_running(config, runtime=runtime)
     if not is_running:
         raise RuntimeError(error_msg)
+    _refuse_stop_over_another_copy(config, repo_root, runtime=runtime, project=project)
     compose_files = as_built_compose_files(config, repo_root) if config else []
 
     if config and _web_terminals_enabled(config):
