@@ -631,6 +631,10 @@ body {
 }
 select.field-input { cursor: pointer; }
 
+/* A typed value the form cannot read (schema-form.js `buildNumber`) is not
+   sent, so its input stays marked until it reads, in table cells too. */
+.param-form .field-input[aria-invalid='true'] { border-color: var(--color-error); }
+
 /* Toggle switch (visually-hidden native checkbox drives the track) */
 .switch {
   display: inline-flex;

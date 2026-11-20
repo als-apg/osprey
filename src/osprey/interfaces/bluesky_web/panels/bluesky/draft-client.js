@@ -939,7 +939,8 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  *   PATCH — a field-scoped validation error (`{field, error}`, relayed
  *   verbatim from the bridge). The value stays exactly as the operator typed
  *   it (no resync — a 422 is not "the draft moved on", it's "this value is
- *   invalid"); this only surfaces the rejection.
+ *   invalid"); this only surfaces the rejection. The client itself holds the
+ *   edit as refused (`getRefusedEdit`).
  * @property {(url: string) => string} api
  * @property {string} [clientId]
  * @property {(url: string, opts: {onFrame: (frame: DraftFrame) => void}) => SSEConnection} [sseFactory]
@@ -963,6 +964,10 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  *   `onAgentDraftBanner` deps callback; this exposes the same display-ready
  *   decision for tests and callers.
  * @property {() => number|null} getLastAppliedRevision
+ * @property {() => string|null} getRefusedEdit  The bridge's sentence for an
+ *   edit it refused that the form still shows, else null. While one is shown
+ *   the draft holds the value from before it, so no revision pinned now
+ *   matches the screen.
  * @property {() => string[]} getDraftArgKeys  The top-level arg keys the
  *   shared draft currently holds (empty when there is no draft). Feeds
  *   `buildDraftReplaceBody`'s `remove` list, which is what makes a
@@ -993,6 +998,22 @@ export function createDraftClient(deps) {
   // applied — otherwise a slow resync could reset the baseline BACKWARD over
   // a snapshot a more recent call already applied.
   let resyncEpoch = 0;
+  // Edits the bridge refused (422) that the form still shows, by key, with the
+  // bridge's sentence, and the form they were typed into. A key leaves when a
+  // later PATCH of it lands or the draft's value is applied over it; all go
+  // when the form is rebuilt (Reset, another plan) or its edits are dropped.
+  // The keys do not go back into `pendingKeys`: `flush` loops while that set
+  // is not empty, and the bridge would refuse them every time.
+  /** @type {Map<string, string>} */
+  const refusedEdits = new Map();
+  /** @type {CollectorLike|null} */
+  let refusedForm = null;
+
+  /** Drop every unsaved and refused edit: the form no longer shows them. */
+  function dropLocalEdits() {
+    pendingKeys.clear();
+    refusedEdits.clear();
+  }
 
   function renderBoundIndicator() {
     deps.onBoundChange(state.bound);
@@ -1145,7 +1166,7 @@ export function createDraftClient(deps) {
     // Bind completion also clears formDirty: the form now mirrors the shared
     // draft, so any prior unbound manual edits are gone from the screen.
     state = { ...state, bound: true, formDirty: false };
-    pendingKeys.clear();
+    dropLocalEdits();
     applyFullSnapshot();
     renderBoundIndicator();
     renderAffordance();
@@ -1162,7 +1183,7 @@ export function createDraftClient(deps) {
     const name = state.draftPlanName;
     if (name === null) {
       state = { ...state, bound: false };
-      pendingKeys.clear();
+      dropLocalEdits();
       renderBoundIndicator();
       renderAffordance();
       return;
@@ -1170,7 +1191,7 @@ export function createDraftClient(deps) {
     const known = await ensureDraftPlanKnown();
     if (!known) {
       state = { ...state, bound: false };
-      pendingKeys.clear();
+      dropLocalEdits();
       renderBoundIndicator();
       renderAffordance();
       return;
@@ -1207,7 +1228,7 @@ export function createDraftClient(deps) {
   /**
    * Post-processing shared by a hello frame and a resync `GET /draft` —
    * `state` already reflects the reset. When bound to the still-matching
-   * plan, `pendingKeys.clear()` here is a deliberate decision (see
+   * plan, `dropLocalEdits()` here is a deliberate decision (see
    * `applyFullSnapshot`'s docstring), not an oversight: any resync discards
    * unflushed local edits in favor of the fresh snapshot.
    *
@@ -1222,7 +1243,7 @@ export function createDraftClient(deps) {
   async function afterReset(prevState) {
     if (state.bound) {
       if (state.draftPlanName === state.selectedName) {
-        pendingKeys.clear();
+        dropLocalEdits();
         applyFullSnapshot();
         renderBoundIndicator();
         renderAffordance();
@@ -1301,7 +1322,7 @@ export function createDraftClient(deps) {
 
     if (frame.type === 'clear') {
       state = { ...state, bound: false };
-      pendingKeys.clear();
+      dropLocalEdits();
       renderBoundIndicator();
       renderAffordance();
       deps.onUnknownPlanBanner(null);
@@ -1338,6 +1359,8 @@ export function createDraftClient(deps) {
       // edit — clear it from pendingKeys so the next flush doesn't PATCH the
       // server's own value straight back as a redundant echo write.
       for (const key of changed) pendingKeys.delete(key);
+      // The draft's value is now on screen, so an edit refused there is gone.
+      for (const key of changed) refusedEdits.delete(key);
       flashFields(changed);
       showAgentEditNote(changed);
     }
@@ -1431,7 +1454,14 @@ export function createDraftClient(deps) {
       if (result && result.status === 422) {
         // A field-scoped validation rejection: this is "the value is
         // invalid", not "the draft moved on" — keep it exactly as the
-        // operator typed it (no resync) and just surface the rejection.
+        // operator typed it (no resync) and just surface the rejection. The
+        // whole PATCH was refused, so every key in it stays off the draft.
+        if (refusedForm !== collector) {
+          refusedEdits.clear();
+          refusedForm = collector;
+        }
+        const sentence = describeDraftReplaceFailure(result.status, result.body);
+        for (const key of keysToFlush) refusedEdits.set(key, sentence);
         deps.onPatchRejected(result.body && result.body.detail);
         return { patched: false, revision: null };
       }
@@ -1443,6 +1473,7 @@ export function createDraftClient(deps) {
       if (applied) await afterReset(prevState);
       return { patched: false, revision: null };
     }
+    for (const key of keysToFlush) refusedEdits.delete(key);
     return { patched: true, revision: result.body.revision };
   }
 
@@ -1480,7 +1511,7 @@ export function createDraftClient(deps) {
       // A fresh selection abandons any unbound manual edits along with the
       // form they lived in — formDirty resets with it.
       state = { ...state, selectedName: name, bound: false, formDirty: false };
-      pendingKeys.clear();
+      dropLocalEdits();
       renderBoundIndicator();
       if (state.draftPlanName !== null && state.draftPlanName === name) {
         await bindFromFreshSnapshot();
@@ -1502,7 +1533,7 @@ export function createDraftClient(deps) {
         return;
       }
       state = { ...state, bound: false };
-      pendingKeys.clear();
+      dropLocalEdits();
       renderBoundIndicator();
       renderAffordance();
     },
@@ -1536,6 +1567,12 @@ export function createDraftClient(deps) {
 
     getLastAppliedRevision() {
       return state.lastAppliedRevision;
+    },
+
+    getRefusedEdit() {
+      if (refusedForm !== deps.getCollector()) return null;
+      const [sentence] = refusedEdits.values();
+      return sentence === undefined ? null : sentence;
     },
 
     getDraftArgKeys() {

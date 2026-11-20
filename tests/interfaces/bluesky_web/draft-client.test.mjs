@@ -1274,6 +1274,50 @@ describe('createDraftClient — 422 keeps the value and surfaces the rejection, 
     harness.client.destroy();
     vi.useRealTimers();
   });
+
+  test('a refused edit is held until a later PATCH of it lands, and is never re-sent on its own', async () => {
+    vi.useFakeTimers();
+    const harness = makeHarness();
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 4 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 4 } },
+      revision: 1,
+    });
+    await harness.client.onPlanSelected('orm');
+    expect(harness.client.getRefusedEdit()).toBeNull();
+
+    harness.deps.patchDraft.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      body: { detail: { field: 'num', error: 'Input should be less than or equal to 50' } },
+    });
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
+    numInput.value = '999';
+    numInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(500);
+
+    // What an enqueue does next: flush (nothing is pending), then ask.
+    const flushResult = await harness.client.flushNow();
+    expect(flushResult).toEqual({ patched: false, revision: null });
+    expect(harness.deps.patchDraft).toHaveBeenCalledTimes(1);
+    expect(harness.client.getRefusedEdit()).toBe('num: Input should be less than or equal to 50');
+
+    // The operator corrects the value; the bridge takes it.
+    numInput.value = '6';
+    numInput.dispatchEvent(new Event('input', { bubbles: true }));
+    const corrected = await harness.client.flushNow();
+    expect(corrected.patched).toBe(true);
+    expect(harness.client.getRefusedEdit()).toBeNull();
+
+    harness.client.destroy();
+    vi.useRealTimers();
+  });
 });
 
 describe('createDraftClient — cross-plan rebind reuses selectPlan (reentrancy)', () => {

@@ -476,6 +476,19 @@ function buildNumber(node, seed, integer) {
   else if (typeof node.exclusiveMaximum === 'number') props.max = node.exclusiveMaximum;
 
   const input = /** @type {HTMLInputElement} */ (h('input', props));
+  // Text this field cannot read (a fraction in a whole-number field, or text
+  // the browser cannot parse as a number) collects as OMIT, the same as a
+  // blank, so the plan would run its default while the field still shows the
+  // text. The input says so as its own validity and `aria-invalid`, which the
+  // host checks before it sends the form and reports on the field.
+  const markUnreadable = () => {
+    const unreadable =
+      input.validity.badInput ||
+      (input.value !== '' && !parseScalar(input.value, integer ? 'integer' : 'number'));
+    input.setCustomValidity(unreadable ? `Enter a ${integer ? 'whole ' : ''}number.` : '');
+    input.setAttribute('aria-invalid', String(unreadable));
+  };
+  input.addEventListener('input', markUnreadable);
   return {
     el: input,
     collect: () => {
@@ -485,6 +498,7 @@ function buildNumber(node, seed, integer) {
     },
     setValue: (value) => {
       input.value = value === undefined || value === null ? '' : String(value);
+      markUnreadable();
     },
   };
 }

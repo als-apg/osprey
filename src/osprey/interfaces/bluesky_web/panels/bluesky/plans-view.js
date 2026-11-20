@@ -662,9 +662,20 @@ export function createPlansView({
   }
 
   /**
+   * Bumped by every `selectPlan` call. A call that is no longer the newest
+   * after one of its `await`s returns without touching the view: a slow source
+   * answer for an earlier selection must not repaint the form under a later
+   * one, because the enqueue names the selected plan and sends the form's
+   * values.
+   */
+  let selectGeneration = 0;
+
+  /**
    * @param {string} name
    */
   async function selectPlan(name) {
+    const generation = ++selectGeneration;
+    const superseded = () => generation !== selectGeneration;
     selectedName = name;
     // Reset the transient launch gate synchronously, before the await below,
     // so a still-in-flight source fetch for a newly-selected plan can never
@@ -683,6 +694,7 @@ export function createPlansView({
       const response = await fetch(
         api(`/plans/${encodeURIComponent(name)}/source?max_chars=200000`)
       );
+      if (superseded()) return;
       if (!response.ok) {
         selectedSource = null;
         detailEmptyEl.hidden = true;
@@ -700,7 +712,7 @@ export function createPlansView({
       }
       /** @type {PlanSource} */
       const source = await response.json();
-      selectedSource = source;
+      if (superseded()) return;
       const plan = plans.find((candidate) => candidate.name === name);
       // Channel-tagged fields read the catalog synchronously as they are built
       // and are never retrofitted once it lands (schema-form.js), so a form
@@ -710,12 +722,17 @@ export function createPlansView({
       // what makes "all but always" into "always". It is deadline-bounded and
       // never rejects, so a missing or hanging /channels still renders a form.
       await channelCatalogReady;
+      if (superseded()) return;
+      // Set only now, with the form it describes: until then the enqueue
+      // stays off rather than send this plan with no form behind it.
+      selectedSource = source;
       renderDetail(plan, source);
       // Draft-binding check: only ever a consequence of this explicit
       // selection (or the affordance click below) — never of a frame alone
       // (selection/binding precedence).
       await draftClient.onPlanSelected(name);
     } catch {
+      if (superseded()) return;
       selectedSource = null;
       detailEmptyEl.hidden = true;
       detailBodyEl.hidden = false;
@@ -819,6 +836,10 @@ export function createPlansView({
     // last-applied frame/hello baseline when nothing was pending (the launch
     // revision gate).
     const flushResult = await draftClient.flushNow();
+    // An edit the bridge refused is still on screen, and the draft holds the
+    // value from before it: no revision pinned now would run what is shown.
+    const refused = draftClient.getRefusedEdit();
+    if (refused !== null) return { error: refused };
     return { revision: resolvePinnedRevision(flushResult, draftClient.getLastAppliedRevision()) };
   }
 
@@ -829,6 +850,24 @@ export function createPlansView({
     // went stale between the last refresh and this click comes back as a
     // `cannot_execute` refusal below, which republishes the record.
     if (!capability.canExecute) return;
+    // The form is built from `selectedSource`; the enqueue names
+    // `selectedName`. Were they ever two plans, the add would send one plan
+    // with the other's values, so it stops instead.
+    if (selectedSource.name !== selectedName) {
+      showQueueOutcome('err', `the form shows ${selectedSource.name}, not ${selectedName}`);
+      return;
+    }
+    // A typed value the form cannot read is left out of what it sends, and the
+    // plan would run its default for that field. schema-form.js marks such an
+    // input: show its message on the field, name the field here, and stop.
+    const unreadable = paramFormEl.querySelector('input[aria-invalid="true"]');
+    if (unreadable instanceof HTMLInputElement) {
+      const fields = collectPlanArgs ? Object.entries(collectPlanArgs.fields) : [];
+      const field = fields.find(([, registered]) => registered.el.contains(unreadable));
+      unreadable.reportValidity();
+      showQueueOutcome('err', `${field ? field[0] : 'a field'}: ${unreadable.validationMessage}`);
+      return;
+    }
     // Captured now (a `const`, never reassigned) rather than read again after
     // the `await`s below — `selectedName` is a module-level `let` that another
     // concurrent selection could reassign, and re-reading it would both risk

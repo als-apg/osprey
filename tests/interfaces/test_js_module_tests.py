@@ -59,7 +59,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/bluesky_web/panels/bluesky/hyperscript.js",
     "src/osprey/interfaces/bluesky_web/panels/bluesky/plan-browser.js",
     "src/osprey/interfaces/bluesky_web/panels/bluesky/plan-presentation.js",
-    "src/osprey/interfaces/bluesky_web/panels/bluesky/plans-view.js",
     "src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js",
     "src/osprey/interfaces/bluesky_web/panels/bluesky/queue-view.js",
     "src/osprey/interfaces/bluesky_web/panels/bluesky/results-view.js",
