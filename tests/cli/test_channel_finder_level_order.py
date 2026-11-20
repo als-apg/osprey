@@ -22,7 +22,7 @@ import pytest
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.records import FacilityRecords
-from osprey.facility.views.channel_finder import hierarchical_document
+from osprey.facility.views.channel_finder import ABSENT, hierarchical_document
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 
 AGENT_TEMPLATE = "claude_code/claude/agents/channel-finder.md.j2"
@@ -174,3 +174,40 @@ def test_the_build_channels_example_names_every_level_and_holds_a_channel(built_
     selections = ast.literal_eval(example.group(1))
     assert list(selections) == database.hierarchy_levels
     assert database.build_existing_channels(selections)["channels"]
+
+
+def _absent_section(prompt: str, token: str) -> str:
+    """The flattened body of the section on the *token* option."""
+    return " ".join(_section(prompt, f"### `{token}` options").split())
+
+
+def test_the_hierarchical_prompt_names_the_absent_option_from_the_code(tmp_path, monkeypatch):
+    section = _absent_section(_rendered_agent(tmp_path, DATABASES["built"]()), ABSENT)
+    assert f"An option `{ABSENT}` is a real node" in section
+
+    monkeypatch.setattr("osprey.cli.templates.manager.ABSENT", "~")
+    prompt = _rendered_agent(tmp_path, DATABASES["built"]())
+
+    assert f"### `{ABSENT}` options" not in prompt
+    assert "An option `~` is a real node" in _absent_section(prompt, "~")
+
+
+def test_the_template_spells_no_absent_literal():
+    source = (TemplateManager().template_root / AGENT_TEMPLATE).read_text(encoding="utf-8")
+
+    assert f"`{ABSENT}`" not in source
+
+
+def test_the_sentence_points_at_the_option_description(tmp_path):
+    section = _absent_section(_rendered_agent(tmp_path, DATABASES["built"]()), ABSENT)
+
+    assert "its description says which" in section
+
+
+def test_the_absent_option_is_not_the_selection_for_an_unmentioned_level(tmp_path):
+    section = _absent_section(_rendered_agent(tmp_path, DATABASES["built"]()), ABSENT)
+
+    assert "Select it only when what the question asks for really has no value" in section
+    assert "A level the question does not mention is not that case" in section
+    assert "select every one that applies" in section
+    assert "names none" not in section
