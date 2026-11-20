@@ -33,6 +33,7 @@ from osprey.cli.profile_conventions import (
     split_convention_selection,
 )
 from osprey_connectors.errors import BuildProfileError
+from tests._builds import BuiltProject, Restorable
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"
@@ -469,7 +470,9 @@ def test_revalidate_leaves_a_repo_already_under_the_by_name_rule_selecting_what_
 # ── a fresh repo ─────────────────────────────────────────────────────────────
 
 
-def test_init_names_the_facility_description_it_seeds_by_its_path(tmp_path: Path) -> None:
+def test_init_names_the_facility_description_it_seeds_by_its_path(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
     from osprey.cli.init_cmd import init
     from osprey.cli.validate_cmd import validate
 
@@ -488,9 +491,9 @@ def test_init_names_the_facility_description_it_seeds_by_its_path(tmp_path: Path
         validated = CliRunner().invoke(validate, ["--repo", str(repo)])
     assert validated.exit_code == 0, validated.output
 
-    built = run_build(repo, tmp_path)
-    assert built.exit_code == 0, built.output
-    assert (repo / "build" / ".claude" / "rules" / "facility.md").read_text("utf-8") == (
+    # A build carries it into the render: the session's build of a repo the
+    # same init made.
+    assert (built_demo.build_dir / ".claude" / "rules" / "facility.md").read_text("utf-8") == (
         repo / "rules" / "facility.md"
     ).read_text("utf-8")
 
@@ -715,12 +718,14 @@ def _hook_wiring(render: Path) -> str:
 
 
 @pytest.fixture(scope="module")
-def library_wiring(tmp_path_factory: pytest.TempPathFactory) -> dict[str | None, str]:
-    """Each render's hook wiring with OSPREY's own kill switch, no shadow."""
-    outside = tmp_path_factory.mktemp("library-wiring")
-    repo = build_exemplar_repo(outside / PROJECT)
-    result = run_build(repo, outside)
-    assert result.exit_code == 0, result.output
+def library_wiring(_stock_built_exemplar: Restorable) -> dict[str | None, str]:
+    """Each render's hook wiring with OSPREY's own kill switch, no shadow.
+
+    Read off the worker's shared build of the stock exemplar. Only the strings
+    are kept: that tree is restored per test for its other users, so no path
+    into it outlives this fixture.
+    """
+    repo = _stock_built_exemplar.restore()
     return {render: _hook_wiring(render_dir(repo, render)) for render in RENDERS}
 
 

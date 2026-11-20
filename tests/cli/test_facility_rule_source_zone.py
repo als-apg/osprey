@@ -8,7 +8,9 @@ the build copies into ``build/.claude/rules/`` like any other profile rule.
 
 These tests drive the real commands (``osprey init``, ``osprey build``) rather
 than the render helpers, because the round trip is the claim: what init seeds,
-what a build carries in, and what survives a wiped ``build/``.
+what a build carries in, and what survives a wiped ``build/``. Each test that
+edits and rebuilds starts from a copy of the session's demo build, the repo
+``osprey init`` + ``osprey build`` leave, and runs its own rebuild.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from tests._builds import strip_machine
+from tests._builds import copy_build, strip_machine
 from tests._preset_data import packaged_facility_dir
 from tests.cli._lifecycle_build import invoke_build
 
@@ -74,11 +76,9 @@ def _bundled_identity_name() -> str:
     return yaml.safe_load(identity.read_text(encoding="utf-8"))["name"]
 
 
-def test_a_replaced_facility_leaves_no_stale_identity(tmp_path):
+def test_a_replaced_facility_leaves_no_stale_identity(tmp_path, built_demo):
     """The rule is untouched by a facility swap and the facts page states the new identity."""
-    repo = tmp_path / "deployment"
-    _init(repo)
-    _build(repo)
+    repo = copy_build(built_demo.repo, tmp_path)
     seeded = _source_rule(repo).read_bytes()
     old_name = _bundled_identity_name()
 
@@ -100,11 +100,9 @@ def test_a_replaced_facility_leaves_no_stale_identity(tmp_path):
     assert old_name not in facts
 
 
-def test_the_edited_rule_survives_a_wiped_build(tmp_path):
+def test_the_edited_rule_survives_a_wiped_build(tmp_path, built_demo):
     """The operator's text comes back from the source zone after ``rm -rf build``."""
-    repo = tmp_path / "deployment"
-    _init(repo)
-    _build(repo)
+    repo = copy_build(built_demo.repo, tmp_path)
 
     edited = "# Ring Facility\n\nThe operator wrote this.\n"
     _source_rule(repo).write_text(edited, encoding="utf-8")
@@ -114,16 +112,14 @@ def test_the_edited_rule_survives_a_wiped_build(tmp_path):
     assert _built_rule(repo).read_text(encoding="utf-8") == edited
 
 
-def test_a_build_only_rule_is_migrated_into_the_source_zone(tmp_path):
+def test_a_build_only_rule_is_migrated_into_the_source_zone(tmp_path, built_demo):
     """A repo from before the move keeps the text it only had in ``build/``.
 
     The deployment repos that exist today have no ``rules/`` directory and an
     edited ``build/.claude/rules/facility.md``. ``osprey init --revalidate`` has
     to rescue that file rather than let the next build render over it.
     """
-    repo = tmp_path / "deployment"
-    _init(repo)
-    _build(repo)
+    repo = copy_build(built_demo.repo, tmp_path)
 
     # The shape of a repo built before the rule moved: no source-zone copy, the
     # library rule selected by its bare name, and the operator's own text in the

@@ -337,7 +337,7 @@ _MACOS_RUNS = (
     "tests/cli/test_agent_record_cmd.py::test_export_on_a_no_stack_project_runs_catch_up_and_leaves_no_process",
     "tests/cli/test_agent_record_cmd.py::test_health_on_a_no_stack_project_answers_from_the_record_and_leaves_no_process",
     "tests/cli/test_build_lifecycle_drain.py",
-    "tests/cli/test_build_swap.py::TestServedFilesSurviveABuild::test_the_served_files_are_intact_after_a_build",
+    "tests/cli/test_build_swap.py::TestServedFilesSurviveABuild::test_the_served_files_are_in_place_at_the_last_rename_and_intact_after_the_build",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_leftover_that_cannot_even_be_moved_names_the_path_and_the_reason",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_present_build_wins_over_leftovers",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_an_incoming_render_is_adopted_when_build_is_gone",

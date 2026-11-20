@@ -737,8 +737,26 @@ def test_extends_cycle_detected(tmp_path: Path, caplog: pytest.LogCaptureFixture
     _assert_build_error_logged(caplog, "cycle", "circular")
 
 
-@pytest.mark.parametrize("preset", list_presets())
-def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_path: Path) -> None:
+@pytest.fixture(scope="module")
+def bundled_preset(request: pytest.FixtureRequest) -> tuple[str, BuiltProject | None]:
+    """A bundled preset's name, and the session's shared build of it where there is one.
+
+    ``demo`` has one, ``built_demo``; every other preset has none, and its test
+    builds its own. Module-scoped so that ``built_demo``, when it is first asked
+    for here, is still built ahead of every function-scoped fixture, as it is
+    for a test that names it.
+    """
+    preset: str = request.param
+    if preset != "demo":
+        return preset, None
+    built: BuiltProject = request.getfixturevalue("built_demo")
+    return preset, built
+
+
+@pytest.mark.parametrize("bundled_preset", list_presets(), indirect=True)
+def test_each_bundled_preset_builds_clean(
+    bundled_preset: tuple[str, BuiltProject | None], runner: CliRunner, tmp_path: Path
+) -> None:
     """Every bundled preset must materialize and build to a project with a
     valid config and manifest, and the profile it materialized into must still
     say which preset it came from — the manifest itself cannot, since a
@@ -746,11 +764,16 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
     whether (or from which preset) it was materialized.
 
     Auto-extends as new presets land (e.g. 'education'). A new preset that
-    parses but doesn't build will fail this test on the next CI run.
+    parses but doesn't build will fail this test on the next CI run. ``demo``
+    reads the session's shared build of it instead of building it again.
     """
-    result = _materialize(runner, str(tmp_path), "smoke", preset)
-    assert result.exit_code == 0, result.output
-    project_dir = _project(tmp_path, "smoke")
+    preset, shared = bundled_preset
+    if shared is None:
+        result = _materialize(runner, str(tmp_path), "smoke", preset)
+        assert result.exit_code == 0, result.output
+        repo, project_dir = tmp_path / "smoke", _project(tmp_path, "smoke")
+    else:
+        repo, project_dir = shared.repo, shared.build_dir
     # 1. Core artifacts rendered
     assert (project_dir / "config.yml").exists()
     assert (project_dir / "CLAUDE.md").exists()
@@ -760,7 +783,7 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
     manifest = json.loads((project_dir / ".osprey-manifest.json").read_text())
     assert manifest["schema_version"] == "1.3.0"
     # 3. The materialized profile still names the preset it came from.
-    assert _profile_yaml(tmp_path / "smoke")["provenance"]["preset"] == preset
+    assert _profile_yaml(repo)["provenance"]["preset"] == preset
     # 4. Every preset must explicitly pin the facility timezone — agent timestamp
     #    interpretation/rendering keys off system.timezone, and a preset that omits
     #    it falls back to a silent default. Binding
