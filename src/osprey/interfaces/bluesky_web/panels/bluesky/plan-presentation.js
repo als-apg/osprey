@@ -1,44 +1,15 @@
 // @ts-check
 /**
- * Per-plan presentation for the shipped plans: how their parameter form is
- * laid out, and what the live readout above the footer says.
+ * The live readout above the plan form's footer: what the plan's collected
+ * args amount to, recomputed on every edit.
  *
- * Both tables are keyed by plan name and both are OPTIONAL. A plan with no
- * entry still renders and still reads out — `planLayout` returns `undefined`,
- * which auto-flows every schema field, and `summarizePlanArgs` falls back to a
- * plain field count. That is what lets a facility or session plan be usable
- * with no panel-side code at all, so nothing here may ever become a gate on
- * whether a plan can be composed or queued.
- *
- * Kept separate from plans-view.js because these are pure data and pure functions
- * over collected `plan_args` — no DOM, no fetches, no panel state — and because
- * adding a plan should mean adding an entry here, not editing the panel.
+ * The readout never gates anything: a plan with no entry here reads out a
+ * plain field count, so a facility or session plan is usable with no
+ * panel-side code. Pure functions over collected `plan_args` — no DOM, no
+ * fetches, no panel state.
  *
  * @module plan-presentation
  */
-
-/**
- * Per-plan 2-D field placement: rows of side-by-side field names, passed to
- * renderSchemaForm as its layout option. Names not in the plan's schema are
- * ignored; schema fields missing here are auto-flowed after these rows —
- * so this is a presentation hint, never a gate.
- *
- * @type {Record<string, string[][]>}
- */
-const PLAN_LAYOUTS = {
-  orm: [['correctors', 'readbacks'], ['span', 'num'], ['sweep']],
-  grid_scan: [['axes'], ['readbacks', 'snake_axes']],
-  orbit_bump_sweep: [
-    ['correctors'],
-    ['targets'],
-    ['closure_readbacks', 'readbacks'],
-    ['mode', 'sweep', 'num'],
-    ['tolerance', 'probe_amplitude', 'settle_s'],
-    ['beam_current_readback', 'min_beam_current'],
-    ['best_effort', 'max_trim_iterations', 'baseline_reads'],
-    ['monitors'],
-  ],
-};
 
 /**
  * Per-plan live readout, computed from the currently-collected plan_args on
@@ -102,16 +73,6 @@ const PLAN_SUMMARIES = {
     return parts.join(' · ');
   },
 };
-
-/**
- * The 2-D field placement for a plan, or `undefined` to auto-flow every field.
- *
- * @param {string} planName
- * @returns {string[][]|undefined}
- */
-export function planLayout(planName) {
-  return PLAN_LAYOUTS[planName];
-}
 
 /**
  * The live readout line for a plan's currently-collected args, or '' when

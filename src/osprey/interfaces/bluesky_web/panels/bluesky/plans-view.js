@@ -16,17 +16,17 @@
  * under a two-tab strip:
  *   - Parameters: a 2-D GUI generated from the plan's JSON Schema
  *     (schema-form.js): chip editors for device lists, an editable table for
- *     grid axes, typed inputs for scalars — arranged by a per-plan layout and
- *     carrying a per-plan live readout that recomputes on every edit, e.g.
- *     "2 correctors × 7 points = 14 sweep points" (both from
- *     plan-presentation.js).
+ *     grid axes, typed inputs for scalars — arranged in the rows the plan's
+ *     metadata `layout` states and carrying a live readout that recomputes on
+ *     every edit, e.g. "2 correctors · ±5 · 2 × 7 = 14 sweep points"
+ *     (plan-presentation.js).
  *   - Source: the plan's source code.
  * plus the local Reset icon and the deterministic Add-to-queue action in the
  * footer; what an add does next is that button's tooltip.
  *
- * Plans absent from the two registries still render fully — the schema-driven
- * form auto-flows their fields — so facility/session plans need no panel-side
- * code to be usable.
+ * A plan whose metadata states no layout still renders fully — the
+ * schema-driven form auto-flows its fields — so no plan needs panel-side code
+ * to be usable.
  *
  * Every fetch is issued through the shell's prefix-relative `api()` (the
  * web-terminal proxy does not rewrite plain "/plans"-style absolute paths), so
@@ -67,7 +67,7 @@
 import { h } from './hyperscript.js';
 import { enqueuePresentation } from './queue-client.js';
 import { groupByProvenance, renderPlanTree as renderPlanTreeInto } from './plan-browser.js';
-import { planLayout, summarizePlanArgs } from './plan-presentation.js';
+import { summarizePlanArgs } from './plan-presentation.js';
 import { planDetailState, planListState, queueReach } from './plan-states.js';
 import { renderSchemaForm } from './schema-form.js';
 import { icon } from '/design-system/js/icons.js';
@@ -505,7 +505,7 @@ export function createPlansView({
     detailSourceEl.textContent = source.source;
     highlightSource(detailSourceEl);
 
-    renderParamForm(plan, source);
+    renderParamForm(plan);
 
     // A freshly-selected plan always opens on Parameters — the operator's
     // primary task — and resets both transient confirm gates + the banner.
@@ -528,11 +528,10 @@ export function createPlansView({
    * Reset local.
    *
    * @param {PlanSummary|undefined} plan
-   * @param {PlanSource} source
    */
-  function renderParamForm(plan, source) {
+  function renderParamForm(plan) {
     collectPlanArgs = renderSchemaForm(paramFormEl, plan && plan.schema ? plan.schema : undefined, {
-      layout: planLayout(source.name),
+      layout: plan?.metadata?.layout ?? undefined,
     });
   }
 
@@ -739,10 +738,7 @@ export function createPlansView({
   function resetForm() {
     if (!selectedSource) return;
     const source = selectedSource;
-    renderParamForm(
-      plans.find((candidate) => candidate.name === source.name),
-      source
-    );
+    renderParamForm(plans.find((candidate) => candidate.name === source.name));
     formResetSincePatch = true;
     updateSummary();
     updateQueueButton();
