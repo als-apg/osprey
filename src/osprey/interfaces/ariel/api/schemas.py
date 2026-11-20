@@ -6,6 +6,7 @@ Request and response models for the ARIEL search interface.
 from datetime import datetime
 from typing import Any, Literal
 
+from fastapi import UploadFile
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -321,11 +322,10 @@ class FacetsResponse(BaseModel):
     tier: str | None = None
 
 
-class EntryCreateRequest(BaseModel):
-    """Request to create a new logbook entry from JSON.
+class EntryCreateFields(BaseModel):
+    """The fields every entry create states, whatever its encoding.
 
-    A key the model does not define is refused (422); an entry with files goes
-    through ``POST /api/entries/upload``.
+    A key the model does not define is refused (422).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -335,10 +335,32 @@ class EntryCreateRequest(BaseModel):
     author: str | None = None
     logbook: str | None = None
     shift: str | None = None
-    tags: list[str] = []
-    metadata: dict | None = None
     auth_user: str | None = None
     auth_password: str | None = None
+
+
+class EntryCreateRequest(EntryCreateFields):
+    """Request to create a new logbook entry from JSON.
+
+    A key the model does not define is refused (422); an entry with files goes
+    through ``POST /api/entries/upload``.
+    """
+
+    tags: list[str] = []
+    metadata: dict | None = None
+
+
+class EntryCreateForm(EntryCreateFields):
+    """Multipart form to create a new logbook entry with files.
+
+    ``tags`` is a comma-separated list and ``metadata`` is JSON text; every
+    other field is as in ``EntryCreateRequest``. A key the form does not
+    define is refused (422).
+    """
+
+    tags: str = ""
+    metadata: str | None = None
+    files: list[UploadFile] = []
 
 
 class EntryCreateResponse(BaseModel):
