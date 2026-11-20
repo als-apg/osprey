@@ -244,7 +244,11 @@ def _code_mask(source: str) -> bytearray:
     (unterminated runs to the end) are comments; ``'...'`` and ``"..."`` (ending
     at the matching quote or a newline) and template literals (ending at the
     next unescaped backtick) are strings, with ``\\`` escaping the next
-    character. Regex literals are not recognised.
+    character. Regex literals are not recognised: a quote or backtick inside one
+    is read as the start of a string, so an import after it can be left
+    unrewritten. The test that inlines every first-party module and asserts no
+    relative or root-relative specifier survives is what keeps the shipped
+    modules safe.
 
     Args:
         source: The module text.
