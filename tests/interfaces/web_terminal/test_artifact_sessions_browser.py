@@ -40,7 +40,7 @@ from docs.screenshots.contact_sheet import (
     hermetic_hub,
 )
 
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import wait_for_last_active, wait_for_page_ready
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -193,11 +193,6 @@ def _menu(page: Page, row, item: str) -> None:
 
 def _pointer(page: Page) -> str:
     return page.evaluate("() => localStorage.getItem('osprey-pty-session')")
-
-
-def _settle_pointer(page: Page) -> None:
-    """Outwait the page's debounced last-active write (300 ms)."""
-    page.wait_for_timeout(700)
 
 
 def _send(page: Page, prompt: str) -> None:
@@ -415,7 +410,7 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
     expect(_session(page, new_tid)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
 
-    _settle_pointer(page)
+    wait_for_last_active(page, _pointer(page))
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
@@ -581,7 +576,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     expect(_row(page, profile.id)).to_have_attribute("aria-selected", "true", timeout=_TIMEOUT_MS)
 
     # Reload: the same session, the artifact shown in the docked panel.
-    _settle_pointer(page)
+    wait_for_last_active(page, _pointer(page))
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
@@ -619,7 +614,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
         "data-session-id", f"key:{_pointer(page)}", timeout=_TIMEOUT_MS
     )
     minted = _pointer(page)
-    _settle_pointer(page)
+    wait_for_last_active(page, minted)
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", f"key:{minted}", timeout=_TIMEOUT_MS)
@@ -1025,7 +1020,7 @@ def test_deleting_a_past_session_drops_its_row_and_its_artifacts(hub, page):
     expect(_active(page)).to_have_attribute(
         "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
     )
-    _settle_pointer(page)
+    wait_for_last_active(page, _pointer(page))
 
     # The session the Agent is on offers Delete… disabled.
     current.click(button="right")
