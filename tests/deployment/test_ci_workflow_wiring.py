@@ -257,9 +257,10 @@ class SerialHost:
     #: What the step collects. A marked file must live under it, because the
     #: parallel lane deselects the marker everywhere and nothing else runs it.
     path: str
-    #: The literal on the step's pytest line that picks the marker back up.
-    #: A step may hold other pytest lines beside that one; each of them
-    #: deselects the marker.
+    #: The literal on the step's pytest line that picks the marker back up: a
+    #: ``-m`` expression led by the marker, which may narrow it further. A step
+    #: may hold other pytest lines beside that one; each of them deselects the
+    #: marker.
     select: str
 
 
@@ -286,6 +287,31 @@ class LaneLeavingMarker:
     def mark_re(self) -> re.Pattern[str]:
         return re.compile(rf"pytest\.mark\.{re.escape(self.marker)}\b")
 
+    def selected_by(self, line: str) -> bool:
+        """Whether *line* is one of the row's serial runs: its ``-m`` expression
+        carries the marker as a selected term."""
+        return self.marker in _selected_terms(line)
+
+
+#: A ``-m`` expression on a command line, double-quoted or a bare word.
+_MARKER_EXPR_RE = re.compile(r'(?<!\S)-m\s+("[^"]*"|\S+)')
+
+
+def _selected_terms(line: str) -> set[str]:
+    """The markers *line*'s ``-m`` expressions select: their ``and`` terms
+    that are not negated."""
+    return {
+        term
+        for expression in _MARKER_EXPR_RE.findall(line)
+        for term in expression.strip('"').split(" and ")
+        if not term.startswith("not ")
+    }
+
+
+def _leading_term(select: str) -> str:
+    """The marker a host's ``-m`` expression is led by: the row's marker."""
+    return select.removeprefix("-m ").strip('"').split(" and ")[0]
+
 
 #: Every marker that leaves the parallel lane, one row each. A new one is a row
 #: here plus its serial step in ci.yml; every case below is parametrised over
@@ -306,25 +332,29 @@ LANE_LEAVING_MARKERS = (
     LaneLeavingMarker(
         "wallclock",
         (
+            # The budgets that need the sidecar image, in the job that builds it.
             SerialHost(
                 "qmd-sidecar-e2e",
                 "Run the wall-clock budgets serially",
                 "tests/integration/",
-                "-m wallclock",
+                '-m "wallclock and dockerbuild"',
             ),
-            # The image-free budgets, on every event: the step selects the
-            # marker in the files under every root the sweep collects, minus
-            # the directories with hosts of their own, that a scan finds
-            # carrying it (tests/_wallclock_files.py; the root conftest holds
-            # the scan to what pytest marks).
+            # The image-free budgets, on every event: the step selects them in
+            # the files under every root the sweep collects that a scan finds
+            # carrying the marker and not the image marker
+            # (tests/_wallclock_files.py; the root conftest holds the scan to
+            # what pytest marks).
             SerialHost(
-                SERIAL_SUITES_JOB, "Run the wall-clock budgets serially", "tests/", "-m wallclock"
+                SERIAL_SUITES_JOB,
+                "Run the wall-clock budgets serially",
+                "tests/",
+                '-m "wallclock and not dockerbuild"',
             ),
             SerialHost(
                 SERIAL_SUITES_JOB,
                 "Run the wall-clock budgets serially",
                 "packages/osprey-connectors/tests",
-                "-m wallclock",
+                '-m "wallclock and not dockerbuild"',
             ),
         ),
     ),
@@ -2483,7 +2513,7 @@ def _check_host(wf: dict[str, Any], host: SerialHost) -> None:
         f"'{host.step}' must select the marker with {host.select!r}, so unmarked "
         f"files under {host.path} are not run a second time here; got: {commands!r}"
     )
-    deselect = f"not {host.select.removeprefix('-m ')}"
+    deselect = f"not {_leading_term(host.select)}"
     for run in commands:
         if run not in host_lines:
             assert deselect in run, (
@@ -2508,7 +2538,8 @@ def test_marker_runs_in_its_own_serial_step(
     and no dist mode: a second marked test running alongside is the load the
     deselection was for, and running it inside this step would be no better
     than leaving it in the lane."""
-    assert host.select == row.select()
+    assert row.selected_by(host.select), (row.marker, host.select)
+    assert _leading_term(host.select) == row.marker, host.select
     _check_host(workflow, host)
 
 
@@ -3055,11 +3086,11 @@ def _tier_source(tier: str, base: str | None = None) -> str:
 def _lane_invocations(source: str) -> list[str]:
     """The tier's wholesale ``pytest tests/`` sweeps, ignoring narrower runs
     and each row's serial run, which may name the same tree."""
-    selects = {row.select() for row in LANE_LEAVING_MARKERS}
     return [
         line
         for line in _script_pytest_lines(source)
-        if "--ignore=tests/e2e" in line and not any(select in line for select in selects)
+        if "--ignore=tests/e2e" in line
+        and not any(row.selected_by(line) for row in LANE_LEAVING_MARKERS)
     ]
 
 
@@ -3117,9 +3148,24 @@ def test_every_check_tier_deselects_every_lane_leaving_marker__mutation_drops_it
 _ANY_XDIST_WORKERS_RE = re.compile(r"(?<!\S)-n\s+(auto|\d)")
 
 
+def _parallelized(source: str, row: LaneLeavingMarker, count: int = 0) -> str:
+    """*source* with ``-n 4`` after each ``-m`` expression that selects the
+    row's marker, or after the first *count* of them."""
+    added = 0
+
+    def _add(match: re.Match[str]) -> str:
+        nonlocal added
+        if (count and added >= count) or not row.selected_by(match.group(0)):
+            return match.group(0)
+        added += 1
+        return f"{match.group(0)} -n 4"
+
+    return _MARKER_EXPR_RE.sub(_add, source)
+
+
 def _missing_serial_run(source: str, row: LaneLeavingMarker) -> list[str]:
     """What the full tier's serial follow-up for *row* is missing (empty = wired)."""
-    serial = [line for line in _script_pytest_lines(source) if row.select() in line]
+    serial = [line for line in _script_pytest_lines(source) if row.selected_by(line)]
     if not serial:
         return [f"a serial {row.marker} invocation"]
     return [
@@ -3142,7 +3188,7 @@ def _unreached_by_serial_runs(source: str, row: LaneLeavingMarker, files: list[s
     runs = [
         _SHELL_SEPARATOR_RE.split(line[line.index(f"{CHECK_UV_RUN} pytest ") :], maxsplit=1)[0]
         for line in _script_pytest_lines(source)
-        if row.select() in line
+        if row.selected_by(line)
     ]
     return [name for name in files if not any(_invocation_reaches(run, name) for run in runs)]
 
@@ -3173,7 +3219,7 @@ def test_the_full_tier_runs_what_the_sweep_deselects__mutation_drops_the_serial_
     gate that covers strictly less than it used to while reporting the same
     green."""
     source = _tier_source(tier)
-    mutated = "\n".join(line for line in source.splitlines() if row.select() not in line)
+    mutated = "\n".join(line for line in source.splitlines() if not row.selected_by(line))
     assert mutated != source, f"no serial {row.marker} run in {tier}; mutation is stale"
     assert _missing_serial_run(mutated, row) == [f"a serial {row.marker} invocation"]
 
@@ -3187,7 +3233,7 @@ def test_the_full_tier_runs_what_the_sweep_deselects__mutation_parallelizes_it(
     workers must be reported: it would put the tests back on a contended
     machine, which is what the sweep dropped them to avoid."""
     source = _tier_source(tier)
-    mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source)
+    mutated = _parallelized(source, row)
     assert mutated != source, f"serial {row.marker} run not found; mutation is stale"
     assert _missing_serial_run(mutated, row) != []
 
@@ -3271,7 +3317,7 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_narrows_the_path(
     # A host path, or a file under one: the wall-clock check names its files.
     host_re = re.compile(rf"(?<!\S)(?:{'|'.join(map(re.escape, hosts))})(?:/\S*)?(?=\s)")
     mutated = "\n".join(
-        host_re.sub("tests/_nowhere/test_x.py", line) if row.select() in line else line
+        host_re.sub("tests/_nowhere/test_x.py", line) if row.selected_by(line) else line
         for line in source.splitlines()
     )
     assert mutated != source, f"no serial {row.marker} run over {hosts} in {tier}; stale"
@@ -3304,21 +3350,20 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_adds_a_per_pr_dire
 # with no marker and no workers. A line that is none of these (a hand-added
 # term, a dropped expression, a parallelized serial run) is drift.
 
-#: A ``-m`` expression on a command line, double-quoted or a bare word.
-_MARKER_EXPR_RE = re.compile(r'(?<!\S)-m\s+("[^"]*"|\S+)')
-
 
 def _gate_lines_off_the_table(source: str) -> list[str]:
     """The tier's pytest lines that are neither the lane's sweep nor one
     row's serial run (empty = every line is on the table)."""
-    selects = {row.select() for row in LANE_LEAVING_MARKERS}
     off = []
     for line in _script_pytest_lines(source):
         exprs = [f"-m {expr}" for expr in _MARKER_EXPR_RE.findall(line)]
         has_workers = bool(_ANY_XDIST_WORKERS_RE.search(line))
         sweep = len(exprs) == 1 and exprs[0] == UNIT_LANE_DESELECT and has_workers
         serial = (
-            len(exprs) == 1 and exprs[0] in selects and not has_workers and "--dist" not in line
+            len(exprs) == 1
+            and any(row.selected_by(line) for row in LANE_LEAVING_MARKERS)
+            and not has_workers
+            and "--dist" not in line
         )
         invariant = (
             not exprs
@@ -3341,7 +3386,7 @@ def _gate_runs_missing(source: str, row: LaneLeavingMarker) -> list[str]:
     """What the tier lacks: a serial run for *row* over a tests directory, and
     the sweep over the whole suite (empty = both are wired)."""
     missing = []
-    serial = [line for line in _script_pytest_lines(source) if row.select() in line]
+    serial = [line for line in _script_pytest_lines(source) if row.selected_by(line)]
     if not any(re.search(r"(?<!\S)tests/", line) for line in serial):
         missing.append("serial run")
     if not any("--ignore=tests/e2e" in line for line in _gate_sweeps(source)):
@@ -3389,7 +3434,7 @@ def test_the_gate_runs_every_row_serially__mutation_drops_the_serial_run(
     row: LaneLeavingMarker,
 ) -> None:
     source = _tier_source("full")
-    mutated = "\n".join(line for line in source.splitlines() if row.select() not in line)
+    mutated = "\n".join(line for line in source.splitlines() if not row.selected_by(line))
     assert mutated != source, f"no serial {row.marker} run in the full tier; mutation is stale"
     assert "serial run" in _gate_runs_missing(mutated, row)
 
@@ -3399,7 +3444,7 @@ def test_the_gate_runs_exactly_the_lane_expression__mutation_parallelizes_a_seri
     row: LaneLeavingMarker,
 ) -> None:
     source = _tier_source("full")
-    mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source, count=1)
+    mutated = _parallelized(source, row, count=1)
     assert mutated != source, f"no serial {row.marker} run in the full tier; mutation is stale"
     assert _gate_lines_off_the_table(mutated) != []
 
