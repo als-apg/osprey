@@ -1748,7 +1748,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
-   the layout cut to fit. A class's ``sample`` names the members a reviewer
+   the layout cut to fit. The layout measures text in the viewer's own font
+   (IBM Plex Sans): a column takes the width its longest label needs, a long
+   label in a chain block takes two lines, and a text still longer than its box
+   is cut there with an ellipsis and listed, so the viewer never has to shrink
+   or clip a label. A class's ``sample`` names the members a reviewer
    opens: the standard, the smallest, the largest, the one with the longest
    label, the first off standard, and one member on each side of every
    variation that changes the drawing (a part drawn with or without a stated

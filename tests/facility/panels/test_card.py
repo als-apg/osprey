@@ -2237,7 +2237,12 @@ def test_what_tells_names_apart_drops_the_segments_they_share():
     assert _apart(["ONE"]) == ["ONE"]
 
 
-def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_number(tmp_path):
+@pytest.mark.parametrize("under", [False, True])
+def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_number(
+    tmp_path, monkeypatch, under
+):
+    if under:  # a number that needs the tile's whole width leaves no room beside it
+        monkeypatch.setattr(layout, "VALUE_WIDTH", 2 * layout.VALUE_WIDTH)
     roles = "Pump,state,*:State-Sts,device,word,,,,,stated,S,1,l\n"
     graph = _roles_graph(tmp_path, roles)  # no state word stated for it
     doc = stub_render(device_card(graph, "XR01:IP1"), graph)
@@ -2249,8 +2254,12 @@ def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_nu
         n for n in _by_type(doc, "pv-label")
         if n["props"]["pv"] == "XR01-IP1:State-Sts" and n["props"]["fontSize"] == layout.KEY_VALUE_SIZE
     ]  # fmt: skip
-    assert note["geometry"]["y"] >= number["geometry"]["y"] + number["geometry"]["height"]
-    assert number["geometry"]["width"] >= layout.VALUE_WIDTH  # the number keeps its room
+    n, t = number["geometry"], note["geometry"]
+    if under:
+        assert t["y"] >= n["y"] + n["height"]
+    else:
+        assert t["x"] >= n["x"] + n["width"] and t["y"] == n["y"]
+        assert n["width"] >= layout.VALUE_WIDTH  # the number keeps its room
 
 
 def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
@@ -2269,12 +2278,14 @@ def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
             n for n in nodes(doc)
             if n["type"] == "rectangle" and n["props"].get("lineColor") == layout.symbols.FOCUS
         ]  # fmt: skip
-        return box["geometry"]["width"]
+        (field,) = [n for n in nodes(doc) if n["type"] == "pv-label"]
+        return box["geometry"]["width"], field["geometry"]["width"]
 
     long_unit = "1/Meter^2"
-    need = layout.BLOCK_LABEL + layout.text_width(f"-0.000 {long_unit}", layout.BLOCK_TEXT_SIZE)
-    assert width(long_unit) >= need  # the field holds the number and its unit whole
-    assert width(None) == layout.BLOCK_LEAST  # the facility's unit, A, fits the least
+    _box, field = width(long_unit)
+    # the field holds the number and its unit whole
+    assert field >= layout.text_width(f"-0.000 {long_unit}", layout.BLOCK_TEXT_SIZE)
+    assert width(None)[0] == layout.BLOCK_LEAST  # the facility's unit, A, fits the least
 
 
 def _family_supply_graph(tmp_path):
