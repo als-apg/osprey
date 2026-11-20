@@ -87,6 +87,41 @@ def test_every_shipped_default_passes_its_field(params: type[BaseModel]) -> None
 
 
 # =========================================================================
+# Every shipped plan states its own form layout
+# =========================================================================
+
+_SHIPPED_PARAMS = {"orm": ORMParams, "grid_scan": GridScanParams, "orbit_bump_sweep": BumpParams}
+
+
+@pytest.mark.parametrize("name", sorted(_SHIPPED_PARAMS))
+def test_shipped_layouts_name_only_their_own_parameters(name: str) -> None:
+    layout = plan_loader.get_facility_plans().plans[name].metadata.layout
+
+    assert layout is not None
+    named = [field for row in layout for field in row]
+    assert set(named) <= set(_SHIPPED_PARAMS[name].model_fields)
+
+
+def test_shipped_layouts_are_the_rows_the_panel_drew() -> None:
+    plans = plan_loader.get_facility_plans().plans
+
+    assert {name: plans[name].metadata.layout for name in _SHIPPED_PARAMS} == {
+        "orm": [["correctors", "readbacks"], ["span", "num"], ["sweep"]],
+        "grid_scan": [["axes"], ["readbacks", "snake_axes"]],
+        "orbit_bump_sweep": [
+            ["correctors"],
+            ["targets"],
+            ["closure_readbacks", "readbacks"],
+            ["mode", "sweep", "num"],
+            ["tolerance", "probe_amplitude", "settle_s"],
+            ["beam_current_readback", "min_beam_current"],
+            ["best_effort", "max_trim_iterations", "baseline_reads"],
+            ["monitors"],
+        ],
+    }
+
+
+# =========================================================================
 # Tests of GridScanParams in plans_core/grid_scan.py
 # =========================================================================
 
