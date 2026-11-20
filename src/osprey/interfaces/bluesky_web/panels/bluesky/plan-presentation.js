@@ -3,17 +3,23 @@
  * The live readout above the plan form's footer: what the plan's collected
  * args amount to, recomputed on every edit.
  *
- * The readout never gates anything: a plan with no entry here reads out a
- * plain field count, so a facility or session plan is usable with no
- * panel-side code. Pure functions over collected `plan_args` — no DOM, no
+ * A plan states its readout in its metadata `summary`: a list of parts with
+ * `{parameter}` placeholders, filled by `fillSummary`. The shipped plans whose
+ * readouts compute (products, plurals, a sweep's doubled points) keep them in
+ * `PLAN_SUMMARIES`. A stated summary wins over that table; a plan with
+ * neither reads out a plain field count. The readout never gates anything,
+ * and every line it returns is text, never markup.
+ *
+ * Pure functions over a catalog entry and collected `plan_args` — no DOM, no
  * fetches, no panel state.
  *
  * @module plan-presentation
  */
 
 /**
- * Per-plan live readout, computed from the currently-collected plan_args on
- * every edit. Returns '' when there is nothing meaningful to show yet.
+ * The shipped plans' computed readouts, by plan name: interim until a plan
+ * file can compute its own line, when this table goes. Each returns '' when
+ * there is nothing meaningful to show yet.
  *
  * @type {Record<string, (args: Record<string, any>) => string>}
  */
@@ -74,21 +80,65 @@ const PLAN_SUMMARIES = {
   },
 };
 
+/** A literal brace pair, or a `{name}` placeholder (group 1). */
+const SUMMARY_TOKEN = /\{\{|\}\}|\{([^{}]*)\}/g;
+
 /**
- * The live readout line for a plan's currently-collected args, or '' when
- * there is nothing worth showing yet.
+ * What one argument shows as inside a summary part, or `null` when the part
+ * has no value to show for it: absent, null, an object or an empty list.
  *
- * A plan with its own summary gets it (e.g. "2 correctors · ±5 · 2 × 7 = 14
- * sweep points"); anything else — and any plan whose own summary has nothing to
- * say for these args — falls back to a field count.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function summaryValue(value) {
+  if (Array.isArray(value)) return value.length > 0 ? String(value.length) : null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return null;
+}
+
+/**
+ * Fill a stated summary from collected args: each part with every parameter
+ * it names set is shown, `{{` and `}}` read as literal braces, a list as its
+ * count; the shown parts are joined with ' · '. '' when no part is shown.
  *
- * @param {string} planName
+ * @param {string[]} parts
  * @param {Record<string, any>} args
  * @returns {string}
  */
-export function summarizePlanArgs(planName, args) {
-  const custom = PLAN_SUMMARIES[planName];
-  const text = custom ? custom(args) : '';
+export function fillSummary(parts, args) {
+  /** @type {string[]} */
+  const shown = [];
+  for (const part of parts) {
+    let complete = true;
+    const text = part.replace(SUMMARY_TOKEN, (token, /** @type {string|undefined} */ name) => {
+      if (name === undefined) return token[0];
+      const value = Object.hasOwn(args, name) ? summaryValue(args[name]) : null;
+      if (value === null) complete = false;
+      return value ?? '';
+    });
+    if (complete) shown.push(text);
+  }
+  return shown.join(' · ');
+}
+
+/**
+ * The live readout line for a plan's currently-collected args, or '' when
+ * there is nothing worth showing yet: the plan's stated summary, else its
+ * shipped computed readout, else a field count.
+ *
+ * @param {import('./plan-browser.js').PlanSummary|undefined} plan
+ * @param {Record<string, any>} args
+ * @returns {string}
+ */
+export function summarizePlanArgs(plan, args) {
+  const stated = plan?.metadata?.summary;
+  let text = stated ? fillSummary(stated, args) : '';
+  if (!text && !stated && plan) {
+    const computed = PLAN_SUMMARIES[plan.name];
+    text = computed ? computed(args) : '';
+  }
   if (text) return text;
   const count = Object.keys(args).length;
   return count > 0 ? `${count} parameter${count === 1 ? '' : 's'} set` : '';

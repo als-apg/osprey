@@ -33,6 +33,7 @@ import { h } from './hyperscript.js';
  * @property {string} description
  * @property {boolean} writes
  * @property {string[][]|null} [layout]
+ * @property {string[]|null} [summary]
  */
 
 /**
