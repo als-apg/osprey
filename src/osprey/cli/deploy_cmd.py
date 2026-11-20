@@ -779,9 +779,11 @@ def down_verb(repo: Path | None) -> None:
     It renders nothing. If build/ is gone or was never rendered, down does not
     re-derive the compose files from profile.yml to stop with -- those files
     describe what would be started now, not what is running. Instead it stops the
-    services the last start recorded, in the compose project it recorded, and
-    leaves any container another checkout created. That is the recovery path for
-    a build/ deleted while the stack was up.
+    services the last start recorded, in the compose project it recorded. That is
+    the recovery path for a build/ deleted while the stack was up.
+
+    While another checkout of this repo holds the project name, down refuses,
+    names that copy, and stops nothing.
 
     A deployment whose record names no services, or a repo with no record, is
     stopped by the label this repo put on its containers instead. Containers are
@@ -803,6 +805,7 @@ def down_verb(repo: Path | None) -> None:
     from osprey.cli.repo_resolver import find_repo_root
     from osprey.cli.summary_card import print_summary_card
     from osprey.deployment.container_lifecycle import down_deployment
+    from osprey.deployment.container_ownership import ForeignCheckoutError
 
     repo_root = find_repo_root(repo)
 
@@ -818,8 +821,17 @@ def down_verb(repo: Path | None) -> None:
             # The card is the verb's, not the library's: `down_deployment` is
             # also what `restart` and `reset` stop with, and a "stopped" card
             # printed from inside it would land in the middle of both.
-            with reporter.phase(f"Stopping {_display_name(repo_root)}"):
-                down_deployment(repo_root)
+            try:
+                with reporter.phase(f"Stopping {_display_name(repo_root)}"):
+                    down_deployment(repo_root)
+            except ForeignCheckoutError as e:
+                # Another copy of this repo holds the project name; the phase
+                # printed the ✗.
+                from .foreign_refusal import render_foreign_refusal
+
+                render_foreign_refusal(e, "osprey down", mark=False)
+                output.note("Nothing was stopped.")
+                raise click.Abort() from None
             print_summary_card(repo_root, "stopped")
     except KeyboardInterrupt:
         output.warn("Operation cancelled by user")
