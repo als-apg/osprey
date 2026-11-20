@@ -32,6 +32,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._builds import Restorable
 from tests.cli.test_dockerfile_template import _instructions, _render_template
 from tests.deployment._pip_probe import deps_pip_calls, wheel_pip_calls
 
@@ -441,17 +442,48 @@ class _Image:
         (self.wheel_ctx / wheel.name).write_bytes(wheel.read_bytes())
 
 
-@pytest.fixture
-def image(tmp_path, wheelhouse) -> _Image:
-    return _Image(tmp_path, wheelhouse)
+def _made_image(parent: Path, wheelhouse: Path, *, primed: bool) -> tuple[Path, _Image]:
+    root = parent / "image"
+    root.mkdir()
+    image = _Image(root, wheelhouse)
+    if primed:
+        result = image.run(_deps_body(_render_template()))
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    return root, image
+
+
+@pytest.fixture(scope="module")
+def _fresh_image(tmp_path_factory, wheelhouse) -> Restorable:
+    """A fresh image, made once and put back pristine at its one path for each test.
+
+    The same path, because a venv records its own absolute location.
+    """
+    return Restorable(
+        tmp_path_factory.mktemp("image"),
+        lambda parent: _made_image(parent, wheelhouse, primed=False),
+    )
+
+
+@pytest.fixture(scope="module")
+def _primed_image(tmp_path_factory, wheelhouse) -> Restorable:
+    """:func:`primed`'s image, made once and put back pristine for each test."""
+    return Restorable(
+        tmp_path_factory.mktemp("primed"),
+        lambda parent: _made_image(parent, wheelhouse, primed=True),
+    )
 
 
 @pytest.fixture
-def primed(image) -> _Image:
+def image(_fresh_image: Restorable) -> _Image:
+    _fresh_image.restore()
+    return _fresh_image.made
+
+
+@pytest.fixture
+def primed(_primed_image: Restorable) -> _Image:
     """An image whose deps layer has run for a profile without dependencies."""
-    result = image.run(_deps_body(_render_template()))
-    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
-    return image
+    _primed_image.restore()
+    return _primed_image.made
 
 
 def _output(result: subprocess.CompletedProcess[str]) -> str:
