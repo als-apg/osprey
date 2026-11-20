@@ -362,7 +362,7 @@ describe('the compute and apply card', () => {
     });
     mount(fetcher, state({ plan: plan() }));
     openConfirm(root);
-    await applyPlan(root);
+    await applyPlan(root, plan());
     expect(field(root, 'error').textContent).toBe('plan p1 is not the current plan');
   });
 
@@ -678,7 +678,7 @@ describe('the compute and apply card', () => {
     const { fetcher } = backend({ apply: () => text(message, status) });
     mount(fetcher, state({ plan: plan() }));
     openConfirm(root);
-    await applyPlan(root);
+    await applyPlan(root, plan());
     expect(field(root, 'error').hidden).toBe(false);
     expect(field(root, 'error').textContent).toBe(message);
   });
