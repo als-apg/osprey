@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from osprey.deployment.compose_generator import _reset_wheel_build_cache
+from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME, _reset_wheel_build_cache
 from osprey.deployment.runtime_helper import reset_runtime_cache as _reset_runtime_cache
 
 
@@ -198,14 +199,46 @@ def every_started_service_is_running(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.fixture
-def stub_deploy_up(monkeypatch, tmp_path):
-    """Factory: run ``deploy_up`` in ``tmp_path`` with no host underneath it.
+class StubbedStart:
+    """One start of ``_start_stack`` in a directory, over a config the test states.
 
-    Call it with the config ``prepare_compose_files`` should answer (``None``
-    leaves that collaborator to the test) and it stubs the runtime checks and
-    the compose child, returning a dict whose ``"cmd"`` is the last argv the
-    child was given.
+    ``config`` and ``files`` are what the start is handed; ``cmd`` is the last
+    argv the stubbed compose child was given, when the child is stubbed by
+    :func:`stub_start_stack`.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.config: dict | None = None
+        self.files: list[str] = ["docker-compose.yml"]
+        self.cmd: list[str] | None = None
+
+    def start(self, **kwargs) -> None:
+        from osprey.deployment import container_lifecycle
+
+        container_lifecycle._start_stack(
+            self.config,
+            self.files,
+            self.root,
+            env_path=self.root / COMPOSE_ENV_FILENAME,
+            **kwargs,
+        )
+
+
+@pytest.fixture
+def stubbed_start(tmp_path) -> StubbedStart:
+    """The test's one start of ``_start_stack``, rooted at ``tmp_path``."""
+    return StubbedStart(tmp_path)
+
+
+@pytest.fixture
+def stub_start_stack(monkeypatch, tmp_path, stubbed_start):
+    """Factory: run ``_start_stack`` in ``tmp_path`` with no host underneath it.
+
+    Call it with the config the start should be handed (``None`` leaves the
+    config to the test) and it stubs the runtime checks and the compose child,
+    returning the test's :class:`StubbedStart`, whose ``cmd`` is the last argv
+    the child was given.
 
     ``seam`` picks where the child is stubbed. ``"run_captured"`` is the one
     seam every deploy child goes through: a watched capture (the image builds
@@ -218,16 +251,10 @@ def stub_deploy_up(monkeypatch, tmp_path):
     """
     from osprey.deployment import container_lifecycle
 
-    def _stub(config: dict | None = None, *, seam: str = "run_captured") -> dict:
-        captured: dict = {}
-
+    def _stub(config: dict | None = None, *, seam: str = "run_captured") -> StubbedStart:
         monkeypatch.chdir(tmp_path)
         if config is not None:
-            monkeypatch.setattr(
-                container_lifecycle,
-                "prepare_compose_files",
-                lambda *a, **k: (config, ["docker-compose.yml"]),
-            )
+            stubbed_start.config = config
         monkeypatch.setattr(
             container_lifecycle, "verify_runtime_is_running", lambda config: (True, "")
         )
@@ -236,7 +263,7 @@ def stub_deploy_up(monkeypatch, tmp_path):
         )
 
         def _fake_run(cmd, **kwargs):
-            captured["cmd"] = cmd
+            stubbed_start.cmd = cmd
             return subprocess.CompletedProcess(list(cmd), 0)
 
         if seam == "run_captured":
@@ -245,6 +272,6 @@ def stub_deploy_up(monkeypatch, tmp_path):
             monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
         else:
             raise ValueError(f"unknown seam {seam!r}")
-        return captured
+        return stubbed_start
 
     return _stub

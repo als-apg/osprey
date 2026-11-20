@@ -42,7 +42,6 @@ from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     configured_ariel_mirror_path,
-    prepare_compose_files,
     rendered_checkout,
     repo_identity,
     resolve_image_defaults,
@@ -120,7 +119,7 @@ from osprey.deployment.service_tokens import (
     _raise_invalid_var,
     _validate_var,
 )
-from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
+from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import web_compose_file
 from osprey.deployment.web_terminals.env_production import migrate_users_env
@@ -4519,7 +4518,7 @@ def _web_terminals_enabled(config: dict) -> bool:
     """True if ``modules.web_terminals.enabled`` is set on ``config``.
 
     Same read as :func:`osprey.deployment.web_terminals.lint.lint_web_terminals`'s
-    own enabled-gate — the one place ``deploy_up`` decides whether a
+    own enabled-gate — the one place ``_start_stack`` decides whether a
     web-terminal reconcile is part of this deploy. Coerces a present-but-null
     ``modules`` or ``modules.web_terminals`` stanza (e.g. a bare ``web_terminals:``
     key in YAML, which parses to ``None``) to an empty dict rather than letting
@@ -5923,75 +5922,6 @@ def _stage_graphdb_store(
     return None
 
 
-def deploy_up(
-    config_path,
-    detached=False,
-    dev_mode=False,
-    expose_network=False,
-    keep_archiver_base=False,
-    reuse_stores=False,
-):
-    """Start services using container runtime (Docker or Podman).
-
-    The legacy entry point: it RE-RENDERS the compose files from the config it
-    is handed and then starts them. A deployment repo starts from
-    :func:`up_as_built` instead, which renders nothing.
-
-    :param config_path: Path to the configuration file
-    :type config_path: str
-    :param detached: Run in detached mode
-    :type detached: bool
-    :param dev_mode: Development mode for local framework testing
-    :type dev_mode: bool
-    :param expose_network: Expose services to all network interfaces (0.0.0.0)
-    :type expose_network: bool
-    :param keep_archiver_base: Leave a mismatched archiver base in place instead
-        of rebuilding it (see :func:`_stage_archiver_store`)
-    :type keep_archiver_base: bool
-    """
-    config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
-    project_dir = Path(config_path).resolve().parent
-
-    # Before every other check, and before any branch below has touched the
-    # host: a deployment whose archive is fabricated does not get to start.
-    _refuse_invented_history(config)
-
-    # The compose project directory for every invocation below, resolved from
-    # the config path rather than inherited from the working directory — see
-    # compose_base_cmd for what it pins.
-    repo_root = resolve_repo_root(config, config_path)
-
-    # Advisory staleness check BEFORE anything deploys: a project rendered by
-    # an older framework/preset self-describes an out-of-date service set in
-    # config.yml, so the deploy below would "succeed" at the wrong goal with
-    # no error anywhere. Never blocks (see warn_if_project_stale).
-    warn_if_project_stale(project_dir)
-
-    # Anchored on the config this verb was HANDED, not on a derived
-    # `<repo>/build/config.yml`: a legacy flat project's own directory is its
-    # render, so deriving the path would name a file that does not exist there.
-    # Same contract as the as-built path — see `_start_as_built`.
-    with config_anchored_at(config_path):
-        _start_stack(
-            config,
-            compose_files,
-            repo_root,
-            detached=detached,
-            dev_mode=dev_mode,
-            expose_network=expose_network,
-            # ANCHORED, deliberately: the provisioners this reaches mint REAL
-            # SECRETS, and `_start_stack`'s default leaves them writing a
-            # cwd-relative `.env`. The repo root is resolved four lines up and
-            # every compose invocation below reads `<repo>/.env` with
-            # --env-file, so an unanchored mint writes tokens the stack never
-            # reads — a deploy that comes up with its fail-closed tokens unset,
-            # which looks secure and says nothing.
-            env_path=repo_root / COMPOSE_ENV_FILENAME,
-            keep_archiver_base=keep_archiver_base,
-            reuse_stores=reuse_stores,
-        )
-
-
 class BuildProgressReporter:
     """One build's captured stream, parsed once into one :class:`BuildModel`.
 
@@ -6565,12 +6495,9 @@ def _start_stack(
 ) -> None:
     """Provision, preflight and start one already-resolved stack.
 
-    Everything both start paths do once their compose files exist, in the one
-    order they must happen in. :func:`deploy_up` reaches here having just
-    rendered those files; :func:`up_as_built` reaches here having read the ones
-    a build already wrote. Nothing below can tell the difference, which is the
-    point: there is one deploy sequence, and the two verbs differ only in where
-    the inputs came from.
+    Everything a start does once its compose files exist, in the one order
+    they must happen in. :func:`_start_as_built` reaches here with the files a
+    build already wrote.
 
     When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
     reconciled too (rendering its artifacts and including

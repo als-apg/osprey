@@ -42,7 +42,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.deploy_cmd import down_verb, restart_verb
-from osprey.deployment import container_lifecycle
+from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity, resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from tests.deployment.test_up_as_built import (
@@ -126,7 +126,7 @@ def runtime(monkeypatch):
     def _forbidden(*args, **kwargs):
         raise AssertionError("a stop must not render compose files")
 
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _forbidden)
+    monkeypatch.setattr(compose_generator, "prepare_compose_files", _forbidden)
     return record
 
 

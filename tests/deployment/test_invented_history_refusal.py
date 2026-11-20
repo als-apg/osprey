@@ -4,8 +4,8 @@
 start on it, but a deploy reads the project's ``config.yml`` as it stands now —
 including one edited after the build. It is also the moment the pairing stops
 being a file and becomes a running stack other people trust, which is why
-``_refuse_invented_history`` runs before any branch of ``deploy_up`` has touched
-the host, and again on the restart path (``config.yml`` is bind-mounted, so a
+``_refuse_invented_history`` runs before any branch of ``up_as_built`` has
+touched the host, and again on the restart path (``config.yml`` is bind-mounted, so a
 restart is how an edit takes effect).
 
 The rule itself — which spelling is live in which kind of config, and why an
@@ -189,11 +189,6 @@ def lying_project(monkeypatch, tmp_path):
     reached: list[list[str]] = []
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (dict(VA_MOCK_NESTED), ["docker-compose.yml"]),
-    )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
@@ -206,11 +201,14 @@ def lying_project(monkeypatch, tmp_path):
     return container_lifecycle, reached, tmp_path
 
 
-def test_deploy_up_aborts_before_the_host_is_touched(lying_project):
+def test_up_aborts_before_the_host_is_touched(lying_project):
     container_lifecycle, reached, tmp_path = lying_project
+    as_built = container_lifecycle.as_built_config_path(tmp_path)
+    as_built.parent.mkdir(parents=True, exist_ok=True)
+    as_built.write_text(yaml.safe_dump(VA_MOCK_NESTED), encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="virtual_accelerator"):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        container_lifecycle.up_as_built(tmp_path, detached=True)
 
     assert reached == []
 

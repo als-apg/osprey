@@ -114,18 +114,14 @@ def test_a_failed_live_down_still_says_the_containers_may_be_running(monkeypatch
     assert steps == [], "a failed down stopped nothing to report"
 
 
-def test_attached_up_still_execvpes(monkeypatch, tmp_path):
+def test_attached_up_still_execvpes(stubbed_start, monkeypatch, tmp_path):
     """Non-regression: the conversion is scoped to ``down``.
 
     A non-detached ``up`` hands the terminal to compose on purpose — the
     operator asked to watch it — so that call site must still exec.
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
-    )
+    stubbed_start.config = {"deployed_services": ["event_dispatcher"]}
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
@@ -152,7 +148,7 @@ def test_attached_up_still_execvpes(monkeypatch, tmp_path):
         lambda file, args: pytest.fail("attached up must exec WITH its env"),
     )
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+    stubbed_start.start(detached=False)
 
     assert "up" in execd["args"], execd
     assert execd["env"]["COMPOSE_PROJECT_NAME"]

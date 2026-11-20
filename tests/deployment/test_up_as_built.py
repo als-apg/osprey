@@ -38,10 +38,11 @@ from click.testing import CliRunner
 
 import osprey.cli.deploy_cmd as deploy_cmd
 from osprey.cli.deploy_cmd import up_verb
-from osprey.deployment import container_lifecycle, docker_desktop
+from osprey.deployment import compose_generator, container_lifecycle, docker_desktop
 from osprey.deployment.compose_generator import (
     LABELS_OVERRIDE_FILENAME,
     REPO_ID_LABEL,
+    prepare_compose_files,
     repo_identity,
     resolve_project_name,
 )
@@ -199,7 +200,7 @@ def started(monkeypatch):
     def _forbidden(*args, **kwargs):
         raise AssertionError("osprey up must not render compose files")
 
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _forbidden)
+    monkeypatch.setattr(compose_generator, "prepare_compose_files", _forbidden)
     return record
 
 
@@ -1444,50 +1445,6 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
     assert "⚠ Minted a login password" in result.output
 
 
-# ---------------------------------------------------------------------------
-# The legacy path is untouched
-# ---------------------------------------------------------------------------
-
-
-def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
-    """``osprey up`` keeps its render-then-start shape until Phase 3 deletes it.
-
-    The shared tail must not have changed what the old verb does, or every
-    project still on it would start something other than what it started
-    yesterday.
-    """
-    rendered: list = []
-
-    def _prepare(
-        config_path,
-        dev_mode=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
-        expose_network=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
-    ):
-        rendered.append(config_path)
-        return {"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _prepare)
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
-    # Every start builds the project image agent-record runs on; no build here.
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr=""),
-    )
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-    assert rendered == [str(tmp_path / "config.yml")]
-    # And the legacy path still writes its .env where it always did.
-    assert (tmp_path / ".env").is_file()
-
-
 def test_up_as_built_is_reachable_without_a_working_directory_in_the_repo(
     lifecycle_repo, started, tmp_path, monkeypatch
 ):
@@ -1627,6 +1584,9 @@ def built_repo(_real_build):
     # makes no file, so the preset's application package gets a stand-in wheel.
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(wheel_build, "_build_wheel", _fake_wheel)
+        # `osprey build` is the renderer, so the start's no-render guard, which
+        # a test may have installed already, does not hold for it.
+        patch.setattr(compose_generator, "prepare_compose_files", prepare_compose_files)
         result = _CliRunner().invoke(
             build_cmd,
             ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],

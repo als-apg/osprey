@@ -6,7 +6,7 @@ image drift), the ``preflight_web_terminals`` auth-credential provisioning
 (mint order and the fail-closed gate), and the auth sidecar's image
 production (registry-mode sidecar image name, local-mode build, pull
 scoping) plus the shared force-recreate primitive. The
-deploy_up-entry orchestration that wires the provisioning modules together
+``_start_stack`` orchestration that wires the provisioning modules together
 lives in ``tests/deployment/test_container_lifecycle.py``; the split-out
 provisioning steps have their own modules and test files
 (``test_render_images.py``, ``test_env_production.py``,
@@ -1043,7 +1043,7 @@ def test_local_mode_web_stack_never_pulls_the_local_auth_image(monkeypatch, tmp_
     assert any(cmd[-2:] == ["up", "-d"] for cmd in recorded)
 
 
-def test_deploy_up_force_recreates_nginx(monkeypatch, tmp_path):
+def test_deploy_up_web_terminals_force_recreates_nginx(monkeypatch, tmp_path):
     """The build stage regenerates ``build/`` from scratch (rmtree + render),
     so a running nginx's file bind mounts (nginx.conf, landing.html) point at
     the PREVIOUS render's inodes. ``nginx -s reload`` re-reads the dead inode
@@ -1191,7 +1191,7 @@ def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
     assert "Could not re-render" in caplog.text
 
 
-def test_deploy_up_renders_the_artifacts_before_any_web_stack_compose_invocation(
+def test_deploy_up_web_terminals_renders_the_artifacts_before_any_web_stack_compose_invocation(
     monkeypatch, tmp_path
 ):
     """Ordering is what makes the digest label trustworthy: the render digests

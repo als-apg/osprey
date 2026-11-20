@@ -8,7 +8,7 @@ credential provisioning and its fail-closed gate when authentication is on,
 rootless-podman ``loginctl`` linger, the advisory post-up ``verify.sh`` smoke
 check, and the dual-compose (backend-services + web stack) orchestration itself.
 
-``osprey.deployment.container_lifecycle.deploy_up`` delegates the whole
+``osprey.deployment.container_lifecycle._start_stack`` delegates the whole
 web-terminal branch to :func:`deploy_up_web_terminals` here; everything generic
 or shared with the plain (non-web) deploy path stays in ``container_lifecycle``.
 """
@@ -123,7 +123,7 @@ logger = get_logger("deployment.lifecycle")
 def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None) -> None:
     """Fail-fast web-terminal preflight, run BEFORE any image build.
 
-    ``deploy_up`` invokes this ahead of its (minutes-long) project-image
+    ``_start_stack`` invokes this ahead of its (minutes-long) project-image
     build so the deploy aborts that need no image at all — a roster
     :func:`resolve_cards` refuses (no render catalog or no
     ``default_tier``, in either image source; an unknown reference; a
@@ -1181,7 +1181,7 @@ def _resolved_compose_provider(config: dict, provider: ComposeProvider | None) -
     docker shape" — the opposite of what it means to
     :func:`~osprey.deployment.compose_generator.compose_base_cmd`, which is
     handed an answer rather than asking for one. The web path is entered both
-    ways: the deploy verbs thread down the provider ``deploy_up`` already
+    ways: the deploy verbs thread down the provider ``_start_stack`` already
     probed for, while the roster verbs (``passwd``, ``decommission``,
     ``prune``) come straight from the CLI with nothing to thread, and both must
     end up emitting the same shape. The probe is memoized per compose argv
@@ -1540,7 +1540,7 @@ def deploy_up_web_terminals(
     locally instead, exactly like the plain non-web path already relies on.
 
     This path always runs detached, regardless of the caller's ``--detached``
-    flag: ``deploy_up``'s non-detached path ``os.execvpe``-replaces the current
+    flag: ``_start_stack``'s non-detached path ``os.execvpe``-replaces the current
     process (see below), which would make it impossible for a caller to run
     anything — e.g. the post-up hook this function ends with — after
     ``compose up`` returns. A web-terminal deploy needs that hook, so it can
@@ -1579,17 +1579,17 @@ def deploy_up_web_terminals(
         namespace compose derives matches the project name baked into
         container labels.
     :param env_file_args: The ``["--env-file", ".env"]`` (or ``[]``) argv
-        fragment ``deploy_up`` resolved via ``_env_file_args``; passed in
+        fragment ``_start_stack`` resolved via ``_env_file_args``; passed in
         rather than recomputed here so the "no .env" warning stays defined in
         one place and this module needs no import back into
         ``container_lifecycle``.
-    :param provider: The compose provider ``deploy_up`` probed for, threaded
+    :param provider: The compose provider ``_start_stack`` probed for, threaded
         down so both invocations below carry the shape the ``env_file_args``
         above were already resolved for. ``None`` probes again (memoized) —
         the fragment and the argv it is spliced into must never disagree about
         the provider, which is what a fragment threaded in without its provider
         would produce.
-    :param repo_root: The deployment repo ``deploy_up`` resolved, threaded down
+    :param repo_root: The deployment repo ``_start_stack`` resolved, threaded down
         for the same reason the fragment above is: it is the compose project
         directory both invocations are pinned to, and re-resolving it here can
         answer the working directory instead (see :func:`_resolved_repo_root`).
@@ -1728,7 +1728,7 @@ def deploy_up_web_terminals(
             env_file_args,
             provider,
         )
-        # Stale-container preflight (see deploy_up): clear this stack's own
+        # Stale-container preflight (see _start_stack): clear this stack's own
         # wedged created/exited containers — a created container from an
         # aborted deploy holds its published host ports on Docker Desktop and
         # blocks the next `up`. `rm -f` is service-scoped to THIS invocation's
@@ -1766,7 +1766,7 @@ def deploy_up_web_terminals(
             # missing one surfaces as compose's own "No such image".
             _report_step("skipped image build (prebuilt images)")
         elif builds:
-            # Mirrors the plain non-web path's dev-mode build (see deploy_up):
+            # Mirrors the plain non-web path's dev-mode build (see _start_stack):
             # without a rebuild, a co-deployed service's cached image tag keeps
             # running the stale code from its first build. Build in its own step,
             # then `up --no-build`, to dodge the `up --build` containerd

@@ -7301,8 +7301,9 @@ def prepare_compose_files(
     # Create the top level compose file. Skipped when no services are deployed:
     # an attached project (deploy_services: false) scaffolds no services/
     # templates at all, so rendering would throw — and there is nothing for the
-    # top-level file to describe. deploy_up's empty-services guard (or its
-    # web-terminals branch, which brings its own compose file) handles the rest.
+    # top-level file to describe. The start's empty-services guard
+    # (`_start_stack`), or its web-terminals branch, which brings its own
+    # compose file, handles the rest.
     if deployed_service_names:
         top_template = os.path.join(SERVICES_DIR, TEMPLATE_FILENAME)
         build_dir = config.get("build_dir", "./build")
@@ -7311,9 +7312,8 @@ def prepare_compose_files(
         compose_files.append(top_template)
 
     # The login→tier map the shared containers read, computed here — from the
-    # config and the renders this render reads — so every path through this
-    # function (`osprey build`, `deploy_up`, `deploy_down`, `deploy_restart`,
-    # `rebuild_deployment`) stages the same map and no caller hands one in.
+    # config and the renders this render reads — so its one caller, `osprey
+    # build`, stages the map without handing one in.
     login_tiers = staged_login_tiers(config, layer_root) if deployed_service_names else None
 
     # A roster card's terminal proxies each application panel its render shows
