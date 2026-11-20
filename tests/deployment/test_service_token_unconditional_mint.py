@@ -43,17 +43,9 @@ _SUBPROCESS_METHODS = ("local", "subprocess")
 
 
 @pytest.fixture
-def captured_argv(stub_deploy_up):
-    """Patch deploy_up's collaborators; each test answers prepare_compose_files itself."""
-    return stub_deploy_up()
-
-
-def _patch_prepare_compose_files(monkeypatch, config: dict) -> None:
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (config, ["docker-compose.yml"]),
-    )
+def captured_argv(stub_start_stack):
+    """Stub the start's host; each test states the config the start is handed."""
+    return stub_start_stack()
 
 
 @pytest.fixture
@@ -81,10 +73,7 @@ def _config(**overrides) -> dict:
 @pytest.mark.parametrize("execution_method", _SUBPROCESS_METHODS)
 @pytest.mark.usefixtures("captured_argv")
 def test_both_bluesky_tokens_mint_when_writes_enabled_and_subprocess_execution(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
-    execution_method,
+    stubbed_start, _clean_token_env, tmp_path, execution_method
 ):
     """The exact configuration the deleted guard withheld under. Both vars mint.
 
@@ -96,9 +85,9 @@ def test_both_bluesky_tokens_mint_when_writes_enabled_and_subprocess_execution(
         control_system={"writes_enabled": True},
         execution={"execution_method": execution_method},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
@@ -108,7 +97,9 @@ def test_both_bluesky_tokens_mint_when_writes_enabled_and_subprocess_execution(
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_both_bluesky_tokens_mint_under_read_only_posture(_clean_token_env, monkeypatch, tmp_path):
+def test_both_bluesky_tokens_mint_under_read_only_posture(
+    stubbed_start, _clean_token_env, tmp_path
+):
     """``writes_enabled: False`` is a connector-level posture, not a mint input.
 
     The bridge still needs to authenticate its callers for read-only browsing
@@ -119,9 +110,9 @@ def test_both_bluesky_tokens_mint_under_read_only_posture(_clean_token_env, monk
         control_system={"writes_enabled": False},
         execution={"execution_method": "subprocess"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
@@ -130,9 +121,7 @@ def test_both_bluesky_tokens_mint_under_read_only_posture(_clean_token_env, monk
 
 @pytest.mark.usefixtures("captured_argv")
 def test_both_bluesky_tokens_mint_with_no_execution_or_control_system_block(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
+    stubbed_start, _clean_token_env, tmp_path
 ):
     """A config carrying neither section mints the same set as one carrying both.
 
@@ -141,9 +130,9 @@ def test_both_bluesky_tokens_mint_with_no_execution_or_control_system_block(
     """
     config = _config()
     assert "execution" not in config and "control_system" not in config
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
@@ -185,10 +174,7 @@ def test_minted_key_set_is_identical_across_every_posture(_clean_token_env, tmp_
 
 @pytest.mark.usefixtures("captured_argv")
 def test_mint_logs_no_withholding_warning_under_any_posture(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
-    caplog,
+    stubbed_start, _clean_token_env, caplog
 ):
     """The operator-facing half must be silent too.
 
@@ -200,10 +186,10 @@ def test_mint_logs_no_withholding_warning_under_any_posture(
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
     with caplog.at_level(logging.WARNING, logger="deployment.lifecycle"):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
 
     # caplog's handler already calls record.getMessage(), so r.message is the
     # final rendered string. Scoped to the logger this test opened, because the
@@ -227,9 +213,7 @@ def test_mint_logs_no_withholding_warning_under_any_posture(
 
 @pytest.mark.usefixtures("captured_argv")
 def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
+    stubbed_start, _clean_token_env, tmp_path
 ):
     """A multi-service deploy mints the full union of its services' declared vars."""
     config = _config(
@@ -237,9 +221,9 @@ def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
@@ -250,9 +234,7 @@ def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
 
 @pytest.mark.usefixtures("captured_argv")
 def test_a_new_services_token_mints_without_being_triaged_first(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
+    stubbed_start, _clean_token_env, monkeypatch, tmp_path
 ):
     """Declaring a var is sufficient — there is no allowlist to be added to.
 
@@ -272,9 +254,9 @@ def test_a_new_services_token_mints_without_being_triaged_first(
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env.get("SCAN_ENGINE_ARM_TOKEN")
@@ -283,7 +265,7 @@ def test_a_new_services_token_mints_without_being_triaged_first(
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_undeployed_service_vars_are_still_not_minted(_clean_token_env, monkeypatch, tmp_path):
+def test_undeployed_service_vars_are_still_not_minted(stubbed_start, _clean_token_env, tmp_path):
     """ "Unconditional" is scoped to *deployed* services, not to the whole map.
 
     Without this, a mint path that ignored ``deployed_services`` entirely would
@@ -293,9 +275,9 @@ def test_undeployed_service_vars_are_still_not_minted(_clean_token_env, monkeypa
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert "EVENT_DISPATCHER_TOKEN" not in env
@@ -324,16 +306,16 @@ def test_bluesky_declared_vars_are_pinned():
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_existing_env_value_is_never_overwritten(_clean_token_env, monkeypatch, tmp_path):
+def test_existing_env_value_is_never_overwritten(stubbed_start, _clean_token_env, tmp_path):
     """A user-set token is a deliberate override; the mint neither reads nor clobbers it."""
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=manually-set\n", encoding="utf-8")
     config = _config(
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env["BLUESKY_LAUNCH_TOKEN"] == "manually-set"
@@ -342,7 +324,9 @@ def test_existing_env_value_is_never_overwritten(_clean_token_env, monkeypatch, 
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_an_explicitly_empty_dotenv_value_is_minted_over(_clean_token_env, monkeypatch, tmp_path):
+def test_an_explicitly_empty_dotenv_value_is_minted_over(
+    stubbed_start, _clean_token_env, monkeypatch, tmp_path
+):
     """``TOKEN=`` in ``.env`` is a blank, not a decision — the mint fills it.
 
     This replaces the opposite expectation. A minted service token has no
@@ -361,9 +345,9 @@ def test_an_explicitly_empty_dotenv_value_is_minted_over(_clean_token_env, monke
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     minted = env["BLUESKY_LAUNCH_TOKEN"]
@@ -380,9 +364,7 @@ def test_an_explicitly_empty_dotenv_value_is_minted_over(_clean_token_env, monke
 
 @pytest.mark.usefixtures("captured_argv")
 def test_an_exported_empty_value_is_left_alone_because_a_mint_cannot_reach_it(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
+    stubbed_start, _clean_token_env, monkeypatch, tmp_path
 ):
     """The bound on the exception above: an export the ``.env`` cannot outrank.
 
@@ -398,9 +380,9 @@ def test_an_exported_empty_value_is_left_alone_because_a_mint_cannot_reach_it(
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
     )
-    _patch_prepare_compose_files(monkeypatch, config)
+    stubbed_start.config = config
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert "BLUESKY_LAUNCH_TOKEN" not in env

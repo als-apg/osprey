@@ -1396,7 +1396,7 @@ def test_the_logged_block_and_the_printed_section_carry_the_same_sections(compos
 def test_every_deploy_exit_path_shares_this_one_seam():
     """The exit paths inherit the printed form because they all land here.
 
-    ``deploy_up`` reports its endpoints from several exits — the empty-stack
+    ``_start_stack`` reports its endpoints from several exits — the empty-stack
     early return, the web-terminals-only return, the detached run and the
     foreground ``execvpe`` — and each calls this one function, so the promotion
     lives in one place rather than in four.

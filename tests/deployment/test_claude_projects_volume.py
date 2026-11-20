@@ -604,34 +604,6 @@ def test_the_as_built_start_copies_before_its_first_compose_call(
     _assert_copies_precede_compose(record)
 
 
-def test_deploy_up_copies_before_its_first_compose_call(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    config = {
-        "project_name": "legacy",
-        "deployed_services": ["event_dispatcher", "dispatch_worker"],
-        "services": {"dispatch_worker": {"worker_count": 1}},
-    }
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (config, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    fake = FakeRuntime()
-    fake.volumes["legacy_dispatch_workspace_1"] = {}
-    record: list[list[str]] = []
-    _route_runtime_through(monkeypatch, fake, record)
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-    assert "legacy_dispatch_claude_projects_1" in fake.volumes
-    _assert_copies_precede_compose(record)
-
-
 # ── The entrypoint hands a fresh transcripts mount to osprey ───────────────
 
 

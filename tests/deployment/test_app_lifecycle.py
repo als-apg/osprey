@@ -83,15 +83,14 @@ def test_an_undeployed_projected_row_builds_nothing() -> None:
 
 
 @pytest.fixture
-def deploy(stub_deploy_up, monkeypatch, tmp_path):
-    """Run ``deploy_up`` over a projected config, with no image build and no host."""
+def deploy(stub_start_stack, monkeypatch, tmp_path):
+    """Run ``_start_stack`` over a projected config, with no image build and no host."""
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     for name in (launch_token_env("knob-demo"), launch_token_env("viewer")):
         monkeypatch.delenv(name, raising=False)
 
     def _run(config: dict[str, Any]) -> dict[str, str]:
-        stub_deploy_up(config)
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stub_start_stack(config).start(detached=True)
         return project_env(tmp_path)
 
     return _run

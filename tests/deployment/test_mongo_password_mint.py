@@ -26,11 +26,11 @@ from tests.deployment._dotenv import project_env
 
 
 @pytest.fixture
-def captured_argv(stub_deploy_up, monkeypatch):
-    """Patch deploy_up's collaborators for a project with only 'mongodb' deployed."""
+def captured_argv(stub_start_stack, monkeypatch):
+    """Stub the start's host for a project with only 'mongodb' deployed."""
     # Every start builds the project image agent-record runs on; no build here.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    return stub_deploy_up({"deployed_services": ["mongodb"]}, seam="subprocess.run")
+    return stub_start_stack({"deployed_services": ["mongodb"]}, seam="subprocess.run")
 
 
 @pytest.fixture
@@ -39,8 +39,8 @@ def _clean_token_env(monkeypatch):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_mongodb_deploy_mints_mongo_root_password(_clean_token_env, tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+def test_mongodb_deploy_mints_mongo_root_password(stubbed_start, _clean_token_env, tmp_path):
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("MONGO_ROOT_PASSWORD")
@@ -67,10 +67,10 @@ def test_mongo_root_password_generator_is_uri_safe_every_time():
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_mongodb_mint_is_idempotent(_clean_token_env, tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+def test_mongodb_mint_is_idempotent(stubbed_start, _clean_token_env, tmp_path):
+    stubbed_start.start(detached=True)
     first = project_env(tmp_path)
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
     second = project_env(tmp_path)
 
     assert first["MONGO_ROOT_PASSWORD"] == second["MONGO_ROOT_PASSWORD"]
@@ -78,27 +78,29 @@ def test_mongodb_mint_is_idempotent(_clean_token_env, tmp_path):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_existing_mongo_root_password_is_preserved(_clean_token_env, tmp_path):
+def test_existing_mongo_root_password_is_preserved(stubbed_start, _clean_token_env, tmp_path):
     """The volume that adopted the value outlives any later mint."""
     (tmp_path / ".env").write_text("MONGO_ROOT_PASSWORD=preexistingvalue\n", encoding="utf-8")
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
     assert project_env(tmp_path)["MONGO_ROOT_PASSWORD"] == "preexistingvalue"
 
 
 @pytest.mark.parametrize("bad", ["p@ssword", "pass word", "a/b", "user:pw", "q?x", "frag#ment"])
 @pytest.mark.usefixtures("captured_argv")
-def test_operator_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path, bad):
+def test_operator_password_with_reserved_char_is_rejected(
+    stubbed_start, _clean_token_env, tmp_path, bad
+):
     """Refuse at the deploy boundary rather than let a URI reader mis-parse it."""
     (tmp_path / ".env").write_text(f"MONGO_ROOT_PASSWORD={bad}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="MONGO_ROOT_PASSWORD"):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_rejection_never_echoes_the_password(_clean_token_env, tmp_path):
+def test_rejection_never_echoes_the_password(stubbed_start, _clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("MONGO_ROOT_PASSWORD=p@ssword\n", encoding="utf-8")
     with pytest.raises(RuntimeError) as excinfo:
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
     assert "p@ssword" not in str(excinfo.value)
 
 

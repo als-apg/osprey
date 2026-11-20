@@ -1130,12 +1130,12 @@ def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):
 @pytest.mark.usefixtures("runtime")
 def test_logs_renders_nothing(lifecycle_repo, monkeypatch):
     """A read verb that re-rendered would answer about a stack that was never started."""
-    from osprey.deployment import container_lifecycle
+    from osprey.deployment import compose_generator
 
     def _forbidden(*args, **kwargs):
         raise AssertionError("reading logs must not render compose files")
 
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _forbidden)
+    monkeypatch.setattr(compose_generator, "prepare_compose_files", _forbidden)
     render_build(lifecycle_repo)
 
     logs_argv(lifecycle_repo)

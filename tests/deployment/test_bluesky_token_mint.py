@@ -23,9 +23,9 @@ _NON_TILED_VARS = ("BLUESKY_LAUNCH_TOKEN", "EVENT_DISPATCHER_TOKEN", "DISPATCH_W
 
 
 @pytest.fixture
-def captured_argv(stub_deploy_up):
-    """Patch deploy_up's collaborators for a project with only 'bluesky' deployed."""
-    return stub_deploy_up({"deployed_services": ["bluesky"]})
+def captured_argv(stub_start_stack):
+    """Stub the start's host for a project with only 'bluesky' deployed."""
+    return stub_start_stack({"deployed_services": ["bluesky"]})
 
 
 @pytest.fixture
@@ -42,8 +42,8 @@ def _clean_token_env(monkeypatch):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_bluesky_deploy_generates_launch_token(_clean_token_env, tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+def test_bluesky_deploy_generates_launch_token(stubbed_start, _clean_token_env, tmp_path):
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
@@ -55,13 +55,13 @@ def test_bluesky_deploy_generates_launch_token(_clean_token_env, tmp_path):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_bluesky_deploy_generates_tiled_api_key(_clean_token_env, tmp_path):
+def test_bluesky_deploy_generates_tiled_api_key(stubbed_start, _clean_token_env, tmp_path):
     """The Tiled catalog key hangs off the deployed 'bluesky' service.
 
     Keying it off a 'tiled' service would never mint: 'tiled' is never in
     deployed_services, so the membership guard skips it before any minting.
     """
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("BLUESKY_TILED_API_KEY")
@@ -70,10 +70,10 @@ def test_bluesky_deploy_generates_tiled_api_key(_clean_token_env, tmp_path):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_bluesky_token_generation_is_idempotent(_clean_token_env, tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+def test_bluesky_token_generation_is_idempotent(stubbed_start, _clean_token_env, tmp_path):
+    stubbed_start.start(detached=True)
     first = project_env(tmp_path)
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
     second = project_env(tmp_path)
 
     assert first["BLUESKY_LAUNCH_TOKEN"] == second["BLUESKY_LAUNCH_TOKEN"]
@@ -85,20 +85,20 @@ def test_bluesky_token_generation_is_idempotent(_clean_token_env, tmp_path):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_bluesky_existing_env_token_is_preserved(_clean_token_env, tmp_path):
+def test_bluesky_existing_env_token_is_preserved(stubbed_start, _clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=my-real-token\n", encoding="utf-8")
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env["BLUESKY_LAUNCH_TOKEN"] == "my-real-token"  # untouched
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_bluesky_process_env_token_not_written_to_dotenv(monkeypatch, tmp_path):
+def test_bluesky_process_env_token_not_written_to_dotenv(stubbed_start, monkeypatch, tmp_path):
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "from-shell")
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     # A token resolvable from the process env is not duplicated into .env.
@@ -107,9 +107,7 @@ def test_bluesky_process_env_token_not_written_to_dotenv(monkeypatch, tmp_path):
 
 @pytest.mark.usefixtures("captured_argv")
 def test_an_empty_dotenv_token_is_minted_on_the_default_loopback_deploy(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
+    stubbed_start, _clean_token_env, monkeypatch, tmp_path
 ):
     """``BLUESKY_LAUNCH_TOKEN=`` in ``.env`` is a blank the mint fills in.
 
@@ -124,7 +122,7 @@ def test_an_empty_dotenv_token_is_minted_on_the_default_loopback_deploy(
     # minted value does not outlive the test.
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env["BLUESKY_LAUNCH_TOKEN"], "the empty launch token was left empty"
@@ -132,7 +130,7 @@ def test_an_empty_dotenv_token_is_minted_on_the_default_loopback_deploy(
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_an_exposed_bluesky_deploy_refuses_an_empty_exported_token(monkeypatch, tmp_path):
+def test_an_exposed_bluesky_deploy_refuses_an_empty_exported_token(stubbed_start, monkeypatch):
     # An *exported* empty token is the one spelling a mint cannot repair: the
     # export shadows the .env line minting would write, so nothing is generated
     # and a deployment reachable off-host refuses rather than bind a fail-open
@@ -141,27 +139,18 @@ def test_an_exposed_bluesky_deploy_refuses_an_empty_exported_token(monkeypatch, 
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
 
     with pytest.raises(RuntimeError, match="reachable off-host with an empty token") as exc_info:
-        container_lifecycle.deploy_up(
-            str(tmp_path / "config.yml"), detached=True, expose_network=True
-        )
+        stubbed_start.start(detached=True, expose_network=True)
 
     assert "Unset BLUESKY_LAUNCH_TOKEN in the environment" in str(exc_info.value)
 
 
 def test_bluesky_alongside_dispatch_mints_both_independently(
-    monkeypatch, _clean_token_env, tmp_path
+    stubbed_start, monkeypatch, _clean_token_env, tmp_path
 ):
     """Per-service-instance behavior: deploying bluesky AND dispatch mints all
     three vars (no cross-service leakage or accidental sharing)."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (
-            {"deployed_services": ["event_dispatcher", "dispatch_worker", "bluesky"]},
-            ["docker-compose.yml"],
-        ),
-    )
+    stubbed_start.config = {"deployed_services": ["event_dispatcher", "dispatch_worker", "bluesky"]}
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
@@ -172,7 +161,7 @@ def test_bluesky_alongside_dispatch_mints_both_independently(
         lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
     )
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env.get("EVENT_DISPATCHER_TOKEN")
@@ -304,16 +293,14 @@ def test_non_tiled_vars_are_not_forced_alphanumeric(var):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_deploy_up_routes_each_var_through_its_own_generator(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
+def test_start_routes_each_var_through_its_own_generator(
+    stubbed_start, _clean_token_env, monkeypatch, tmp_path
 ):
     """The mint site consults the registry — it does not hardcode one recipe."""
     monkeypatch.setattr(secrets, "token_urlsafe", lambda n: "sentinel-urlsafe_value")
     monkeypatch.setattr(secrets, "token_hex", lambda n: "sentinelhexvalue")
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
 
     env = project_env(tmp_path)
     assert env["BLUESKY_TILED_API_KEY"] == "sentinelhexvalue"
