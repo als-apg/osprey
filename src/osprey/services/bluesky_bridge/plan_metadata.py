@@ -16,6 +16,7 @@ Kept pydantic-only (no bluesky/ophyd/tiled imports) so it can be imported from
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -117,6 +118,27 @@ def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadat
         if unknown:
             message += f"; unknown key(s): {', '.join(unknown)}"
         raise PlanMetadataError(message) from exc
+
+
+def check_presentation_names(
+    meta: PlanMetadata, field_names: Iterable[str], *, source: str
+) -> None:
+    """Refuse ``meta`` when its presentation keys name a parameter the plan lacks.
+
+    ``field_names`` are the plan's ``PARAMS`` fields. The check lives apart
+    from the model because only a caller that has imported the plan knows
+    them; the source-only reader validates the block without them.
+
+    Raises:
+        PlanMetadataError: naming the key and every unknown name, sorted.
+    """
+    known = set(field_names)
+    if meta.layout is not None:
+        unknown = sorted({name for row in meta.layout for name in row} - known)
+        if unknown:
+            raise PlanMetadataError(
+                f"{source}: PLAN_METADATA layout names unknown parameter(s): {', '.join(unknown)}"
+            )
 
 
 def parse_plan_metadata(module: Any, *, source: str | None = None) -> PlanMetadata:
