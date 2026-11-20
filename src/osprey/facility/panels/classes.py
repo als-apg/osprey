@@ -436,15 +436,6 @@ def _device_type(graph: PanelGraph, device_id: str) -> tuple[str, str]:
     return thing.cls or "", recipe.recipe if recipe is not None else DEFAULT_RECIPE
 
 
-def _member_types(graph: PanelGraph, group_id: str) -> list[list[str]]:
-    """The sorted device types of a group's members; a member that is no device by its kind."""
-    found = {
-        _device_type(graph, m.id) if m.kind == "device" else (m.kind, "")
-        for m in graph.members(group_id)
-    }
-    return [list(pair) for pair in sorted(found)]
-
-
 def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, dict[str, Any]]:
     """The class of a screen: its id and its key in parts.
 
@@ -468,12 +459,11 @@ def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, d
             "roles": roles,
         }
         readable = f"{cls}-{recipe}"
-    elif target.view in ("set", "calibration"):
-        key = {"view": target.view, "members": _member_types(graph, target.id)}
-        readable = "-".join(sorted({cls for cls, _recipe in key["members"]}))
-        if target.view == "calibration":
-            key["calibration"] = target.system or ""
-            readable = f"{target.system or ''}-{readable}"
+    elif target.view == "calibration":
+        # Gains and offsets are different things to judge even where the layout
+        # agrees: the calibration kind is the kind of signal it states.
+        key = {"view": target.view, "calibration": target.system or "", "structure": structure}
+        readable = target.system or ""
     else:
         key = {"view": target.view, "kind": target.kind, "structure": structure}
         readable = target.kind

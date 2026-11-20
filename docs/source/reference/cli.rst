@@ -1719,11 +1719,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    of one class when they have one key: for a device's card and its channel
    list, the device's class, the card recipe it is drawn from and the set of
    signal roles the card shows (a role played by two channels counts once; the
-   driver-internal role and channels with no role are not in it); for a set,
-   the device types of its members; for a calibration overview, its kind and
-   the device types of the set's members; for every other screen (a place, a
-   rack, a roll-up, a checkout, the card of a place or a group), its view kind,
-   the kind of thing it shows and its structure.
+   driver-internal role and channels with no role are not in it); for a
+   calibration overview, its calibration kind and its structure (a gain and an
+   offset are judged apart even where they are drawn alike); for every other
+   screen (a set, a place, a rack, a roll-up, a checkout, the card of a place or
+   a group), its view kind, the kind of thing it shows and its structure. The
+   device types of a set's members are names, not a layout, and are not in its
+   key.
 
    Sameness is measured on what a screen shows, not on its file. Its structure
    is its sections and the kinds of item, block and relation they hold. Left

@@ -21,12 +21,14 @@ from osprey.facility.panels.classes import (
     VALUE_FLAGS,
     Measure,
     Sample,
+    class_key,
     classify,
     measure,
     standard,
     summary,
     summary_line,
 )
+from osprey.facility.panels.describe import targets
 from osprey.facility.panels.emit import Draw, check, load_draw, write
 from osprey.facility.panels.model import PanelGraph
 from osprey.facility.panels.view import (
@@ -112,6 +114,37 @@ def test_places_and_checkouts_built_alike_share_a_class(written):
     assert key["kind"] == "place"
     assert len(key["structure"]) == 16
     assert entries["place-xr-xr01"]["class"] == entries["place-xr-xr02"]["class"]
+
+
+def test_a_set_is_classed_by_its_structure_not_by_its_members_device_types(tmp_path, written):
+    entries = _entries(written)
+    assert entries["set-xr01-vac"]["class"] == entries["set-xr02-vac"]["class"]
+    key = written["classes"][entries["set-xr01-vac"]["class"]]["key"]
+    assert sorted(key) == ["kind", "structure", "view"]
+    # Sets of other members drawn alike are one class: a member type is a name.
+    graph = _graph(tmp_path)
+    by_id = {t.id: t for t in targets(graph) if t.view == "set"}
+    quads, pumps = by_id["XR-QUAD"], by_id["XR01-VAC"]
+    assert class_key(graph, quads, "s")[0] == class_key(graph, pumps, "s")[0]
+    assert class_key(graph, quads, "s")[0] != class_key(graph, quads, "t")[0]
+
+
+def test_a_calibration_is_classed_by_its_kind_and_its_structure(tmp_path, written):
+    graph = _graph(tmp_path)
+    found = {t.system: t for t in targets(graph) if t.view == "calibration"}
+    centre, offset = found["centre"], found["current_offset"]
+    # Drawn alike, a centre and a current offset are still judged apart.
+    assert class_key(graph, centre, "s")[0] != class_key(graph, offset, "s")[0]
+    assert class_key(graph, centre, "s")[0] != class_key(graph, centre, "t")[0]
+    assert class_key(graph, centre, "s")[1] == {
+        "view": "calibration",
+        "calibration": "centre",
+        "structure": "s",
+    }
+    entries = _entries(written)
+    for entry in entries.values():
+        if entry["file"].startswith("calibration/"):
+            assert written["classes"][entry["class"]]["key"]["calibration"] == entry["system"]
 
 
 def test_the_class_id_depends_on_the_key_alone(tmp_path, written):
