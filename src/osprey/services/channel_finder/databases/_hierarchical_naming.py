@@ -10,14 +10,17 @@ import itertools
 from collections.abc import Iterator
 from typing import Any
 
-from ._hierarchical_base import _HierarchicalBase
+from ._hierarchical_query import _HierarchicalQueryMixin
 
 #: Most selection combinations ``build_existing_channels`` lists as holding no channel.
 INVALID_EXAMPLE_LIMIT = 10
 
 
-class _HierarchicalNamingMixin(_HierarchicalBase):
-    """Channel-name construction and flat channel-map expansion."""
+class _HierarchicalNamingMixin(_HierarchicalQueryMixin):
+    """Channel-name construction and flat channel-map expansion.
+
+    Builds on the query mixin, whose selection check every build runs first.
+    """
 
     def _get_pattern_levels(self) -> list[str]:
         """
@@ -307,6 +310,10 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
 
         Returns:
             List of complete channel names, one per combination
+
+        Raises:
+            ValueError: If a key of ``selections`` is no hierarchy level, or a
+                required level of the naming pattern is missing.
         """
         return [channel for _, channel in self._build_selection_combinations(selections)]
 
@@ -325,7 +332,8 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
             level name to selected value.
 
         Raises:
-            ValueError: If a required level of the naming pattern is missing.
+            ValueError: If a key of ``selections`` is no hierarchy level, or a
+                required level of the naming pattern is missing.
         """
         channels: dict[str, None] = {}
         invalid: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -358,8 +366,11 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
             caller selected, and the name built from them.
 
         Raises:
-            ValueError: If a required level of the naming pattern is missing.
+            ValueError: If a key of ``selections`` is no hierarchy level, or a
+                required level of the naming pattern is missing.
         """
+        self._check_selections(selections)
+
         # Get levels that appear in naming pattern (may be subset of all hierarchy levels)
         pattern_levels = self._get_pattern_levels()
 
