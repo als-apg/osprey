@@ -439,6 +439,13 @@ class TestInliner:
         assert line_comment in out and block_comment in out
         assert 'import "data:text/javascript;base64,' in out
 
+    def test_a_design_system_module_tag_becomes_an_inline_module(self):
+        snippet = '<script type="module" src="/design-system/js/page-ready.js"></script>'
+        out = inline_assets.self_contained(snippet)
+        assert "/design-system/" not in out
+        assert out.startswith('<script type="module">')
+        assert "export function markPageReady" in out
+
     def test_comment_markers_inside_strings_do_not_hide_an_import(self):
         snippet = (
             '<script type="module">\n'

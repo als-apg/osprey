@@ -9,7 +9,8 @@ sandbox. The pages the gallery builds itself therefore carry what they need
 inline:
 
 * design-system scripts and stylesheets (``theme-boot.js``, ``tokens.css``)
-  become inline ``<script>`` / ``<style>`` blocks;
+  become inline ``<script>`` / ``<style>`` blocks, and a design-system module
+  loaded by its own tag (``page-ready.js``) an inline module;
 * ES modules (``theme-manager.js``, the renderer ``md-render.js``) become
   ``data:`` URL modules whose own imports are rewritten the same way, so no
   module graph reaches back to the server;
@@ -326,6 +327,10 @@ def module_data_url(url_path: str, *, _stack: tuple[str, ...] = ()) -> str:
 _DS_SCRIPT_RE = re.compile(
     r"""<script\s+src=["'](/design-system/[^"']+\.js)["']\s*>\s*</script>""", re.IGNORECASE
 )
+_DS_MODULE_SCRIPT_RE = re.compile(
+    r"""<script\s+type=["']module["']\s+src=["'](/design-system/[^"']+\.js)["']\s*>\s*</script>""",
+    re.IGNORECASE,
+)
 _DS_STYLESHEET_RE = re.compile(
     r"""<link\s+rel=["']stylesheet["']\s+href=["'](/design-system/[^"']+\.css)["']\s*/?>""",
     re.IGNORECASE,
@@ -338,13 +343,25 @@ _MODULE_BLOCK_RE = re.compile(
 def self_contained(snippet: str) -> str:
     """Make one of the gallery's own HTML snippets reference no server path.
 
-    Design-system classic scripts and stylesheets are inlined, and every
+    Design-system classic scripts and stylesheets are inlined, a design-system
+    module loaded by its own tag becomes an inline module, and every
     first-party import inside an inline module script becomes a ``data:``
     URL module. Only for markup the gallery itself writes -- never applied to
     agent-authored HTML.
     """
     snippet = _DS_SCRIPT_RE.sub(
         lambda m: inline_script(_read_bytes(_first_party_file(m.group(1))).decode("utf-8")),
+        snippet,
+    )
+    snippet = _DS_MODULE_SCRIPT_RE.sub(
+        lambda m: inline_script(
+            _rewrite_imports(
+                _read_bytes(_first_party_file(m.group(1))).decode("utf-8"),
+                m.group(1),
+                (m.group(1),),
+            ),
+            module=True,
+        ),
         snippet,
     )
     snippet = _DS_STYLESHEET_RE.sub(
