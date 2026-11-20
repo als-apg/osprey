@@ -71,9 +71,16 @@ class UnitSelection:
 
 #: The tests that pin this declaration and the repository-wide rules, and
 #: every test that reads the whole tests tree: a change anywhere in the tree
-#: can break them, so no change selection may leave them out.
+#: can break them, so no change selection may leave them out. Two rules read
+#: the repository by other means than a glob or a walk, which the tree-reader
+#: scan sees, and are listed by hand: the guard that only the view reader and
+#: writer open a view file (a ``git grep`` of the sources and the tests), and
+#: the docs snippet ratchet (it reads every docs page and the tests its ledger
+#: names).
 INVARIANT_TESTS = (
     "tests/docs/test_shipped_identity_literals.py",
+    "tests/docs/test_snippet_coverage.py",
+    "tests/connectors/test_view_reader_only.py",
     "tests/scripts/test_ruff_file_selection.py",
     "tests/scripts/test_check.py",
     "tests/scripts/test_changelog_fragments.py",
