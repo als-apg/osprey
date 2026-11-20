@@ -175,7 +175,8 @@ async def list_plans() -> str:
     """List the plans registered on the bridge.
 
     Each plan entry carries ``metadata`` (the plan's authoring-declared
-    ``PLAN_METADATA`` — name, description and ``writes`` — or ``null`` for a
+    ``PLAN_METADATA`` — name, description and ``writes``, plus the optional
+    form ``layout`` and ``summary``, ``null`` where unstated — or ``null`` for a
     built-in that doesn't author one) and ``provenance`` (its trust tier:
     ``shipped``/``preset``/``facility``/``session``/``unreviewed``, ascending
     ephemerality). Prefer a higher-provenance plan.
