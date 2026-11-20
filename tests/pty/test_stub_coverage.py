@@ -48,6 +48,7 @@ from tests.pty.conftest import (
     EXEMPLAR_DIRNAME,
     StubRuntime,
     ensure_exemplar,
+    exemplar_cache_key,
     repo_root,
     stub_runtime_dir,
 )
@@ -540,6 +541,19 @@ class TestSharedExemplar:
         assert rendered_checkout(exemplar_repo) == RenderedCheckout(
             frozenset({repo_identity(exemplar_repo)}), str(exemplar_repo)
         )
+
+    def test_the_cache_key_names_the_checkout_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Byte-identical inputs at another checkout path key another entry."""
+        import tests.pty.conftest as pty_conftest
+
+        unpatched = exemplar_cache_key()
+        alias = tmp_path / "alias"
+        alias.symlink_to(repo_root(), target_is_directory=True)
+        monkeypatch.setattr(pty_conftest, "repo_root", lambda: alias)
+
+        assert exemplar_cache_key() != unpatched
 
 
 class TestStubAnswersPlausibly:
