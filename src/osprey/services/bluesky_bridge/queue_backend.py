@@ -249,6 +249,9 @@ REASON_QUEUE_CHANGED_SINCE_APPROVAL = "queue_changed_since_approval"
 REASON_UNKNOWN_DEVICE = "unknown_device"
 REASON_STALE_DRAFT_REVISION = "stale_draft_revision"
 REASON_DRAFT_REVISION_ALREADY_LAUNCHED = "draft_revision_already_launched"
+# An add the manager did not answer, on a queue that could not be read after
+# it: the item may or may not be queued, so the revision stays reserved.
+REASON_ENQUEUE_OUTCOME_UNKNOWN = "enqueue_outcome_unknown"
 REASON_SESSION_PLAN_UNVALIDATED = "session_plan_unvalidated"
 REASON_SESSION_PLAN_NOT_IN_NAMESPACE = "session_plan_not_in_namespace"
 REASON_PLAN_NAME_MISMATCH = "plan_name_mismatch"
@@ -307,6 +310,7 @@ REFUSAL_REASONS: Mapping[str, ReasonRecord] = MappingProxyType(
         REASON_UNKNOWN_DEVICE: ReasonRecord(400, False),
         REASON_STALE_DRAFT_REVISION: ReasonRecord(409, False),
         REASON_DRAFT_REVISION_ALREADY_LAUNCHED: ReasonRecord(409, False),
+        REASON_ENQUEUE_OUTCOME_UNKNOWN: ReasonRecord(504, False),
         REASON_SESSION_PLAN_UNVALIDATED: ReasonRecord(409, False),
         REASON_SESSION_PLAN_NOT_IN_NAMESPACE: ReasonRecord(409, False),
         REASON_PLAN_NAME_MISMATCH: ReasonRecord(409, False),
@@ -988,6 +992,27 @@ class QueueBackend:
     async def history(self) -> dict[str, Any]:
         """Recent completed items, newest last, as the manager holds them."""
         return await self._call("history_get")
+
+    async def find_run_item(self, run_id: str) -> dict[str, Any] | None:
+        """The item that carries *run_id*, wherever the manager holds it, or ``None``.
+
+        Looks through the pending items, the running item and then the
+        history, each read with ``reload=True`` so a cached answer cannot hide
+        an item. The queue is read first: an item that leaves it before the
+        history is read was already in it when the queue was read.
+
+        Raises:
+            QueueBackendError: The manager could not be read, so whether it
+                holds the item is not known.
+        """
+        queue_state = await self._call("queue_get", reload=True)
+        candidates = [*(queue_state.get("items") or []), queue_state.get("running_item")]
+        history = await self._call("history_get", reload=True)
+        candidates.extend(history.get("items") or [])
+        for item in candidates:
+            if isinstance(item, dict) and run_id_of(item) == run_id:
+                return item
+        return None
 
     async def clear_history(self) -> dict[str, Any]:
         """Drop every history entry. The running item and the queue are untouched.

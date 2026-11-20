@@ -175,7 +175,9 @@ class LaunchRejected:
 # `_launching` holds revisions whose launch is IN FLIGHT: reserved by
 # `check_launchable` in the same critical section that returns the snapshot,
 # and released by exactly one of `record_and_broadcast_launch` (success) or
-# `release_launch` (any failure after the check). Reserving at the HEAD of
+# `release_launch` (any failure after the check). A launch whose outcome is
+# unknown (the queue server neither answered the add nor could be read after
+# it) calls neither, so its revision stays reserved for good. Reserving at the HEAD of
 # the unlocked mint/launch window — not committing at its tail — is what
 # makes "exactly one launch per revision" hold for CONCURRENT callers, not
 # just sequential replays: a second `check_launchable` at the same revision
@@ -332,7 +334,9 @@ async def _unsubscribe(queue: asyncio.Queue[Any]) -> None:
 # revision is refused while the first launch is still in flight — the
 # exclusivity token is taken at the head of the unlocked window, never
 # committed only at its tail. The caller owes exactly one matching
-# `record_and_broadcast_launch` (success) or `release_launch` (failure).
+# `record_and_broadcast_launch` (success) or `release_launch` (failure),
+# except when it cannot tell whether the enqueue happened: then it owes
+# neither, and the kept reservation refuses every later launch of the revision.
 # ---------------------------------------------------------------------------
 
 
@@ -389,8 +393,8 @@ async def check_launchable(draft_revision: int) -> LaunchSnapshot | LaunchReject
                 code=REASON_DRAFT_REVISION_ALREADY_LAUNCHED,
                 detail=(
                     f"a launch of draft revision {_revision} is already in "
-                    "progress; edit the draft (bumping its revision) to launch "
-                    "a different plan"
+                    "progress or its outcome is unknown; edit the draft (bumping "
+                    "its revision) to launch a different plan"
                 ),
                 revision=_revision,
             )

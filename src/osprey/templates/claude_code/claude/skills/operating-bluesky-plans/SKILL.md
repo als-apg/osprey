@@ -392,6 +392,12 @@ on the code and relay the bridge's sentence to the operator as written.
 - **`manager_unreachable` / `environment_unavailable`** — the manager or its
   worker environment is not available. Retry only when `details.retryable` is
   true; a persistent failure needs an operator.
+- **`enqueue_outcome_unknown`** — the manager did not answer a `queue_add`,
+  and the queue could not be read after it, so the plan may already be
+  queued. Never retry. Read the queue with `queue_list` and look for an item
+  whose `meta.osprey_run_id` is `details.run_id`, and ask `get_run` for that
+  run id in case it already ran. If neither finds it, edit the draft with
+  `set_draft` to mint a new revision and add that one.
 - **`queue_request_rejected`** — the manager answered and refused; the detail
   says what it objected to.
 

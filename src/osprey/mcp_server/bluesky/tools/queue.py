@@ -289,6 +289,12 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
     "manager_unreachable": [
         "The queue manager did not answer; it may be starting up.",
     ],
+    "enqueue_outcome_unknown": [
+        "The queue manager did not answer the add and the queue could not be read; "
+        "the plan may already be queued.",
+        "Read the queue with queue_list and look for an item whose meta.osprey_run_id is "
+        "details.run_id, and ask get_run for that run id, before adding again.",
+    ],
     "environment_unavailable": [
         "The worker environment could not be brought up.",
     ],
@@ -1242,6 +1248,15 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
           lists what this deployment renders. Switch back with
           control_target_set, or do the work with the control-system tools,
           which follow the deployment's target.
+
+    Outcome unknown (the item MAY be queued, and the pinned revision is used up):
+        - enqueue_outcome_unknown: the manager did not answer the add, and the
+          queue could not be read after it, so the plan may already be in the
+          queue. ``details.run_id`` is the run id the item would carry. Never
+          retry: read the queue with queue_list and look for an item whose
+          ``meta.osprey_run_id`` is that run id, and ask get_run for it in
+          case it already ran. If neither finds it, edit the draft with
+          set_draft to mint a new revision and add that one.
     """
     # Before anything else: bind this add to a lane. On a single-lane
     # deployment that is the switch refusal — a PLAN queued while the session
