@@ -142,6 +142,7 @@ HEADING_ORDER = tuple(HEADING_FOR.values())
 # plugins/ holds the shipped skills.
 GATED_PREFIXES = ("src/", "packages/", "plugins/")
 FRAGMENT_DIR = "changelog.d"
+CHANGELOG = "CHANGELOG.md"
 KEEP = "README.md"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -772,8 +773,8 @@ def _pre_tag_topup(
         return None, None
     if not is_empty_block(head_block) or not is_empty_block(base_block):
         return None, None
-    allowed = {"CHANGELOG.md", *gone, *retyped, *retyped.values()}
-    if "CHANGELOG.md" not in changed or not set(changed) <= allowed:
+    allowed = {CHANGELOG, *gone, *retyped, *retyped.values()}
+    if CHANGELOG not in changed or not set(changed) <= allowed:
         return None, None
     if _release_count(head_lines) != _release_count(base_lines):
         return None, None
@@ -926,9 +927,7 @@ def gate_failures(
             ok_lines.append("✓ [Unreleased]: empty (rotation)")
         elif not base_has_heading and is_empty_block(head_block):
             ok_lines.append("✓ [Unreleased]: empty (new changelog)")
-        elif set(changed) == {"CHANGELOG.md"} and _bullet_count(head_block) <= _bullet_count(
-            base_block
-        ):
+        elif set(changed) == {CHANGELOG} and _bullet_count(head_block) <= _bullet_count(base_block):
             # Editing or dropping a bullet that is already there is a correction,
             # and a correction has nowhere else to go. Counting bullets cannot
             # tell a reworded one from a swapped one, which is accepted: a pull
@@ -1173,12 +1172,12 @@ def _check(targets: Sequence[Target], base: str, run: Runner, worktree: bool = F
         if index:
             print(f"{tree.root}/ (its own CHANGELOG.md, {tree.tag_prefix}* tags):")
 
-        if "CHANGELOG.md" in added:
+        if CHANGELOG in added:
             # The pull request that creates the tree's changelog: the base has
             # none, which is the empty base gate_failures already reads.
             base_text = ""
         else:
-            show_argv = ["git", "show", f"{point}:{tree.prefix}CHANGELOG.md"]
+            show_argv = ["git", "show", f"{point}:{tree.prefix}{CHANGELOG}"]
             show = run(show_argv)
             if show.returncode != 0:
                 return environment_error(f"{' '.join(show_argv)} failed\n{show.stderr.strip()}")
@@ -1261,7 +1260,7 @@ def _apply(directory: Path, changelog: Path, tree: Tree = FRAMEWORK_TREE) -> int
 
     for line in report:
         print(line)
-    print(f"stage with: git add -A {_fragment_label(tree)}/ {tree.prefix}CHANGELOG.md")
+    print(f"stage with: git add -A {_fragment_label(tree)}/ {tree.prefix}{CHANGELOG}")
     return 0
 
 
@@ -1309,13 +1308,13 @@ def main(argv: list[str] | None = None, run: Runner | None = None) -> int:
         tree = FRAMEWORK_TREE
     base_dir = REPO_ROOT / tree.root
     directory = Path(args.dir) if args.dir else base_dir / FRAGMENT_DIR
-    changelog = Path(args.changelog) if args.changelog else base_dir / "CHANGELOG.md"
+    changelog = Path(args.changelog) if args.changelog else base_dir / CHANGELOG
     if args.command == "apply":
         return _apply(directory, changelog, tree)
     if args.root is None and not (args.dir or args.changelog):
         # The pull-request gate: every tree, each at its default location.
         targets = [
-            (each, REPO_ROOT / each.root / FRAGMENT_DIR, REPO_ROOT / each.root / "CHANGELOG.md")
+            (each, REPO_ROOT / each.root / FRAGMENT_DIR, REPO_ROOT / each.root / CHANGELOG)
             for each in TREES
         ]
     else:
