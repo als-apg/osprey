@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import functools
 import glob
 import importlib.util
 import os
@@ -1109,8 +1110,9 @@ def _pytest_command(
 WALLCLOCK_FILES_MODULE = "tests/_wallclock_files.py"
 
 
-def wallclock_unit_files() -> list[str]:
-    """The files the image-free wall-clock budgets live in, read off the tree."""
+@functools.cache
+def _wallclock_files() -> ModuleType:
+    """The scan module, which states where each wall-clock budget is timed."""
     # The scanner is this checkout's code; the tree it reads is the root's.
     spec = importlib.util.spec_from_file_location(
         "wallclock_files", Path(__file__).resolve().parents[1] / WALLCLOCK_FILES_MODULE
@@ -1119,7 +1121,12 @@ def wallclock_unit_files() -> list[str]:
         raise Refused(f"cannot load {WALLCLOCK_FILES_MODULE}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.marked_files(kit.ROOT, UNIT_SELECTION.roots)
+    return module
+
+
+def wallclock_unit_files() -> list[str]:
+    """The files the image-free wall-clock budgets live in, read off the tree."""
+    return _wallclock_files().marked_files(kit.ROOT, UNIT_SELECTION.roots)
 
 
 def _wallclock_unit_command(
@@ -1132,8 +1139,8 @@ def _wallclock_unit_command(
     """Only the marked files, selected by the marker: collecting the whole tree
     to pick a handful of tests cost about a minute. No file found falls back
     to the tree, where the marker selects nothing and the run says so."""
-    files = wallclock_unit_files() or ["tests/", "--ignore=tests/e2e", "--ignore=tests/integration"]
-    argv = [*check.argv, *files, "-m", "wallclock", *flags, *written]
+    files = wallclock_unit_files() or [*UNIT_SELECTION.roots]
+    argv = [*check.argv, *files, "-m", _wallclock_files().IMAGE_FREE, *flags, *written]
     return [kit.bounded(check.bound_s, argv)]
 
 
@@ -1720,8 +1727,15 @@ VENUES = {
 # ---------------------------------------------------------------------------
 # The checks
 
-#: The wall-clock suite; its leading paths are what its Docker hook reads.
-WALLCLOCK_ARGV = (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock")
+#: The wall-clock budgets that need the sidecar image; its leading paths are
+#: what its Docker hook reads.
+WALLCLOCK_ARGV = (
+    *UV_RUN,
+    "pytest",
+    _wallclock_files().IMAGE_ROOT,
+    "-m",
+    _wallclock_files().IMAGE_BOUND,
+)
 
 CHECKS: tuple[Check, ...] = (
     Check("lockfile", "invariant", BOTH, ("uv", "lock", "--check"), needs=("uv",)),
@@ -1910,13 +1924,14 @@ CHECKS: tuple[Check, ...] = (
         exec_flags=True,
     ),
     # A wall-clock budget timed beside loaded workers measures the workers, so
-    # the sweep deselects the marker and this suite runs alone.
+    # the sweep deselects the marker and the budgets run alone; these are the
+    # ones that need the sidecar image, timed in the job that builds it.
     Check(
         "pytest-wallclock",
         "tests",
         FULL,
         WALLCLOCK_ARGV,
-        scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
+        scope=(f"{_wallclock_files().IMAGE_ROOT}/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("free-space", "uv", "install-current"),
         selected_needs=_docker_group_needs(lambda _context: _pytest_paths(WALLCLOCK_ARGV)),
         bound_s=900,
@@ -1925,8 +1940,8 @@ CHECKS: tuple[Check, ...] = (
         exec_flags=True,
     ),
     # The image-free budgets: every wallclock test under the sweep's roots
-    # outside tests/integration, whose budgets need the sidecar image and are
-    # timed by pytest-wallclock.
+    # that does not carry the image marker; the ones that do are timed by
+    # pytest-wallclock, in the job that builds the image.
     # The files are found by a scan of the tree when the check runs, so a budget
     # added anywhere is timed alone with no new wiring, and the run collects
     # those files rather than the whole tree.

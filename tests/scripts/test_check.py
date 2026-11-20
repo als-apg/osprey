@@ -1211,7 +1211,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     (wallclock,) = run("pytest-wallclock")
     assert after_bound(wallclock) == [
         *fw.UV_RUN,
-        *("pytest", "tests/integration", "-m", "wallclock"),
+        *("pytest", "tests/integration", "-m", "wallclock and dockerbuild"),
         *pytest_report("pytest-wallclock"),
     ]
     (wallclock_unit,) = run("pytest-wallclock-unit")
@@ -1221,7 +1221,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         *fw.UV_RUN,
         "pytest",
         *marked,
-        *("-m", "wallclock"),
+        *("-m", "wallclock and not dockerbuild"),
         *pytest_report("pytest-wallclock-unit"),
     ]
     assert run("live-ca") == [[*fw.UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"]]
@@ -1259,10 +1259,12 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     ]
 
 
-# The image-free wall-clock budgets collect only the files a scan of the tree
-# finds, not the whole tree. A scan can miss a marker applied out of sight, so
-# the root conftest stops any run that collects a marked test in a file the scan
-# does not name, and the scanned files are held to hold a marked test each.
+# A wall-clock budget is timed by one of two serial checks, placed by the image
+# marker: the image-free budgets collect only the files a scan of the tree
+# finds, not the whole tree, and the image-bound ones are timed where the image
+# is built. A scan can miss a marker applied out of sight, so the root conftest
+# stops any run that collects a marked test the scan places in the wrong check,
+# and the scanned files are held to hold a marked test each.
 
 wallclock_files = _wallclock_files
 
@@ -1293,7 +1295,7 @@ def test_the_wallclock_scan_finds_exactly_the_files_that_mark_a_test() -> None:
     assert marked, "the scan finds no wallclock file; the marker or the scan is gone"
     out = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-qq", "-p", "no:cacheprovider"]
-        + [*marked, "-m", "wallclock"],
+        + [*marked, "-m", wallclock_files.IMAGE_FREE],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -1304,8 +1306,29 @@ def test_the_wallclock_scan_finds_exactly_the_files_that_mark_a_test() -> None:
     assert selected == set(marked)
 
 
-def _item(path: Path, marked: bool) -> Any:
-    marker = getattr(pytest.mark, wallclock_files.MARKER).mark if marked else None
+def test_the_wallclock_scan_places_each_file_by_the_image_marker(tmp_path: Path) -> None:
+    """A budget's directory does not place it, its image marker does: a marked
+    file under the image check's root is named for the image-free check unless
+    it carries the image marker."""
+    # Spelled through the module's names, so this file is no carrier to the
+    # scans that read the tree.
+    mark, image = (
+        f"pytest.mark.{m}" for m in (wallclock_files.MARKER, wallclock_files.IMAGE_MARKER)
+    )
+    where = tmp_path / wallclock_files.IMAGE_ROOT
+    where.mkdir(parents=True)
+    (where / "test_free.py").write_text(f"@{mark}\ndef test_x(): ...\n")
+    (where / "test_bound.py").write_text(f"pytestmark = [{image}]\n@{mark}\ndef test_x(): ...\n")
+    assert wallclock_files.marked_files(root=tmp_path, roots=("tests/",)) == [
+        f"{wallclock_files.IMAGE_ROOT}/test_free.py"
+    ]
+
+
+def _item(path: Path, marked: bool, image_bound: bool = False) -> Any:
+    marks = {
+        wallclock_files.MARKER: marked,
+        wallclock_files.IMAGE_MARKER: image_bound,
+    }
 
     class Item:
         keywords: dict[str, object] = {}
@@ -1314,7 +1337,7 @@ def _item(path: Path, marked: bool) -> Any:
             self.path = path
 
         def get_closest_marker(self, name: str) -> object:
-            return marker if name == "wallclock" else None
+            return getattr(pytest.mark, name).mark if marks.get(name) else None
 
     return Item()
 
@@ -1351,14 +1374,71 @@ def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses__mutation_marks_
         root_conftest.pytest_collection_modifyitems_wallclock_guard([_item(unscanned, True)])
 
 
-def test_a_run_stops_on_a_marked_test__the_excluded_trees_are_left_to_their_checks(
+def test_a_run_stops_on_a_marked_test__an_image_free_integration_budget_is_scanned(
     root_conftest: Any,
 ) -> None:
-    sidecar = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
+    """A marked image-free file under the image check's root is one the scan
+    names, so the guard passes it; a marked path outside the sweep's roots is
+    not the guard's to hold."""
+    image_free = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
     elsewhere = REPO_ROOT / "scripts/check.py"
     root_conftest.pytest_collection_modifyitems_wallclock_guard(
-        [_item(sidecar, True), _item(elsewhere, True)]
+        [_item(image_free, True), _item(elsewhere, True)]
     )
+
+
+def test_a_run_stops_on_a_marked_test__an_image_bound_budget_where_the_image_check_looks(
+    root_conftest: Any,
+) -> None:
+    sidecar = REPO_ROOT / "tests/integration/test_qmd_okf_search_sidecar.py"
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(sidecar, True, image_bound=True)]
+    )
+
+
+def test_a_run_stops_on_a_marked_test__mutation_image_marker_out_of_sight(
+    root_conftest: Any,
+) -> None:
+    """A file the scan reads as image-free goes to the image-free check, which
+    does not build the image; a test pytest marks image-bound in it stops the run."""
+    named = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
+    assert wallclock_files.image_free(named), "the scan no longer names this file; stale"
+    with pytest.raises(
+        pytest.UsageError,
+        match=r"test_suite_exit_bound\.py holds a wallclock test pytest marks dockerbuild out of",
+    ):
+        root_conftest.pytest_collection_modifyitems_wallclock_guard(
+            [_item(named, True, image_bound=True)]
+        )
+
+
+def test_a_run_stops_on_a_marked_test__mutation_image_bound_outside_the_image_root(
+    root_conftest: Any,
+) -> None:
+    """The image check collects its root alone, so an image-bound budget
+    anywhere else is timed by neither check."""
+    elsewhere = REPO_ROOT / "tests/scripts/test_run_bounded.py"
+    with pytest.raises(
+        pytest.UsageError,
+        match=r"test_run_bounded\.py holds a wallclock test marked dockerbuild outside tests/integration/",
+    ):
+        root_conftest.pytest_collection_modifyitems_wallclock_guard(
+            [_item(elsewhere, True, image_bound=True)]
+        )
+
+
+def test_a_run_stops_on_a_marked_test__mutation_a_file_mixes_image_free_and_bound(
+    root_conftest: Any,
+) -> None:
+    """A file that carries the image marker is left to the image check, which
+    deselects its image-free tests: the run stops on the mix."""
+    sidecar = REPO_ROOT / "tests/integration/test_qmd_okf_search_sidecar.py"
+    with pytest.raises(
+        pytest.UsageError, match=r"test_qmd_okf_search_sidecar\.py mixes wallclock tests"
+    ):
+        root_conftest.pytest_collection_modifyitems_wallclock_guard(
+            [_item(sidecar, True, image_bound=True), _item(sidecar, True)]
+        )
 
 
 def test_a_run_stops_on_a_marked_test__every_sweep_root_is_held(root_conftest: Any) -> None:
@@ -1379,6 +1459,64 @@ def test_the_wallclock_scan_covers_every_root_the_sweep_collects() -> None:
     scope = BY_ID["pytest-wallclock-unit"].scope
     for root in roots:
         assert kit.touches([f"{root}/x/test_new.py"], scope), (root, scope)
+
+
+def _timing_check_argv(check_id: str) -> list[str]:
+    """What *check_id* hands pytest, without its bound and its report flags."""
+    (argv,) = check.resolve(["run", check_id])
+    words = after_bound(argv)
+    report = pytest_report(check_id)
+    assert words[: len(fw.UV_RUN) + 1] == [*fw.UV_RUN, "pytest"], words
+    assert words[-len(report) :] == report, words
+    return words[len(fw.UV_RUN) + 1 : -len(report)]
+
+
+def _marker_expression(argv: list[str]) -> str:
+    return argv[argv.index("-m") + 1]
+
+
+def test_the_two_timing_checks_select_complementary_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The image check selects ``X and I``, the image-free check ``X and not I``,
+    so no marked test is selected by both and none by neither."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    image = _marker_expression(_timing_check_argv("pytest-wallclock"))
+    unit = _marker_expression(_timing_check_argv("pytest-wallclock-unit"))
+    assert image == f"{wallclock_files.MARKER} and {wallclock_files.IMAGE_MARKER}"
+    assert unit == f"{wallclock_files.MARKER} and not {wallclock_files.IMAGE_MARKER}"
+    assert BY_ID["pytest-wallclock"].argv[-1] == image
+
+
+def _collected_node_ids(argv: list[str]) -> set[str]:
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-qq", "-p", "no:cacheprovider", *argv],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode in (0, 5), out.stdout + out.stderr
+    return {line for line in out.stdout.splitlines() if "::" in line}
+
+
+def test_every_wallclock_test_is_in_exactly_one_timing_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each marked test the two checks' paths collect is selected by exactly one
+    of them, run as the checks resolve, and the image check's tests lie under
+    its root. ``-qq`` against addopts' ``-v`` prints one node id per line."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    image = _timing_check_argv("pytest-wallclock")
+    unit = _timing_check_argv("pytest-wallclock-unit")
+    every = _collected_node_ids(
+        [wallclock_files.IMAGE_ROOT, *fw.wallclock_unit_files(), "-m", wallclock_files.MARKER]
+    )
+    by_image, by_unit = _collected_node_ids(image), _collected_node_ids(unit)
+    assert by_image and by_unit, (by_image, by_unit)
+    assert not by_image & by_unit, by_image & by_unit
+    assert by_image | by_unit == every, every ^ (by_image | by_unit)
+    assert all(node.startswith(f"{wallclock_files.IMAGE_ROOT}/") for node in by_image), by_image
 
 
 def test_the_wallclock_guard_is_a_collection_hook_pytest_calls(
