@@ -94,8 +94,17 @@ Two ways to add a plan
 
    A plan file is a small Python module with three parts:
 
-   - **Metadata**: three things and no more. These are the plan's name, a
-     human description, and whether it moves anything on the machine.
+   - **Metadata**: three required things, the plan's name, a human
+     description, and whether it moves anything on the machine, plus two
+     optional ones. ``layout`` lists rows of parameter names, and the
+     parameters of one row share a row of the form; the rest follow after.
+     ``summary`` is the one-line readout above the form's footer: a list of
+     parts such as ``"{num} points"``, where ``{name}`` stands for a
+     parameter's value and ``{{`` and ``}}`` are literal braces. The shown
+     parts are joined with " · ", a part shows once every parameter it names
+     has a value, and a list parameter shows as its count. Plans served by a
+     facility-run queue server and plans the agent writes in a session keep
+     the automatic form.
    - **Parameters**: a schema describing the knobs (names, types, limits).
      BLUESKY's Plans view turns this schema into a form, so a well-described
      parameter becomes a well-labeled field. A default computed by a function
