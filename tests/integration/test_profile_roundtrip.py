@@ -611,25 +611,23 @@ class TestRenderStack:
         per-key digests — the repo's fingerprint already folds every delta in,
         and a second set nothing consults would be a second hash mechanism.
 
-        Built fresh rather than taken from the shared ``workspace`` copy: a
-        manifest records the profile it was rendered from by ABSOLUTE path, so
-        a copied repo reads the original's profile and reports clean however
-        much the copy is edited.
+        Built fresh rather than taken from the shared ``workspace`` copy, so
+        the edit lands on a repo no other test reads.
         """
-        from osprey.deployment.staleness import staleness_reasons
+        from osprey.deployment.staleness import DriftState, check_drift
 
         repo = tmp_path / "drift-probe"
         _assert_ok(_init(repo), "osprey init")
         _assert_ok(_build(repo), "osprey build")
-        assert staleness_reasons(repo / "build") == []
+        assert check_drift(repo).state is DriftState.CLEAN
 
         profile = repo / "profile.yml"
         profile.write_text(
             profile.read_text(encoding="utf-8") + "\ndeploy_services: false\n", encoding="utf-8"
         )
 
-        reasons = staleness_reasons(repo / "build")
-        assert any("has changed" in reason for reason in reasons), reasons
+        report = check_drift(repo)
+        assert report.state is DriftState.DRIFT, report.message
 
 
 class TestRenderReferenceErrors:
