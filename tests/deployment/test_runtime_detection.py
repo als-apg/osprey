@@ -176,6 +176,21 @@ class TestGetRuntimeCommandDetection:
         with pytest.raises(RuntimeError, match="No container runtime found"):
             get_runtime_command()
 
+    def test_no_runtime_message_names_every_floor(self, monkeypatch):
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: None)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            get_runtime_command()
+
+        message = str(excinfo.value)
+        for product in (
+            RuntimeProduct.DOCKER_ENGINE,
+            RuntimeProduct.DOCKER_DESKTOP,
+            RuntimeProduct.PODMAN,
+        ):
+            floor = ".".join(str(part) for part in RUNTIME_FLOORS[product])
+            assert f"{product} {floor} or newer" in message
+
     def test_installed_but_not_running_raises_with_start_hint(self, monkeypatch):
         # docker is on PATH but its compose probe fails → treated as not running.
         monkeypatch.setattr(

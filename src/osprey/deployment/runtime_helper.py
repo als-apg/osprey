@@ -354,7 +354,10 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
         raise RuntimeError("".join(error_parts))
     # No runtime installed at all
     raise RuntimeError(
-        "No container runtime found. Install Docker Desktop 4.0+ or Podman 4.0+\n"
+        "No container runtime found. Install "
+        f"{_floor(RuntimeProduct.DOCKER_ENGINE)} or newer "
+        f"({_floor(RuntimeProduct.DOCKER_DESKTOP)} or newer on macOS/Windows) "
+        f"or {_floor(RuntimeProduct.PODMAN)} or newer\n"
         "Docker: https://docs.docker.com/get-docker/\n"
         "Podman: https://podman.io/getting-started/installation"
     )
@@ -474,7 +477,7 @@ def _format_version(version: tuple[int, ...]) -> str:
 
 
 def _floor(product: RuntimeProduct) -> str:
-    """``<product> <floor>``, e.g. ``Podman 4.0``."""
+    """``<product> <floor>``, e.g. ``Podman 4.1``."""
     return f"{product} {_format_version(RUNTIME_FLOORS[product])}"
 
 
