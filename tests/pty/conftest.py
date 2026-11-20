@@ -11,7 +11,7 @@ trees are rendered at the path they are used at, because a render names the
 directory it ran in. The read-only tree is rendered in its cache entry under
 ``.cache/pty-exemplar/``, keyed on the content of everything that decides what
 a render looks like (the template data, the scaffolder code that stamps it out,
-the preset), and published by a marker written
+the preset) and on the checkout's path, and published by a marker written
 last. Cold is a couple of seconds and paid once per key; warm is the cached
 path itself. The writable tree is rendered once per worker and restored there
 by a directory copy for each test.
@@ -89,6 +89,8 @@ STUB_API_KEY = "sk-ant-stub-0000000000000000000000000000"
 #: machinery that resolves the preset are all in the key beside the templates —
 #: each of them can change the rendered repo without a template changing at all.
 #:
+#: The checkout's path is a render input too, because the render names it.
+#:
 #: Targeted rather than "all of ``src/osprey``": a key over the whole package
 #: would re-render on every unrelated edit in the tree, which on a working
 #: checkout is every edit.
@@ -132,7 +134,7 @@ def exemplar_cache_key(preset: str = EXEMPLAR_PRESET) -> str:
         A short hex digest, stable across processes and machines.
     """
     digest = hashlib.sha256()
-    digest.update(f"recipe={RENDER_RECIPE_VERSION}\npreset={preset}\n".encode())
+    digest.update(f"recipe={RENDER_RECIPE_VERSION}\npreset={preset}\nroot={repo_root()}\n".encode())
     digest.update(preset_path(preset).read_bytes())
     for relative in _KEY_INPUTS:
         root = repo_root() / relative
@@ -158,7 +160,8 @@ def exemplar_cache_dir(preset: str = EXEMPLAR_PRESET) -> Path:
     """Where a render of *preset* is cached.
 
     Stable across runs and inside the checkout (``.cache/`` is gitignored). An
-    entry is valid only at the path it was rendered at.
+    entry is valid only at the path it was rendered at, and that path is in the
+    key, so a cache copied to another checkout path is never served.
     """
     return repo_root() / ".cache" / "pty-exemplar" / f"{preset}-{exemplar_cache_key(preset)}"
 
