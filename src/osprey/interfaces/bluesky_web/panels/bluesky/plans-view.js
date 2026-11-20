@@ -459,7 +459,8 @@ export function createPlansView({
       paramSummaryEl.hidden = true;
       return;
     }
-    const text = summarizePlanArgs(selectedName, collectPlanArgs());
+    const plan = plans.find((candidate) => candidate.name === selectedName);
+    const text = summarizePlanArgs(plan, collectPlanArgs());
     paramSummaryEl.textContent = text;
     paramSummaryEl.hidden = !text;
   }
