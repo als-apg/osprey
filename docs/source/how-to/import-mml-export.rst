@@ -333,7 +333,12 @@ Before it reads an export, the import looks at ``data/facility/``:
   names each file, changes nothing and exits 1. The mml format writes channel,
   device, group, model, deck, seed, limit, identity and measurement records; the
   list format writes channel and device records. A file is hand-written once its
-  bundled-origin line is gone. Corrections belong in ``fixes.yaml``.
+  first line is neither its bundled-origin line nor the seed header the import
+  writes atop the files it creates,
+  ``# Seeded once by the facility import; edit this file by hand.``
+  A file that opens with the header an earlier release wrote is read as seeded,
+  and the import prints one warning that lists each such file and the line to
+  set. Corrections belong in ``fixes.yaml``.
 * Once the facility holds an imported layer, records written by hand beside it
   stay and stop no import. They are the facility's own additions, such as a
   model no export states, and the build combines them with the layers.
