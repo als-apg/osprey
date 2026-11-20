@@ -184,6 +184,9 @@ SHARED_WATCHDOG_BUILD_RECORD = "built-ca-watchdog-on.pickle"
 #: Under xdist, the same for the build with orbit bump turned on.
 SHARED_ORBIT_BUMP_BUILD_RECORD = "built-ca-orbit-bump.pickle"
 
+#: Under xdist, the same for the build in the hierarchical channel-finder mode.
+SHARED_HIERARCHICAL_BUILD_RECORD = "built-ca-hierarchical.pickle"
+
 
 @contextmanager
 def _exclusive(lock_path: Path) -> Iterator[None]:
@@ -262,12 +265,17 @@ class Restorable:
     more from it than the path itself (the manifests' digests of the files
     that name it, the compose ``com.osprey.repo-id`` label). So every user
     shares the one path, and the trees they are handed are what a build
-    there makes. That is also why it is for function-scoped users only: two
-    holders alive at once would be handed the one directory.
+    there makes. That is also why a holder must not keep a path into the
+    tree past its own use: the next :meth:`restore` wipes it, and two holders
+    alive at once would be handed the one directory. A function-scoped user
+    holds the path for its test; a wider-scoped one reads what it needs
+    straight away and keeps only that, never the path.
 
-    The first call runs *make* inside the first user's test, with that test's
-    fixtures in force, as each user's own build ran before the tree was
-    shared.
+    The first call runs *make* inside the first user's setup, with that
+    user's fixtures in force, as each user's own build ran before the tree
+    was shared. For a function-scoped user that is its test's fixtures; for a
+    module-scoped one, only the session and module ones, since its setup comes
+    before any test's function-scoped fixtures.
 
     Attributes:
         made: What *make* returned besides the tree, once made: a
@@ -367,6 +375,22 @@ def built_demo_orbit_bump(tmp_path_factory: pytest.TempPathFactory) -> BuiltProj
         "built-ca-orbit-bump",
         SHARED_ORBIT_BUMP_BUILD_RECORD,
         lambda parent: build_demo(parent, ENABLE_ORBIT_BUMP),
+    )
+    return built
+
+
+@pytest.fixture(scope="session")
+def built_demo_hierarchical(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
+    """The demo preset with ``channel_finder_mode=hierarchical`` set at init, built once per run.
+
+    The preset ships the graph paradigm; this is the build its tests of a
+    database-backed paradigm read. Tests read it and never write to it.
+    """
+    built: BuiltProject = _built_once(
+        tmp_path_factory,
+        "built-ca-hierarchical",
+        SHARED_HIERARCHICAL_BUILD_RECORD,
+        lambda parent: build_demo(parent, "channel_finder_mode=hierarchical"),
     )
     return built
 

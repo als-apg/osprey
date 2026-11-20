@@ -20,10 +20,8 @@ import re
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
-from tests.cli._lifecycle_build import invoke_build
+from tests._builds import BuiltProject
 
 # Facility-specific *source identifiers* that must never leak into the shared,
 # facility-agnostic core prompts (SC7). ``concept_id`` / ``texkey`` are literal
@@ -35,18 +33,6 @@ _FACILITY_ID_PATTERNS = (
     r"texkey",
     r"\b[A-Z][A-Z0-9]{1,}:[A-Z0-9][\w:-]*\b",
 )
-
-
-def _build_preset(preset: str, dest: Path) -> Path:
-    """Render a preset through the real init + build pipeline; return build/."""
-    runner = CliRunner()
-    repo_dir = dest / "smoke"
-    init_result = runner.invoke(init, [str(repo_dir), "--preset", preset, "--no-git"])
-    assert init_result.exit_code == 0, init_result.output
-
-    result = invoke_build(repo_dir)
-    assert result.exit_code == 0, result.output
-    return repo_dir / "build"
 
 
 def _markdown_section(text: str, heading: str) -> str:
@@ -78,8 +64,9 @@ def _assert_no_facility_identifier(region: str, where: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def control_project(tmp_path_factory) -> Path:
-    return _build_preset("demo", tmp_path_factory.mktemp("ctrl"))
+def control_project(built_demo: BuiltProject) -> Path:
+    """The demo preset's render, from the session's shared build: ``build/``."""
+    return built_demo.build_dir
 
 
 @pytest.fixture(scope="module")
