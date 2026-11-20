@@ -31,10 +31,13 @@ from osprey.interfaces.design_system import panels as panels_pkg
 from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
 from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
+    PanelConsequence,
     PanelFinding,
     PanelRule,
     PanelValidationError,
+    _main,
     assert_valid_panel,
+    refusing,
     validate_entry,
     validate_panel,
 )
@@ -437,6 +440,172 @@ def test_panel_error_str_renders_source_and_message(tmp_path: Path) -> None:
     assert str(panel) in str(error)
 
 
+# --- Each rule's consequence, and the class rule that only reports -------------
+
+
+def test_every_rule_states_its_consequence() -> None:
+    assert all(isinstance(rule.consequence, PanelConsequence) for rule in PanelRule)
+    reporting = {rule for rule in PanelRule if rule.consequence is PanelConsequence.REPORT}
+    assert reporting == {PanelRule.UNDEFINED_CLASS}
+    assert PanelRule("undefined_class") is PanelRule.UNDEFINED_CLASS
+    assert PanelRule.PAGE_READY.value == "page_ready"
+    assert str(PanelRule.PAGE_READY) == "page_ready"
+
+
+def test_a_class_with_no_rule_is_one_report_only_finding(tmp_path: Path) -> None:
+    panel = _write_panel(
+        tmp_path / "panel", entry_html=_compliant_html(body='<p class="knob-dial"></p>')
+    )
+
+    [finding] = validate_panel(panel)
+
+    assert finding.rule is PanelRule.UNDEFINED_CLASS
+    assert finding.message == (
+        "no rule in the panel's or the linked design-system stylesheets for class knob-dial"
+    )
+    assert finding.source == str(panel / "index.html")
+    assert refusing([finding]) == []
+    assert_valid_panel(panel)  # no exception
+
+
+def test_a_style_block_an_own_sheet_and_a_linked_design_system_sheet_each_define_a_class(
+    tmp_path: Path,
+) -> None:
+    html = _compliant_html(
+        body='<p class="in-style"></p><p class="in-sheet"></p><p class="osprey-card"></p>'
+    ).replace(
+        "</head>",
+        '<link rel="stylesheet" href="panel.css">\n'
+        "<style>.in-style { display: grid; }</style>\n</head>",
+    )
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=html,
+        extra_files={"panel.css": ".in-sheet { display: grid; }\n"},
+    )
+
+    assert validate_panel(panel) == []
+
+
+def test_a_design_system_sheet_the_page_does_not_link_defines_nothing(tmp_path: Path) -> None:
+    html = _compliant_html(body='<p class="osprey-card"></p>').replace(
+        f"{_PRIMITIVES_CSS_TAG}\n", ""
+    )
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    assert _rules(validate_panel(panel)) == {
+        PanelRule.MISSING_DESIGN_SYSTEM_LINK,
+        PanelRule.UNDEFINED_CLASS,
+    }
+
+
+def test_classes_a_script_sets_need_a_rule_and_classes_it_only_reads_do_not(
+    tmp_path: Path,
+) -> None:
+    main_js = (
+        "// node.className = 'commented';\n"
+        "node.className = 'knob';\n"
+        "node.classList.toggle('knob-on', on);\n"
+        "const row = make('tr', { class: 'osprey-card knob-row' });\n"
+        'host.innerHTML = `<span class="knob-unit">${unit}</span>`;\n'
+        "if (node.classList.contains('knob-hook')) node.classList.remove('knob-stale');\n"
+    )
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=_compliant_html(),
+        extra_files={"panel.css": ".knob { display: grid; }\n", "main.js": main_js},
+    )
+
+    [finding] = validate_panel(panel)
+
+    assert finding.source == str(panel / "main.js")
+    assert finding.message.endswith("for class knob-on, knob-row, knob-unit")
+
+
+def test_a_vendor_file_sets_no_class_the_rule_reads(tmp_path: Path) -> None:
+    panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
+    (panel / "vendor").mkdir()
+    (panel / "vendor" / "lib.js").write_text("el.className = 'lib-x';\n", encoding="utf-8")
+
+    assert validate_panel(panel) == []
+
+
+@pytest.mark.parametrize("name", ["notes.html", "extra.mjs", "node_modules/pkg/extra.mjs"])
+def test_a_file_only_the_class_rule_reads_that_is_not_utf8_refuses_nothing(
+    tmp_path: Path, name: str
+) -> None:
+    panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
+    extra = panel / name
+    extra.parent.mkdir(parents=True, exist_ok=True)
+    extra.write_bytes('<p class="caf\xe9">caf\xe9</p>\n'.encode("latin-1"))
+
+    assert refusing(validate_panel(panel)) == []
+    assert_valid_panel(panel)
+
+
+def test_a_directory_named_like_a_page_sets_no_class(tmp_path: Path) -> None:
+    panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
+    (panel / "docs.html").mkdir()
+
+    assert validate_panel(panel) == []
+
+
+def test_the_style_blocks_of_an_entry_page_of_any_suffix_define_its_classes(
+    tmp_path: Path,
+) -> None:
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_name="index.htm",
+        entry_html=_compliant_html(
+            body='<style>.knob-dial { color: var(--text); }</style><p class="knob-dial"></p>'
+        ),
+    )
+
+    assert validate_panel(panel) == []
+
+
+def test_assert_valid_panel_raises_for_refusing_findings_only(tmp_path: Path) -> None:
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=_compliant_html(body='<p class="knob-dial" style="color: #123456;"></p>'),
+    )
+
+    assert _rules(validate_panel(panel)) == {PanelRule.RAW_HEX_COLOR, PanelRule.UNDEFINED_CLASS}
+    with pytest.raises(PanelValidationError) as excinfo:
+        assert_valid_panel(panel)
+    assert {error.rule for error in excinfo.value.errors} == {PanelRule.RAW_HEX_COLOR}
+
+
+def test_the_validator_command_passes_a_panel_whose_findings_only_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    panel = _write_panel(
+        tmp_path / "panel", entry_html=_compliant_html(body='<p class="knob-dial"></p>')
+    )
+
+    assert _main([str(panel)]) == 0
+
+    out, err = capsys.readouterr()
+    [line] = err.splitlines()
+    assert line.endswith("[undefined_class: report]")
+    assert out == f"PANEL OK: {panel}\n"
+
+
+def test_the_validator_command_fails_on_a_refusing_finding_and_counts_only_those(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=_compliant_html(body='<p class="knob-dial" style="color: #123456;"></p>'),
+    )
+
+    assert _main([str(panel)]) == 1
+
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[-1] == f"PANEL INVALID: 1 error(s) in {panel}"
+    assert any(line.endswith("class knob-dial [undefined_class: report]") for line in lines)
+
+
 # --- Integration: the shipped reference panel and non-compliant fixtures ------
 #
 # Unlike the synthetic panels above, these exercise the validator against the
@@ -584,5 +753,5 @@ def test_the_shipped_panel_pages_are_found() -> None:
     _shipped_panel_pages(),
     ids=lambda value: value.relative_to(_PACKAGE).as_posix(),
 )
-def test_every_shipped_panel_page_passes_the_rule_set(entry: Path, panel_dir: Path) -> None:
-    assert validate_entry(entry, panel_dir) == []
+def test_no_shipped_panel_page_has_a_refusing_finding(entry: Path, panel_dir: Path) -> None:
+    assert refusing(validate_entry(entry, panel_dir)) == []
