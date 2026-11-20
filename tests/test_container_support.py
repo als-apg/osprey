@@ -27,6 +27,7 @@ from tests._container_support import (
     ContainerRuntimeNotAnswering,
     ForeignListenerError,
     PortAnswer,
+    PublishedPortContradiction,
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
@@ -686,6 +687,33 @@ def test_a_foreign_listener_on_the_port_ends_the_wait_at_once_as_its_own_type(st
     assert "would not serve the probe" not in message
     assert probe.calls == 1
     assert not isinstance(caught.value, ContainerExitedError)
+
+
+def test_a_refused_while_ready_contradiction_ends_the_wait_at_once_as_its_own_type(
+    started_daemon,
+):
+    """The subject logged ready and its port refuses: the wait names that, not a stall."""
+    contradiction = PublishedPortContradiction(
+        "started and logged ready, but the published port 127.0.0.1:8181 still refused "
+        "connections 12.0s after a probe first saw the ready line"
+    )
+    probe = CountingProbe(failures=None, error=contradiction)
+    container = started_daemon(FakeStartedContainer([f"line {n}".encode() for n in range(20)]))
+
+    with pytest.raises(PublishedPortContradiction) as caught:
+        wait_until_ready(probe, "qmd sidecar", timeout=30.0, interval=0.0, container=container)
+
+    message = str(caught.value)
+    assert type(caught.value) is PublishedPortContradiction
+    assert "still refused connections" in message
+    assert "127.0.0.1:8181" in message
+    assert "nothing ever listened on the port" not in message
+    assert probe.calls == 1
+    assert not isinstance(caught.value, ForeignListenerError | ContainerExitedError)
+
+
+def test_a_foreign_listener_is_a_published_port_contradiction():
+    assert issubclass(ForeignListenerError, PublishedPortContradiction)
 
 
 def test_an_unreadable_container_leaves_the_wait_on_the_probe_alone():
