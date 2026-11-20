@@ -8,7 +8,7 @@ Drives a real :class:`HierarchicalChannelDatabase` -- never a mock -- through
 Four navigation behaviours are characterised here:
 
 * a selection that names nothing in the tree aborts navigation, and the public
-  entry point turns that into an empty option list rather than an error;
+  entry point refuses it, naming the selection, before navigating;
 * an ``instances`` level does not consume a selection -- navigation descends
   into the container whose key matches the *level name*, compared
   case-insensitively -- and simply stays put when no such container exists;
@@ -124,18 +124,53 @@ class TestInvalidPath:
         """No child ``NOPE`` and no ``_expansion`` to fall back on -> ``None``."""
         assert tree_only_db._navigate_to_node("device", {"system": "NOPE"}) is None
 
-    def test_unknown_selection_yields_no_options(self, tree_only_db: HierarchicalChannelDatabase):
-        """The public entry point reports the dead end as an empty list."""
-        assert tree_only_db.get_options_at_level("device", {"system": "NOPE"}) == []
+    def test_unknown_selection_is_refused(self, tree_only_db: HierarchicalChannelDatabase):
+        """The public entry point names the selection that matches no node."""
+        with pytest.raises(ValueError, match=r"no 'system' named 'NOPE'"):
+            tree_only_db.get_options_at_level("device", {"system": "NOPE"})
         # ... and the same call with a real system does return options, so the
-        # empty list above is the navigation failure and not an empty fixture.
+        # refusal above is the unknown value and not an empty fixture.
         assert tree_only_db.get_options_at_level("device", {"system": "SR"}) != []
 
-    def test_empty_selection_list_yields_no_options(
+    def test_empty_selection_list_is_no_selection(self, tree_only_db: HierarchicalChannelDatabase):
+        """An empty list selects nothing, so the required level counts as skipped."""
+        with pytest.raises(ValueError, match=r"selections name no 'system'"):
+            tree_only_db.get_options_at_level("device", {"system": []})
+
+
+# ---------------------------------------------------------------------------
+# A selection naming no level or no node is refused
+# ---------------------------------------------------------------------------
+
+
+class TestRefusedSelections:
+    """The options request names the mistake and the defined choices."""
+
+    def test_an_undefined_level_is_refused_naming_every_level(
         self, tree_only_db: HierarchicalChannelDatabase
     ):
-        """An empty list collapses to ``None``, which matches no child."""
-        assert tree_only_db.get_options_at_level("device", {"system": []}) == []
+        with pytest.raises(ValueError, match=r"no level 'sectr'; levels: system, device, signal"):
+            tree_only_db.get_options_at_level("sectr", {})
+
+    def test_a_selection_key_that_is_no_level_is_refused(
+        self, tree_only_db: HierarchicalChannelDatabase
+    ):
+        with pytest.raises(
+            ValueError, match=r"selections name no level 'bogus'; levels: system, device, signal"
+        ):
+            tree_only_db.get_options_at_level("device", {"system": "SR", "bogus": "X"})
+
+    def test_a_value_naming_no_node_is_refused(self, tree_only_db: HierarchicalChannelDatabase):
+        with pytest.raises(ValueError, match=r"'system'.*'NOPE'|'NOPE'.*'system'"):
+            tree_only_db.get_options_at_level("device", {"system": "NOPE"})
+
+    def test_every_value_of_a_list_is_checked(self, tree_only_db: HierarchicalChannelDatabase):
+        with pytest.raises(ValueError, match=r"'NOPE'"):
+            tree_only_db.get_options_at_level("device", {"system": ["SR", "NOPE"]})
+
+    def test_a_metadata_key_is_no_node(self, tree_only_db: HierarchicalChannelDatabase):
+        with pytest.raises(ValueError, match=r"'_description'"):
+            tree_only_db.get_options_at_level("device", {"system": "_description"})
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +309,7 @@ class TestExpandedInstanceSelection:
 
         assert options == [{"name": "Status", "description": ""}]
 
-    def test_instance_outside_the_range_is_still_invalid(
+    def test_instance_outside_the_range_is_refused(
         self, hybrid_expansion_db: HierarchicalChannelDatabase
     ):
         """``CH-9`` looks like an instance but the expansion never generates it."""
@@ -282,10 +317,8 @@ class TestExpandedInstanceSelection:
             hybrid_expansion_db._navigate_to_node("signal", {"system": "SR", "device": "CH-9"})
             is None
         )
-        assert (
+        with pytest.raises(ValueError, match=r"'CH-9'"):
             hybrid_expansion_db.get_options_at_level("signal", {"system": "SR", "device": "CH-9"})
-            == []
-        )
 
 
 # ---------------------------------------------------------------------------
