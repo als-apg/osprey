@@ -2135,8 +2135,9 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
     The canonical JSON alone captures what a profile says; it cannot see what
     the trees it points at contain. Without this, editing a facility's channel
     database, a rule the agent reads, or the trigger table a dispatcher fires
-    on leaves the profile hash untouched and the deploy-side staleness advisory
-    stays silent about a project that no longer matches its source.
+    on leaves the profile hash untouched and the drift check
+    (:func:`osprey.deployment.staleness.check_drift`) stays silent about a
+    project that no longer matches its source.
 
     *inputs* is :func:`profile_inputs`; every entry with a fold label is folded
     and the document entries, which the canonical JSON already covers, are not.
@@ -2783,9 +2784,10 @@ def _hash_resolved_profile(
 def compute_preset_hash(preset_name: str) -> str | None:
     """Content hash of a bundled preset as resolved (post-``extends``).
 
-    Stamped into ``.osprey-manifest.json`` at build time and compared by the
-    deploy-side staleness advisory
-    (:mod:`osprey.deployment.staleness`). Returns ``None`` when the preset is
+    Stamped into a materialized profile's provenance header (and into
+    ``.osprey-manifest.json`` for a build that resolved no profile path), and
+    compared when a repo's presets are checked for changes
+    (:mod:`osprey.cli.build_profile_updates`). Returns ``None`` when the preset is
     unknown or unreadable — callers treat that as "cannot compare", never as
     drift.
 

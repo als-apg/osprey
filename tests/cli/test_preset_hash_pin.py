@@ -2,7 +2,7 @@
 
 ``preset_hash`` is stamped into ``.osprey-manifest.json`` at build time, and
 each login's digest into the provenance header of the file ``osprey
-init`` materializes from it; the deploy-side staleness advisory compares both,
+init`` materializes from it; the drift and preset-update checks compare both,
 so a hash that moves reports drift on every already-deployed project. The
 digests below are deliberately hardcoded rather than recomputed — a test that
 derives its expectation from the code under test would pin nothing.

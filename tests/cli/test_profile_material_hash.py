@@ -1,6 +1,6 @@
 """The profile content hash covers the files a profile points at, not just its YAML.
 
-``compute_profile_hash`` is what the deploy-side staleness advisory compares
+``compute_profile_hash`` is what the drift check (``check_drift``) compares
 against, so anything a build consumes has to be inside it. A profile's ``data:``
 tree is consumed verbatim by the build, which means a facility that edits a
 channel database changes what a project would be built from while the profile

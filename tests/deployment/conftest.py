@@ -39,7 +39,7 @@ def running_a_released_osprey(monkeypatch):
     ``get_release_version`` stays real: pinning it to a literal here would
     disagree with any provenance stamped outside this fixture's function scope
     (a module-scoped fixture builds before autouse function fixtures apply), and
-    the staleness advisory reads that disagreement as drift on an untouched
+    the drift check reads that disagreement as drift on an untouched
     build. Tests that assert an exact pin string patch ``get_release_version``
     inside their own bodies, which takes precedence — see ``TestResolvePipSpec``
     in ``test_container_lifecycle.py``.
