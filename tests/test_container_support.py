@@ -8,7 +8,12 @@ A test that merely *calls* code raising ``Skipped`` reports SKIPPED with exit 0
 and executes none of its assertions: it looks green while proving nothing.
 """
 
+import socket
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from types import SimpleNamespace
 
 import pytest
@@ -21,10 +26,12 @@ from tests._container_support import (
     ContainerExitedError,
     ContainerRuntimeNotAnswering,
     ForeignListenerError,
+    PortAnswer,
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
     ensure_image,
+    probe_published_port,
     require_container_runtime,
     runtime_command,
     start_or_skip,
@@ -863,3 +870,159 @@ def test_a_liveness_read_is_bounded_by_the_state_timeout(monkeypatch):
     assert timeouts == [CONTAINER_STATE_TIMEOUT]
     assert client.asked == ["c0ffee", "c0ffee"]
     assert client.closed
+
+
+# ---------------------------------------------------------------------------
+# probe_published_port — what answers on a published port
+# ---------------------------------------------------------------------------
+
+#: A hang ceiling for one probe of a loopback listener this module started; a
+#: probe that answers takes a fraction of it.
+_PORT_PROBE_CEILING = CONTAINER_STATE_TIMEOUT
+
+
+@contextmanager
+def _raw_listener(reply: bytes) -> Iterator[int]:
+    """A loopback listener that reads each request, writes *reply* and closes."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+
+    def serve() -> None:
+        with suppress(OSError):
+            while True:
+                conn, _ = server.accept()
+                with conn:
+                    conn.recv(1024)
+                    conn.sendall(reply)
+
+    thread = Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield server.getsockname()[1]
+    finally:
+        with suppress(OSError):
+            server.shutdown(socket.SHUT_RDWR)
+        server.close()
+        thread.join(timeout=_PORT_PROBE_CEILING)
+        assert not thread.is_alive()
+
+
+@contextmanager
+def _held_listener(reply: bytes) -> Iterator[int]:
+    """A loopback listener that writes *reply* and keeps the connection open."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    held: list[socket.socket] = []
+
+    def serve() -> None:
+        with suppress(OSError):
+            while True:
+                conn, _ = server.accept()
+                held.append(conn)
+                conn.recv(1024)
+                conn.sendall(reply)
+
+    thread = Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield server.getsockname()[1]
+    finally:
+        with suppress(OSError):
+            server.shutdown(socket.SHUT_RDWR)
+        server.close()
+        for conn in held:
+            conn.close()
+        thread.join(timeout=_PORT_PROBE_CEILING)
+        assert not thread.is_alive()
+
+
+#: The read timeout given a probe whose expiry is the test's subject: a small
+#: fraction of the hang ceiling, so the test spends little of it.
+_HELD_READ_TIMEOUT = _PORT_PROBE_CEILING / 20
+
+
+@contextmanager
+def _http_server(handler: type[BaseHTTPRequestHandler]) -> Iterator[int]:
+    """An HTTP server on a loopback port, answering with *handler*."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+    thread.start()
+    try:
+        yield server.server_port
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=_PORT_PROBE_CEILING)
+
+
+class _SilentHandler(BaseHTTPRequestHandler):
+    """Implements no method, so every request is answered ``501``."""
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+class _OkHandler(_SilentHandler):
+    def do_GET(self) -> None:
+        body = b'{"status": "ok"}'
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def test_a_closed_port_is_read_as_refused(reserve_port):
+    answer = probe_published_port(reserve_port(), timeout=_PORT_PROBE_CEILING)
+
+    assert answer == PortAnswer(kind="refused", status=None, head=b"")
+
+
+def test_a_listener_that_is_not_http_is_read_as_foreign_and_quoted():
+    with _raw_listener(b"ACK\n") as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer == PortAnswer(kind="foreign", status=None, head=b"ACK\n")
+
+
+def test_a_foreign_line_on_a_held_connection_is_read_as_foreign_and_quoted():
+    with _held_listener(b"ACK\n") as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer == PortAnswer(kind="foreign", status=None, head=b"ACK\n")
+
+
+def test_bytes_read_before_a_held_connection_times_out_are_classified():
+    with _held_listener(b"ACK") as port:
+        answer = probe_published_port(port, timeout=_HELD_READ_TIMEOUT)
+
+    assert answer == PortAnswer(kind="foreign", status=None, head=b"ACK")
+
+
+def test_a_held_connection_that_writes_nothing_times_out():
+    with _held_listener(b"") as port, pytest.raises(TimeoutError):
+        probe_published_port(port, timeout=_HELD_READ_TIMEOUT)
+
+
+def test_a_listener_that_closes_without_a_byte_is_read_as_refused():
+    with _raw_listener(b"") as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer.kind == "refused"
+
+
+@pytest.mark.parametrize(
+    ("handler", "status"),
+    [
+        pytest.param(_SilentHandler, 501, id="no-such-method"),
+        pytest.param(_OkHandler, 200, id="healthy"),
+    ],
+)
+def test_an_http_listener_is_read_as_http_with_its_status(handler, status):
+    with _http_server(handler) as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer.kind == "http"
+    assert answer.status == status
+    assert answer.head.startswith(b"HTTP/")
