@@ -25,6 +25,7 @@ import requests
 from osprey.port_layout import default_port
 from tests._container_support import (
     CONTAINER_STATE_TIMEOUT,
+    PublishedPortWatch,
     is_docker_available,
     is_image_present,
     start_or_fail,
@@ -211,6 +212,10 @@ SIDECAR_ARIEL_TEST_TIMEOUT = (
     + 3 * SIDECAR_ROUND_S
 )
 
+#: The opening every one of the entrypoint's ready lines shares, whichever
+#: index mode it serves; the sidecar test module pins it to the entrypoint.
+SIDECAR_READY_LINE = "ready: serving"
+
 #: The entrypoint's log line for the update a marker touch causes.
 _MARKER_UPDATE_LINE = "update triggered by corpus marker"
 
@@ -368,9 +373,14 @@ def wait_for_health(container, port: int) -> None:
     failure is not a skip: the image is present and the daemon was asked to
     start, so silence is a defect in the sidecar or the corpus rather than an
     absent dependency.
+
+    A probe that cannot connect asks the port what answered: a foreign reply,
+    or a refusal that outlasts the settle window after the sidecar logged
+    :data:`SIDECAR_READY_LINE`, ends the wait at once naming the host port.
     """
+    watch = PublishedPortWatch(port, timeout=SIDECAR_PROBE_TIMEOUT)
     wait_until_ready(
-        lambda: _probe_health(port),
+        lambda: _probe_health(container, watch),
         "qmd sidecar",
         container=container,
         timeout=SIDECAR_HEALTH_TIMEOUT,
@@ -379,9 +389,27 @@ def wait_for_health(container, port: int) -> None:
     )
 
 
-def _probe_health(port: int) -> None:
-    """Raise unless the sidecar's ``/health`` answers ``ok``."""
-    response = requests.get(f"http://127.0.0.1:{port}/health", timeout=SIDECAR_PROBE_TIMEOUT)
+def _probe_health(container, watch: PublishedPortWatch) -> None:
+    """Raise unless the sidecar's ``/health`` answers ``ok``.
+
+    A connection error is "not yet" unless *watch* reads a contradiction on the
+    port, which is then raised from it; a port the watch cannot read leaves the
+    connection error as the answer.
+    """
+    try:
+        response = requests.get(
+            f"http://{watch.host}:{watch.port}{watch.path}", timeout=SIDECAR_PROBE_TIMEOUT
+        )
+    except requests.ConnectionError as exc:
+        logged_ready = SIDECAR_READY_LINE in _sidecar_log_text(container)
+        try:
+            contradiction = watch.contradiction(logged_ready=logged_ready)
+        except OSError:
+            # A port that cannot be read says nothing; the client's error stands.
+            raise exc from None
+        if contradiction is not None:
+            raise contradiction from exc
+        raise
     if not (response.ok and '"ok"' in response.text):
         raise AssertionError(f"HTTP {response.status_code}: {response.text[:200]}")
 

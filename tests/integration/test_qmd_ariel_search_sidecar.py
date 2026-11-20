@@ -56,15 +56,24 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import requests
 
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.search.qmd import ARIEL_COLLECTION
-from tests._container_support import ContainerExitedError, is_docker_available
+from tests._container_support import (
+    PUBLISHED_PORT_SETTLE_S,
+    ContainerExitedError,
+    PublishedPortContradiction,
+    PublishedPortWatch,
+    is_docker_available,
+)
 from tests.integration import _qmd_ariel_support
 from tests.integration._qmd_ariel_support import (
     DEFAULT_QMD_SIDECAR_IMAGE,
     QMD_IMAGE_ENV,
     SIDECAR_ARIEL_TEST_TIMEOUT,
+    SIDECAR_PROBE_TIMEOUT,
+    SIDECAR_READY_LINE,
     VOCABULARY_AUTHOR,
     VOCABULARY_DISTRACTOR_ROWS,
     VOCABULARY_ENTRY_ID,
@@ -735,6 +744,85 @@ class TestReindexWait:
             wait_for_reindex_settled(_ScriptedClient(sidecar), sidecar, since=len(_STARTED))
 
         assert sidecar.rounds == 1
+
+
+class _StoppedClock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class TestHealthProbeNamesWhatAnswered:
+    """A health probe that cannot connect asks the port what answered instead.
+
+    No container: a reserved loopback port nothing binds is the refusal, and the stub serves the
+    entrypoint's own ready line through the surface a started container offers.
+    """
+
+    async def test_every_ready_line_the_entrypoint_logs_opens_with_the_one_the_probe_reads(self):
+        from importlib import resources
+
+        entrypoint = (
+            resources.files("osprey.templates").joinpath("services/qmd/entrypoint.sh").read_text()
+        )
+        ready_logs = [line for line in entrypoint.splitlines() if 'log "ready' in line]
+
+        assert ready_logs, "the entrypoint no longer logs a ready line"
+        assert all(f'log "{SIDECAR_READY_LINE}' in line for line in ready_logs), ready_logs
+        assert SIDECAR_READY_LINE in _STARTED
+
+    async def test_a_refusal_before_the_ready_line_is_not_yet(self, reserve_port):
+        clock = _StoppedClock()
+        watch = PublishedPortWatch(reserve_port(), timeout=SIDECAR_PROBE_TIMEOUT, clock=clock)
+        sidecar = _ScriptedSidecar([("", 0)])
+
+        clock.now = PUBLISHED_PORT_SETTLE_S
+        with pytest.raises(requests.ConnectionError):
+            _qmd_ariel_support._probe_health(sidecar, watch)
+
+    async def test_a_refusal_inside_the_settle_window_is_not_yet(self, reserve_port):
+        clock = _StoppedClock()
+        watch = PublishedPortWatch(reserve_port(), timeout=SIDECAR_PROBE_TIMEOUT, clock=clock)
+        sidecar = _ScriptedSidecar([(_STARTED, 0)])
+
+        with pytest.raises(requests.ConnectionError):
+            _qmd_ariel_support._probe_health(sidecar, watch)
+        clock.now = PUBLISHED_PORT_SETTLE_S / 2
+        with pytest.raises(requests.ConnectionError):
+            _qmd_ariel_support._probe_health(sidecar, watch)
+
+    async def test_a_refusal_that_outlasts_the_settle_window_names_the_port(self, reserve_port):
+        clock = _StoppedClock()
+        port = reserve_port()
+        watch = PublishedPortWatch(port, timeout=SIDECAR_PROBE_TIMEOUT, clock=clock)
+        sidecar = _ScriptedSidecar([(_STARTED, 0)])
+
+        with pytest.raises(requests.ConnectionError):
+            _qmd_ariel_support._probe_health(sidecar, watch)
+        clock.now = PUBLISHED_PORT_SETTLE_S
+        with pytest.raises(PublishedPortContradiction) as caught:
+            _qmd_ariel_support._probe_health(sidecar, watch)
+
+        assert f"127.0.0.1:{port}" in str(caught.value)
+        assert "still refused connections" in str(caught.value)
+        assert isinstance(caught.value.__cause__, requests.ConnectionError)
+
+    async def test_a_port_probe_that_cannot_read_leaves_the_client_error_standing(
+        self, reserve_port, monkeypatch
+    ):
+        def unreadable(*_args: object, **_kwargs: object) -> None:
+            raise TimeoutError("timed out")
+
+        monkeypatch.setattr("tests._container_support.probe_published_port", unreadable)
+        watch = PublishedPortWatch(reserve_port(), timeout=SIDECAR_PROBE_TIMEOUT)
+        sidecar = _ScriptedSidecar([(_STARTED, 0)])
+
+        with pytest.raises(requests.ConnectionError):
+            _qmd_ariel_support._probe_health(sidecar, watch)
 
 
 class TestSidecarIsReal:
