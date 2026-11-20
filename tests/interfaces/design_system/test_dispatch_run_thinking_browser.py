@@ -20,6 +20,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import pathlib
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -39,13 +40,13 @@ from osprey.history.app import create_app
 from osprey.interfaces._serving import run_app_server
 from osprey_connectors.dotenv import parse_dotenv_file
 from tests.agent_record.test_identities import _config
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import _PAGE_READY_TIMEOUT_MS, wait_for_page_ready
 from tests.interfaces.design_system.test_dispatch_run_crosslinks import HISTORY_LINK_LABEL
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from playwright.sync_api import Browser, Page
+    from playwright.sync_api import Browser, Page, Route
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -361,3 +362,30 @@ def test_no_history_page_means_no_link(
     assert _history_link(page).count() == 0
     assert page.locator("#run-detail a[href*='history']").count() == 0
     context.close()
+
+
+def test_a_dashboard_whose_start_up_throws_is_marked_failed(
+    chromium_browser: Browser, dashboard_url_without_history: str
+) -> None:
+    start_up = "function startPolling() {"
+
+    def broken(route: Route) -> None:
+        html = route.fetch().text()
+        assert start_up in html
+        route.fulfill(
+            body=html.replace(start_up, f"{start_up}\n  throw new Error('start-up broke');"),
+            content_type="text/html",
+        )
+
+    context = chromium_browser.new_context(viewport=VIEWPORT)
+    try:
+        page = context.new_page()
+        page.route(f"{dashboard_url_without_history}/", broken)
+        page.goto(f"{dashboard_url_without_history}/", wait_until="domcontentloaded")
+        started = time.monotonic()
+        with pytest.raises(AssertionError, match="failed"):
+            wait_for_page_ready(page)
+        assert (time.monotonic() - started) * 1000 < _PAGE_READY_TIMEOUT_MS / 2
+        assert page.locator("html").get_attribute("data-page-ready") == "failed"
+    finally:
+        context.close()

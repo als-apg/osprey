@@ -242,8 +242,8 @@ def wait_for_page_ready(target: Page | Frame | FrameLocator) -> None:
     needs data waits for the data after this.
 
     The wait returns on ``true`` and fails at once on ``failed``, the writer's
-    mark for a pending page that threw an uncaught error, or left a rejection
-    unhandled, before it marked itself.
+    mark for a pending page that met an uncaught error, an unhandled rejection
+    or a script of its own that failed to load, before it marked itself ready.
 
     Args:
         target: The page, frame or frame locator to wait on.
@@ -257,8 +257,9 @@ def wait_for_page_ready(target: Page | Frame | FrameLocator) -> None:
     )
     if root.get_attribute("data-page-ready") != "true":
         raise AssertionError(
-            f'the page set data-page-ready="{FAILED}": an uncaught error or unhandled '
-            "rejection before it marked itself ready"
+            f'the page set data-page-ready="{FAILED}": an uncaught error, an unhandled '
+            "rejection or a script of its own that failed to load, before it marked itself "
+            "ready"
         )
 
 

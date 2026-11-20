@@ -25,8 +25,10 @@ alone (this is why they are cheap and never flake):
    :data:`PANEL_STYLESHEETS` (tokens, base, primitives). Each one missing
    is an error.
 3. **Page-ready mark.** The entry HTML takes the late route to the page-ready
-   mark: ``data-page-ready="pending"`` on its ``<html>`` and a script it loads
-   calling ``markPageReady()``, as ``panels/page_ready.py`` reads it.
+   mark: ``data-page-ready="pending"`` on its ``<html>``, the writer's tag
+   ``<script type="module" src="/design-system/js/page-ready.js">`` ahead of its
+   other module and deferred scripts, and a script it loads calling
+   ``markPageReady()``, as ``panels/page_ready.py`` reads it.
 4. **Token-only (no raw hex colors).** The panel's HTML/CSS/JS must style
    through ``var(--…)`` design tokens, never raw ``#rgb``/``#rrggbb``
    color literals. Third-party builds under the panel's ``vendor/``

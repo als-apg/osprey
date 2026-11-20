@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Contract tests for shell-dress.js, the page's first module:
+ * Contract tests for shell-dress.js, which runs ahead of app.js:
  *   npx vitest run tests/interfaces/web_terminal/shell-dress.test.mjs
  *
  * It does its whole job on import: the glyphs and key hints of the document as

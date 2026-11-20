@@ -31,6 +31,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
 from osprey.interfaces.design_system.panels.validator import validate_panel
 from osprey.interfaces.opaque_origin import OPAQUE_CSP
 from osprey.interfaces.web_terminal.panel_discovery import (
@@ -46,7 +47,7 @@ from .conftest import bare_route_app
 
 # A minimal but fully compliant entry HTML: links the design-system sheets and the
 # shared font stylesheet, loads the pre-paint boot script, declares the page-ready
-# mark pending and sets it, and uses only var(--…) tokens (no raw hex).
+# mark pending, loads its writer first and sets it, and uses only var(--…) tokens (no raw hex).
 _MARK = (
     '<script type="module">import { markPageReady } from '
     "'/design-system/js/page-ready.js'; markPageReady();</script>"
@@ -54,6 +55,7 @@ _MARK = (
 _VALID_HTML = f"""<!DOCTYPE html>
 <html lang="en" data-page-ready="pending"><head>
 <script src="/design-system/js/theme-boot.js"></script>
+{WRITER_TAG}
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <link rel="stylesheet" href="/design-system/css/primitives.css">

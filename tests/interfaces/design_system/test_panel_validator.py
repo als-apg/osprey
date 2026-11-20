@@ -28,6 +28,7 @@ import pytest
 
 import osprey
 from osprey.interfaces.design_system import panels as panels_pkg
+from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
 from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
     PanelFinding,
@@ -59,6 +60,7 @@ def _compliant_html(*, body: str = "") -> str:
         "<head>\n"
         '<meta charset="UTF-8">\n'
         f"{_THEME_BOOT_TAG}\n"
+        f"{WRITER_TAG}\n"
         f"{_TOKENS_CSS_TAG}\n"
         f"{_BASE_CSS_TAG}\n"
         f"{_PRIMITIVES_CSS_TAG}\n"
@@ -139,6 +141,16 @@ def test_a_panel_that_never_marks_itself_ready_is_a_finding(tmp_path: Path) -> N
 
     assert error.rule is PanelRule.PAGE_READY
     assert "never sets the page-ready mark" in error.message
+
+
+def test_a_panel_that_does_not_load_the_writer_first_is_a_finding(tmp_path: Path) -> None:
+    html = _compliant_html().replace(f"{WRITER_TAG}\n", "")
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    [error] = validate_panel(panel)
+
+    assert error.rule is PanelRule.PAGE_READY
+    assert WRITER_TAG in error.message
 
 
 def test_validate_entry_judges_a_page_with_no_manifest(tmp_path: Path) -> None:
