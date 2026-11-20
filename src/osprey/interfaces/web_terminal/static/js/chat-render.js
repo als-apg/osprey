@@ -579,12 +579,12 @@ export function createChatRenderer(container, options = {}) {
         cards.get(String(event.request_id ?? ''))?.resolved(event);
         break;
       case 'result':
-        // Turn boundary. A result finalises the turn and earns the footer; it
-        // also marks a completed exchange, so a later reset earns its divider.
+        // A result earns the footer and marks a completed exchange, so a later
+        // reset earns its divider; the server's mark closes the turn.
         streamingText = false;
         hasPriorExchange = true;
         appendFooter(event);
-        endTurn();
+        if (endsTurn(event)) endTurn();
         break;
       case 'session_reset':
         // The divider shows only when a completed exchange already sits above

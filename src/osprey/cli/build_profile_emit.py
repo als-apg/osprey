@@ -27,6 +27,7 @@ import copy
 import io
 import re
 from collections.abc import Mapping
+from dataclasses import MISSING, fields
 from pathlib import Path
 from typing import Any
 
@@ -35,12 +36,14 @@ from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
 from osprey import __version__
+from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
-from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
+from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT, is_layout_port_field
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
 from osprey.utils.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
+from .build_profile_archiver import COMPRESSORS, VAArchiverConfig
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
 from .build_profile_presets import (
@@ -50,6 +53,7 @@ from .build_profile_presets import (
     preset_apps,
 )
 from .build_profile_resolve import apply_cli_edits
+from .build_profile_schema import VALID_DISPATCH_TRANSPORTS, VALID_NETWORK_MODES, DispatchConfig
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 
 # Every BuildProfile field belongs to exactly one of the three sets below. The
@@ -79,6 +83,7 @@ _EXPLICIT_KEYS: frozenset[str] = frozenset(
         "services",  # container services the profile declares
         "env",  # environment variables the deployment requires
         "panel_presets",  # named web-terminal layouts
+        "claude_md_template",  # the bundled render behind the agent's CLAUDE.md
         "hooks",  # the six artifact-selection lists below are the agent's
         "rules",  # capability surface — silence about them would hide what
         "skills",  # the deployment can actually do
@@ -133,14 +138,12 @@ _LOGIN_ONLY_KEYS: frozenset[str] = frozenset(
 # How the build runs, not what gets deployed. FR4 calls these keys "absent",
 # which means absent from what the emitter ADDS: never synthesized (a facility
 # should not inherit build plumbing it did not ask for) and never offered as a
-# commented template. It does NOT mean stripped when carried — `claude_md_template`
-# is a preset-author primitive that bundled presets rely on, and dropping it
-# would silently swap their CLAUDE.md render and break emitted-vs-preset parity.
+# commented template. It does NOT mean stripped when carried: a build mechanic
+# the resolved profile carries is emitted as it resolved.
 _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
     {
         "osprey_install",
         "python_env",
-        "claude_md_template",
         "environment",  # interpreter + packages: the built Python env
         "dependencies",
         "lifecycle",  # pre/post-build steps
@@ -163,6 +166,7 @@ _EXPLICIT_DEFAULTS: dict[str, Any] = {
     "agents": [],
     "output_styles": [],
     "web_panels": [],
+    "claude_md_template": DEFAULT_CLAUDE_MD_TEMPLATE,
 }
 
 # Why a synthesized key is present at all — written above it so the emitted
@@ -179,7 +183,132 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "agents": "Subagents installed into .claude/agents/.",
     "output_styles": "Output styles installed into .claude/output-styles/.",
     "web_panels": "Panels offered by the web terminal.",
+    "claude_md_template": "Bundled template rendered as CLAUDE.md, the agent's instructions.",
 }
+
+# An active opt-in block is written whole: every key the block builds with that
+# the profile leaves unstated is written at its dataclass default, with the
+# one-fact end-of-line comment below. The keys are the block's fields that
+# carry a concrete, non-empty default. A port the build derives from the port
+# base (its field made by layout_port_field), a key whose default is None
+# (`host`, `freshness_channel`, `tier`: derived or off), an empty default
+# (`env`, `channel_strip_prefix`) and a required key are never written. A stated value is never touched, and an
+# absent block gets nothing.
+_BLOCK_KEY_NOTES: dict[str, tuple[type, dict[str, str]]] = {
+    "dispatch": (
+        DispatchConfig,
+        {
+            "worker_count": "dispatch workers the build deploys",
+            "workspace_mode": "isolated: each run gets its own workspace; shared: one for all",
+            "max_concurrent_runs": "runs a worker executes at once",
+            "max_queue_depth": "queued runs held before new ones are refused",
+            "worker_port_stride": "port gap between workers, host network only",
+            "transport": " | ".join(VALID_DISPATCH_TRANSPORTS),
+            "timeout_sec": "wall-clock ceiling on one run",
+            "inactivity_sec": "seconds a run may produce nothing before it is cut off",
+            "max_turns": "agent turns one run may take",
+            "network": " | ".join(VALID_NETWORK_MODES),
+        },
+    ),
+    "va_archiver": (
+        VAArchiverConfig,
+        {
+            "retention_days": "how far back the archive reaches",
+            "hot_span_hours": "how much of it is kept at the dense sample rate",
+            "hot_cadence_sec": "seconds between samples inside the hot span",
+            "tail_cadence_sec": "and outside it (a whole multiple of the above)",
+            "recorder_cadence_sec": "how often the recorder samples the machine",
+            "recorder_tail_cadence_sec": "how often a recorded sample is kept for the full span",
+            "recorder_poll_sec": "how often the recorder re-reads config.yml",
+            "database": "database holding the history",
+            "collection": "collection the samples go to",
+            "compression": " | ".join(COMPRESSORS),
+            "username": "user the agent connects as",
+            "auth_database": "database that user authenticates against",
+            "password_env": "variable naming that user's password",
+            "timeout_sec": "seconds the agent waits to reach the store",
+        },
+    ),
+}
+
+
+def _written_defaults(cls: type) -> dict[str, Any]:
+    """The keys of an active block written at their default, with that default."""
+    return {
+        f.name: f.default
+        for f in fields(cls)
+        if f.default is not MISSING
+        and f.default is not None
+        and f.default != ""
+        and not is_layout_port_field(f)
+    }
+
+
+def _block_default(block: str, key: str) -> Any:
+    """The value ``block.key`` builds with when the profile leaves it unstated."""
+    cls, _ = _BLOCK_KEY_NOTES[block]
+    return next(f.default for f in fields(cls) if f.name == key)
+
+
+def _example_line(key: str, value: object, note: str | None = None) -> str:
+    """One commented example line, its note aligned with the others in the block."""
+    line = f"#   {key}: {value}"
+    return f"{line:<32}# {note}" if note else line
+
+
+# The `va_archiver:` example a profile without the block carries. Each value
+# the block builds with when unstated is read from VAArchiverConfig; the port
+# is derived and `host` is site-specific, so both stay placeholders.
+_VA_ARCHIVER_EXAMPLE = "\n".join(
+    [
+        "# va_archiver:",
+        _example_line(
+            "retention_days", VAArchiverConfig.retention_days, "how far back history reaches"
+        ),
+        _example_line(
+            "hot_span_hours",
+            VAArchiverConfig.hot_span_hours,
+            "recent window kept at the dense cadence",
+        ),
+        _example_line(
+            "hot_cadence_sec", VAArchiverConfig.hot_cadence_sec, "seconds between samples inside it"
+        ),
+        _example_line(
+            "tail_cadence_sec",
+            VAArchiverConfig.tail_cadence_sec,
+            "...and outside it (a multiple of the above)",
+        ),
+        _example_line(
+            "recorder_cadence_sec",
+            VAArchiverConfig.recorder_cadence_sec,
+            "how often the live machine is sampled",
+        ),
+        _example_line("recorder_tail_cadence_sec", VAArchiverConfig.recorder_tail_cadence_sec),
+        _example_line(
+            "recorder_poll_sec",
+            VAArchiverConfig.recorder_poll_sec,
+            "how often the recorder re-reads config.yml",
+        ),
+        _example_line("port_host", "<host port>"),
+        _example_line("database", VAArchiverConfig.database),
+        _example_line("collection", VAArchiverConfig.collection),
+        _example_line("compression", VAArchiverConfig.compression, " | ".join(COMPRESSORS)),
+        _example_line("username", VAArchiverConfig.username),
+        _example_line("auth_database", VAArchiverConfig.auth_database),
+        _example_line("password_env", VAArchiverConfig.password_env),
+        _example_line("timeout_sec", VAArchiverConfig.timeout_sec),
+        _example_line("host", "archive.example.org", "only for an attached project"),
+    ]
+)
+
+
+# The run budgets as commented example lines, for the dispatch template a
+# profile without a `dispatch:` block carries.
+_DISPATCH_LIMIT_EXAMPLE = "\n".join(
+    f"#   {key}: {_block_default('dispatch', key)}  # {_BLOCK_KEY_NOTES['dispatch'][1][key]}"
+    for key in ("timeout_sec", "inactivity_sec", "max_turns")
+)
+
 
 # Two keys need more than a one-line rationale: their shape is not obvious from
 # the empty default the emitter writes, and guessing it wrong is a build error
@@ -387,13 +516,15 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # Runs the agent unattended against a trigger file (facility events in, agent
 # runs out). triggers names that file: one beside this profile, or a bundled
 # trigger set by name. worker_count sets parallelism; workspace_mode isolated
-# gives each run its own copy of the project. The dashboard shows the facility
-# name the build's identity records.
+# gives each run its own copy of the project. timeout_sec, inactivity_sec and
+# max_turns are the per-run budgets. The dashboard shows the facility name the
+# build's identity records.
 #
 # dispatch:
 #   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
+{_DISPATCH_LIMIT_EXAMPLE}
 """,
     "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------
@@ -490,7 +621,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     timeout_s: 90
 #     max_cost_usd: 0.25
 """,
-    "va_archiver": """
+    "va_archiver": f"""
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
 # seeds with a deterministic base series, a recorder samples the running
@@ -512,23 +643,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # An attached project (deploy_services: false) deploys no store of its own and
 # must set `host` to the machine whose archive it reads.
 #
-# va_archiver:
-#   retention_days: 30          # how far back history reaches
-#   hot_span_hours: 48          # recent window kept at the dense cadence
-#   hot_cadence_sec: 10         # seconds between samples inside it
-#   tail_cadence_sec: 60        # ...and outside it (a multiple of the above)
-#   recorder_cadence_sec: 10    # how often the live machine is sampled
-#   recorder_tail_cadence_sec: 60
-#   recorder_poll_sec: 30       # how often the recorder re-reads config.yml
-#   port_host: <host port>
-#   database: osprey_archiver
-#   collection: pv_history
-#   compression: zstd           # zstd | snappy | zlib | none
-#   username: osprey
-#   auth_database: admin
-#   password_env: MONGO_ROOT_PASSWORD
-#   timeout_sec: 5
-#   host: archive.example.org   # only for an attached project
+{_VA_ARCHIVER_EXAMPLE}
 """,
     "bluesky_web": """
 # --- Bluesky web panels ------------------------------------------------------
@@ -1537,6 +1652,20 @@ def emit_standalone_profile_yaml(
     resolved = apply_cli_edits(_with_preset_apps(resolved, preset_name), set_pairs)
     for layer in extra_layers:
         resolved = _deep_merge(resolved, dict(layer))
+
+    # An active opt-in block is written whole, so every key it builds with is
+    # visible where a deployer edits it, at the value it builds with.
+    block_filled: dict[str, list[str]] = {}
+    for block, (cls, _) in _BLOCK_KEY_NOTES.items():
+        value = resolved.get(block)
+        if not isinstance(value, Mapping):
+            continue
+        missing = {
+            key: default for key, default in _written_defaults(cls).items() if key not in value
+        }
+        if missing:
+            resolved[block] = {**value, **missing}
+            block_filled[block] = list(missing)
     resolved["name"] = profile_name
     resolved["project_name"] = project_name
 
@@ -1609,6 +1738,22 @@ def emit_standalone_profile_yaml(
         _relocate_trailing(doc, "name", "project_name")
 
     _sync_to_resolved(doc, resolved)
+
+    # Each written default says what it bounds or names, the comments aligned
+    # two columns past the longest written line. The trailing block a key holds
+    # (the next section's header, which the sync moved onto the last appended
+    # key) is lifted off and put back so the end-of-line comment sits before it.
+    for block, keys in block_filled.items():
+        node = doc[block]
+        if not isinstance(node, CommentedMap):
+            node = doc[block] = CommentedMap(node)
+        column = max(len(f"  {key}: {node[key]}") for key in keys) + 2
+        for key in keys:
+            trailing = _take_trailing(node, key)
+            node.yaml_add_eol_comment(_BLOCK_KEY_NOTES[block][1][key], key, column=column)
+            if trailing is not None:
+                node.ca.items[key][2].value += "\n"
+                _append_trailing(node, key, trailing)
 
     # Rationale above each synthesized key, so a reader can tell a deliberate
     # default from a value the preset chose. Applied after the sync, which is

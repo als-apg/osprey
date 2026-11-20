@@ -630,6 +630,10 @@ container that exited or is unhealthy; that log is usually the cause. If the
 start is only slow (images pulled over a slow link, a loaded host), raise the
 limit (:ref:`deployment-start-waits`).
 
+**A start reported services with no running container:** compose said it
+succeeded, but the named services were not running afterwards. ``osprey logs
+<service>`` shows why.
+
 **"Unsupported compose provider":** OSPREY cannot drive the host's compose
 implementation correctly, so it stopped before starting anything. The message
 prints the version banner it got. Compare it against

@@ -108,6 +108,33 @@ async def test_stop_ends_and_logs_the_processes_the_chat_agent_started(tmp_path,
         kill_quietly(pids)
 
 
+async def test_stop_ends_through_the_shared_ending(tmp_path, monkeypatch):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    real_end = process_tree.end_started_tree
+    trees: list[process_tree.StartedTree] = []
+
+    def end_spy(pid, tree, **kwargs):
+        trees.append(tree)
+        return real_end(pid, tree, **kwargs)
+
+    monkeypatch.setattr(process_tree, "end_started_tree", end_spy)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        sleeper = pids[0]
+
+        await session.stop()
+
+        assert len(trees) == 1, trees
+        assert sleeper in {group.pgid for group in trees[0].groups}
+        await wait_gone([sleeper])
+    finally:
+        monkeypatch.undo()
+        await session.stop()
+        kill_quietly(pids)
+
+
 async def test_stop_ends_started_processes_that_ignore_sigterm(tmp_path):
     factory = child_factory(
         tmp_path,

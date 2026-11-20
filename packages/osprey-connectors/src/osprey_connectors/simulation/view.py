@@ -14,6 +14,12 @@ stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the tra
 with a setpoint or not; a reader wanting the readback of a setpoint reads that
 setpoint channel's ``pair``.
 
+A wiring record may state further addresses of its variable under ``also``.
+Each is a channel of the view whose ``owner`` is the record's model, and it is
+served as the record's ``address`` is: :meth:`SimulatorView.record_address`
+gives the address a channel is served as, and :attr:`Binding.addresses` every
+address of a record.
+
 The module imports only the standard library and ``osprey_connectors``, so a
 reader that must not load a model can open a view.
 """
@@ -274,6 +280,8 @@ class Binding:
         id: The wiring record's id.
         model: The model the record belongs to.
         address: The channel address the record serves.
+        also: The further addresses that serve what ``address`` serves; empty
+            when the record states none.
         direction: ``write`` or ``read``.
         engine_role: One of :data:`ENGINE_ROLES`.
             A ``readback`` reads an element's setting, paired with a setpoint
@@ -299,6 +307,12 @@ class Binding:
     element: str | None
     record: Mapping[str, object]
     marks: frozenset[str] = frozenset()
+    also: tuple[str, ...] = ()
+
+    @property
+    def addresses(self) -> tuple[str, ...]:
+        """Every address the record serves: ``address``, then each of ``also``."""
+        return (self.address, *self.also)
 
     @classmethod
     def from_record(cls, model: str, record: WiringRecord) -> Binding:
@@ -325,6 +339,7 @@ class Binding:
             element=record.get("element"),
             record=MappingProxyType(copy.deepcopy(dict(record))),
             marks=frozenset(str(mark) for mark in record.get(_MARKS_KEY) or ()),
+            also=tuple(str(address) for address in record.get("also") or ()),
         )
 
 
@@ -376,6 +391,7 @@ class SimulatorView:
         self._documents: dict[str, Mapping[str, object]] = {}
         self._models: tuple[Model, ...] | None = None
         self._channel_records: Mapping[str, Channel] | None = None
+        self._record_addresses: Mapping[str, str] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
         if not (self.path / ADDRESSES_FILE).is_file():
             raise NoSimulatorView(_NO_VIEW_MESSAGE.format(path=self.path))
@@ -653,6 +669,27 @@ class SimulatorView:
                 return binding
         return None
 
+    def record_address(self, address: str) -> str:
+        """The address ``address`` is served as.
+
+        Args:
+            address: A channel address.
+
+        Returns:
+            The ``address`` of the served physics model's wiring record that
+            names ``address`` under ``also``; ``address`` itself for any other
+            channel.
+        """
+        if self._record_addresses is None:
+            self._record_addresses = MappingProxyType(
+                {
+                    further: binding.address
+                    for binding in self._all_bindings(served_only=True)
+                    for further in binding.also
+                }
+            )
+        return self._record_addresses.get(address, address)
+
     def seed(self, address: str) -> SeedRecord | None:
         """The seed record of the channel at ``address``, or ``None``."""
         return self.document(SEEDS_FILE)["seeds"].get(address)
@@ -691,6 +728,7 @@ class SimulatorView:
         from osprey_connectors.simulation.envelope import active_envelopes
         from osprey_connectors.simulation.state import resolve_active_scenarios
 
+        address = self.record_address(address)
         key = tuple(resolve_active_scenarios(active))
         if key not in self._envelopes:
             self._envelopes[key] = active_envelopes(

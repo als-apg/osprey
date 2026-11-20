@@ -23,7 +23,7 @@ record as its source.
 Once the records are described, the stage marks each command channel
 ``command: true``: a setpoint whose vocabulary signal is a command word
 (:func:`osprey.facility.pairing.is_command_signal`), or a channel some model's
-engine marks ``command``. A channel whose signal is a command word that an
+engine marks ``command``, under each address its record names. A channel whose signal is a command word that an
 engine describes without the mark stops (``engine-invalid``). Whatever fires or
 judges a command reads this mark and no rule of its own.
 """
@@ -35,7 +35,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility import DEFAULT_ROLE, TEXTURE, wiring_addresses
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults
 from osprey.facility.validate import Validated, need, stating_files
@@ -126,9 +126,10 @@ def _mark_commands(document: dict[str, Any]) -> list[FacilityBuildError]:
             if "engine_role" not in record:
                 continue
             if command in (record.get(_MARKS_KEY) or []):
-                marked.add(str(record["address"]))
+                marked.update(wiring_addresses(record))
             else:
-                unmarked.setdefault(str(record["address"]), model)
+                for address in wiring_addresses(record):
+                    unmarked.setdefault(address, model)
     errors: list[FacilityBuildError] = []
     for channel in document.get("channels", []):
         address = str(channel["id"])

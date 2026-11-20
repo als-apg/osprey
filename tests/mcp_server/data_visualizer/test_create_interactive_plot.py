@@ -117,10 +117,12 @@ class TestCreateInteractivePlot:
     async def test_preamble_has_no_matplotlib(self, tool_fn, mock_execution_folder):
         """Verify no matplotlib imports in the interactive plot preamble."""
         captured_code = None
+        captured_data_path = None
 
-        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
-            nonlocal captured_code
+        async def mock_execute(code, execution_folder, data_path=None):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
+            nonlocal captured_code, captured_data_path
             captured_code = code
+            captured_data_path = data_path
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
@@ -135,12 +137,14 @@ class TestCreateInteractivePlot:
         assert "matplotlib" not in captured_code.split("x = 1")[0]
 
     async def test_data_source_file_path(self, tool_fn, mock_execution_folder):
-        """Verify data_source generates loading code."""
+        """Verify data_source adds the reader and hands the path over as data."""
         captured_code = None
+        captured_data_path = None
 
-        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
-            nonlocal captured_code
+        async def mock_execute(code, execution_folder, data_path=None):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
+            nonlocal captured_code, captured_data_path
             captured_code = code
+            captured_data_path = data_path
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
@@ -153,19 +157,21 @@ class TestCreateInteractivePlot:
                 data_source="/path/to/data.csv",
             )
 
-        assert captured_code is not None
-        assert "_data_path" in captured_code
+        assert captured_data_path == "/path/to/data.csv"
         assert "pd.read_csv" in captured_code
+        assert "/path/to/data.csv" not in captured_code
 
     async def test_data_source_artifact_id(self, tool_fn, tmp_path, mock_execution_folder):
         """Verify artifact ID data_source resolves via ArtifactStore."""
         captured_code = None
+        captured_data_path = None
         art_file = tmp_path / "a1b2c3d4e5f6_data.csv"
         art_file.write_text("x,y\n1,2\n")
 
-        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
-            nonlocal captured_code
+        async def mock_execute(code, execution_folder, data_path=None):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
+            nonlocal captured_code, captured_data_path
             captured_code = code
+            captured_data_path = data_path
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
@@ -180,9 +186,8 @@ class TestCreateInteractivePlot:
                 data_source="a1b2c3d4e5f6",
             )
 
-        assert captured_code is not None
-        # Resolved path should appear in the generated code
-        assert str(art_file) in captured_code
+        assert captured_data_path == str(art_file)
+        assert str(art_file) not in captured_code
 
     async def test_data_source_artifact_store_entry(self, tool_fn, mock_execution_folder):
         """Verify hex artifact ID data_source resolves via ArtifactStore."""
@@ -199,10 +204,12 @@ class TestCreateInteractivePlot:
         )
 
         captured_code = None
+        captured_data_path = None
 
-        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
-            nonlocal captured_code
+        async def mock_execute(code, execution_folder, data_path=None):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
+            nonlocal captured_code, captured_data_path
             captured_code = code
+            captured_data_path = data_path
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
@@ -215,10 +222,48 @@ class TestCreateInteractivePlot:
                 data_source=entry.id,
             )
 
-        assert captured_code is not None
-        # Should contain the resolved absolute path
-        assert "_data_path" in captured_code
-        assert entry.filename in captured_code
+        assert captured_data_path.endswith(entry.filename)
+        assert entry.filename not in captured_code
+
+
+class TestDataSourceUnderAScannedWord:
+    """A data source whose path holds a word the code scan refuses still plots."""
+
+    @pytest.fixture
+    def tool_fn(self):
+        """Get the raw tool function."""
+        from osprey.mcp_server.workspace.tools.create_interactive_plot import (
+            create_interactive_plot,
+        )
+        from tests.mcp_server.conftest import get_tool_fn
+
+        return get_tool_fn(create_interactive_plot)
+
+    async def test_a_data_source_under_an_epics_directory_plots(self, tool_fn, tmp_path):
+        site = tmp_path / "epics-site"
+        site.mkdir()
+        (site / "beam.csv").write_text("a,b\n1,2\n")
+        execution_folder = tmp_path / "exec"
+        execution_folder.mkdir()
+
+        with (
+            patch(_SANDBOX_FOLDER_TARGET, return_value=execution_folder),
+            patch(
+                "osprey_connectors.workspace.resolve_agent_data_root",
+                return_value=tmp_path / "_agent_data",
+            ),
+            patch("osprey_connectors.workspace.resolve_project_root", return_value=site),
+        ):
+            result = extract_response_dict(
+                await tool_fn(
+                    code="print('SHAPE', data.shape)",
+                    title="Beam",
+                    data_source=str(site / "beam.csv"),
+                )
+            )
+
+        assert result["status"] == "success"
+        assert "SHAPE (1, 2)" in result["stdout"]
 
 
 class TestResolveDataSource:

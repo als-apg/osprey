@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  bindControls,
   clearSelection,
   ownCompute,
   panelOf,
@@ -11,7 +12,7 @@ import {
 
 // The panel's markup, as index.html carries it.
 const MARKUP = `
-  <span data-field="plane"><button data-plane="x"></button><button data-plane="y"></button></span>
+  <span data-field="plane"><button data-value="x"></button><button data-value="y"></button></span>
   <select data-field="model" hidden></select>
   <span data-field="orm"><span data-field="orm-text"></span><button data-field="recompute"></button></span>
   <span data-field="no-model" hidden>no closed-orbit model</span>
@@ -119,11 +120,20 @@ describe('the orbit-bump panel', () => {
     const { selection } = panelOf(root);
     expect(selection.plane).toBe('x');
     expect(selection.rule).toBe('auto');
-    const pressed = field(root, 'plane').querySelector('[data-plane="x"]');
+    const pressed = field(root, 'plane').querySelector('[data-value="x"]');
     expect(pressed?.getAttribute('aria-pressed')).toBe('true');
   });
 
   describe('header', () => {
+    it('switches the plane on the right arrow key', async () => {
+      bindControls(root, answering(state()));
+      showState(root, state());
+      const horizontal = field(root, 'plane').querySelector('[aria-pressed="true"]');
+      if (!horizontal) throw new Error('no pressed plane');
+      horizontal.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await vi.waitFor(() => expect(panelOf(root).selection.plane).toBe('y'));
+    });
+
     it('offers a dropdown when two models are offered', () => {
       showState(root, state({ models: [model('SR'), model('BOOSTER', 'idle')] }));
       const select = /** @type {HTMLSelectElement} */ (field(root, 'model'));

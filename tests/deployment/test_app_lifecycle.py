@@ -90,7 +90,7 @@ def deploy(stub_deploy_up, monkeypatch, tmp_path):
         monkeypatch.delenv(name, raising=False)
 
     def _run(config: dict[str, Any]) -> dict[str, str]:
-        stub_deploy_up(config, seam="subprocess.run")
+        stub_deploy_up(config)
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
         return project_env(tmp_path)
 

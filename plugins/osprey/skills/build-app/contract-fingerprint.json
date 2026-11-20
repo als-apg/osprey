@@ -1,6 +1,6 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.9.0b3-7427-g77d9b29331",
+  "reviewed_against": "2026.11.0-117-g2a4cb71405",
   "files": {
     "apps/manifest.py": "945ca922ecc45ccc1ba049e0506bbd2ed52abfe436615af961b76743f134eeab",
     "apps/rules.py": "52b7da64976d3278a913ea7585f04b9cc5f42ef8c3a115c84c8bdb78d7802d34",
@@ -8,9 +8,9 @@
     "apps/agents.py": "05c9bfb9da6786598beec26c1081c4ed9f347490a2847d74c4f4b3add6c944f3",
     "apps/boundary.py": "78910049c324b2762f6b8f9612df0de3f806c180318c5634decc8985e5fdb07f",
     "apps/sdk/__init__.py": "18da3e914fe4859e022ff48f42dd61ab4c9e555a92fbb837aeec6d5d983293f9",
-    "cli/app_cmd.py": "ec43a824edd02cb6814bef2de2b914af5b2cc03226d667e5996d2ce17598bf49",
+    "cli/app_cmd.py": "090cbc9f957cb54d0344775107d63004c44267ed6788c35c012d5a701ee92d24",
     "apps/scaffold-app/app.yml": "6282af731470680bec753cccc971bf37b57f5336c7264e3b41564582b46f4765",
-    "apps/scaffold-app/panel/index.html": "224d908cc43706a4af968173e92d21a6bd8e0124abf88faf4405f5da02b60e04",
+    "apps/scaffold-app/panel/index.html": "2647f4d998daf3a42617f7dde430da8e206560f1171da7125f4869300777f772",
     "apps/scaffold-app/panel/panel.css": "a5e3bd9dcb46a407ab706665db945172a7afbd804e4d94f658395e8fd2ab693c",
     "apps/scaffold-app/panel/panel.js": "e4ad77d79d4fdf3582bcca23fecf5d0e21abb25bdadfdfe7523c03022558f378",
     "apps/scaffold-app/pyproject.toml": "f1834724374bc101fbb5f614798acde0666b8010941ee5915938c868dd1eaade",
@@ -19,7 +19,7 @@
     "apps/scaffold-app/scaffold_app/tools.py": "bcf6045779fa327b2ea3a2eeafddd4ddf2f5aae9010bc76f57e90eddd3fe3662",
     "apps/scaffold-app/skills/scaffold-app/SKILL.md": "c73be6b7ef5a657cb35452f97017a83c9ea8d3ca62098dba2b00d07bcd1a37cf",
     "apps/scaffold-app/tests/panel.test.js": "cde12729a397de8d9616c74252c9ecf76b7da50d3c66c8942f28160d760f9220",
-    "interfaces/design_system/panels/validator.py": "d09b82ea461282d09050444006d1c78d2647ccdb72e94693dfc9247dc4e40766",
+    "interfaces/design_system/panels/validator.py": "851d5c1cc2a3f57ce4fcc275af9ac33f3ff12f84d889c434fd23b2a4db28b147",
     "interfaces/design_system/static/css/primitives.css": "80ad115b1d482a3b02cae0ebd4c4498aee6de08fa34556b800bf4ec2cb87c4ce"
   }
 }

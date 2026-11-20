@@ -81,7 +81,7 @@ WATCHED: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "interfaces/design_system/panels/validator.py",
-        "the panel stylesheet rule osprey app check applies",
+        "the panel page rules osprey app check applies",
         "step 6 (panel)",
     ),
     (

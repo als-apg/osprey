@@ -34,14 +34,14 @@ import numbers
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
-from functools import cache
+from functools import cache, cached_property
 from importlib import resources
 from pathlib import Path
 from typing import IO, Any
 
 import click
 
-from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import (
     FacilityBuildError,
@@ -149,6 +149,15 @@ _MAX_LABEL = 25
 _MAX_PRECISION = 17
 
 _NUMERIC_TYPES = ("float", "int")
+
+#: The channel slots every address of one wiring record states alike, each with
+#: the value a channel stating none has.
+_SAME_VARIABLE_SLOTS: dict[str, Any] = {
+    "role": DEFAULT_ROLE,
+    "value_type": "float",
+    "options": None,
+    "shape": None,
+}
 _LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
 _MOTION = ("noise", "drift")
 #: The two terms a ``noise`` record states exactly one of.
@@ -823,8 +832,7 @@ class _Index:
             for entry in model.get("wiring") or []:
                 if isinstance(entry, dict):
                     self.wiring.append((name, entry))
-                    address = entry.get("address")
-                    if isinstance(address, str):
+                    for address in wiring_addresses(entry):
                         self.wired.setdefault(address, set()).add(name)
         limits = document.get("limits")
         records = limits.get("records") if isinstance(limits, dict) else None
@@ -1056,6 +1064,10 @@ class _References:
             yield from self._missing(
                 "wiring", wid, stating_files(entry, "address"), "address", "channel", address
             )
+            for name in wiring_addresses(entry)[1:] if isinstance(address, str) else ():
+                yield from self._missing(
+                    "wiring", wid, stating_files(entry, "also"), "also", "channel", name
+                )
             channel = self.index.channels.get(str(address), {})
             on = channel.get("on")
             own = on.get("device") if isinstance(on, dict) else None
@@ -2141,6 +2153,7 @@ class _Records:
                     "drop `curve` from the first slice; it converts through `calibration.curve`",
                 )
                 continue
+            yield from self._also(wid, entry)
             channel = self.index.channels.get(str(entry.get("address")), {})
             endpoints = channel.get("endpoint_of") or []
             # A record naming no element drives a property of the whole deck,
@@ -2157,6 +2170,114 @@ class _Records:
                         f"`endpoint_of` device {', '.join(unnamed)} is named by no slice",
                         "name each `endpoint_of` device in a slice, or remove it from `endpoint_of`",
                     )
+
+    def _also(self, wid: str, entry: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
+        """Each `also` name is a channel like the record's own, with no motion of its own."""
+        address, *further = wiring_addresses(entry)
+        channel = self.index.channels[address]
+        files = stating_files(entry, "also")
+        for name in further:
+            if name == address:
+                # Named twice by one record: the compute stage's wiring-conflict.
+                continue
+            other = self.index.channels[name]
+            differing = [
+                slot
+                for slot, default in _SAME_VARIABLE_SLOTS.items()
+                if channel.get(slot, default) != other.get(slot, default)
+            ]
+            unit, theirs = channel.get("unit"), other.get("unit")
+            if unit and theirs and unit != theirs:
+                differing.append("unit")
+            if differing:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    files,
+                    f"`also` names {name}, which differs from {address} in "
+                    f"{quoted_slots(differing)}",
+                    f"give {address} and {name} the same {quoted_slots(differing)}, or remove "
+                    f"{name} from `also`",
+                )
+            elif other.get("simulation") is not None:
+                yield self._error(
+                    "seed-invalid",
+                    "wiring",
+                    wid,
+                    sorted({*files, *self._seed_files(other)}),
+                    f"`also` names {name}, which carries a seed",
+                    f"remove the seed of {name}; it serves the value of {address}, motion included",
+                )
+            else:
+                yield from self._also_pair(wid, files, address, channel, name, other)
+
+    @cached_property
+    def _named_as_pair(self) -> dict[str, list[str]]:
+        """The channels naming each address as their ``pair``, sorted, less the
+        further addresses of wiring records, whose own stop names their ``pair``."""
+        further = {name for _, entry in self.index.wiring for name in wiring_addresses(entry)[1:]}
+        named: dict[str, list[str]] = {}
+        for address, fields in sorted(self.index.channels.items()):
+            pair = fields.get("pair")
+            if isinstance(pair, str) and pair != address and address not in further:
+                named.setdefault(pair, []).append(address)
+        return named
+
+    def _also_pair(
+        self,
+        wid: str,
+        files: list[str],
+        address: str,
+        channel: Mapping[str, Any],
+        name: str,
+        other: Mapping[str, Any],
+    ) -> Iterator[FacilityBuildError]:
+        """A record's pair is stated on its ``address`` and names a record's ``address``.
+
+        The build pairs channels by the names they state, so a pair stated on a
+        further address, or naming one, would leave the record unpaired.
+        """
+        pair = channel.get("pair", address)
+        theirs = other.get("pair", name)
+        if theirs != name:
+            pair_files = sorted({*files, *stating_files(other, "pair")})
+            if theirs == pair:
+                # Several setpoints may name one readback, which the simulation
+                # then follows from none; two addresses of one record are one setpoint.
+                detail = (
+                    f"`also` names {name}, whose `pair` is {pair} as {address}'s is, so {pair} "
+                    "would count as shared by two setpoints and follow neither"
+                )
+                remedy = (
+                    f"remove `pair` from {name}; {pair} follows the record under each of its "
+                    "addresses"
+                )
+            elif pair == address:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address} states none"
+                )
+                remedy = f"state `pair: {theirs}` on {address} and remove `pair` from {name}"
+            else:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address}'s is {pair}"
+                )
+                remedy = f"remove `pair` from {name}; the record's pair is the one {address} states"
+            if _derived_pair(other):
+                remedy = (
+                    f"state `pair: {name}` on {name}; the record's pair is the one {address} states"
+                )
+            yield self._error("pair-invalid", "wiring", wid, pair_files, detail, remedy)
+        for setpoint in self._named_as_pair.get(name, ()):
+            fields = self.index.channels[setpoint]
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                setpoint,
+                sorted({*stating_files(fields, "pair"), *files}),
+                f"`pair` names {name}, which wiring record {wid} states under `also`",
+                _pair_remedy(setpoint, fields, f"name {address} as the pair"),
+            )
 
     # --- limits --------------------------------------------------------------------
 

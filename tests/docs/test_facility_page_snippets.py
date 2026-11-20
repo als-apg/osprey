@@ -135,6 +135,18 @@ def _dump(path: Path, data: Any) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
+def _wired_in(model: str) -> Callable[[Path, Any], None]:
+    """``models.yaml`` with each of *block*'s records added to *model*'s wiring."""
+
+    def paste(path: Path, block: Any) -> None:
+        models = _load(path)
+        (named,) = [row for row in models if row.get("name") == model]
+        named["wiring"].extend(block)
+        _dump(path, models)
+
+    return paste
+
+
 def _update(path: Path, block: Any) -> None:
     """A mapping file with *block*'s keys replacing the file's."""
     data = _load(path) if path.exists() else {}
@@ -155,12 +167,28 @@ def _by(key: str) -> Callable[[Path, Any], None]:
     return paste
 
 
+def _wiring_of(model: str) -> Callable[[Path, Any], None]:
+    """``models.yaml`` with each of *block*'s slots stated on *model*'s record of that address."""
+
+    def paste(path: Path, block: Any) -> None:
+        models = _load(path)
+        (named,) = [row for row in models if row.get("name") == model]
+        for record in block:
+            (wired,) = [row for row in named["wiring"] if row["address"] == record["address"]]
+            wired.update(record)
+        _dump(path, models)
+
+    return paste
+
+
 #: Blocks that state whole records, by first line: the preset file they belong
 #: to and how they go into it.
 PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "code: ca": ("identity.yaml", _update),
     "- id: SR/SECT1": ("records/places.yaml", _by("id")),
     "- id: SR:MAG:QF:01:CURRENT:SP": ("records/channels.yaml", _by("id")),
+    "- id: LINE:RACK:03:UNIT:01:X": ("records/channels.yaml", _by("id")),
+    "- address: LINE:DIAG:BPM:01:POSITION:X": ("models.yaml", _wiring_of("LINE")),
     "- class: Undulator": ("classes.yaml", _by("class")),
     "- name: taper_setpoint": ("signals.yaml", _by("name")),
     "# data/facility/imported/names/channels.yaml": (
@@ -171,6 +199,8 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:": ("seeds.yaml", _update),
     "GTL:DIAG:BPM:01:SUM:RB:": ("seeds.yaml", _update),
     "SR:VAC:VALVE:01:POSITION:OPEN:": ("seeds.yaml", _update),
+    "- id: SR:MAG:QF:01:VOLTAGE:RB": ("records/channels.yaml", _by("id")),
+    "- address: SR:MAG:QF:01:VOLTAGE:RB": ("models.yaml", _wired_in("SR")),
 }
 
 #: Blocks that show part of a preset record, by first line: the preset file.

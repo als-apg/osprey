@@ -21,11 +21,15 @@ def get_options(level: str, selections: dict | None = None) -> str:
     """Get available options at a specific hierarchy level.
 
     Refer to the hierarchy structure in the agent prompt for level names and order.
-    Then call this tool iteratively, passing previous selections to drill down.
+    Then call this tool level by level, top to bottom, passing previous selections to drill down.
 
     Args:
         level: Hierarchy level name to get options for (e.g., "machine", "sector", "class", "device", "leaf").
         selections: Dict mapping previous level names to selected values.
+            It must name every level above ``level``, including a level the question
+            does not mention; a request that leaves one out is refused, naming the
+            level to get first. Only instance levels and levels the hierarchy marks
+            optional may be left out.
             Example: {"machine": "SR"} when querying the "sector" level.
 
     Returns:

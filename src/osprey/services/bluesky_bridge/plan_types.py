@@ -25,15 +25,20 @@ is pydantic-only, so importing `Figure` here costs the loader nothing.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel
+from pydantic.json_schema import GenerateJsonSchema, NoDefault
+from pydantic_core import core_schema
 
 from .figure import Figure, RowWindow
 from .plan_fields import ChannelRole
 from .plan_metadata import PlanMetadata
+
+logger = logging.getLogger(__name__)
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
@@ -43,6 +48,47 @@ floor; ``session``/``unreviewed`` is agent-authored and least trusted).
 Assigned by the loader based on which layer a plan file came from — never
 self-declared in a plan's own ``PLAN_METADATA``.
 """
+
+
+def _schema_generator(plan_name: str) -> type[GenerateJsonSchema]:
+    """A JSON-schema generator that states a factory default like a written one.
+
+    pydantic writes ``default`` only for a written default; a field whose
+    default comes from a zero-argument ``default_factory`` gets the factory's
+    value here, at every nesting level, evaluated each time the schema is
+    generated. A factory that takes the validated data has no value of its own
+    and is left to the base generator. A factory that raises yields no default
+    and one warning naming *plan_name* and the field.
+    """
+
+    class _FactoryDefaults(GenerateJsonSchema):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._field_names: dict[int, str] = {}
+
+        def model_fields_schema(self, schema: core_schema.ModelFieldsSchema) -> Any:
+            for name, field in schema["fields"].items():
+                self._field_names[id(field["schema"])] = name
+            return super().model_fields_schema(schema)
+
+        def get_default_value(self, schema: core_schema.WithDefaultSchema) -> Any:
+            factory = schema.get("default_factory")
+            if factory is None or schema.get("default_factory_takes_data"):
+                return super().get_default_value(schema)
+            try:
+                return factory()  # type: ignore[call-arg]
+            except Exception as exc:
+                name = self._field_names.get(id(schema))
+                logger.warning(
+                    "plan %r: the default factory of %s raised, so the catalog "
+                    "states no default for it: %s",
+                    plan_name,
+                    f"field {name!r}" if name else "a field",
+                    exc,
+                )
+                return NoDefault
+
+    return _FactoryDefaults
 
 
 @dataclass
@@ -89,11 +135,16 @@ class PlanSpec(Generic[SchemaT]):
     roles: tuple[tuple[str, ChannelRole], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for `GET /plans`: name, description, schema, metadata, provenance."""
+        """Serialize for `GET /plans`: name, description, schema, metadata, provenance.
+
+        The served schema states every default the plan has: a written one, and
+        the value a zero-argument ``default_factory`` makes when the catalog is
+        read.
+        """
         return {
             "name": self.name,
             "description": self.description,
-            "schema": self.schema.model_json_schema(),
+            "schema": self.schema.model_json_schema(schema_generator=_schema_generator(self.name)),
             "metadata": self.metadata.model_dump() if self.metadata is not None else None,
             "provenance": self.provenance,
         }

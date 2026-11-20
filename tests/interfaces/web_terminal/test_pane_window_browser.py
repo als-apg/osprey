@@ -389,7 +389,7 @@ def test_a_detached_frame_follows_the_theme(hub, page):
     )
     popup.wait_for_function(
         """([sel, theme]) => document.querySelector(sel).contentDocument
-            ?.documentElement.getAttribute('data-theme') === theme""",
+            ?.documentElement?.getAttribute('data-theme') === theme""",
         arg=[_ARTIFACTS_FRAME, theme],
         timeout=_TIMEOUT_MS,
     )

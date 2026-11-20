@@ -747,6 +747,12 @@ classes:
         description: "`<model>/<address>`, split at the first `/`."
       address:
         required: true
+      also:
+        multivalued: true
+        list_elements_ordered: true
+        description: >-
+          Further channel addresses of the same variable. Each serves what
+          `address` serves, and a write to a settable one writes the variable.
       element:
       slices:
         range: Slice

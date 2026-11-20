@@ -611,6 +611,29 @@ def _prune_runtime_state_from_stage(zones: _RenderZones, *, renders: Sequence[Pa
             state.rmdir()
 
 
+def _report_panels_not_served(stage: Path, renders: Sequence[Path]) -> None:
+    """Print one warning per panel in a staged render the web terminal will not serve.
+
+    Run after the lifecycle phases, because a ``post_build`` step is what writes
+    ``panels/`` into a render, and before the swap, on the tree the server will
+    scan. Advisory: the build does not stop for it.
+
+    Args:
+        stage: The staged deployment render, shown as ``build/``.
+        renders: The staged login renders, each a directory of ``stage``.
+    """
+    from osprey.deployment.web_terminals.lint import panels_not_served
+
+    from . import output
+
+    shown = [(stage, BUILD_DIR_NAME)] + [
+        (render, f"{BUILD_DIR_NAME}/{render.name}") for render in renders
+    ]
+    for render, shown_as in shown:
+        for finding in panels_not_served(render, shown_as=shown_as):
+            output.note(f"⚠ [{finding.code}] {finding.message}")
+
+
 def _backup_outgoing_claude_artifacts(zones: _RenderZones) -> Path | None:
     """Snapshot the outgoing render's Claude Code artifacts that are about to change.
 
@@ -4552,6 +4575,8 @@ def _build_repo(
                 abort_on_failure=False,
                 stream=stream,
             )
+
+        _report_panels_not_served(zones.stage, renders)
 
         backup_dir = _backup_outgoing_claude_artifacts(zones)
         # After the backup (which reads the outgoing build/ against the staged

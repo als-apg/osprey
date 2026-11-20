@@ -356,6 +356,15 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
+  recorder_tail_cadence_sec: 60      # how often a recorded sample is kept for the full span
+  recorder_poll_sec: 30              # how often the recorder re-reads config.yml
+  database: osprey_archiver          # database holding the history
+  collection: pv_history             # collection the samples go to
+  compression: zstd                  # zstd | snappy | zlib | none
+  username: osprey                   # user the agent connects as
+  auth_database: admin               # database that user authenticates against
+  password_env: MONGO_ROOT_PASSWORD  # variable naming that user's password
+  timeout_sec: 5                     # seconds the agent waits to reach the store
   # The build derives `freshness_channel`, the channel `osprey health` watches,
   # from the facility file; a stated line is an override checked against it.
 
@@ -1431,6 +1440,11 @@ dispatch:
   # The tier a dispatched job runs at. A job has nobody to approve a write, so
   # the workers run read-only; remove the line to run the deployment's own posture.
   tier: readonly
+  worker_port_stride: 1  # port gap between workers, host network only
+  transport: http        # http | bus
+  timeout_sec: 300       # wall-clock ceiling on one run
+  inactivity_sec: 120    # seconds a run may produce nothing before it is cut off
+  max_turns: 25          # agent turns one run may take
 
 # ── Environment variables ────────────────────────────────────────────────────
 # Passwords for the webhook service above. They have no defaults on purpose:
@@ -1475,6 +1489,8 @@ provenance:
 deploy_services: true
 # Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
+# Bundled template rendered as CLAUDE.md, the agent's instructions.
+claude_md_template: CLAUDE.md.j2
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the

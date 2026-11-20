@@ -22,6 +22,7 @@ from osprey.agent_record.config import (
     AgentRecordConfig,
     agent_record_errors,
 )
+from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
@@ -508,9 +509,9 @@ class BuildProfile:
     build time by :func:`panel_preset_errors`; the retired list-of-ids form is
     refused with the layout to write instead.
     """
-    claude_md_template: str | None = None
-    """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
-    (default: "CLAUDE.md.j2"). Lets a preset pick an alternate render
+    claude_md_template: str = DEFAULT_CLAUDE_MD_TEMPLATE
+    """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md;
+    "CLAUDE.md.j2" when the profile names none. Lets a preset pick an alternate render
     (e.g. "CLAUDE.logbook.md.j2" for the logbook-research bundle). This is the
     one channel for the rendered CLAUDE.md: the project copy is build-owned, so
     the ``project/`` mirror rejects a hand-written one.

@@ -1,8 +1,8 @@
 """``unhealthy_containers``: this repo's containers whose healthcheck failed.
 
 The read behind the closing line of a detached start. Pinned against the two
-listings the supported runtimes emit, scoped by the repo label, and advisory
-on every way the host can decline to answer.
+listings the supported runtimes emit, scoped by the deployment's ownership
+rule, and advisory on every way the host can decline to answer.
 """
 
 from __future__ import annotations
@@ -84,8 +84,24 @@ def test_the_listing_is_scoped_to_this_repo_and_includes_stopped_containers(
 
     (cmd,) = fake.calls
     assert cmd[:3] == ["docker", "ps", "-a"]
-    assert cmd[cmd.index("--filter") + 1] == container_lifecycle._repo_label_filter(repo)
+    assert cmd[cmd.index("--filter") + 1] == "label=com.docker.compose.project=demo"
     assert cmd[-2:] == ["--format", "json"]
+
+
+def test_another_checkouts_unhealthy_container_is_not_named(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    listing = json.dumps(
+        {
+            "Names": "demo-bluesky-bridge",
+            "State": "running",
+            "Status": "Up 2 minutes (unhealthy)",
+            "Labels": "com.docker.compose.project=demo,com.osprey.repo-id=someone-else",
+        }
+    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(listing))
+
+    assert unhealthy_containers(repo) == []
 
 
 def test_a_healthy_stack_answers_nothing(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

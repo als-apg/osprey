@@ -1,5 +1,6 @@
 """Tests for the sandboxed execution engine."""
 
+import ast
 import json
 import textwrap
 from datetime import datetime
@@ -398,6 +399,71 @@ def test_wrapper_requires_secret_roots(tmp_path: Path) -> None:
         _create_sandbox_wrapper("x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path)
 
 
+def _data_path_constants(wrapper: str) -> list[object]:
+    """Every value a module-level statement of ``wrapper`` assigns to ``_data_path``."""
+    return [
+        node.value.value
+        for node in ast.parse(wrapper).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_data_path" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+    ]
+
+
+def test_the_data_path_is_bound_before_the_user_code(tmp_path: Path) -> None:
+    """The wrapper binds the data file at module level, ahead of the user code."""
+    data_path = str(tmp_path / "epics-site" / "beam.csv")
+    wrapper = _create_sandbox_wrapper(
+        "x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path, secret_roots=(), data_path=data_path
+    )
+
+    binding = next(
+        node
+        for node in ast.parse(wrapper).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_data_path" for t in node.targets)
+    )
+    assert isinstance(binding.value, ast.Constant)
+    assert binding.value.value == data_path
+    user_code_line = next(
+        number
+        for number, line in enumerate(wrapper.splitlines(), start=1)
+        if "# === USER CODE START ===" in line
+    )
+    assert binding.lineno < user_code_line
+
+
+@pytest.mark.parametrize(
+    "data_path",
+    [
+        pytest.param('x"\nimport socket\n#', id="quote-newline-import"),
+        pytest.param("/data/epics\\", id="trailing-backslash"),
+        pytest.param("'; import os; '", id="single-quote-statement"),
+    ],
+)
+def test_a_data_path_is_bound_as_one_literal(tmp_path: Path, data_path: str) -> None:
+    """Whatever the path holds, it stays inside one string literal."""
+    wrapper = _create_sandbox_wrapper(
+        "x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path, secret_roots=(), data_path=data_path
+    )
+
+    assert _data_path_constants(wrapper) == [data_path]
+    socket_imports = [
+        node
+        for node in ast.walk(ast.parse(wrapper))
+        if isinstance(node, ast.Import) and any(alias.name == "socket" for alias in node.names)
+    ]
+    assert socket_imports == []
+
+
+def test_no_data_path_binds_nothing() -> None:
+    # Fixed roots: a tmp_path is named after this test and would carry the name.
+    root = Path("/sandbox-root")
+    wrapper = _create_sandbox_wrapper("x = 1", root / "exec", root / "ws", root, secret_roots=())
+
+    assert "_data_path" not in wrapper
+
+
 # ---------------------------------------------------------------------------
 # Sandbox tests
 # ---------------------------------------------------------------------------
@@ -422,16 +488,22 @@ class TestSandboxedOpen:
         test_file = workspace_root / "data" / "test.csv"
         test_file.write_text("a,b\n1,2\n")
 
-        code = f"""\
-data_path = r"{test_file}"
+        code = """\
+data_path = Path.cwd() / "_agent_data" / "data" / "test.csv"
 with open(data_path) as f:
     content = f.read()
 print(content)
 """
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
+        with (
+            patch(
+                "osprey_connectors.workspace.resolve_agent_data_root",
+                return_value=workspace_root,
+            ),
+            patch(
+                "osprey_connectors.workspace.resolve_project_root",
+                return_value=workspace_root.parent,
+            ),
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
@@ -466,13 +538,13 @@ except PermissionError:
         project.mkdir()
         (project / ".env").write_text("API_KEY=never-leaked\n")
 
-        code = f"""\
+        code = """\
 for label, read in (
     ("BUILTINS", lambda p: open(p).read()),
     ("PATHLIB", lambda p: Path(p).read_text()),
 ):
     try:
-        print(label, "LEAKED", read(r"{project / ".env"}"))
+        print(label, "LEAKED", read(Path.cwd() / ".env"))
     except PermissionError as exc:
         print(label, "DENIED", exc)
 """
@@ -494,6 +566,62 @@ for label, read in (
         assert "LEAKED" not in result.stdout
         for label in ("BUILTINS", "PATHLIB"):
             assert f"{label} DENIED Sandbox: read denied" in result.stdout
+
+
+class TestDataSourceOutsideTheScan:
+    """A data path crosses into the sandbox as data; agent code is still scanned."""
+
+    @pytest.fixture
+    def execution_folder(self, tmp_path):
+        folder = tmp_path / "test_execution"
+        folder.mkdir()
+        return folder
+
+    @pytest.fixture
+    def workspace_root(self, tmp_path):
+        ws = tmp_path / "_agent_data"
+        ws.mkdir()
+        (ws / "data").mkdir()
+        return ws
+
+    @pytest.fixture
+    def site(self, tmp_path):
+        site = tmp_path / "epics-site"
+        site.mkdir()
+        (site / "beam.csv").write_text("a,b\n1,2\n")
+        return site
+
+    async def _run(self, code, execution_folder, workspace_root, site):
+        with (
+            patch(
+                "osprey_connectors.workspace.resolve_agent_data_root",
+                return_value=workspace_root,
+            ),
+            patch("osprey_connectors.workspace.resolve_project_root", return_value=site),
+        ):
+            return await execute_sandbox_code(
+                code=code,
+                execution_folder=execution_folder,
+                data_path=str(site / "beam.csv"),
+            )
+
+    async def test_a_data_path_under_a_scanned_word_reaches_the_code(
+        self, execution_folder, workspace_root, site
+    ):
+        result = await self._run(
+            "print(open(_data_path).read())", execution_folder, workspace_root, site
+        )
+
+        assert result.success
+        assert "a,b" in result.stdout
+
+    async def test_agent_code_naming_a_scanned_word_is_still_refused(
+        self, execution_folder, workspace_root, site
+    ):
+        result = await self._run('x = "epics"', execution_folder, workspace_root, site)
+
+        assert result.success is False
+        assert "Dangerous pattern: epics module" in result.error_message
 
 
 # ---------------------------------------------------------------------------

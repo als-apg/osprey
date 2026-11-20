@@ -48,11 +48,10 @@ from osprey.agent_runner.sdk_context import (
 from osprey.agent_runner.write_tools import load_approval_prefixes, read_only_disallowed_tools
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.build.claude_code_telemetry import terminal_session_env
-from osprey.deployment.process_table import ProcessRow
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
-from osprey.interfaces.web_terminal.process_tree import ProcessGroup
+from osprey.interfaces.web_terminal.process_tree import ProcessGroup, TreeEnding
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.interfaces.web_terminal.slash_commands import operator_skill, operator_skill_frames
 from osprey.interfaces.web_terminal.tool_preview import (
@@ -853,7 +852,8 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
     """Return True if *event* ends a turn's event stream.
 
     Terminal = a ``result`` event, or an ``error`` other than the in-stream
-    ``AssistantMessageError`` (which the SDK follows with more events).
+    ``AssistantMessageError`` (which the SDK follows with more events). The
+    chat wire carries this answer as ``ends_turn`` (see :func:`mark_turn_end`).
     """
     etype = event.get("type")
     if etype == "result":
@@ -861,101 +861,22 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
     return etype == "error" and event.get("error_type") != "AssistantMessageError"
 
 
-@dataclass(frozen=True)
-class _AgentTree:
-    """What the chat child had started, read while it was alive."""
+def mark_turn_end(frame: dict[str, Any]) -> dict[str, Any]:
+    """Return *frame* marked ``ends_turn: true`` when it ends the turn.
 
-    groups: list[ProcessGroup]
-    members: list[ProcessRow]
-    # False when the process table could not be read: what the child started is unknown.
-    read: bool
+    The mark is how a client learns that a frame ends the running turn; the
+    rule is :func:`is_terminal_event`. A frame that does not end one carries
+    no mark and is returned as is. The input is never mutated.
 
+    Args:
+        frame: A chat frame as it goes on the wire.
 
-@dataclass(frozen=True)
-class TreeEnding:
-    """What a stop did about the processes the chat child had started.
-
-    ``read`` is False when the process table could not be read while the child
-    was alive: nothing was ended because nothing could be looked for, which is
-    not the same as the child having started nothing. The ``ended`` fields
-    hold what was signalled, the ``surviving`` ones what a read still found
-    after SIGKILL, and the ``unknown`` ones what the table could not be read
-    to re-identify: it was not signalled and may still be running.
+    Returns:
+        A marked copy of *frame* when it ends the turn, else *frame* itself.
     """
-
-    read: bool
-    ended_groups: tuple[ProcessGroup, ...] = ()
-    ended_members: tuple[ProcessRow, ...] = ()
-    surviving_groups: tuple[ProcessGroup, ...] = ()
-    surviving_members: tuple[ProcessRow, ...] = ()
-    unknown_groups: tuple[ProcessGroup, ...] = ()
-    unknown_members: tuple[ProcessRow, ...] = ()
-
-
-def _read_tree(pid: int, alive: Callable[[], bool]) -> _AgentTree:
-    """Read the groups *pid*'s descendants are in and its descendants in the server's group.
-
-    Both come from one process table, read while *alive* says *pid* runs and
-    retried while it does. When the table could not be read the tree is
-    returned unread and empty, and a warning names the child and the cause.
-    Blocking (it reads the process table).
-    """
-    try:
-        rows = process_tree.read_while_alive(alive)
-    except process_tree.ProcessTableUnreadable as exc:
-        logger.warning(
-            "Could not read the process table while the chat child %d was alive (%s); "
-            "what it started is left running",
-            pid,
-            exc.cause,
-        )
-        return _AgentTree(groups=[], members=[], read=False)
-    return _AgentTree(
-        groups=process_tree.tree_groups(pid, rows),
-        members=process_tree.server_group_members(pid, rows),
-        read=True,
-    )
-
-
-def _end_tree(pid: int, tree: _AgentTree) -> TreeEnding:
-    """End what *tree* found under the chat child *pid*, and log what became of it. Blocking."""
-    groups = process_tree.end_groups(tree.groups)
-    members = process_tree.end_processes(tree.members)
-    if groups.ended or members.ended:
-        logger.info(
-            "Ended %d process group(s) and %d process(es) the chat child %d started: %s",
-            len(groups.ended),
-            len(members.ended),
-            pid,
-            _describe(groups.ended, members.ended),
-        )
-    if groups.survivors or members.survivors:
-        logger.warning(
-            "Process(es) the chat child %d started survived SIGKILL: %s",
-            pid,
-            _describe(groups.survivors, members.survivors),
-        )
-    if groups.unknown or members.unknown:
-        logger.warning(
-            "Chat child %d: process table unreadable: started process(es) may still be running: %s",
-            pid,
-            _describe(groups.unknown, members.unknown),
-        )
-    return TreeEnding(
-        read=tree.read,
-        ended_groups=groups.ended,
-        ended_members=members.ended,
-        surviving_groups=groups.survivors,
-        surviving_members=members.survivors,
-        unknown_groups=groups.unknown,
-        unknown_members=members.unknown,
-    )
-
-
-def _describe(groups: tuple[ProcessGroup, ...], members: tuple[ProcessRow, ...]) -> str:
-    """One line naming *groups* and then *members*, either part left out when empty."""
-    parts = (process_tree.describe(groups), process_tree.describe_processes(members))
-    return "; ".join(part for part in parts if part)
+    if is_terminal_event(frame):
+        return {**frame, "ends_turn": True}
+    return frame
 
 
 class OperatorSession:
@@ -2083,7 +2004,13 @@ class OperatorSession:
         # until the agent exits.
         pid = self.pid
         tree = (
-            await asyncio.to_thread(_read_tree, pid, lambda: self.process_exited is False)
+            await asyncio.to_thread(
+                process_tree.read_started_tree,
+                pid,
+                lambda: self.process_exited is False,
+                child="chat child",
+                log=logger,
+            )
             if pid is not None
             else None
         )
@@ -2102,10 +2029,9 @@ class OperatorSession:
                     "OperatorSession could not signal its lingering child", exc_info=True
                 )
         if pid is not None and tree is not None:
-            if tree.groups or tree.members:
-                self._tree_ending = await asyncio.to_thread(_end_tree, pid, tree)
-            else:
-                self._tree_ending = TreeEnding(read=tree.read)
+            self._tree_ending = await asyncio.to_thread(
+                process_tree.end_started_tree, pid, tree, child="chat child", log=logger
+            )
         self._started = False
         logger.info("OperatorSession stopped")
 

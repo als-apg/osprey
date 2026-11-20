@@ -268,6 +268,7 @@ def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[s
         return None
     return {
         "hierarchy_levels": db.hierarchy_levels,
+        "required_tree_levels": db.required_tree_levels(),
         "hierarchy_config": db.hierarchy_config,
         "naming_pattern": db.naming_pattern,
     }

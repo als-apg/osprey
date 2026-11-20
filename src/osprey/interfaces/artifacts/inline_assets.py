@@ -230,12 +230,68 @@ def katex_stylesheet(*, offline: bool) -> str:
 
 # Static import / re-export specifiers: `import x from '...'`, `import '...'`,
 # `export { a } from '...'`. Only root-relative and relative specifiers are
-# first-party; bare and absolute-URL specifiers are left alone.
+# first-party; bare and absolute-URL specifiers are left alone. Only a keyword
+# that sits in code is read: one inside a comment or a string or template
+# literal is not an import.
 _IMPORT_SPEC_RE = re.compile(r"""(\bfrom\s*|\bimport\s*)(["'])(\.{0,2}/[^"'\n]*)\2""")
 
 
+def _code_mask(source: str) -> bytearray:
+    """Mark which characters of a JavaScript source are code.
+
+    One left-to-right pass: ``//`` to the end of the line and ``/* ... */``
+    (unterminated runs to the end) are comments; ``'...'`` and ``"..."`` (ending
+    at the matching quote or a newline) and template literals (ending at the
+    next unescaped backtick) are strings, with ``\\`` escaping the next
+    character. Regex literals are not recognised.
+
+    Args:
+        source: The module text.
+
+    Returns:
+        One byte per character of ``source``: 1 where it is code, 0 inside a
+        comment or a string or template literal.
+    """
+    n = len(source)
+    mask = bytearray(b"\x01") * n
+    i = 0
+    while i < n:
+        ch = source[i]
+        nxt = source[i + 1] if i + 1 < n else ""
+        if ch == "/" and nxt == "/":
+            end = source.find("\n", i)
+            end = n if end < 0 else end
+        elif ch == "/" and nxt == "*":
+            end = source.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+        elif ch in "'\"`":
+            end = i + 1
+            while end < n:
+                c = source[end]
+                if c == "\\":
+                    end += 2
+                    continue
+                if c == ch:
+                    end += 1
+                    break
+                if c == "\n" and ch != "`":
+                    break
+                end += 1
+            end = min(end, n)
+        else:
+            i += 1
+            continue
+        mask[i:end] = bytes(end - i)
+        i = end
+    return mask
+
+
 def _rewrite_imports(source: str, base_url: str | None, stack: tuple[str, ...]) -> str:
+    mask = _code_mask(source)
+
     def replace(m: re.Match[str]) -> str:
+        if not mask[m.start()]:
+            return m.group(0)
         spec = m.group(3)
         if spec.startswith("/"):
             target = spec

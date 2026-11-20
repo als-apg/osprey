@@ -11,12 +11,13 @@ from typing import NoReturn
 
 from fastapi import HTTPException, status
 
-from osprey_optimizer.api.job_tracker import JobTracker
+from osprey_optimizer.api.job_tracker import HEARTBEAT_INTERVAL_SECONDS, JobTracker
 from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.protocols import JobStateWriter
 from osprey_optimizer.optimization.state import get_optimization_writer
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.cancellation import CancellationToken, get_cancellation_token
+from osprey_optimizer.utils.interval_thread import IntervalThread
 from osprey_optimizer.utils.job_keys import config_key, meta_key, state_prefix
 from osprey_optimizer.utils.process import reap_finished_children, shutdown_grace_seconds
 from osprey_optimizer.utils.redis_state_store import CREATED_STATE_TTL_SECONDS
@@ -228,6 +229,42 @@ def cancel_with_reread(
         raise_control_conflict_409(job_id, "cancel", None, writer)
 
 
+def keep_launch_alive(tracker: JobTracker, job_id: str) -> bool:
+    """One keep-alive pass over a launched job's keys until its worker registers.
+
+    Returns True while the keys are still the launcher's to keep. False when the
+    worker this process spawned for the job has died before registering (its
+    keys then lapse), or when :meth:`JobTracker.keep_claim_alive` says the
+    worker's heartbeat took over, the job is no longer running, or its record
+    is gone.
+    """
+    process = _launched.get(job_id)
+    if process is not None and not process.is_alive():
+        return False
+    return tracker.keep_claim_alive(job_id)
+
+
+def _start_launch_keep_alive(tracker: JobTracker, job_id: str) -> IntervalThread:
+    """Start the thread that keeps a launched job's keys alive until its worker registers.
+
+    It ends itself on the first pass that finds the keys no longer the
+    launcher's to keep.
+    """
+
+    def tick() -> None:
+        if not keep_launch_alive(tracker, job_id):
+            keep_alive.stop(timeout=0)
+
+    keep_alive = IntervalThread(
+        tick,
+        interval=HEARTBEAT_INTERVAL_SECONDS,
+        name=f"launch-keepalive-{job_id}",
+        swallow_errors=True,
+    )
+    keep_alive.start()
+    return keep_alive
+
+
 def launch_job(
     *,
     tracker: JobTracker,
@@ -250,7 +287,9 @@ def launch_job(
        (:meth:`JobTracker.start_claimed_job`). A cancel or edit that landed
        first wins: the claim is undone and the start answers 409. Once the job
        is RUNNING an edit answers 409 and a cancel is the worker's to finish.
-       503 + release the slot on a Redis failure.
+       503 + release the slot on a Redis failure. From the start until the
+       worker registers, the launcher keeps the job's keys alive
+       (:func:`keep_launch_alive`); then the worker's heartbeat does.
     3. Reap finished children to prevent zombie accumulation.
     4. Spawn a daemon ``"spawn"``-context ``Process`` (500 + release on OSError;
        spawn avoids epics/libca fork issues).
@@ -285,6 +324,8 @@ def launch_job(
         require_created_or_409(job_id, "start", current)
         raise draft_changed_409(job_id)
 
+    keep_alive = _start_launch_keep_alive(tracker, job_id)
+
     reap_finished_children()
 
     try:
@@ -293,6 +334,7 @@ def launch_job(
         process.start()
     except OSError as e:
         logger.exception("Failed to start job process")
+        keep_alive.stop(timeout=HEARTBEAT_INTERVAL_SECONDS + 1)
         tracker.mark_completed(job_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

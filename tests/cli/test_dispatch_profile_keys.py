@@ -86,6 +86,32 @@ def test_max_turns_defaults_when_unstated() -> None:
     assert profile.dispatch.max_turns == DispatchConfig.max_turns
 
 
+def test_unstated_limits_take_the_dataclass_defaults() -> None:
+    """The run budgets an unstated key builds with are the ones `osprey init` writes."""
+    profile = _parse_profile({"name": "x", "dispatch": {}})
+
+    assert profile.dispatch is not None
+    assert profile.dispatch.timeout_sec == DispatchConfig.timeout_sec
+    assert profile.dispatch.inactivity_sec == DispatchConfig.inactivity_sec
+    assert profile.dispatch.max_turns == DispatchConfig.max_turns
+
+
+@pytest.mark.parametrize(
+    "key", ["worker_count", "workspace_mode", "channel_strip_prefix", "network"]
+)
+def test_an_unstated_key_takes_the_dataclass_default(
+    key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unstated key builds with the `DispatchConfig` value, whatever that value is."""
+    sentinel = {"worker_count": 7, "workspace_mode": "shared", "network": "host"}.get(key, "X:")
+    monkeypatch.setattr(DispatchConfig, key, sentinel)
+
+    profile = _parse_profile({"name": "x", "dispatch": {}})
+
+    assert profile.dispatch is not None
+    assert getattr(profile.dispatch, key) == sentinel
+
+
 def test_max_turns_is_read_from_the_block() -> None:
     """An authored ceiling survives parsing."""
     profile = _parse_profile({"name": "x", "dispatch": {"max_turns": 60}})
@@ -229,6 +255,15 @@ def test_the_emitted_example_names_the_conventional_trigger_file() -> None:
 
     assert _emitted_dispatch_example()["dispatch"]["triggers"] == PROFILE_TRIGGERS_FILENAME
     assert PROFILE_TRIGGERS_FILENAME in KNOWN_ROOT_ENTRIES
+
+
+def test_the_emitted_example_states_the_run_limits() -> None:
+    """The example writes each per-run budget at the value an unstated key builds with."""
+    example = _emitted_dispatch_example()["dispatch"]
+
+    assert example["timeout_sec"] == DispatchConfig.timeout_sec
+    assert example["inactivity_sec"] == DispatchConfig.inactivity_sec
+    assert example["max_turns"] == DispatchConfig.max_turns
 
 
 def test_the_emitted_example_calls_facility_name_an_override() -> None:

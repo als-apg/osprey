@@ -40,6 +40,14 @@ def cancellation_key(job_id: str) -> str:
     return f"{_JOB_NAMESPACE}{job_id}:cancel"
 
 
+def heartbeat_key(job_id: str) -> str:
+    """Present while the worker's own heartbeat keeps the job's keys alive (str client).
+
+    Inside the job namespace, so the heartbeat and the terminal sweep cover it.
+    """
+    return f"{_JOB_NAMESPACE}{job_id}:heartbeat"
+
+
 def config_key(job_id: str) -> str:
     """Stored run spec for a CREATED-but-not-started job (str client).
 

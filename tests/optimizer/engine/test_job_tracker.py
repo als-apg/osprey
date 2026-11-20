@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import signal
 import time
 from collections.abc import Generator
@@ -36,18 +37,27 @@ from osprey_optimizer.api.job_control import (
 from osprey_optimizer.api.job_tracker import (
     ACTIVE_JOB_KEY,
     CANCELLED_MESSAGE,
+    CURRENT_JOB_KEY,
     HEARTBEAT_INTERVAL_SECONDS,
     JobLifecycle,
     JobMeta,
+    JobRecordLostError,
     JobSlotLostError,
     JobTracker,
 )
+from osprey_optimizer.api.optimization_status import build_optimization_response
 from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.exceptions import CancellationError
 from osprey_optimizer.optimization.state import OptimizationStateWriter, get_optimization_writer
 from osprey_optimizer.utils import cancellation
 from osprey_optimizer.utils.cancellation import get_cancellation_token
-from osprey_optimizer.utils.job_keys import job_scan_pattern, meta_key, state_prefix
+from osprey_optimizer.utils.job_keys import (
+    cancellation_key,
+    heartbeat_key,
+    job_scan_pattern,
+    meta_key,
+    state_prefix,
+)
 from osprey_optimizer.utils.process import (
     DEFAULT_SHUTDOWN_GRACE_SECONDS,
     SHUTDOWN_GRACE_ENV,
@@ -425,12 +435,17 @@ class TestJobLifecycle:
         lc = JobLifecycle("job-1")
         lc.__enter__()
 
-        # register_job ran the slot-checked script: RUNNING meta under the
-        # heartbeat TTL, only if job-1 still holds the slot -- asserted on the
-        # decoded payload, not shapes. It never writes the slot itself.
+        # register_worker ran the slot- and record-checked script: RUNNING meta
+        # and the heartbeat key under the running TTL, only if job-1 still holds
+        # the slot -- asserted on the decoded payload, not shapes. It never
+        # writes the slot itself.
         script = mock_redis_str.register_script.return_value
         script.assert_called_once()
-        assert script.call_args.kwargs["keys"] == [ACTIVE_JOB_KEY, meta_key("job-1")]
+        assert script.call_args.kwargs["keys"] == [
+            ACTIVE_JOB_KEY,
+            meta_key("job-1"),
+            heartbeat_key("job-1"),
+        ]
         job_id_arg, meta_arg, ttl_arg = script.call_args.kwargs["args"]
         assert job_id_arg == "job-1"
         meta = json.loads(meta_arg)
@@ -459,6 +474,35 @@ class TestJobLifecycle:
             c for c in mock_redis_bin.set.call_args_list if str(c.args[0]).endswith(":status")
         ]
         assert [deserialize_obj(c.args[1]) for c in status_writes] == [JobStatus.ERROR]
+        assert not lc._heartbeat.is_alive()
+
+    def test_enter_refuses_a_job_whose_record_lapsed(self, redis_mocks):
+        mock_redis_str, mock_redis_bin = redis_mocks
+        script = mock_redis_str.register_script.return_value
+        script.side_effect = [-1, 1]  # registration refused, then the record written
+        lc = JobLifecycle("job-1")
+
+        with pytest.raises(JobRecordLostError, match="record expired before its worker started"):
+            lc.__enter__()
+
+        record_call = script.call_args_list[1]
+        assert record_call.kwargs["keys"] == [
+            meta_key("job-1"),
+            f"{state_prefix('job-1')}:status",
+            f"{state_prefix('job-1')}:error_message",
+            ACTIVE_JOB_KEY,
+            CURRENT_JOB_KEY,
+        ]
+        args = record_call.kwargs["args"]
+        assert args[0] == "job-1"
+        assert json.loads(args[1])["status"] == JobStatus.COMPLETED.value
+        assert deserialize_obj(args[2]) is JobStatus.ERROR
+        assert deserialize_obj(args[3]) == "The job's record expired before its worker started."
+        assert args[4] == TERMINAL_STATE_TTL_SECONDS
+        status_writes = [
+            c for c in mock_redis_bin.set.call_args_list if str(c.args[0]).endswith(":status")
+        ]
+        assert status_writes == []
         assert not lc._heartbeat.is_alive()
 
     def _enter_with_mock_writer(self, lc: JobLifecycle, mock_redis_str: MagicMock) -> MagicMock:
@@ -647,6 +691,177 @@ def _launched(job_id: str) -> str:
     return job_id
 
 
+NEVER_STARTED_MESSAGE = "The job's record expired before its worker started."
+
+
+def _lapse(job_id: str) -> None:
+    """Drop every key of the job, as a lapse of their TTL does; the slot stays."""
+    str_client = get_redis_client(binary=False)
+    str_client.delete(*str_client.scan_iter(match=job_scan_pattern(job_id)))
+
+
+def _refused_after_lapse(tracker: JobTracker, job_id: str) -> str:
+    """Launch a job, lapse its keys while a panel tick clears the pointer, and
+    let its worker refuse to start."""
+    _launched(job_id)
+    tracker.set_current_job(job_id)
+    _lapse(job_id)
+    assert tracker.get_current_job() is None
+    lc = JobLifecycle(job_id)
+    with pytest.raises(JobRecordLostError, match="record expired before its worker started"):
+        lc.__enter__()
+    assert not lc._heartbeat.is_alive()
+    return job_id
+
+
+@pytest.mark.usefixtures("tracker")
+class TestRecordNeverStartedIntegration:
+    """The terminal record of a job whose worker found its record gone, over real Redis."""
+
+    def test_the_record_is_written_once(self, tracker: JobTracker):
+        job = _launched("once")
+        _lapse(job)
+
+        assert tracker.record_never_started(job, os.getpid(), "first")
+        first = tracker.get_job(job)
+        assert not tracker.record_never_started(job, os.getpid(), "second")
+
+        assert js.read_job_status(tracker, job).error_message == "first"
+        again = tracker.get_job(job)
+        assert first is not None and again is not None
+        assert again.completed_at == first.completed_at
+
+    def test_a_late_keep_alive_leaves_the_terminal_record(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _refused_after_lapse(tracker, "late-tick")
+
+        assert not job_control.keep_launch_alive(tracker, job)
+
+        assert str_client.ttl(meta_key(job)) > RUNNING_STATE_TTL_SECONDS
+        assert tracker.get_active_job() is None
+        assert js.read_job_status(tracker, job).status == JobStatus.ERROR
+
+    def test_the_launchers_pid_write_never_recreates_a_lapsed_record(self, tracker: JobTracker):
+        job = _launched("pid-late")
+        _lapse(job)
+
+        assert not tracker.register_job(job, 4242)
+
+        assert tracker.get_job(job) is None
+
+    def test_the_launchers_pid_write_after_the_refusal_changes_nothing(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _refused_after_lapse(tracker, "pid-after")
+        before = str_client.get(meta_key(job))
+
+        assert not tracker.register_job(job, 4242)
+
+        assert str_client.get(meta_key(job)) == before
+
+    def test_the_record_leaves_a_slot_another_job_holds(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("mine")
+        _lapse(job)
+        str_client.set(ACTIVE_JOB_KEY, "other")
+        tracker.register_created_job("other-draft")
+        tracker.set_current_job("other-draft")
+
+        assert tracker.record_never_started(job, os.getpid(), NEVER_STARTED_MESSAGE)
+
+        assert str_client.get(ACTIVE_JOB_KEY) == "other"
+        assert tracker.get_current_job() == "other-draft"
+
+
+def _age_to(job_id: str, seconds: int) -> list[str]:
+    """Leave every key of the job ``seconds`` to live, as after that much of its hour."""
+    str_client = get_redis_client(binary=False)
+    keys = _job_keys(job_id)
+    assert keys
+    for key in keys:
+        assert str_client.expire(key, seconds)
+    return keys
+
+
+def _finished(job_id: str) -> str:
+    """A job whose worker ran and exited through its own lifecycle."""
+    _launched(job_id)
+    with JobLifecycle(job_id):
+        get_cancellation_token(job_id)
+    return job_id
+
+
+def _assert_ttls_within(keys: list[str], seconds: int) -> None:
+    str_client = get_redis_client(binary=False)
+    ttls = {key: str_client.ttl(key) for key in keys}
+    assert all(0 < ttl <= seconds for ttl in ttls.values()), ttls
+
+
+@pytest.mark.usefixtures("tracker")
+class TestTerminalRecordLifetimeIntegration:
+    """A finished job's record expires counted from its end; a read never renews it."""
+
+    def test_a_full_read_of_a_finished_job_keeps_its_expiry(self, tracker: JobTracker):
+        job = _finished("ttl-full")
+        keys = _age_to(job, 100)
+
+        assert build_optimization_response(job, "full", tracker).status == JobStatus.COMPLETED
+
+        _assert_ttls_within(keys, 100)
+
+    def test_a_plain_and_a_summary_read_keep_the_expiry(self, tracker: JobTracker):
+        job = _finished("ttl-plain")
+        keys = _age_to(job, 100)
+
+        js.read_job_status(tracker, job)
+        build_optimization_response(job, "summary", tracker)
+
+        _assert_ttls_within(keys, 100)
+
+    def test_a_read_of_a_never_started_job_keeps_its_expiry(self, tracker: JobTracker):
+        job = _refused_after_lapse(tracker, "ttl-never")
+        keys = _age_to(job, 100)
+
+        response = build_optimization_response(job, "full", tracker)
+
+        assert response.status == JobStatus.ERROR
+        assert response.error_message == NEVER_STARTED_MESSAGE
+        _assert_ttls_within(keys, 100)
+
+    def test_a_read_does_not_finish_a_job_its_worker_left_unmarked(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("ttl-unmarked")
+        # The worker recorded its outcome and died before ending its record.
+        get_optimization_writer(job).set_status(JobStatus.COMPLETED)
+
+        build_optimization_response(job, "full", tracker)
+
+        meta = tracker.get_job(job)
+        assert meta is not None and meta.status is JobStatus.RUNNING
+        _assert_ttls_within(_job_keys(job), RUNNING_STATE_TTL_SECONDS)
+        assert str_client.get(ACTIVE_JOB_KEY) == job
+
+        _lapse(job)
+
+        assert tracker.get_active_job() is None
+        assert str_client.get(ACTIVE_JOB_KEY) is None
+        assert tracker.claim_active_job("ttl-next", 0)
+
+    def test_a_lapsed_finished_job_reads_as_not_found(self, tracker: JobTracker):
+        job = _finished("ttl-gone")
+        tracker.set_current_job(job)
+        _lapse(job)
+
+        for read in (
+            lambda: js.read_job_status(tracker, job),
+            lambda: build_optimization_response(job, "full", tracker),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                read()
+            assert exc.value.status_code == 404
+            assert exc.value.detail == f"Job {job} not found"
+        assert tracker.get_current_job() is None
+
+
 @pytest.mark.usefixtures("tracker")
 class TestJobLifecycleIntegration:
     """Integration tests with real Redis.
@@ -745,15 +960,20 @@ def _call(
     tracker: MagicMock,
     make_writer: MagicMock,
     spawn_target: MagicMock | None = None,
+    keep_alive: MagicMock | None = None,
 ) -> int | None:
-    return launch_job(
-        tracker=tracker,
-        job_id="job-1",
-        config_json="{}",
-        make_writer=make_writer,
-        spawn_target=spawn_target or MagicMock(),
-        spawn_args=("a",),
-    )
+    """Run ``launch_job`` with the keep-alive thread patched, so none outlives a test."""
+    with patch(
+        f"{_JC}._start_launch_keep_alive", MagicMock() if keep_alive is None else keep_alive
+    ):
+        return launch_job(
+            tracker=tracker,
+            job_id="job-1",
+            config_json="{}",
+            make_writer=make_writer,
+            spawn_target=spawn_target or MagicMock(),
+            spawn_args=("a",),
+        )
 
 
 def test_claim_failure_raises_409_without_spawning() -> None:
@@ -821,6 +1041,54 @@ def test_success_returns_pid_and_registers_only_when_present(pid: int | None) ->
         tracker.register_job.assert_not_called()
     else:
         tracker.register_job.assert_called_once_with("job-1", pid)
+
+
+class TestLaunchKeepAlive:
+    """The launcher's keep-alive of a spawning job's keys (mocked collaborators)."""
+
+    def test_the_keep_alive_thread_ends_itself(self):
+        with (
+            patch(f"{_JC}.keep_launch_alive", return_value=False) as keep,
+            patch(f"{_JC}.HEARTBEAT_INTERVAL_SECONDS", 0),
+            patch("osprey_optimizer.utils.interval_thread.logger") as thread_logger,
+        ):
+            keep_alive = job_control._start_launch_keep_alive(MagicMock(), "job-1")
+            assert keep_alive._thread is not None
+            keep_alive._thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+
+        assert not keep_alive.is_alive()
+        keep.assert_called_once()
+        thread_logger.warning.assert_not_called()
+
+    def test_launch_starts_the_keep_alive_before_the_spawn(self):
+        tracker = MagicMock()
+        tracker.claim_active_job.return_value = True
+        keep_alive = MagicMock()
+        parent = MagicMock()
+        parent.attach_mock(keep_alive, "keep_alive")
+
+        with patch(f"{_JC}.reap_finished_children"), patch(f"{_JC}.multiprocessing") as mp:
+            proc = mp.get_context.return_value.Process.return_value
+            proc.pid = 4321
+            parent.attach_mock(proc.start, "spawn")
+            _call(tracker, MagicMock(), keep_alive=keep_alive)
+
+        assert parent.mock_calls[:2] == [call.keep_alive(tracker, "job-1"), call.spawn()]
+
+    def test_spawn_oserror_stops_the_keep_alive(self):
+        tracker = MagicMock()
+        tracker.claim_active_job.return_value = True
+        keep_alive = MagicMock()
+        parent = MagicMock()
+        parent.attach_mock(keep_alive.return_value.stop, "stop")
+        parent.attach_mock(tracker.mark_completed, "mark_completed")
+
+        with patch(f"{_JC}.reap_finished_children"), patch(f"{_JC}.multiprocessing") as mp:
+            mp.get_context.return_value.Process.return_value.start.side_effect = OSError("no")
+            with pytest.raises(HTTPException):
+                _call(tracker, MagicMock(), keep_alive=keep_alive)
+
+        assert [name for name, _, _ in parent.mock_calls] == ["stop", "mark_completed"]
 
 
 def test_read_job_status_builds_response_from_meta_and_state() -> None:
@@ -908,6 +1176,33 @@ class TestJobLifecycleSlotIntegration:
 
         assert str_client.get(ACTIVE_JOB_KEY) == "slot-new"
 
+    def test_a_worker_whose_job_record_lapsed_leaves_a_terminal_error_record(
+        self, tracker: JobTracker
+    ):
+        """The job's keys lapsed during a slow spawn while the slot stayed: the
+        worker refuses to start and the job ends as a readable error."""
+        str_client = get_redis_client(binary=False)
+        job = _refused_after_lapse(tracker, "lapsed")
+
+        meta = tracker.get_job(job)
+        assert meta is not None
+        assert meta.status is JobStatus.COMPLETED
+        for read in (
+            js.read_job_status(tracker, job),
+            build_optimization_response(job, "full", tracker),
+        ):
+            assert read.status == JobStatus.ERROR
+            assert read.error_message == NEVER_STARTED_MESSAGE
+        for key in (
+            meta_key(job),
+            f"{state_prefix(job)}:status",
+            f"{state_prefix(job)}:error_message",
+        ):
+            assert RUNNING_STATE_TTL_SECONDS < str_client.ttl(key) <= TERMINAL_STATE_TTL_SECONDS
+        assert str_client.get(ACTIVE_JOB_KEY) != job
+        assert tracker.get_current_job() == job
+        assert not str_client.exists(heartbeat_key(job))
+
     def test_a_pause_landed_during_the_spawn_survives_the_worker_starting(self):
         job_id = _launched("slot-paused")
         writer = get_optimization_writer(job_id)
@@ -919,6 +1214,82 @@ class TestJobLifecycleSlotIntegration:
             assert writer.get_status() == JobStatus.PAUSED
         finally:
             lc.__exit__(None, None, None)
+
+
+def _job_keys(job_id: str) -> list[str]:
+    return list(get_redis_client(binary=False).scan_iter(match=job_scan_pattern(job_id)))
+
+
+def _lapse_to_one_second(job_id: str) -> list[str]:
+    """Leave every key of the job one second to live, as after 59 s without upkeep."""
+    str_client = get_redis_client(binary=False)
+    keys = _job_keys(job_id)
+    for key in keys:
+        assert str_client.pexpire(key, 1000)
+    return keys
+
+
+@pytest.mark.usefixtures("tracker")
+class TestLaunchKeepAliveIntegration:
+    """The launcher keeps a spawning job's keys alive until the worker's heartbeat does."""
+
+    def test_the_launcher_keeps_a_spawning_jobs_keys_alive(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("keepalive-spawning")
+        get_cancellation_token(job)
+        keys = _lapse_to_one_second(job)
+        assert {meta_key(job), cancellation_key(job)} <= set(keys)
+
+        assert job_control.keep_launch_alive(tracker, job) is True
+
+        for key in keys:
+            assert 1000 < str_client.pttl(key) <= RUNNING_STATE_TTL_SECONDS * 1000, key
+
+    def test_the_keep_alive_hands_over_to_the_worker_heartbeat(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("keepalive-handover")
+        lc = JobLifecycle(job)
+        lc.__enter__()
+        try:
+            keys = _lapse_to_one_second(job)
+
+            assert job_control.keep_launch_alive(tracker, job) is False
+
+            for key in keys:
+                assert str_client.pttl(key) <= 1000, key
+        finally:
+            lc._heartbeat.stop(timeout=HEARTBEAT_INTERVAL_SECONDS + 1)
+
+    def test_the_keep_alive_never_shortens_a_terminal_job(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("keepalive-terminal")
+        tracker.mark_completed(job)
+
+        assert job_control.keep_launch_alive(tracker, job) is False
+
+        assert str_client.ttl(meta_key(job)) > RUNNING_STATE_TTL_SECONDS
+
+    def test_the_keep_alive_stops_for_a_worker_that_died_before_registering(
+        self, tracker: JobTracker
+    ):
+        str_client = get_redis_client(binary=False)
+        job = _launched("keepalive-dead-worker")
+        dead = _FakeProcess(exits_on="join")
+        dead.join()
+        _record(job, dead)
+        keys = _lapse_to_one_second(job)
+
+        assert job_control.keep_launch_alive(tracker, job) is False
+
+        for key in keys:
+            assert str_client.pttl(key) <= 1000, key
+
+    def test_the_keep_alive_stops_once_the_job_keys_are_gone(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("keepalive-gone")
+        str_client.delete(*_job_keys(job))
+
+        assert job_control.keep_launch_alive(tracker, job) is False
 
 
 # --- Service shutdown: job_control.stop_launched_jobs -----------------------------

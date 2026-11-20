@@ -25,6 +25,7 @@ from osprey.simulation.engines.pyat_model import CHROMATICITY, TUNES
 
 MODEL = "SR"
 QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
+QUADRUPOLE_READBACK = "SR:MAG:QF:01:CURRENT:RB"
 OTHER_QUADRUPOLE = "SR:MAG:QD:02:CURRENT:SP"
 CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
 CORRECTOR_READBACK = "SR:MAG:HCM:01:CURRENT:RB"
@@ -244,6 +245,128 @@ class TestReadbacks:
         assert model.get([CORRECTOR_READBACK])[CORRECTOR_READBACK] == 1.5
 
 
+class TestReadbackWithItsOwnCalibration:
+    """A second readback of one quantity, in another unit through its own calibration."""
+
+    VOLTAGE = "SR:MAG:QF:01:VOLTAGE"
+    GAIN, OFFSET = 0.32416, 0.05
+    BACK = {"linear": {"gain": 3.0, "offset": -0.2}}
+
+    def voltage(self, demo, **calibration: Any) -> dict[str, Any]:
+        """The quadrupole readback's record, restated on its own address and line."""
+        monitor = entry(demo, QUADRUPOLE_READBACK)
+        scaling = entry(demo, QUADRUPOLE)["calibration"]["energy_scaling"]
+        return {
+            **monitor,
+            "id": f"{MODEL}/{self.VOLTAGE}",
+            "address": self.VOLTAGE,
+            "calibration": {
+                "curve": {"linear": {"gain": self.GAIN, "offset": self.OFFSET}},
+                "energy_scaling": scaling,
+                **calibration,
+            },
+            "default": 0.0,
+        }
+
+    def strength(self, demo, current: float) -> float:
+        line = entry(demo, QUADRUPOLE)["calibration"]["curve"]["linear"]
+        return float(line["gain"] * current + line["offset"])
+
+    def test_it_reads_the_setpoints_physics_value_through_its_own_line(self, demo):
+        model = build(demo, wiring=[*demo["wiring"], self.voltage(demo)])
+        boot = entry(demo, QUADRUPOLE)["default"]
+
+        at_boot = model.get([self.VOLTAGE])[self.VOLTAGE]
+        model.set({QUADRUPOLE: boot * 1.01})
+        moved = model.get([self.VOLTAGE, QUADRUPOLE_READBACK])
+
+        assert at_boot == pytest.approx(
+            (self.strength(demo, boot) - self.OFFSET) / self.GAIN, rel=1e-12
+        )
+        assert moved[self.VOLTAGE] == pytest.approx(
+            (self.strength(demo, boot * 1.01) - self.OFFSET) / self.GAIN, rel=1e-12
+        )
+        assert moved[QUADRUPOLE_READBACK] == pytest.approx(boot * 1.01, rel=1e-12)
+
+    def test_its_stated_inverse_is_the_way_back(self, demo):
+        model = build(demo, wiring=[*demo["wiring"], self.voltage(demo, inverse=self.BACK)])
+        boot = entry(demo, QUADRUPOLE)["default"]
+
+        assert model.get([self.VOLTAGE])[self.VOLTAGE] == pytest.approx(
+            3.0 * self.strength(demo, boot) - 0.2, rel=1e-12
+        )
+
+    def test_it_follows_a_reset(self, demo):
+        model = build(demo, wiring=[*demo["wiring"], self.voltage(demo)])
+        at_boot = model.get([self.VOLTAGE])[self.VOLTAGE]
+        model.set({QUADRUPOLE: entry(demo, QUADRUPOLE)["default"] * 1.01})
+
+        model.reset()
+
+        assert model.get([self.VOLTAGE])[self.VOLTAGE] == pytest.approx(at_boot, rel=1e-12)
+
+    def test_its_start_value_is_what_the_model_serves_at_boot(self, demo):
+        records = [
+            entry(demo, QUADRUPOLE),
+            entry(demo, QUADRUPOLE_READBACK),
+            self.voltage(demo, inverse=self.BACK),
+        ]
+        starts = engine.start_values(
+            demo["deck"],
+            records,
+            demo["settings"],
+            readbacks={QUADRUPOLE_READBACK: QUADRUPOLE, self.VOLTAGE: None},
+        )
+        stated = [{**record, "default": starts[record["address"]]} for record in records]
+        rest = [item for item in demo["wiring"] if item["address"] not in starts]
+
+        model = build(demo, wiring=[*rest, *stated])
+        served = model.get([self.VOLTAGE, QUADRUPOLE_READBACK])
+
+        assert starts[self.VOLTAGE] != 0.0
+        assert served[self.VOLTAGE] == pytest.approx(starts[self.VOLTAGE], rel=1e-12)
+        assert starts[QUADRUPOLE_READBACK] == starts[QUADRUPOLE]
+        assert served[QUADRUPOLE_READBACK] == pytest.approx(starts[QUADRUPOLE], rel=1e-12)
+
+    def test_a_readback_stating_its_setpoints_calibration_reads_as_before(self, demo):
+        model = build(demo, wiring=[*demo["wiring"], self.voltage(demo)])
+        boot = entry(demo, QUADRUPOLE)["default"]
+        setpoint = model.supported_variables[QUADRUPOLE]
+
+        assert model.supported_variables[QUADRUPOLE_READBACK].calibration is None
+        assert model.supported_variables[self.VOLTAGE].calibration is not None
+        assert model.get([QUADRUPOLE_READBACK])[QUADRUPOLE_READBACK] == setpoint.readback(boot)
+
+    def test_a_readback_stating_no_calibration_reads_as_its_setpoint_does(self, demo):
+        bare = {key: value for key, value in self.voltage(demo).items() if key != "calibration"}
+        model = build(demo, wiring=[*demo["wiring"], bare])
+        boot = entry(demo, QUADRUPOLE)["default"]
+
+        assert model.supported_variables[self.VOLTAGE].calibration is None
+        assert model.get([self.VOLTAGE])[self.VOLTAGE] == pytest.approx(boot, rel=1e-12)
+
+    def test_with_no_setpoint_it_reads_its_default(self, demo):
+        lone = {**self.voltage(demo), "default": 1.5}
+        wiring = [item for item in demo["wiring"] if item["address"] != QUADRUPOLE]
+        model = build(demo, wiring=[*wiring, lone])
+
+        assert model.supported_variables[self.VOLTAGE].calibration is None
+        assert model.get([self.VOLTAGE])[self.VOLTAGE] == 1.5
+
+    def test_a_table_with_no_inverse_has_no_start_value(self, demo):
+        table = {"table": {"grid": [0.0, 1.0], "values": [0.0, 2.0]}}
+        records = [entry(demo, QUADRUPOLE), self.voltage(demo, curve=table)]
+
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                demo["deck"], records, demo["settings"], readbacks={self.VOLTAGE: None}
+            )
+
+        assert caught.value.kind == "engine-invalid"
+        assert caught.value.record_id == f"{MODEL}/{self.VOLTAGE}"
+        assert "no inverse to serve the reading" in caught.value.detail
+
+
 class TestDeckProperties:
     #: A dipole supply's current to the deck energy in eV, one way on both axes.
     CURVE = {"table": {"grid": [0.0, 500.0, 1000.0], "values": [0.0, 1.5e9, 3.0e9]}}
@@ -269,6 +392,26 @@ class TestDeckProperties:
         assert model.get(["BEND:RB"])["BEND:RB"] == pytest.approx(
             setpoint["default"] * 1.001, rel=1e-12
         )
+
+    def test_an_energy_readback_stating_another_calibration_is_refused(self, demo):
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        other = {"curve": {"linear": {"gain": 2.0, "offset": 0.0}}, "energy_scaling": "none"}
+        readback = {**self.knob(demo, "BEND:RB", "read"), "calibration": other}
+
+        with pytest.raises(ValueError, match="BEND:RB states another calibration than its"):
+            build(demo, wiring=[*demo["wiring"], setpoint, readback])
+        line = {"curve": {"linear": {"gain": 3.0e6, "offset": 0.0}}, "energy_scaling": "none"}
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                demo["deck"],
+                [{**setpoint, "calibration": line}, readback],
+                demo["settings"],
+                readbacks={"BEND:RB": None},
+            )
+
+        assert caught.value.kind == "engine-invalid"
+        assert caught.value.record_id == f"{MODEL}/BEND:RB"
+        assert "states another calibration than its setpoint BEND:SP" in caught.value.detail
 
     def test_an_energy_readback_with_no_setpoint_reads_its_default(self, demo):
         readback = {**self.knob(demo, "BEND:RB", "read"), "default": 42.0}

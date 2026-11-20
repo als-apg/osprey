@@ -7,8 +7,18 @@ code can name IRIs, status channels and the graph token without escaping.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from typing import Any
 
-__all__ = ["DEFAULT_ROLE", "FACILITY_FILE", "PN_LOCAL", "STILL_ALL", "TEXTURE", "fold_code"]
+__all__ = [
+    "DEFAULT_ROLE",
+    "FACILITY_FILE",
+    "PN_LOCAL",
+    "STILL_ALL",
+    "TEXTURE",
+    "fold_code",
+    "wiring_addresses",
+]
 
 PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -25,6 +35,21 @@ DEFAULT_ROLE = "readback"
 STILL_ALL = "all"
 
 _OUTSIDE_PN_LOCAL = re.compile(r"[^A-Za-z0-9_]")
+
+
+def wiring_addresses(record: Mapping[str, Any]) -> list[str]:
+    """Every address a wiring record names: its ``address``, then each of its ``also``.
+
+    Args:
+        record: A wiring record, checked against the schema or not.
+
+    Returns:
+        The addresses in stated order; an ``address`` or an ``also`` entry
+        that is no string is left out.
+    """
+    also = record.get("also")
+    stated = [record.get("address"), *(also if isinstance(also, list | tuple) else ())]
+    return [address for address in stated if isinstance(address, str)]
 
 
 def fold_code(name: str) -> str:

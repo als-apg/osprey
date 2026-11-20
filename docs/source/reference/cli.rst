@@ -507,11 +507,16 @@ Stop this deployment, keeping all data. It renders nothing; destroying data is
 
 If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
 compose files from ``profile.yml`` — those describe what would be started now,
-not what is running. Instead it stops the containers this repository labelled as
-its own, which is the recovery path for a ``build/`` deleted while the stack was
-up. Containers are labelled when they are *created*, so a stack started before
-this labelling existed cannot be found that way; run ``osprey build`` to restore
-``build/`` and ``down`` works normally again.
+not what is running. Instead it stops the services the last start recorded, in
+the compose project it recorded, and leaves any container another checkout
+created. That is the recovery path for a ``build/`` deleted while the stack was
+up.
+
+A deployment whose record names no services, or a repository with no record, is
+stopped by the label this repository put on its containers. Containers are
+labelled when they are *created*, so a stack started before this labelling
+existed cannot be found that way; run ``osprey build`` to restore ``build/`` and
+``down`` works normally again.
 
 osprey restart
 --------------
@@ -564,7 +569,8 @@ osprey reset
 Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
-out of ``.env``, and deletes ``build/`` and ``var/deployment.json``.
+out of ``.env``, and deletes ``build/``, ``var/deployment.json`` and
+``var/host-network-ports.json``.
 
 What survives, the plan lists before you confirm:
 
@@ -1179,8 +1185,9 @@ is :doc:`/how-to/apps/index`.
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
    ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` loads the design-system ``tokens.css``,
-   ``base.css`` and ``primitives.css`` and every class the panel sets has a CSS
+   packages, that ``panel/index.html`` passes the panel validator's page rules
+   (the three design-system sheets, the theme boot script, the font sheet, no raw
+   hex colour, the page-ready mark) and every class the panel sets has a CSS
    rule, ESLint over ``panel/`` when it holds JS, and Vitest over
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block

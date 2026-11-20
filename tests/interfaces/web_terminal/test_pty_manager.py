@@ -233,6 +233,35 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
+    def test_terminate_ends_through_the_shared_ending(self, tmp_path, monkeypatch):
+        pid_file = tmp_path / "pids"
+        script = sleeper_script(tmp_path, "magnet_scan.py")
+        real_end = process_tree.end_started_tree
+        trees: list[process_tree.StartedTree] = []
+
+        def end_spy(pid, tree, **kwargs):
+            trees.append(tree)
+            return real_end(pid, tree, **kwargs)
+
+        monkeypatch.setattr(process_tree, "end_started_tree", end_spy)
+        session = PtySession(
+            [sys.executable, "-S", "-c", detaching_child_script(pid_file, scripts=[script])]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 2)
+            sleeper = os.getpgid(pids[0])
+
+            session.terminate()
+
+            assert len(trees) == 1, trees
+            assert sleeper in {group.pgid for group in trees[0].groups}
+        finally:
+            monkeypatch.undo()
+            session.terminate()
+            kill_quietly(pids)
+
     def test_terminate_ends_a_helper_that_outlives_the_hang_up(self, tmp_path):
         pid_file = tmp_path / "pids"
         source = detaching_child_script(pid_file, scripts=[], helper_ignores_hup=True)
@@ -471,7 +500,7 @@ class TestPtySession:
             unknown = [
                 w
                 for w in warnings
-                if "process table unreadable: started group(s) may still be running" in w
+                if "process table unreadable: started process(es) may still be running" in w
             ]
             assert len(unknown) == 1, warnings
             assert f"pgid {sleeper} " in unknown[0], unknown
@@ -600,7 +629,7 @@ class TestPtyChildWaits:
         proc = subprocess.Popen([sys.executable, "-S", "-c", "import time; time.sleep(120)"])
         try:
             with pytest.raises(
-                AssertionError, match=rf"pid {proc.pid} \(ps state '\S+'\) is still"
+                AssertionError, match=rf"pid {proc.pid} \(psutil status '\S+'\) is still"
             ):
                 await wait_gone([proc.pid], within=0.1)
         finally:

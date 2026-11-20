@@ -28,6 +28,7 @@ CONSUMERS = frozenset(
         "tests/va/e2e/test_planted_journal.py",
         "tests/va/e2e/test_target_switch.py",
         "tests/va/e2e/test_va_put_surface.py",
+        "tests/va/e2e/test_va_labelled_follow.py",
         "tests/va/e2e/test_mml_trees_boot.py",
         "tests/va/e2e/test_bluesky_lanes.py",
         "tests/va/e2e/test_substrate_parity.py",
