@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 import multiprocessing
+import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
+from multiprocessing import connection
 from multiprocessing.process import BaseProcess
 from typing import NoReturn
 
@@ -30,6 +33,21 @@ logger = logging.getLogger(__name__)
 # ``--workers N`` each API process stops only its own.
 _launched: dict[str, BaseProcess] = {}
 
+
+@dataclass
+class _WorkerWatch:
+    """The thread waiting for a launched worker to exit, and whether its job's end is its own."""
+
+    thread: threading.Thread
+    armed: bool = True
+
+
+# The end of a launched job whose worker has exited belongs to its watch while
+# the watch is armed, and to the shutdown once the shutdown has disarmed it;
+# never to both.
+_watch_lock = threading.Lock()
+_watches: dict[str, _WorkerWatch] = {}
+
 # After the shutdown grace: how long a terminated worker gets to exit before it
 # is killed, and how long the kill gets to take effect. With the grace they
 # bound a shutdown (see stop_launched_jobs).
@@ -44,6 +62,8 @@ SHUTDOWN_KILLED_MESSAGE = (
     "grace, so it was killed. No partial results were saved, and setpoints are as the "
     f"worker left them, possibly part-way through a write; {CHECK_THE_MACHINE}"
 )
+
+WORKER_EXITED_MESSAGE = f"The worker process exited before the run ended; {CHECK_THE_MACHINE}"
 
 # Write a draft's config and start notice, with the draft's TTL, only while its
 # status is still CREATED. KEYS[1]=the job's pickled status key, KEYS[2]=its
@@ -226,8 +246,9 @@ def cancel_with_reread(
     # when the cancel lands, so it keeps the active slot until it has stopped, and
     # its JobLifecycle sets CANCELLED and releases the slot. Until then the job is
     # CANCELLING, and no other job or manual write can start. A worker that dies
-    # instead stops its heartbeat, and its keys and the slot expire. CAS from the
-    # status just read: a lost CAS means the worker drove it terminal in the gap.
+    # instead is ended by its launcher's watch; with no launcher left, its
+    # heartbeat stops and its keys and the slot expire. CAS from the status just
+    # read: a lost CAS means the worker drove it terminal in the gap.
     if not writer.set_status_cas(current, JobStatus.CANCELLING):
         raise_control_conflict_409(job_id, "cancel", None, writer)
 
@@ -237,7 +258,7 @@ def keep_launch_alive(tracker: JobTracker, job_id: str) -> bool:
 
     Returns True while the keys are still the launcher's to keep. False when the
     worker this process spawned for the job has died before registering (its
-    keys then lapse), or when :meth:`JobTracker.keep_claim_alive` says the
+    watch ends the job), or when :meth:`JobTracker.keep_claim_alive` says the
     worker's heartbeat took over, the job is no longer running, or its record
     is gone.
     """
@@ -266,6 +287,57 @@ def _start_launch_keep_alive(tracker: JobTracker, job_id: str) -> IntervalThread
     )
     keep_alive.start()
     return keep_alive
+
+
+def _claim_end(job_id: str) -> bool:
+    """Take the end of a launched job for its watch: True once, while the watch is armed."""
+    with _watch_lock:
+        watch = _watches.get(job_id)
+        if watch is None or not watch.armed:
+            return False
+        watch.armed = False
+        return True
+
+
+def end_exited_worker_job(tracker: JobTracker, job_id: str, process: BaseProcess) -> None:
+    """End the job of a launched worker that has exited, as an error, unless it has ended.
+
+    Called by the job's watch once the worker process is gone. The end is the
+    watch's only while it is armed: a job the shutdown took is left to the
+    shutdown. :meth:`JobTracker.end_job` keeps an outcome the worker recorded,
+    completes its record, and never re-creates a lapsed one. A failed write is
+    logged; the job's keys then expire.
+    """
+    if not _claim_end(job_id):
+        return
+    try:
+        outcome = tracker.end_job(job_id, JobStatus.ERROR, WORKER_EXITED_MESSAGE)
+    except Exception:
+        logger.exception("Could not record the end of job %s; its keys expire", job_id)
+        return
+    if outcome is JobEnd.ENDED:
+        logger.warning(
+            "Job %s's worker exited (code %s) before the run ended", job_id, process.exitcode
+        )
+
+
+def _start_worker_watch(tracker: JobTracker, job_id: str, process: BaseProcess) -> None:
+    """Start the thread that ends the job when its worker process exits.
+
+    It blocks on the process's sentinel, which is ready the moment the process
+    ends and takes no part in reaping: reaping stays with
+    ``reap_finished_children`` and the shutdown's joins. Then it calls
+    :func:`end_exited_worker_job`.
+    """
+
+    def watch() -> None:
+        connection.wait([process.sentinel])
+        end_exited_worker_job(tracker, job_id, process)
+
+    thread = threading.Thread(target=watch, name=f"worker-watch-{job_id}", daemon=True)
+    with _watch_lock:
+        _watches[job_id] = _WorkerWatch(thread=thread)
+    thread.start()
 
 
 def launch_job(
@@ -297,8 +369,10 @@ def launch_job(
     3. Reap finished children to prevent zombie accumulation.
     4. Spawn a daemon ``"spawn"``-context ``Process`` (500 + release on OSError;
        spawn avoids epics/libca fork issues).
-    5. Register the real PID once the OS assigns one, and keep the process so
-       a service shutdown can stop it (:func:`stop_launched_jobs`).
+    5. Keep the process so a service shutdown can stop it
+       (:func:`stop_launched_jobs`), start its watch, which ends the job when
+       the worker exits without an outcome (:func:`end_exited_worker_job`),
+       and register the real PID once the OS assigns one.
 
     Returns the spawned PID (or None if the OS did not assign one). Domain
     validation, the friendly active-job 409 label, and any pre-spawn resource
@@ -343,7 +417,10 @@ def launch_job(
 
     for finished in [jid for jid, p in _launched.items() if not p.is_alive()]:
         del _launched[finished]
+        with _watch_lock:
+            _watches.pop(finished, None)
     _launched[job_id] = process
+    _start_worker_watch(tracker, job_id, process)
 
     if process.pid:
         tracker.register_job(job_id, process.pid)
@@ -366,8 +443,9 @@ def stop_launched_jobs(tracker: JobTracker, grace_s: float | None = None) -> Non
     4. End each job whose worker is gone but left it non-terminal, and release
        its slot now rather than when the heartbeat TTL lapses.
 
-    Nothing here writes a setpoint. A stopped run holds the machine where it
-    is: restoring it is the operator's call, through the results restore
+    The jobs it stops are ended here, with its reasons, and no longer by their
+    watch. Nothing here writes a setpoint. A stopped run holds the machine where
+    it is: restoring it is the operator's call, through the results restore
     endpoint. The bound is the grace plus the two waits, plus Redis round trips.
     """
     if grace_s is None:
@@ -381,6 +459,11 @@ def stop_launched_jobs(tracker: JobTracker, grace_s: float | None = None) -> Non
         grace_s,
         ", ".join(running),
     )
+    with _watch_lock:
+        for job_id in running:
+            watch = _watches.get(job_id)
+            if watch is not None:
+                watch.armed = False
 
     for job_id in running:
         try:

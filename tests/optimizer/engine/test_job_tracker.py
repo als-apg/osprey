@@ -29,10 +29,13 @@ from redis import exceptions as redis_exceptions
 from osprey_optimizer.api import job_control
 from osprey_optimizer.api import job_status as js
 from osprey_optimizer.api.job_control import (
+    CHECK_THE_MACHINE,
     KILL_WAIT_SECONDS,
     SHUTDOWN_KILLED_MESSAGE,
     TERMINATE_WAIT_SECONDS,
+    WORKER_EXITED_MESSAGE,
     cancel_with_reread,
+    end_exited_worker_job,
     launch_job,
     persist_created_job,
     stop_launched_jobs,
@@ -1082,10 +1085,12 @@ def _call(
     make_writer: MagicMock,
     spawn_target: MagicMock | None = None,
     keep_alive: MagicMock | None = None,
+    watch: MagicMock | None = None,
 ) -> int | None:
-    """Run ``launch_job`` with the keep-alive thread patched, so none outlives a test."""
-    with patch(
-        f"{_JC}._start_launch_keep_alive", MagicMock() if keep_alive is None else keep_alive
+    """Run ``launch_job`` with the keep-alive and watch threads patched, so none outlives a test."""
+    with (
+        patch(f"{_JC}._start_launch_keep_alive", MagicMock() if keep_alive is None else keep_alive),
+        patch(f"{_JC}._start_worker_watch", MagicMock() if watch is None else watch),
     ):
         return launch_job(
             tracker=tracker,
@@ -1176,6 +1181,87 @@ def test_success_returns_pid_and_registers_only_when_present(pid: int | None) ->
         tracker.register_job.assert_not_called()
     else:
         tracker.register_job.assert_called_once_with("job-1", pid)
+
+
+def _armed_watch(job_id: str) -> None:
+    """Register an armed watch for the job, as ``launch_job`` does, with no thread running."""
+    job_control._watches[job_id] = job_control._WorkerWatch(thread=MagicMock())
+
+
+class TestWorkerWatch:
+    """The launcher's watch of a worker it spawned (mocked collaborators)."""
+
+    def test_launch_starts_the_watch_for_the_worker_it_recorded(self):
+        tracker = MagicMock()
+        tracker.claim_active_job.return_value = True
+        watch = MagicMock()
+        recorded: list[object] = []
+        watch.side_effect = lambda *_: recorded.append(job_control._launched.get("job-1"))
+
+        with patch(f"{_JC}.reap_finished_children"), patch(f"{_JC}.multiprocessing") as mp:
+            proc = mp.get_context.return_value.Process.return_value
+            proc.pid = 4321
+            _call(tracker, MagicMock(), watch=watch)
+
+        watch.assert_called_once_with(tracker, "job-1", proc)
+        assert recorded == [proc]
+
+    def test_a_failed_spawn_starts_no_watch(self):
+        tracker = MagicMock()
+        tracker.claim_active_job.return_value = True
+        watch = MagicMock()
+
+        with patch(f"{_JC}.reap_finished_children"), patch(f"{_JC}.multiprocessing") as mp:
+            mp.get_context.return_value.Process.return_value.start.side_effect = OSError("no fork")
+            with pytest.raises(HTTPException):
+                _call(tracker, MagicMock(), watch=watch)
+
+        watch.assert_not_called()
+        assert "job-1" not in job_control._watches
+
+    def test_the_watch_ends_the_job_of_a_worker_that_exited(self):
+        tracker = MagicMock()
+        tracker.end_job.return_value = JobEnd.ENDED
+        process = _FakeProcess(exits_on="join", exitcode=-9)
+        process.join()
+        _armed_watch("j1")
+
+        end_exited_worker_job(tracker, "j1", process)
+        end_exited_worker_job(tracker, "j1", process)
+
+        tracker.end_job.assert_called_once_with("j1", JobStatus.ERROR, WORKER_EXITED_MESSAGE)
+
+    def test_a_job_the_shutdown_took_is_left_to_the_shutdown(self, shutdown_seams):
+        tracker = MagicMock()
+        tracker.end_job.return_value = JobEnd.ENDED
+        process = _FakeProcess(exits_on="terminate")
+        _record("j1", process)
+        _armed_watch("j1")
+        shutdown_seams["make_writer"].side_effect = [_writer()]
+
+        stop_launched_jobs(tracker, grace_s=0)
+        end_exited_worker_job(tracker, "j1", process)
+
+        assert tracker.end_job.call_args_list == [
+            call("j1", JobStatus.CANCELLED, SHUTDOWN_KILLED_MESSAGE)
+        ]
+
+    def test_a_failed_write_is_logged_and_not_raised(self, caplog):
+        tracker = MagicMock()
+        tracker.end_job.side_effect = redis_exceptions.ConnectionError("redis down")
+        process = _FakeProcess(exits_on="join", exitcode=-9)
+        process.join()
+        _armed_watch("j1")
+
+        end_exited_worker_job(tracker, "j1", process)
+
+        assert "Could not record the end of job j1; its keys expire" in caplog.text
+
+    def test_the_worker_exit_message_states_the_exit_and_the_shutdowns_hint(self):
+        assert WORKER_EXITED_MESSAGE == (
+            "The worker process exited before the run ended; check the machine before the next run."
+        )
+        assert SHUTDOWN_KILLED_MESSAGE.endswith(CHECK_THE_MACHINE)
 
 
 class TestLaunchKeepAlive:
@@ -1811,7 +1897,7 @@ class TestWorkerWatchIntegration:
         expected = (
             "The worker process exited before the run ended; check the machine before the next run."
         )
-        assert status.error_message == job_control.WORKER_EXITED_MESSAGE == expected
+        assert status.error_message == WORKER_EXITED_MESSAGE == expected
         full = build_optimization_response(job, "full", tracker)
         assert full.status is JobStatus.ERROR
         assert full.error_message == expected
@@ -1852,4 +1938,15 @@ class TestWorkerWatchIntegration:
 
         assert refused.value.status_code == 409
         assert "already error" in refused.value.detail
-        assert writer.get_error_message() == job_control.WORKER_EXITED_MESSAGE
+        assert writer.get_error_message() == WORKER_EXITED_MESSAGE
+
+    def test_the_launchers_pid_write_after_the_watch_ended_the_job_changes_nothing(self):
+        """The watch can end a job before the launcher writes its worker's PID."""
+        job = _launched("ended-before-pid")
+        tracker = JobTracker()
+        assert tracker.end_job(job, JobStatus.ERROR, WORKER_EXITED_MESSAGE) is JobEnd.ENDED
+        str_client = get_redis_client(binary=False)
+        ended = str_client.get(meta_key(job))
+
+        assert tracker.register_job(job, 4242) is False
+        assert str_client.get(meta_key(job)) == ended

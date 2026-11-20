@@ -217,7 +217,8 @@ return 0
 
 # Heartbeat: a running job re-applies RUNNING_STATE_TTL_SECONDS across its whole
 # job:{id}:* namespace every HEARTBEAT_INTERVAL_SECONDS. If the process dies
-# (SIGKILL/OOM/redeploy) it stops refreshing, every key expires, and
+# (SIGKILL/OOM/redeploy) it stops refreshing, unless the launcher's watch ends
+# the job first (job_control.end_exited_worker_job): every key expires, and
 # get_active_job() self-heals the otherwise-permanently-wedged active slot — and
 # no state/cancel key leaks. The 6x margin (10s beat / 60s TTL) tolerates a brief
 # Redis blip without freeing a slot out from under a live job. Until the worker
@@ -650,7 +651,8 @@ class JobTracker:
         Refreshing the entire namespace (one SCAN per beat — the slight per-beat
         cost) keeps not just the metadata slot but every state and cancellation
         key alive while the job runs. A process that dies (SIGKILL/OOM/redeploy)
-        stops calling this, so all its keys expire after
+        stops calling this, so, unless the launcher's watch ends the job first
+        (``job_control.end_exited_worker_job``), all its keys expire after
         ``RUNNING_STATE_TTL_SECONDS``: :meth:`get_active_job` reclaims the wedged
         slot, and no state/cancel key leaks (it never reaches the terminal sweep).
         """

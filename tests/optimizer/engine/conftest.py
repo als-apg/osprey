@@ -117,7 +117,7 @@ def clear_dependency_overrides() -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def contain_launched_jobs() -> Generator[None, None, None]:
-    """Contain the launcher's process-global record of the workers it spawned.
+    """Contain the launcher's process-global record of the workers it spawned and their watches.
 
     ``launch_job`` records every worker for the shutdown in
     ``stop_launched_jobs``; a test's fake process left there would be "stopped"
@@ -127,6 +127,7 @@ def contain_launched_jobs() -> Generator[None, None, None]:
 
     yield
     job_control._launched.clear()
+    job_control._watches.clear()
 
 
 @pytest.fixture(autouse=True)
