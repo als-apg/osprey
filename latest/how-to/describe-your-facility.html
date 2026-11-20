@@ -1434,7 +1434,45 @@ record binds that a scenario may still misalign or give a multipole error; see
 <em>Element errors</em> in <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
 <p>A wiring record’s <code class="docutils literal notranslate"><span class="pre">calibration</span></code> converts between the channel’s hardware
 value and the engine’s physics value, as a <code class="docutils literal notranslate"><span class="pre">linear</span></code> gain and offset or a
-<code class="docutils literal notranslate"><span class="pre">table</span></code>. Channels no served model wires are served by the texture model from
+<code class="docutils literal notranslate"><span class="pre">table</span></code>.</p>
+<p>A readback record reads the setpoint record that names the same element (or
+slices), engine <code class="docutils literal notranslate"><span class="pre">attribute</span></code> and <code class="docutils literal notranslate"><span class="pre">index</span></code>. A readback that states the
+setpoint’s calibration, or none, reads the setpoint’s value on the setpoint’s
+way back. A readback that states another calibration reads the same physics
+value through its own: the setpoint’s <code class="docutils literal notranslate"><span class="pre">curve</span></code> gives the physics value, and
+the readback’s <code class="docutils literal notranslate"><span class="pre">inverse</span></code> (or, with none, the inverse of its <code class="docutils literal notranslate"><span class="pre">linear</span></code>
+curve) gives the reading. So one quantity can be read in a second unit. The
+voltage of the quadrupole’s circuit, 0.1 V per ampere, is a channel of its own:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">V</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">focusing quadrupole circuit voltage</span>
+</pre></div>
+</div>
+<p>and a third record on the element the current setpoint and its readback are
+wired to, with the strength a volt stands for as its curve:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">QF01</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PolynomB</span>
+<span class="w">    </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">calibration</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">curve</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">0.06006155556990854</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">brho</span>
+</pre></div>
+</div>
+<p>The readback’s <code class="docutils literal notranslate"><span class="pre">curve</span></code> runs the way every curve does, from its own unit to
+the physics value; a <code class="docutils literal notranslate"><span class="pre">table</span></code> needs an <code class="docutils literal notranslate"><span class="pre">inverse</span></code>. State the setpoint’s
+<code class="docutils literal notranslate"><span class="pre">energy_scaling</span></code> on it unless its unit does not move with the beam energy
+as the setpoint’s does. Its computed <code class="docutils literal notranslate"><span class="pre">default</span></code> is the value it is served
+with at start, and its seed’s noise and drift act in its own unit. A readback
+of a deck property such as <code class="docutils literal notranslate"><span class="pre">energy</span></code> cannot state another calibration than
+its setpoint; the build stops with <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code>.</p>
+<p>The model computes a wired readback from the setpoint record on its element,
+so it reads that setpoint whether or not the channels <code class="docutils literal notranslate"><span class="pre">pair</span></code> the two, where
+several setpoints name it, and where its seed states <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code>; its
+<code class="docutils literal notranslate"><span class="pre">default</span></code> is the value it is served with in each case.</p>
+<p>Channels no served model wires are served by the texture model from
 their seeds. Which models a deployment serves, and what a failed one looks like, is
 in <a class="reference internal" href="../architecture/facility-file.html#architecture-simulation-models"><span class="std std-ref">Simulation models</span></a>.</p>
 <p>A value served under more than one address has one wiring record. Each
