@@ -96,6 +96,19 @@ async def test_a_missing_playwright_package_raises_its_import_error(tmp_path):
     assert not isinstance(excinfo.value, PlaywrightNotInstalledError)
 
 
+def test_no_server_module_spells_a_browser_install_command():
+    """The converter states the one install command; no other module spells one."""
+    import osprey
+
+    root = Path(osprey.__file__).parent
+    spelled = sorted(
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        if "playwright install" in path.read_text(encoding="utf-8")
+    )
+    assert spelled == []
+
+
 async def test_invalid_format(tmp_path):
     """Unsupported format raises ValueError."""
     html_file = tmp_path / "plot.html"
