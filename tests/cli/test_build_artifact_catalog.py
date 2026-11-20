@@ -13,6 +13,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
     BuildArtifact,
     BuildArtifactCatalog,
     LoneScript,
+    bundled_claude_md_templates,
 )
 
 
@@ -229,6 +230,9 @@ class TestInstructionsRender:
         assert art.canonical_name == name
         for _, render in _RENDERS:
             assert catalog.get(render) is not None
+
+    def test_the_bundled_renders_are_every_claude_md_render(self):
+        assert bundled_claude_md_templates() == tuple(sorted(t for t, _ in _RENDERS))
 
     def test_an_unknown_tier_is_refused_by_name(self):
         with pytest.raises(ValueError, match=r"CLAUDE\.nope\.md\.j2") as excinfo:
