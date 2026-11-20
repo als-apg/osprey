@@ -279,10 +279,11 @@ def launch_job(
 
     The concurrency-critical launch protocol, with rollback on each failure:
 
-    1. Atomically ``SET NX`` claim the active slot (409 if a concurrent start
-       won it) — the friendly ``get_active_job`` guard the caller runs first is
-       not atomic across workers, so this is the real gate. Claiming also
-       pre-registers the job at PID 0 so status polls don't 404 before spawn.
+    1. Atomically ``SET NX`` claim the active slot, for a draft only (409 if
+       the job is no longer a draft, or a concurrent start won the slot) — the
+       friendly ``get_active_job`` guard the caller runs first is not atomic
+       across workers, so this is the real gate. Claiming also pre-registers
+       the job at PID 0 so status polls don't 404 before spawn.
     2. Move the job CREATED -> RUNNING in one step, only while its stored config
        is still ``config_json``, the exact value the caller read and gated
        (:meth:`JobTracker.start_claimed_job`). A cancel or edit that landed
@@ -302,6 +303,7 @@ def launch_job(
     setup (e.g. results-dir init) stay in the caller.
     """
     if not tracker.claim_active_job(job_id, 0):
+        require_created_or_409(job_id, "start", make_writer(job_id).get_status())
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A job is already running. Cancel it or wait for completion.",
@@ -317,12 +319,7 @@ def launch_job(
             detail=f"Failed to initialize job state (Redis unavailable): {e}",
         ) from e
     if not started:
-        current = make_writer(job_id).get_status()
-        if current.is_terminal:
-            # A cancel ended the draft before the claim, which overwrote the
-            # meta the cancel left: put back what the cancel wrote.
-            tracker.end_job(job_id, current, None)
-        require_created_or_409(job_id, "start", current)
+        require_created_or_409(job_id, "start", make_writer(job_id).get_status())
         raise draft_changed_409(job_id)
 
     keep_alive = _start_launch_keep_alive(tracker, job_id)
