@@ -70,10 +70,10 @@ When descriptions are ABSENT (empty strings):
 {# PROMPT-PROVIDER: section=channel_finding_hierarchical
    Future: source from FrameworkPromptProvider.get_hierarchical_prompt_builder()
      - get_facility_description() → Navigation Process section
-     - get_matching_rules() → Branching Behavior, `-` options sections
+     - get_matching_rules() → Branching Behavior, absent-node options sections
    Also: get_channel_finding_orchestration_prompt_builder().get_orchestrator_guide()
      → Step-by-step navigation instructions
-   Facility-customizable: level names, the `-` option #}
+   Facility-customizable: level names, the absent-node option #}
 ## Navigation Process
 
 The database uses a hierarchical naming scheme. Start by checking for prior examples,
@@ -127,10 +127,13 @@ Once all relevant levels have selections:
 If you select multiple options at a tree level, each will be explored separately
 with its own subtree. This is important when different options have different structures.
 
-### `-` options
+### `{{ absent_node }}` options
 
-A `-` option holds what has no place, class or device at that level; select it
-when the question names none.
+An option `{{ absent_node }}` is a real node: it holds the channels that have no place,
+class or device at that level, and its description says which ("no sector", "no class",
+"no device"). Select it only when what the question asks for really has no value at
+that level. A level the question does not mention is not that case: read the level's
+options and select every one that applies.
 
 ### Verification
 
