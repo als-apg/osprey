@@ -730,7 +730,52 @@ record binds that a scenario may still misalign or give a multipole error; see
 
 A wiring record's ``calibration`` converts between the channel's hardware
 value and the engine's physics value, as a ``linear`` gain and offset or a
-``table``. Channels no served model wires are served by the texture model from
+``table``.
+
+A readback record reads the setpoint record that names the same element (or
+slices), engine ``attribute`` and ``index``. A readback that states the
+setpoint's calibration, or none, reads the setpoint's value on the setpoint's
+way back. A readback that states another calibration reads the same physics
+value through its own: the setpoint's ``curve`` gives the physics value, and
+the readback's ``inverse`` (or, with none, the inverse of its ``linear``
+curve) gives the reading. So one quantity can be read in a second unit. The
+voltage of the quadrupole's circuit, 0.1 V per ampere, is a channel of its own:
+
+.. code-block:: yaml
+
+   - id: SR:MAG:QF:01:VOLTAGE:RB
+     unit: V
+     label: focusing quadrupole circuit voltage
+
+and a third record on the element the current setpoint and its readback are
+wired to, with the strength a volt stands for as its curve:
+
+.. code-block:: yaml
+
+   - address: SR:MAG:QF:01:VOLTAGE:RB
+     element: QF01
+     engine:
+       attribute: PolynomB
+       index: 1
+     calibration:
+       curve:
+         linear: {gain: 0.06006155556990854, offset: 0.0}
+       energy_scaling: brho
+
+The readback's ``curve`` runs the way every curve does, from its own unit to
+the physics value; a ``table`` needs an ``inverse``. State the setpoint's
+``energy_scaling`` on it unless its unit does not move with the beam energy
+as the setpoint's does. Its computed ``default`` is the value it is served
+with at start, and its seed's noise and drift act in its own unit. A readback
+of a deck property such as ``energy`` cannot state another calibration than
+its setpoint; the build stops with ``engine-invalid``.
+
+The model computes a wired readback from the setpoint record on its element,
+so it reads that setpoint whether or not the channels ``pair`` the two, where
+several setpoints name it, and where its seed states ``follows: none``; its
+``default`` is the value it is served with in each case.
+
+Channels no served model wires are served by the texture model from
 their seeds. Which models a deployment serves, and what a failed one looks like, is
 in :ref:`architecture-simulation-models`.
 
