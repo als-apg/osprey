@@ -28,7 +28,7 @@ from queue import Empty, Queue
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_profile_emit import _MCP_SERVERS_APPENDIX
+from osprey.cli.build_profile_emit import _commented_template
 from osprey.cli.init_cmd import init
 from tests.cli._lifecycle_build import invoke_build
 from tests.integration._mcp_handshake import _STARTUP_TIMING, list_mcp_tools
@@ -129,13 +129,13 @@ def test_block_comments_are_appendix_lines_or_pinned_extras() -> None:
     appendix the single source, and makes an appendix edit fail here until the
     preset is brought along.
     """
-    appendix = {line.strip() for line in _MCP_SERVERS_APPENDIX.splitlines()}
+    appendix = {line.strip() for line in _commented_template("mcp_servers").splitlines()}
     allowed = appendix | set(_HELLO_WORLD_ONLY_COMMENTS)
 
     unknown = [line for line in _mcp_servers_comment_lines() if line not in allowed]
     assert not unknown, (
         "hello-world's mcp_servers block carries comment lines that are neither a "
-        f"line of _MCP_SERVERS_APPENDIX nor a pinned hello-world-only fact: {unknown}"
+        f"line of the mcp_servers template nor a pinned hello-world-only fact: {unknown}"
     )
 
 

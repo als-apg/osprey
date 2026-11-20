@@ -111,9 +111,9 @@ def test_the_profile_comment_sends_the_operator_to_the_catalog() -> None:
     """The `provider:` key documents where a gateway is described. It is
     providers.yml now, and a `config:` spelling of api.providers is refused, so
     a comment still offering that recipe would send the reader into a refusal."""
-    from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
+    from osprey.cli.build_profile_emit import _commented_template
 
-    template = _COMMENTED_TEMPLATES["provider"]
+    template = _commented_template("provider")
 
     assert PROVIDERS_FILENAME in template
     assert "api.providers." not in template
