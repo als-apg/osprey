@@ -43,7 +43,14 @@ from pathlib import Path
 import pytest
 
 from tests._coverage_handoff import without_coverage_handoff
-from tests.pty.conftest import StubRuntime, repo_root, stub_runtime_dir
+from tests.pty.conftest import (
+    EXEMPLAR_COMPLETE_MARKER,
+    EXEMPLAR_DIRNAME,
+    StubRuntime,
+    ensure_exemplar,
+    repo_root,
+    stub_runtime_dir,
+)
 from tests.pty.stub_runtime import _stub_main
 
 #: The package whose runtime conversations must be covered.
@@ -485,6 +492,54 @@ class TestStubIsReachable:
         finally:
             runtime_helper.reset_runtime_cache()
         assert detected.provider is runtime_helper.ComposeProvider.DOCKER_V2
+
+
+class TestSharedExemplar:
+    """The read-only exemplar is a complete render made at the path it is served from."""
+
+    def test_an_entry_without_its_marker_is_rendered_again(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What a killed render leaves is wiped and rendered again; a marked entry is served."""
+        import tests.pty.conftest as pty_conftest
+
+        entry = tmp_path / "entry"
+        calls: list[Path] = []
+
+        def fake_render(destination: Path, preset: str = pty_conftest.EXEMPLAR_PRESET) -> Path:
+            assert preset == pty_conftest.EXEMPLAR_PRESET
+            calls.append(destination)
+            repo = destination / EXEMPLAR_DIRNAME
+            repo.mkdir(parents=True)
+            (repo / "rendered").touch()
+            return repo
+
+        monkeypatch.setattr(pty_conftest, "exemplar_cache_dir", lambda preset=None: entry)
+        monkeypatch.setattr(pty_conftest, "render_exemplar", fake_render)
+        leftover = entry / EXEMPLAR_DIRNAME / "leftover"
+        leftover.parent.mkdir(parents=True)
+        leftover.touch()
+
+        assert ensure_exemplar() == entry / EXEMPLAR_DIRNAME
+        assert not leftover.exists()
+        assert (entry / EXEMPLAR_DIRNAME / "rendered").is_file()
+        assert (entry / EXEMPLAR_COMPLETE_MARKER).is_file()
+        assert calls == [entry]
+
+        assert ensure_exemplar() == entry / EXEMPLAR_DIRNAME
+        assert calls == [entry]
+
+    def test_the_shared_exemplar_names_its_own_path(self, exemplar_repo: Path) -> None:
+        """The labels of the served tree state the checkout it is served at."""
+        from osprey.deployment.compose_generator import (
+            RenderedCheckout,
+            rendered_checkout,
+            repo_identity,
+        )
+
+        assert rendered_checkout(exemplar_repo) == RenderedCheckout(
+            frozenset({repo_identity(exemplar_repo)}), str(exemplar_repo)
+        )
 
 
 class TestStubAnswersPlausibly:
