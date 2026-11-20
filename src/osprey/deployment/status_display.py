@@ -28,6 +28,7 @@ from rich.text import Text
 
 from osprey.cli import output
 from osprey.cli.styles import Styles, data_table
+from osprey.deployment import run_once
 from osprey.deployment.compose_generator import (
     PROJECT_LABEL,
     REPO_ID_LABEL,
@@ -462,10 +463,29 @@ def _add_container_to_table(table, container):
     table.add_row(
         _container_display_name(container),
         project_name,
-        _format_state(container.get("State", "unknown")),
+        _run_once_state(container) or _format_state(container.get("State", "unknown")),
         _format_ports(container),
         image,
     )
+
+
+def _run_once_state(container):
+    """The label of a declared run-once container that has ended as declared, else ``None``.
+
+    A container whose service is ``osprey.run-once`` (:mod:`osprey.deployment.run_once`)
+    is done when it exited 0, and, when it ``may-fail``, done with its exit code
+    when it exited otherwise. Any other end is left to :func:`_format_state`,
+    which shows it stopped.
+    """
+    declared = container_label(container, run_once.RUN_ONCE_LABEL)
+    code = run_once.exit_code(container)
+    if declared not in run_once.VALUES or code is None:
+        return None
+    if code == 0:
+        return Text("● Done", style=Styles.SUCCESS)
+    if declared == run_once.MAY_FAIL:
+        return Text(f"● Done (exit {code})", style=Styles.WARNING)
+    return None
 
 
 def _container_table(containers):

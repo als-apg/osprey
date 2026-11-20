@@ -91,6 +91,42 @@ through the labels override. The env digest is the template's own::
 service reads the env chain** — without it your service keeps serving its old
 env values after a change, with nothing to say so.
 
+Services that run once
+----------------------
+
+After ``osprey up -d`` returns, the start checks that every service it started
+has a running container, and fails naming each one that has none. A service
+that runs once and exits (a migration, a seed, a one-time import) has none by
+design, so it says so with a label on its service::
+
+      labels:
+        osprey.run-once: must-succeed    # or: may-fail
+
+``must-succeed``
+   The service is done when a container of it exited 0. Any other end fails the
+   start, naming the service and its exit code.
+``may-fail``
+   The service is done when a container of it exited, whatever the code. A
+   non-zero exit is reported by name and code, and the start succeeds.
+
+A service another one waits on with ``condition:
+service_completed_successfully`` is run-once by compose's own declaration and
+counts as ``must-succeed``. A service that declares nothing is never taken for
+run-once, whatever its restart policy or exit code: a long-running service that
+stopped cleanly fails the start like one that crashed. ``osprey status`` shows a
+declared service that ended as declared as ``Done``.
+
+The build refuses a value other than these two, a run-once service with
+``restart: always`` or ``restart: unless-stopped`` (the runtime would start it
+again each time it exits; ``no`` and ``on-failure`` are fine), and ``may-fail``
+on a service another one waits on to complete (compose fails the waiting
+service when it exits non-zero).
+
+The check sees the moment the start returns. A run-once service still running
+then counts as running, and its exit is not seen. If the start must wait for it,
+make another service depend on it with ``condition:
+service_completed_successfully``.
+
 Service Template Ownership
 ==========================
 
