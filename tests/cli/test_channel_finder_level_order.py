@@ -102,8 +102,11 @@ def _levels_a_request_may_leave_out(database: HierarchicalChannelDatabase) -> se
     """Levels above the last that an options request for the last may omit, by asking the check."""
     *above, last = database.hierarchy_levels
     omittable = set()
+    chosen: dict[str, str] = {}
+    for level in above:
+        chosen[level] = database.get_options_at_level(level, chosen)[0]["name"]
     for left_out in above:
-        selections = {level: "x" for level in above if level != left_out}
+        selections = {level: chosen[level] for level in above if level != left_out}
         try:
             database.get_options_at_level(last, selections)
         except ValueError as exc:
