@@ -143,5 +143,5 @@ class TestRunOptimizationProcessCrashState:
         assert "Traceback" not in error_msg
 
         tracker = JobTracker()
-        # The active job key is deleted in mark_completed
+        # The end step releases the active slot
         assert tracker.get_active_job() is None or tracker.get_active_job() != job_id

@@ -12,9 +12,9 @@ launched jobs (job_control.stop_launched_jobs) with the worker's signal handler.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import multiprocessing
-import os
 import signal
 import time
 from collections.abc import Generator
@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from redis import exceptions as redis_exceptions
 
 from osprey_optimizer.api import job_control
 from osprey_optimizer.api import job_status as js
@@ -39,6 +40,7 @@ from osprey_optimizer.api.job_tracker import (
     CANCELLED_MESSAGE,
     CURRENT_JOB_KEY,
     HEARTBEAT_INTERVAL_SECONDS,
+    JobEnd,
     JobLifecycle,
     JobMeta,
     JobRecordLostError,
@@ -48,7 +50,7 @@ from osprey_optimizer.api.job_tracker import (
 from osprey_optimizer.api.optimization_status import build_optimization_response
 from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.exceptions import CancellationError
-from osprey_optimizer.optimization.state import OptimizationStateWriter, get_optimization_writer
+from osprey_optimizer.optimization.state import get_optimization_writer
 from osprey_optimizer.utils import cancellation
 from osprey_optimizer.utils.cancellation import get_cancellation_token
 from osprey_optimizer.utils.job_keys import (
@@ -174,100 +176,23 @@ class TestJobTrackerMissing:
         assert stored["job_id"] == "j1"
         assert stored["pid"] == 1234
 
-    @pytest.mark.parametrize(
-        ("method", "expected_ttl"),
-        [
-            pytest.param(
-                "refresh_heartbeat", RUNNING_STATE_TTL_SECONDS, id="heartbeat_running_ttl"
-            ),
-            pytest.param("mark_completed", TERMINAL_STATE_TTL_SECONDS, id="terminal_sweep_ttl"),
-        ],
-    )
-    def test_sweep_applies_ttl_to_whole_namespace(
-        self, redis_mocks, method: str, expected_ttl: int
-    ):
-        """Both sweeps re-apply their TTL across the whole job:{id}:* namespace
-        (meta + state + cancel), not just metadata — so a live job's state/cancel
-        keys never lapse between beats, and a terminal job's entire footprint
-        self-reclaims. Each sweep runs on the tracker's str client in one pass and
-        is value-encoding-agnostic. The EXPIREs go out in one pipelined batch."""
+    def test_heartbeat_applies_the_running_ttl_to_the_whole_namespace(self, redis_mocks):
+        """The heartbeat re-applies the running TTL across the whole job:{id}:*
+        namespace (meta + state + cancel), not just metadata — so a live job's
+        state/cancel keys never lapse between beats. It runs on the tracker's str
+        client in one pass and is value-encoding-agnostic. The EXPIREs go out in
+        one pipelined batch."""
         mock_redis, _ = redis_mocks
-        mock_redis.get.side_effect = [
-            meta_json("j1"),
-            None,  # active job check (mark_completed only)
-        ]
         mock_redis.scan_iter.return_value = ["job:j1:meta", "job:j1:state:status", "job:j1:cancel"]
-        tracker = JobTracker()
-        getattr(tracker, method)("j1")
+        JobTracker().refresh_heartbeat("j1")
         mock_redis.scan_iter.assert_called_once_with(match=job_scan_pattern("j1"))
         pipe = mock_redis.pipeline.return_value
         assert pipe.expire.call_args_list == [
-            call("job:j1:meta", expected_ttl),
-            call("job:j1:state:status", expected_ttl),
-            call("job:j1:cancel", expected_ttl),
+            call("job:j1:meta", RUNNING_STATE_TTL_SECONDS),
+            call("job:j1:state:status", RUNNING_STATE_TTL_SECONDS),
+            call("job:j1:cancel", RUNNING_STATE_TTL_SECONDS),
         ]
         pipe.execute.assert_called_once()
-
-    def test_mark_completed_sweeps_namespace_even_when_meta_lapsed(self, redis_mocks):
-        """When ``job:{id}:meta`` has already expired there is nothing to rewrite,
-        but the rest of the namespace (state + cancel) can still be alive and must
-        still be swept under the terminal TTL, or it leaks (#107)."""
-        mock_redis, _ = redis_mocks
-        mock_redis.get.side_effect = [None, None]  # meta lapsed; no active job
-        mock_redis.scan_iter.return_value = ["job:j1:state:status", "job:j1:cancel"]
-        JobTracker().mark_completed("j1")
-        mock_redis.set.assert_not_called()
-        mock_redis.scan_iter.assert_called_once_with(match=job_scan_pattern("j1"))
-        pipe = mock_redis.pipeline.return_value
-        assert pipe.expire.call_args_list == [
-            call("job:j1:state:status", TERMINAL_STATE_TTL_SECONDS),
-            call("job:j1:cancel", TERMINAL_STATE_TTL_SECONDS),
-        ]
-        pipe.execute.assert_called_once()
-
-    @pytest.mark.parametrize(
-        ("status", "active_job", "expect_write", "expect_active_cleared"),
-        [
-            pytest.param(
-                JobStatus.COMPLETED, None, False, False, id="already_completed_skips_rewrite"
-            ),
-            pytest.param(
-                JobStatus.RUNNING, "different-job", True, False, id="other_job_active_not_cleared"
-            ),
-            pytest.param(JobStatus.RUNNING, "j1", True, True, id="own_job_active_cleared"),
-        ],
-    )
-    def test_mark_completed(
-        self,
-        redis_mocks,
-        status: JobStatus,
-        active_job: str | None,
-        expect_write: bool,
-        expect_active_cleared: bool,
-    ):
-        """mark_completed rewrites the job's status unless it is already terminal, and
-        clears the active-job pointer only when it points at this job."""
-        mock_redis, _ = redis_mocks
-        mock_redis.get.side_effect = [
-            meta_json("j1", status=status),
-            active_job,
-        ]
-        tracker = JobTracker()
-        tracker.mark_completed("j1")
-
-        if expect_write:
-            mock_redis.set.assert_called_once()
-            key, payload = mock_redis.set.call_args.args
-            assert key == meta_key("j1")
-            written = json.loads(payload)
-            assert written["status"] == JobStatus.COMPLETED.value
-            assert "completed_at" in written
-        else:
-            mock_redis.set.assert_not_called()
-        if expect_active_cleared:
-            mock_redis.delete.assert_called_once_with(ACTIVE_JOB_KEY)
-        else:
-            mock_redis.delete.assert_not_called()
 
 
 class TestClaimActiveJob:
@@ -464,16 +389,20 @@ class TestJobLifecycle:
 
     def test_enter_refuses_a_job_that_lost_the_slot(self, redis_mocks):
         mock_redis_str, mock_redis_bin = redis_mocks
-        mock_redis_str.register_script.return_value.return_value = 0
+        script = mock_redis_str.register_script.return_value
+        script.side_effect = [0, 1]  # registration refused, then the job ended
         lc = JobLifecycle("job-1")
 
-        with pytest.raises(JobSlotLostError, match="lost the active-job slot"):
+        with pytest.raises(JobSlotLostError, match="lost the active-job slot") as exc:
             lc.__enter__()
 
-        status_writes = [
-            c for c in mock_redis_bin.set.call_args_list if str(c.args[0]).endswith(":status")
-        ]
-        assert [deserialize_obj(c.args[1]) for c in status_writes] == [JobStatus.ERROR]
+        end_call = script.call_args_list[1]
+        assert end_call.kwargs["keys"][:2] == [meta_key("job-1"), f"{state_prefix('job-1')}:status"]
+        args = end_call.kwargs["args"]
+        assert deserialize_obj(args[1]) is JobStatus.ERROR
+        assert deserialize_obj(args[2]) == str(exc.value)
+        assert args[6] == ""  # a lapsed record is not re-created
+        assert mock_redis_bin.set.call_args_list == []
         assert not lc._heartbeat.is_alive()
 
     def test_enter_refuses_a_job_whose_record_lapsed(self, redis_mocks):
@@ -495,31 +424,27 @@ class TestJobLifecycle:
         ]
         args = record_call.kwargs["args"]
         assert args[0] == "job-1"
-        assert json.loads(args[1])["status"] == JobStatus.COMPLETED.value
-        assert deserialize_obj(args[2]) is JobStatus.ERROR
-        assert deserialize_obj(args[3]) == "The job's record expired before its worker started."
-        assert args[4] == TERMINAL_STATE_TTL_SECONDS
+        assert deserialize_obj(args[1]) is JobStatus.ERROR
+        assert deserialize_obj(args[2]) == "The job's record expired before its worker started."
+        assert args[3] == TERMINAL_STATE_TTL_SECONDS
+        created = json.loads(args[6])
+        assert created["status"] == JobStatus.COMPLETED.value
+        assert created["pid"] == 12345
         status_writes = [
             c for c in mock_redis_bin.set.call_args_list if str(c.args[0]).endswith(":status")
         ]
         assert status_writes == []
         assert not lc._heartbeat.is_alive()
 
-    def _enter_with_mock_writer(self, lc: JobLifecycle, mock_redis_str: MagicMock) -> MagicMock:
-        """Enter the lifecycle, swap in a mock writer, and prime mark_completed.
+    @staticmethod
+    def _enter_with_mock_tracker(lc: JobLifecycle) -> MagicMock:
+        """Enter the lifecycle, then swap in a mock tracker.
 
-        Returns the mock writer so a test can assert the terminal status/message
-        __exit__ writes. The RUNNING status set during __enter__ lands on the real
-        writer (pre-swap), so the mock sees only __exit__'s terminal write.
+        Returns the mock tracker so a test can assert the end __exit__ records.
         """
         lc.__enter__()
-        writer = MagicMock()
-        lc.writer = writer
-        mock_redis_str.get.side_effect = [
-            meta_json(lc.job_id, pid=12345),
-            lc.job_id,
-        ]
-        return writer
+        lc.tracker = MagicMock()
+        return lc.tracker
 
     @pytest.mark.parametrize(
         "job_id,exc_type,exc_value,expected_status,expected_message",
@@ -550,9 +475,9 @@ class TestJobLifecycle:
             ),
         ],
     )
+    @pytest.mark.usefixtures("redis_mocks")
     def test_exit_sets_terminal_status_and_message(
         self,
-        redis_mocks,
         job_id: str,
         exc_type: type[BaseException],
         exc_value: BaseException,
@@ -564,14 +489,12 @@ class TestJobLifecycle:
         exception → ERROR with the cleaned str(exc) message (not a raw
         traceback); an exception with an empty message records its type name,
         never a blank."""
-        mock_redis_str, _ = redis_mocks
         lc = JobLifecycle(job_id)
-        writer = self._enter_with_mock_writer(lc, mock_redis_str)
+        tracker = self._enter_with_mock_tracker(lc)
 
         lc.__exit__(exc_type, exc_value, None)
 
-        writer.set_status.assert_called_once_with(expected_status)
-        writer.set_error_message.assert_called_once_with(expected_message)
+        tracker.end_job.assert_called_once_with(job_id, expected_status, expected_message)
 
     @pytest.mark.usefixtures("redis_mocks")
     @pytest.mark.parametrize(
@@ -609,61 +532,39 @@ class TestJobLifecycle:
         stop.wait.assert_called_with(HEARTBEAT_INTERVAL_SECONDS)
         assert mock_logger.warning.call_count == warnings
 
-    def test_enter_starts_heartbeat_and_exit_stops_it(self, redis_mocks):
+    @pytest.mark.usefixtures("redis_mocks")
+    def test_enter_starts_heartbeat_and_exit_stops_it(self):
         """__enter__ launches the daemon heartbeat thread; __exit__ signals stop
         and joins it so no heartbeat survives the lifecycle."""
-        mock_redis_str, _ = redis_mocks
         lc = JobLifecycle("hb-2")
         lc.__enter__()
         assert lc._heartbeat.is_alive()
 
-        mock_redis_str.get.side_effect = [
-            meta_json("hb-2", pid=12345),
-            "hb-2",
-        ]
         lc.__exit__(None, None, None)
         assert not lc._heartbeat.is_alive()
 
-    def test_exit_exception_still_marks_completed(self, redis_mocks):
+    def test_exit_exception_still_ends_the_job(self, redis_mocks):
         mock_redis_str, _ = redis_mocks
+        script = mock_redis_str.register_script.return_value
 
-        mock_redis_str.get.side_effect = [
-            meta_json("job-6", pid=12345),
-            "job-6",
-        ]
+        with pytest.raises(RuntimeError), JobLifecycle("job-6"):
+            raise RuntimeError("boom")
 
-        try:
-            with JobLifecycle("job-6"):
-                raise RuntimeError("boom")
-        except RuntimeError:
-            pass
+        # The end script ran despite the exception, with the ERROR outcome.
+        end_call = script.call_args_list[-1]
+        assert end_call.kwargs["keys"][0] == meta_key("job-6")
+        assert deserialize_obj(end_call.kwargs["args"][1]) is JobStatus.ERROR
+        assert deserialize_obj(end_call.kwargs["args"][2]) == "boom"
 
-        # mark_completed still ran despite the exception: the job meta was
-        # rewritten to COMPLETED — decode the JSON value, not a substring match.
-        meta_writes = [
-            c for c in mock_redis_str.set.call_args_list if c.args[0] == meta_key("job-6")
-        ]
-        completed = [json.loads(c.args[1]) for c in meta_writes]
-        assert any(
-            m["status"] == JobStatus.COMPLETED.value and "completed_at" in m for m in completed
-        )
-
-    def test_exit_does_not_suppress_exception(self, redis_mocks):
-        mock_redis_str, _ = redis_mocks
-        mock_redis_str.get.return_value = None
-
+    @pytest.mark.usefixtures("redis_mocks")
+    def test_exit_does_not_suppress_exception(self):
         with pytest.raises(ValueError, match="propagate me"), JobLifecycle("job-7"):
             raise ValueError("propagate me")
 
     def test_exit_cleanup_error_logged_not_raised(self, redis_mocks, caplog):
         mock_redis_str, _ = redis_mocks
-
-        # Make mark_completed blow up by having get_job raise
-        def get_side_effect(key):
-            if ":meta" in key:
-                raise Exception("Redis down")
-
-        mock_redis_str.get.side_effect = get_side_effect
+        # The registration succeeds, then the end script fails.
+        mock_redis_str.register_script.return_value.side_effect = [1, Exception("Redis down")]
 
         with (
             pytest.raises(ValueError, match="original"),
@@ -673,15 +574,6 @@ class TestJobLifecycle:
             raise ValueError("original")
 
         assert "Error during lifecycle cleanup" in caplog.text
-
-    @pytest.mark.usefixtures("redis_mocks")
-    def test_enter_creates_an_optimization_writer(self):
-        lc = JobLifecycle("job-w")
-        lc.__enter__()
-        try:
-            assert isinstance(lc.writer, OptimizationStateWriter)
-        finally:
-            lc._heartbeat.stop(timeout=1)
 
 
 def _launched(job_id: str) -> str:
@@ -718,19 +610,6 @@ def _refused_after_lapse(tracker: JobTracker, job_id: str) -> str:
 class TestRecordNeverStartedIntegration:
     """The terminal record of a job whose worker found its record gone, over real Redis."""
 
-    def test_the_record_is_written_once(self, tracker: JobTracker):
-        job = _launched("once")
-        _lapse(job)
-
-        assert tracker.record_never_started(job, os.getpid(), "first")
-        first = tracker.get_job(job)
-        assert not tracker.record_never_started(job, os.getpid(), "second")
-
-        assert js.read_job_status(tracker, job).error_message == "first"
-        again = tracker.get_job(job)
-        assert first is not None and again is not None
-        assert again.completed_at == first.completed_at
-
     def test_a_late_keep_alive_leaves_the_terminal_record(self, tracker: JobTracker):
         str_client = get_redis_client(binary=False)
         job = _refused_after_lapse(tracker, "late-tick")
@@ -758,7 +637,176 @@ class TestRecordNeverStartedIntegration:
 
         assert str_client.get(meta_key(job)) == before
 
-    def test_the_record_leaves_a_slot_another_job_holds(self, tracker: JobTracker):
+
+def _draft(tracker: JobTracker, job_id: str) -> str:
+    """A CREATED draft, as POST /jobs leaves it."""
+    persist_created_job(
+        tracker=tracker, job_id=job_id, payload_json="{}", make_writer=get_optimization_writer
+    )
+    return job_id
+
+
+def _cancel(tracker: JobTracker, job_id: str) -> None:
+    """Cancel a job through the cancel path POST /jobs/{id}/cancel takes."""
+    job_control.cancel_with_reread(
+        job_id, get_optimization_writer(job_id), get_cancellation_token(job_id), tracker
+    )
+
+
+def _redis_down(*_args: object, **_kwargs: object) -> None:
+    raise redis_exceptions.ConnectionError("injected")
+
+
+def _end_the_worker(tracker: JobTracker, job_id: str) -> None:
+    del tracker
+    with JobLifecycle(job_id):
+        pass
+
+
+def _end_the_draft(tracker: JobTracker, job_id: str) -> None:
+    with contextlib.suppress(redis_exceptions.ConnectionError):
+        _cancel(tracker, job_id)
+
+
+@pytest.mark.usefixtures("tracker")
+class TestOneEndStepIntegration:
+    """Every ender writes a job's end in one step, over real Redis."""
+
+    def test_a_worker_entering_an_ended_job_keeps_its_end(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("ended-then-entered")
+        get_cancellation_token(job)
+        with pytest.raises(CancellationError), JobLifecycle(job):
+            raise CancellationError()
+        writer = get_optimization_writer(job)
+        assert writer.get_status() == JobStatus.CANCELLED
+        assert str_client.get(ACTIVE_JOB_KEY) is None
+        tracker.register_created_job("other")
+        assert tracker.claim_active_job("other", 0)
+
+        with pytest.raises(JobSlotLostError):
+            JobLifecycle(job).__enter__()
+
+        assert writer.get_status() == JobStatus.CANCELLED
+        assert writer.get_error_message() == CANCELLED_MESSAGE
+        assert str_client.get(ACTIVE_JOB_KEY) == "other"
+
+    @pytest.mark.parametrize(
+        ("setup", "end"),
+        [
+            pytest.param(lambda t, j: _launched(j), _end_the_worker, id="worker_exit"),
+            pytest.param(_draft, _end_the_draft, id="draft_cancel"),
+        ],
+    )
+    def test_an_end_that_fails_part_way_leaves_every_key_bounded(
+        self, tracker: JobTracker, monkeypatch: pytest.MonkeyPatch, setup, end
+    ):
+        str_client = get_redis_client(binary=False)
+        job = "fails-part-way"
+        setup(tracker, job)
+        monkeypatch.setattr(JobTracker, "expire_job", _redis_down)
+
+        end(tracker, job)
+
+        ttls = {key: str_client.ttl(key) for key in _job_keys(job)}
+        assert ttls and all(ttl > 0 for ttl in ttls.values()), ttls
+        meta = tracker.get_job(job)
+        assert meta is not None
+        pair = (get_optimization_writer(job).get_status(), meta.status)
+        assert pair in {
+            (JobStatus.CREATED, JobStatus.CREATED),
+            (JobStatus.RUNNING, JobStatus.RUNNING),
+        } or (pair[0].is_terminal and pair[1] is JobStatus.COMPLETED), pair
+
+
+def _status_and_message(job_id: str) -> tuple[JobStatus, str | None]:
+    writer = get_optimization_writer(job_id)
+    return writer.get_status(), writer.get_error_message()
+
+
+@pytest.mark.usefixtures("tracker")
+class TestEndJobIntegration:
+    """JobTracker.end_job, the one step that ends a job, over real Redis."""
+
+    def test_an_end_is_written_once(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("end-once")
+        get_cancellation_token(job)
+
+        assert tracker.end_job(job, JobStatus.ERROR, "first") is JobEnd.ENDED
+        first = str_client.get(meta_key(job))
+        keys = _age_to(job, 100)
+        assert tracker.end_job(job, JobStatus.CANCELLED, "second") is JobEnd.ALREADY_ENDED
+
+        assert _status_and_message(job) == (JobStatus.ERROR, "first")
+        assert str_client.get(meta_key(job)) == first
+        _assert_ttls_within(keys, 100)
+
+    def test_an_end_bounds_every_key_and_releases_the_slot(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("end-bounds")
+        get_cancellation_token(job)
+
+        assert tracker.end_job(job, JobStatus.COMPLETED, None) is JobEnd.ENDED
+
+        meta = tracker.get_job(job)
+        assert meta is not None and meta.status is JobStatus.COMPLETED
+        assert meta.completed_at is not None
+        assert _status_and_message(job) == (JobStatus.COMPLETED, None)
+        for key in _job_keys(job):
+            assert RUNNING_STATE_TTL_SECONDS < str_client.ttl(key) <= TERMINAL_STATE_TTL_SECONDS
+        assert str_client.get(ACTIVE_JOB_KEY) is None
+
+    def test_an_outcome_recorded_without_the_record_completed_is_kept(self, tracker: JobTracker):
+        job = _launched("end-outcome-kept")
+        writer = get_optimization_writer(job)
+        writer.set_status(JobStatus.CANCELLED)
+        writer.set_error_message(CANCELLED_MESSAGE)
+
+        assert tracker.end_job(job, JobStatus.ERROR, "late") is JobEnd.RECORD_COMPLETED
+
+        assert _status_and_message(job) == (JobStatus.CANCELLED, CANCELLED_MESSAGE)
+        meta = tracker.get_job(job)
+        assert meta is not None and meta.status is JobStatus.COMPLETED
+
+    @pytest.mark.parametrize("held", [JobStatus.PAUSED, JobStatus.CANCELLING])
+    def test_a_job_that_is_not_running_ends_as_given(self, tracker: JobTracker, held: JobStatus):
+        job = _launched(f"end-{held.value}")
+        get_optimization_writer(job).set_status(held)
+
+        assert tracker.end_job(job, JobStatus.CANCELLED, "stopped") is JobEnd.ENDED
+
+        assert _status_and_message(job) == (JobStatus.CANCELLED, "stopped")
+
+    def test_a_lapsed_record_is_not_recreated(self, tracker: JobTracker):
+        job = _launched("end-lapsed")
+        _lapse(job)
+
+        assert tracker.end_job(job, JobStatus.ERROR, "late") is JobEnd.RECORD_GONE
+
+        assert _job_keys(job) == []
+        assert get_redis_client(binary=False).get(ACTIVE_JOB_KEY) == job
+
+    def test_a_lapsed_record_is_written_once_when_asked(self, tracker: JobTracker):
+        job = _launched("once")
+        _lapse(job)
+
+        first_end = tracker.end_job(job, JobStatus.ERROR, "first", create_if_missing=True)
+        first = tracker.get_job(job)
+        second_end = tracker.end_job(job, JobStatus.ERROR, "second", create_if_missing=True)
+
+        assert (first_end, second_end) == (JobEnd.ENDED, JobEnd.ALREADY_ENDED)
+        assert js.read_job_status(tracker, job).error_message == "first"
+        again = tracker.get_job(job)
+        assert first is not None and again is not None
+        assert first.status is JobStatus.COMPLETED
+        assert again.completed_at == first.completed_at
+        assert tracker.get_active_job() is None
+        assert tracker.get_current_job() == job
+
+    def test_a_created_record_leaves_a_slot_and_a_pointer_another_job_holds(
+        self, tracker: JobTracker
+    ):
         str_client = get_redis_client(binary=False)
         job = _launched("mine")
         _lapse(job)
@@ -766,10 +814,45 @@ class TestRecordNeverStartedIntegration:
         tracker.register_created_job("other-draft")
         tracker.set_current_job("other-draft")
 
-        assert tracker.record_never_started(job, os.getpid(), NEVER_STARTED_MESSAGE)
+        assert (
+            tracker.end_job(job, JobStatus.ERROR, NEVER_STARTED_MESSAGE, create_if_missing=True)
+            is JobEnd.ENDED
+        )
 
         assert str_client.get(ACTIVE_JOB_KEY) == "other"
         assert tracker.get_current_job() == "other-draft"
+
+    def test_an_end_leaves_a_slot_another_job_holds(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("end-not-mine")
+        str_client.set(ACTIVE_JOB_KEY, "other")
+
+        assert tracker.end_job(job, JobStatus.ERROR, "late") is JobEnd.ENDED
+
+        assert str_client.get(ACTIVE_JOB_KEY) == "other"
+
+    def test_an_unexpected_status_writes_nothing(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("end-unexpected")
+        before = {key: str_client.dump(key) for key in _job_keys(job)}
+        ttls = {key: str_client.ttl(key) for key in before}
+
+        assert (
+            tracker.end_job(job, JobStatus.CANCELLED, None, expect=JobStatus.CREATED)
+            is JobEnd.NOT_EXPECTED
+        )
+
+        assert {key: str_client.dump(key) for key in _job_keys(job)} == before
+        assert all(str_client.ttl(key) <= ttl for key, ttl in ttls.items())
+        assert str_client.get(ACTIVE_JOB_KEY) == job
+
+    def test_a_status_that_is_not_terminal_is_refused(self, tracker: JobTracker):
+        job = _launched("end-not-terminal")
+
+        with pytest.raises(ValueError, match="terminal"):
+            tracker.end_job(job, JobStatus.PAUSED, None)
+
+        assert get_optimization_writer(job).get_status() == JobStatus.RUNNING
 
 
 def _age_to(job_id: str, seconds: int) -> list[str]:
@@ -945,15 +1028,12 @@ class TestJobLifecycleBranches:
         and no error message. With no heartbeat thread there is nothing to join, and
         the terminal status is still written."""
         lc = JobLifecycle("no-thread")
-        writer = MagicMock()
-        lc.writer = writer
         lc.tracker = MagicMock()
         assert not lc._heartbeat.is_alive()  # never started — nothing to join
 
         lc.__exit__(None, None, None)
 
-        writer.set_status.assert_called_once_with(JobStatus.COMPLETED)
-        writer.set_error_message.assert_not_called()
+        lc.tracker.end_job.assert_called_once_with("no-thread", JobStatus.COMPLETED, None)
 
 
 def _call(
@@ -989,7 +1069,7 @@ def test_claim_failure_raises_409_without_spawning() -> None:
     mp.get_context.assert_not_called()
 
 
-def test_preinit_failure_releases_slot_and_503() -> None:
+def test_a_failed_start_ends_the_job_as_error_and_503() -> None:
     tracker = MagicMock()
     tracker.claim_active_job.return_value = True
     tracker.start_claimed_job.side_effect = RuntimeError("redis down")
@@ -999,10 +1079,12 @@ def test_preinit_failure_releases_slot_and_503() -> None:
         _call(tracker, make_writer)
 
     assert exc.value.status_code == 503
-    tracker.mark_completed.assert_called_once_with("job-1")
+    tracker.end_job.assert_called_once_with(
+        "job-1", JobStatus.ERROR, "Failed to initialize job state: redis down"
+    )
 
 
-def test_spawn_oserror_releases_slot_and_500() -> None:
+def test_a_failed_spawn_ends_the_job_as_error_and_500() -> None:
     tracker = MagicMock()
     tracker.claim_active_job.return_value = True
     make_writer = MagicMock()
@@ -1015,7 +1097,9 @@ def test_spawn_oserror_releases_slot_and_500() -> None:
             _call(tracker, make_writer)
 
     assert exc.value.status_code == 500
-    tracker.mark_completed.assert_called_once_with("job-1")
+    tracker.end_job.assert_called_once_with(
+        "job-1", JobStatus.ERROR, "Failed to start job process: no fork"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1081,14 +1165,14 @@ class TestLaunchKeepAlive:
         keep_alive = MagicMock()
         parent = MagicMock()
         parent.attach_mock(keep_alive.return_value.stop, "stop")
-        parent.attach_mock(tracker.mark_completed, "mark_completed")
+        parent.attach_mock(tracker.end_job, "end_job")
 
         with patch(f"{_JC}.reap_finished_children"), patch(f"{_JC}.multiprocessing") as mp:
             mp.get_context.return_value.Process.return_value.start.side_effect = OSError("no")
             with pytest.raises(HTTPException):
                 _call(tracker, MagicMock(), keep_alive=keep_alive)
 
-        assert [name for name, _, _ in parent.mock_calls] == ["stop", "mark_completed"]
+        assert [name for name, _, _ in parent.mock_calls] == ["stop", "end_job"]
 
 
 def test_read_job_status_builds_response_from_meta_and_state() -> None:
@@ -1168,7 +1252,7 @@ class TestJobLifecycleSlotIntegration:
         str_client = get_redis_client(binary=False)
         tracker = JobTracker()
         old = _launched("slot-old")
-        tracker.mark_completed(old)  # released before the old worker got going
+        tracker.end_job(old, JobStatus.CANCELLED, None)  # ended before its worker got going
         assert tracker.claim_active_job("slot-new", 0)
 
         with pytest.raises(JobSlotLostError):
@@ -1263,7 +1347,7 @@ class TestLaunchKeepAliveIntegration:
     def test_the_keep_alive_never_shortens_a_terminal_job(self, tracker: JobTracker):
         str_client = get_redis_client(binary=False)
         job = _launched("keepalive-terminal")
-        tracker.mark_completed(job)
+        assert tracker.end_job(job, JobStatus.COMPLETED, None) is JobEnd.ENDED
 
         assert job_control.keep_launch_alive(tracker, job) is False
 
@@ -1366,10 +1450,11 @@ class TestStopLaunchedJobs:
         job's own writer and token. A worker that then stops on its own recorded its
         terminal status itself, so it is left as is and never terminated."""
         tracker = MagicMock()
+        tracker.end_job.return_value = JobEnd.RECORD_COMPLETED
         process = _FakeProcess(exits_on="join")
         _record("j1", process)
-        cancel_writer, end_writer = _writer(), _writer(JobStatus.CANCELLED)
-        shutdown_seams["make_writer"].side_effect = [cancel_writer, end_writer]
+        cancel_writer = _writer()
+        shutdown_seams["make_writer"].side_effect = [cancel_writer]
 
         stop_launched_jobs(tracker, grace_s=5)
 
@@ -1378,9 +1463,9 @@ class TestStopLaunchedJobs:
         )
         shutdown_seams["get_token"].assert_called_once_with("j1")
         assert process.calls == ["join"]
-        end_writer.set_status_cas.assert_not_called()
-        end_writer.set_error_message.assert_not_called()
-        tracker.mark_completed.assert_called_once_with("j1")
+        # The end step keeps the CANCELLED the worker recorded (the script's guard).
+        tracker.end_job.assert_called_once()
+        assert tracker.end_job.call_args.args[:2] == ("j1", JobStatus.ERROR)
         assert "j1" not in job_control._launched
 
     @pytest.mark.parametrize("exits_on", ["terminate", "kill"])
@@ -1388,33 +1473,30 @@ class TestStopLaunchedJobs:
         self, shutdown_seams, exits_on: str
     ):
         """A worker still running after the grace is terminated, then killed if that
-        does not end it; the job is driven CANCELLED with the shutdown reason and its
-        slot released at once (mark_completed), not when the heartbeat TTL lapses."""
+        does not end it; the job is ended CANCELLED with the shutdown reason and its
+        slot released at once (end_job), not when the heartbeat TTL lapses."""
         tracker = MagicMock()
         process = _FakeProcess(exits_on=exits_on)
         _record("j1", process)
-        end_writer = _writer(JobStatus.CANCELLING)
-        shutdown_seams["make_writer"].side_effect = [_writer(), end_writer]
+        shutdown_seams["make_writer"].side_effect = [_writer()]
 
         stop_launched_jobs(tracker, grace_s=0)
 
         expected = ["join", "terminate"] + (["kill"] if exits_on == "kill" else [])
         assert process.calls == expected
-        end_writer.set_status_cas.assert_called_once_with(JobStatus.CANCELLING, JobStatus.CANCELLED)
-        end_writer.set_error_message.assert_called_once_with(SHUTDOWN_KILLED_MESSAGE)
-        tracker.mark_completed.assert_called_once_with("j1")
+        tracker.end_job.assert_called_once_with("j1", JobStatus.CANCELLED, SHUTDOWN_KILLED_MESSAGE)
 
     def test_worker_that_exits_without_an_outcome_ends_the_job_as_error(self, shutdown_seams):
         tracker = MagicMock()
         _record("j1", _FakeProcess(exits_on="join", exitcode=-11))
-        end_writer = _writer(JobStatus.CANCELLING)
-        shutdown_seams["make_writer"].side_effect = [_writer(), end_writer]
+        shutdown_seams["make_writer"].side_effect = [_writer()]
 
         stop_launched_jobs(tracker, grace_s=5)
 
-        end_writer.set_status_cas.assert_called_once_with(JobStatus.CANCELLING, JobStatus.ERROR)
-        assert "code -11" in end_writer.set_error_message.call_args.args[0]
-        tracker.mark_completed.assert_called_once_with("j1")
+        tracker.end_job.assert_called_once()
+        job_id, new, message = tracker.end_job.call_args.args
+        assert (job_id, new) == ("j1", JobStatus.ERROR)
+        assert "code -11" in message
 
     def test_a_worker_that_survives_the_kill_keeps_its_slot(self, shutdown_seams):
         """Freeing the slot under a live process could let a second job drive the
@@ -1425,7 +1507,7 @@ class TestStopLaunchedJobs:
 
         stop_launched_jobs(tracker, grace_s=0)
 
-        tracker.mark_completed.assert_not_called()
+        tracker.end_job.assert_not_called()
 
     def test_a_failed_cancel_still_stops_the_worker(self, shutdown_seams):
         """Redis down at shutdown: the cancel raises, and the worker is still waited
@@ -1434,12 +1516,12 @@ class TestStopLaunchedJobs:
         process = _FakeProcess(exits_on="terminate")
         _record("j1", process)
         shutdown_seams["cancel"].side_effect = RuntimeError("redis down")
-        shutdown_seams["make_writer"].side_effect = [_writer(), _writer(JobStatus.RUNNING)]
+        shutdown_seams["make_writer"].side_effect = [_writer()]
 
         stop_launched_jobs(tracker, grace_s=0)
 
         assert process.calls == ["join", "terminate"]
-        tracker.mark_completed.assert_called_once_with("j1")
+        tracker.end_job.assert_called_once_with("j1", JobStatus.CANCELLED, SHUTDOWN_KILLED_MESSAGE)
 
     def test_only_running_workers_are_stopped(self, shutdown_seams):
         tracker = MagicMock()
@@ -1450,14 +1532,14 @@ class TestStopLaunchedJobs:
         stop_launched_jobs(tracker, grace_s=0)
 
         shutdown_seams["cancel"].assert_not_called()
-        tracker.mark_completed.assert_not_called()
+        tracker.end_job.assert_not_called()
 
     def test_shutdown_writes_no_setpoint(self, shutdown_seams):
         """No automatic restore: a stopped run holds the machine where it is. The
         shutdown loads no environment, so it cannot write one."""
         tracker = MagicMock()
         _record("j1", _FakeProcess(exits_on="terminate"))
-        shutdown_seams["make_writer"].side_effect = [_writer(), _writer(JobStatus.CANCELLING)]
+        shutdown_seams["make_writer"].side_effect = [_writer()]
 
         with (
             patch(
@@ -1489,7 +1571,7 @@ class TestStopLaunchedJobs:
         monkeypatch.setenv(SHUTDOWN_GRACE_ENV, "0")
         process = _FakeProcess(exits_on="terminate")
         _record("j1", process)
-        shutdown_seams["make_writer"].side_effect = [_writer(), _writer(JobStatus.CANCELLING)]
+        shutdown_seams["make_writer"].side_effect = [_writer()]
 
         stop_launched_jobs(MagicMock())
 

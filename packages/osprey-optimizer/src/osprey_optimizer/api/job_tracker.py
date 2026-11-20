@@ -14,8 +14,6 @@ from redis.commands.core import Script
 
 from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.exceptions import CancellationError
-from osprey_optimizer.models.protocols import JobStateWriter
-from osprey_optimizer.optimization.state import get_optimization_writer
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.interval_thread import IntervalThread
 from osprey_optimizer.utils.job_keys import (
@@ -118,26 +116,72 @@ end
 return 1
 """
 
-# The terminal record of a job whose worker found its record gone.
-# KEYS[1]=meta_key, KEYS[2]=the job's pickled status key, KEYS[3]=its pickled
-# error-message key, KEYS[4]=ACTIVE_JOB_KEY, KEYS[5]=CURRENT_JOB_KEY.
-# ARGV[1]=job_id, ARGV[2]=terminal-meta JSON, ARGV[3]=pickled ERROR,
-# ARGV[4]=pickled message, ARGV[5]=terminal ttl. Written
-# only by a worker refused for a lost record, once per job: returns 0 when a meta
-# exists, else writes the meta, the status and the message under the terminal TTL,
-# releases the slot if it names this job, points the current-job pointer at it if
-# none is set, and returns 1. Never touches a slot or a pointer another job holds.
-_RECORD_NEVER_STARTED_LUA = """
-if redis.call('EXISTS', KEYS[1]) == 1 then
+# The end of a job, in one step: its outcome, its record, its lifetime and the
+# slot. KEYS[1]=meta_key, KEYS[2]=the job's pickled status key, KEYS[3]=its
+# pickled error-message key, KEYS[4]=ACTIVE_JOB_KEY, KEYS[5]=CURRENT_JOB_KEY,
+# KEYS[6..]=every key the job owns. ARGV[1]=job_id, ARGV[2]=pickled terminal
+# status, ARGV[3]=pickled message or "" for none, ARGV[4]=terminal ttl,
+# ARGV[5]=the end time, ARGV[6]=pickled status the job must hold or "" for any,
+# ARGV[7]=meta JSON to create a lapsed record with or "" to leave it lapsed,
+# ARGV[8]=the COMPLETED record status value, ARGV[9..]=every pickled terminal
+# status.
+# Returns -1 when the record is gone and is not to be created, -2 when the job
+# does not hold the expected status, 0 when the job has already ended (all three
+# write nothing), 1 when it wrote the status, 2 when the status was already
+# terminal and only the record was completed. A terminal status and its message
+# are never overwritten, an end is never re-dated or extended, and a slot or a
+# pointer another job holds is never touched; the pointer is set only when the
+# record is created and none is set.
+_END_JOB_LUA = """
+local meta = redis.call('GET', KEYS[1])
+if not meta and ARGV[7] == '' then
+    return -1
+end
+local status = redis.call('GET', KEYS[2])
+if ARGV[6] ~= '' and status ~= ARGV[6] then
+    return -2
+end
+local created = not meta
+if created then
+    meta = ARGV[7]
+end
+local terminal = false
+for i = 9, #ARGV do
+    if status == ARGV[i] then
+        terminal = true
+    end
+end
+local record = cjson.decode(meta)
+if not created and terminal and record['status'] == ARGV[8] then
     return 0
 end
-redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[5]))
-redis.call('SET', KEYS[2], ARGV[3], 'EX', tonumber(ARGV[5]))
-redis.call('SET', KEYS[3], ARGV[4], 'EX', tonumber(ARGV[5]))
+if not terminal then
+    redis.call('SET', KEYS[2], ARGV[2])
+    if ARGV[3] ~= '' then
+        redis.call('SET', KEYS[3], ARGV[3])
+    end
+end
+record['status'] = ARGV[8]
+if record['completed_at'] == nil or record['completed_at'] == cjson.null then
+    record['completed_at'] = tonumber(ARGV[5])
+end
+redis.call('SET', KEYS[1], cjson.encode(record))
+local ttl = tonumber(ARGV[4])
+for i = 1, 3 do
+    redis.call('EXPIRE', KEYS[i], ttl)
+end
+for i = 6, #KEYS do
+    redis.call('EXPIRE', KEYS[i], ttl)
+end
 if redis.call('GET', KEYS[4]) == ARGV[1] then
     redis.call('DEL', KEYS[4])
 end
-redis.call('SET', KEYS[5], ARGV[1], 'NX')
+if created then
+    redis.call('SET', KEYS[5], ARGV[1], 'NX')
+end
+if terminal then
+    return 2
+end
 return 1
 """
 
@@ -189,6 +233,21 @@ class WorkerRegistration(Enum):
     REGISTERED = "registered"
     SLOT_LOST = "slot_lost"
     RECORD_LOST = "record_lost"
+
+
+class JobEnd(Enum):
+    """The outcome of ending a job (:meth:`JobTracker.end_job`)."""
+
+    ENDED = 1
+    """The status, the record, its lifetime and the slot were written."""
+    RECORD_COMPLETED = 2
+    """The status was already terminal; the record, its lifetime and the slot were written."""
+    ALREADY_ENDED = 0
+    """The job had already ended; nothing was written."""
+    RECORD_GONE = -1
+    """The job's record had lapsed; nothing was written."""
+    NOT_EXPECTED = -2
+    """The job did not hold the expected status; nothing was written."""
 
 
 class JobMeta(BaseModel):
@@ -308,7 +367,7 @@ class JobTracker:
 
         Returns True while the keys are still the launcher's to keep; False once
         the worker's heartbeat has taken over, the job is no longer running, or
-        its record is gone. Atomic against :meth:`mark_completed`, so a late call
+        its record is gone. Atomic against :meth:`end_job`, so a late call
         never shortens the terminal TTL.
         """
         redis = self._get_redis()
@@ -319,46 +378,80 @@ class JobTracker:
         )
         return bool(kept == 1)
 
-    def record_never_started(self, job_id: str, pid: int, message: str) -> bool:
-        """Write the terminal error record of a job whose worker found its record gone.
+    def end_job(
+        self,
+        job_id: str,
+        status: JobStatus,
+        message: str | None,
+        *,
+        expect: JobStatus | None = None,
+        create_if_missing: bool = False,
+    ) -> JobEnd:
+        """End a job in one step: its outcome, its record, its lifetime and the slot.
 
-        One step, and only while the job has no meta: the meta (COMPLETED, the
-        tracker's terminal marker), the ERROR status and ``message``, all under
-        the terminal TTL, the slot released if it names this job, and the
-        current-job pointer set to it if none is set. The meta's ``created_at``
-        is the refusal time, since the original record is gone. Returns True
-        when the record was written, False when the job already has one.
+        Every side that ends a job calls this, and it is one Redis script: the
+        terminal ``status`` and ``message`` (none when ``None``), the record
+        marked COMPLETED with its end time, every key of the job under the
+        terminal TTL, and the active slot released when it names this job.
+
+        Invariants:
+
+        - A terminal status and its message are never overwritten: a job whose
+          status is already terminal keeps it, and only its record is completed.
+        - An end is written once: a job already ended is left as it is, never
+          re-dated and its lifetime never extended.
+        - A lapsed record is never re-created, unless ``create_if_missing``:
+          then it is written as a record that ended now, and the current-job
+          pointer names it when none is set.
+        - A slot or a pointer another job holds is never touched.
+        - With ``expect``, nothing is written unless the job holds that status.
+
+        Raises:
+            ValueError: ``status`` is not terminal.
         """
+        if not status.is_terminal:
+            raise ValueError(f"A job ends with a terminal status, not {status.value!r}")
+        redis = self._get_redis()
+        keys = list(redis.scan_iter(match=job_scan_pattern(job_id)))
         now = time.time()
-        meta = JobMeta(
-            job_id=job_id,
-            pid=pid,
-            status=JobStatus.COMPLETED,
-            created_at=now,
-            completed_at=now,
+        created = (
+            JobMeta(
+                job_id=job_id,
+                pid=os.getpid(),
+                status=JobStatus.COMPLETED,
+                created_at=now,
+                completed_at=now,
+            ).model_dump_json()
+            if create_if_missing
+            else ""
         )
-        written = self._script(_RECORD_NEVER_STARTED_LUA)(
+        result = self._script(_END_JOB_LUA)(
             keys=[
                 meta_key(job_id),
                 f"{state_prefix(job_id)}:status",
                 f"{state_prefix(job_id)}:error_message",
                 ACTIVE_JOB_KEY,
                 CURRENT_JOB_KEY,
+                *keys,
             ],
             args=[
                 job_id,
-                meta.model_dump_json(),
-                serialize_obj(JobStatus.ERROR),
-                serialize_obj(message),
+                serialize_obj(status),
+                serialize_obj(message) if message is not None else "",
                 TERMINAL_STATE_TTL_SECONDS,
+                now,
+                serialize_obj(expect) if expect is not None else "",
+                created,
+                JobStatus.COMPLETED.value,
+                *(serialize_obj(terminal) for terminal in JobStatus if terminal.is_terminal),
             ],
         )
-        if written != 1:
-            logger.warning("Job %s already has a record; not written", job_id)
-            return False
-        self.expire_job(job_id, TERMINAL_STATE_TTL_SECONDS)
-        logger.info("Recorded job %s as never started", job_id)
-        return True
+        outcome = JobEnd(int(result))
+        if outcome is JobEnd.ENDED:
+            logger.info("Ended job %s as %s", job_id, status.value)
+        elif outcome is JobEnd.RECORD_COMPLETED:
+            logger.info("Completed the record of job %s, which had already ended", job_id)
+        return outcome
 
     def register_created_job(self, job_id: str) -> None:
         """Register a CREATED-but-not-started job WITHOUT claiming the active slot.
@@ -523,43 +616,13 @@ class JobTracker:
         redis = self._get_redis()
         return bool(redis.exists(meta_key(job_id)))
 
-    def mark_completed(self, job_id: str) -> None:
-        """End a job's tracker record: called by the side that ends the job, never by a read.
-
-        The job's keys then expire ``TERMINAL_STATE_TTL_SECONDS`` later.
-
-        Args:
-            job_id: The job identifier
-        """
-        redis = self._get_redis()
-        job_data = self.get_job(job_id)
-        if job_data and job_data.status is not JobStatus.COMPLETED:
-            job_data.status = JobStatus.COMPLETED
-            job_data.completed_at = time.time()
-            redis.set(meta_key(job_id), job_data.model_dump_json())
-            logger.info("Marked job %s as completed", job_id)
-
-        # Sweep the job's whole job:{id}:* footprint (meta + state + cancel) under
-        # the terminal TTL in one pass, so it self-reclaims. Applied on every
-        # ender's call, not just the first flip: a second ender (the shutdown after
-        # the worker's own exit) re-applies the TTL to keys written in between
-        # (the set() above also clears the meta key's TTL). Not gated on
-        # job_data: once the meta key has lapsed the rest of the namespace can
-        # still be alive and must be swept too.
-        self.expire_job(job_id, TERMINAL_STATE_TTL_SECONDS)
-
-        active = redis.get(ACTIVE_JOB_KEY)
-        if active and active == job_id:
-            redis.delete(ACTIVE_JOB_KEY)
-
     def expire_job(self, job_id: str, ttl_seconds: int) -> None:
         """Set a TTL on every Redis key the job owns (``job:{id}:*``).
 
-        One prefix scan reclaims metadata, state, and the cancellation token
-        together. Call only once a job is terminal — these keys are unbounded
-        while it runs (the heartbeat keeps :func:`meta_key` alive). The tracker's
-        str client scans/expires fine even though state values are binary: SCAN
-        and EXPIRE act on key names, not values, and both clients share the DB.
+        One prefix scan covers metadata, state, and the cancellation token
+        together. The tracker's str client scans/expires fine even though state
+        values are binary: SCAN and EXPIRE act on key names, not values, and
+        both clients share the DB.
         """
         redis = self._get_redis()
         pipe = redis.pipeline()
@@ -588,8 +651,6 @@ class JobLifecycle:
     capturing crashes with full stack traces, and de-registering
     the job upon completion or failure.
     """
-
-    writer: JobStateWriter  # set in __enter__
 
     def __init__(self, job_id: str) -> None:
         self.job_id = job_id
@@ -620,20 +681,17 @@ class JobLifecycle:
                 started; the job ends with a terminal error record and this one
                 must not start.
         """
-        self.writer = get_optimization_writer(self.job_id)
         registration = self.tracker.register_worker(self.job_id, os.getpid())
         if registration is WorkerRegistration.SLOT_LOST:
             message = (
                 f"Job {self.job_id} lost the active-job slot before it started; "
                 "it wrote nothing to the machine."
             )
-            self.writer.set_status(JobStatus.ERROR)
-            self.writer.set_error_message(message)
-            self.tracker.expire_job(self.job_id, TERMINAL_STATE_TTL_SECONDS)
+            self.tracker.end_job(self.job_id, JobStatus.ERROR, message)
             raise JobSlotLostError(message)
         if registration is WorkerRegistration.RECORD_LOST:
             message = "The job's record expired before its worker started."
-            self.tracker.record_never_started(self.job_id, os.getpid(), message)
+            self.tracker.end_job(self.job_id, JobStatus.ERROR, message, create_if_missing=True)
             raise JobRecordLostError(message)
         self._heartbeat.start()
 
@@ -656,42 +714,40 @@ class JobLifecycle:
     ) -> None:
         """End the job lifecycle, classifying the outcome into terminal status.
 
-        Single owner of the writer's terminal status. Runners
-        run their body and let the outcome propagate: no exception → COMPLETED,
-        a CancellationError → CANCELLED, anything else → ERROR. Backend-specific
+        Single owner of a run's terminal status, written through
+        :meth:`JobTracker.end_job`, which keeps a terminal status already
+        recorded. Runners run their body and let the outcome propagate: no
+        exception → COMPLETED, a CancellationError → CANCELLED, anything else →
+        ERROR. Backend-specific
         exceptions are translated to domain errors at their own adapter (e.g.
         xopt failures become ``OptimizerError`` in ``xopt_backend``), so this
         classifier stays generic — it uses ``str(exc)`` for the error message
         (the full traceback still goes to the log for diagnosis). Does not
         suppress: the exception still propagates.
         """
-        # Stop the heartbeat first so it can't re-shorten the metadata TTL after
-        # mark_completed() applies the long terminal TTL below.
+        # Stop the heartbeat first so it can't re-shorten the TTL after end_job()
+        # applies the terminal TTL below.
         self._heartbeat.stop(timeout=HEARTBEAT_INTERVAL_SECONDS + 1)
 
+        status: JobStatus
+        message: str | None
+        if exc_type is None:
+            status, message = JobStatus.COMPLETED, None
+            logger.info("Job %s finished successfully", self.job_id)
+        elif issubclass(exc_type, CancellationError):
+            status, message = JobStatus.CANCELLED, CANCELLED_MESSAGE
+            logger.info("Job %s cancelled by user", self.job_id)
+        else:
+            status, message = JobStatus.ERROR, str(exc_val) or exc_type.__name__
+            logger.error(
+                "Job %s failed with unhandled exception:\n%s",
+                self.job_id,
+                traceback.format_exc(),
+            )
+
         try:
-            if exc_type is None:
-                self.writer.set_status(JobStatus.COMPLETED)
-                logger.info("Job %s finished successfully", self.job_id)
-            elif issubclass(exc_type, CancellationError):
-                self.writer.set_status(JobStatus.CANCELLED)
-                self.writer.set_error_message(CANCELLED_MESSAGE)
-                logger.info("Job %s cancelled by user", self.job_id)
-            else:
-                error_msg = str(exc_val) or exc_type.__name__
-                logger.error(
-                    "Job %s failed with unhandled exception:\n%s",
-                    self.job_id,
-                    traceback.format_exc(),
-                )
-                self.writer.set_status(JobStatus.ERROR)
-                self.writer.set_error_message(error_msg)
-
-            # mark_completed() sweeps the job's entire job:{id}:* footprint
-            # (meta + state + cancellation) under the terminal TTL in one pass —
-            # the heartbeat is already stopped above so it can't re-shorten it,
-            # and the status/message just written above are covered by the sweep.
-            self.tracker.mark_completed(self.job_id)
-
+            # One step: the outcome, the record, every key of the job under the
+            # terminal TTL, and the slot.
+            self.tracker.end_job(self.job_id, status, message)
         except Exception:
             logger.exception("Error during lifecycle cleanup for job %s", self.job_id)
