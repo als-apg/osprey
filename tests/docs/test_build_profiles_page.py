@@ -5,6 +5,8 @@
   paragraph under it names exactly the entries only one preset writes;
 * the "Valid events" list is :data:`CLAUDE_CODE_HOOK_EVENTS`, in its order;
 * the ``osprey build`` options table names every option the command takes;
+* the ``lists: own`` bullet names every key a login owns, and the bundled
+  CLAUDE.md render a login that leaves out ``claude_md_template`` builds;
 * every message quoted under "Troubleshooting" is copied from a string literal
   in ``src/osprey``.
 """
@@ -21,7 +23,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.cli.build_cmd import build
+from osprey.cli.build_profile_merge import _LOGIN_OWNED_KEYS
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.claude_code import CLAUDE_CODE_HOOK_EVENTS
 
@@ -184,6 +188,25 @@ def test_conditional_entries_paragraph_names_the_preset_specific_ones(
 def test_valid_hook_events_are_the_events_a_profile_may_declare() -> None:
     paragraph = _paragraph_containing(_section("Custom hooks"), "Valid events:")
     assert _literals(paragraph) == list(CLAUDE_CODE_HOOK_EVENTS)
+
+
+def _lists_own_bullet() -> str:
+    """Return the ``lists: own`` bullet, its continuation lines joined."""
+    lines = _page().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("- ``lists: own``"))
+    bullet = [lines[start]]
+    for line in lines[start + 1 :]:
+        if not line.startswith("  "):
+            break
+        bullet.append(line.strip())
+    return " ".join(bullet)
+
+
+def test_lists_own_bullet_names_every_login_owned_key() -> None:
+    bullet = _lists_own_bullet()
+    missing = [key for key in _LOGIN_OWNED_KEYS if f"``{key}``" not in bullet]
+    assert not missing, f"the lists: own bullet does not name {missing}"
+    assert f"``{DEFAULT_CLAUDE_MD_TEMPLATE}``" in bullet
 
 
 def test_build_options_table_names_every_build_option() -> None:
