@@ -57,6 +57,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MOVABLE_ROLE,
     READABLE_ROLE,
 )
+from osprey.services.bluesky_bridge.plan_metadata import PlanMetadata
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.queue_backend import (
     REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
@@ -519,9 +520,9 @@ def _write_session_plan(name: str = _SESSION_PLAN_NAME, *, validated: bool = Tru
 # ---------------------------------------------------------------------------
 
 
-def test_the_catalog_entry_is_five_keys_with_three_field_metadata(client: TestClient) -> None:
+def test_the_catalog_entry_is_five_keys_with_the_declared_metadata(client: TestClient) -> None:
     """`GET /plans` publishes exactly five keys per entry, and a plan's metadata
-    is exactly ``name``/``description``/``writes``.
+    is exactly the fields `PlanMetadata` declares.
 
     This is the wire half of the metadata contract: the model forbids extras
     in-process, but what a panel, the MCP tools and the approval hook actually
@@ -533,12 +534,14 @@ def test_the_catalog_entry_is_five_keys_with_three_field_metadata(client: TestCl
     by_name = {entry["name"]: entry for entry in body}
     assert {"orm", "grid_scan"} <= set(by_name), f"shipped plans missing: {sorted(by_name)}"
 
+    declared = set(PlanMetadata.model_fields)
+    assert {"name", "description", "writes"} <= declared
     for name, entry in by_name.items():
         assert set(entry) == {"name", "description", "schema", "metadata", "provenance"}, (
             f"{name}: unexpected catalog entry keys: {sorted(entry)}"
         )
-        assert set(entry["metadata"]) == {"name", "description", "writes"}, (
-            f"{name}: plan metadata is no longer the three declared fields: {entry['metadata']}"
+        assert set(entry["metadata"]) == declared, (
+            f"{name}: plan metadata is not the declared fields: {entry['metadata']}"
         )
 
 

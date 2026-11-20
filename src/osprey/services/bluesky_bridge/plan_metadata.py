@@ -19,7 +19,7 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 
 class PlanMetadataError(ValueError):
@@ -35,14 +35,17 @@ class PlanMetadataError(ValueError):
 class PlanMetadata(BaseModel):
     """Authoring-declared metadata for one plan, surfaced via `GET /plans`.
 
-    Exactly three fields, all required: a plan lacking one is an authoring
-    error to be rejected at load time, not a gap to paper over with a default.
-    Unknown keys are rejected too (``extra="forbid"``) -- a plan that declares
-    anything outside this contract, including keys from an earlier shape, is
-    quarantined loudly rather than parsed clean with the surplus dropped.
-    Which channels a plan touches is *not* declared here: it is read off the
-    role-typed fields of the plan's parameter model. JSON-serializable via
-    `model_dump()` for direct inclusion in `PlanSpec.to_dict()`.
+    Three required fields -- ``name``, ``description``, ``writes`` -- and
+    optional presentation fields that shape the operator's form. A plan
+    lacking a required field is an authoring error to be rejected at load
+    time, not a gap to paper over with a default; an optional field a plan
+    does not state is ``None``. Unknown keys are rejected too
+    (``extra="forbid"``) -- a plan that declares anything outside this
+    contract, including keys from an earlier shape, is quarantined loudly
+    rather than parsed clean with the surplus dropped. Which channels a plan
+    touches is *not* declared here: it is read off the role-typed fields of
+    the plan's parameter model. JSON-serializable via `model_dump()` for
+    direct inclusion in `PlanSpec.to_dict()`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -57,6 +60,31 @@ class PlanMetadata(BaseModel):
     against the plan's role-typed fields, so a mismatch is caught at load
     time rather than at execution.
     """
+
+    layout: list[list[str]] | None = None
+    """Rows of parameter names: the fields of one row share a row of the form.
+
+    Parameters the layout does not name follow its rows in schema order. Every
+    name appears once, in a non-empty row; whether each name is a parameter of
+    the plan is checked by the loader, which has the plan's ``PARAMS``.
+    """
+
+    @field_validator("layout")
+    @classmethod
+    def _layout_names_each_field_once(cls, rows: list[list[str]] | None) -> list[list[str]] | None:
+        if rows is None:
+            return None
+        seen: set[str] = set()
+        for row in rows:
+            if not row:
+                raise ValueError("a layout row is empty")
+            for name in row:
+                if not name:
+                    raise ValueError("a layout name is empty")
+                if name in seen:
+                    raise ValueError(f"layout names {name!r} more than once")
+                seen.add(name)
+        return rows
 
 
 def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadata:
@@ -76,8 +104,13 @@ def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadat
         unknown: list[str] = []
         for error in exc.errors():
             field = ".".join(str(part) for part in error["loc"])
-            bucket = unknown if error["type"] == "extra_forbidden" else invalid
-            bucket.append(field)
+            if error["type"] == "extra_forbidden":
+                unknown.append(field)
+            elif error["type"] == "value_error":
+                reason = str(error["ctx"]["error"]) if "ctx" in error else error["msg"]
+                invalid.append(f"{field} ({reason})")
+            else:
+                invalid.append(field)
         message = f"{source}: PLAN_METADATA is invalid"
         if invalid:
             message += f" for field(s): {', '.join(invalid)}"
