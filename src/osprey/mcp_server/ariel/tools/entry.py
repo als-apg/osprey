@@ -589,7 +589,10 @@ async def entry_create(
     artifact_paths: list[str] = []
     if artifact_ids:
         from osprey.agent_runner.artifact_resolve import resolve_artifact_paths
+        from osprey.mcp_server.export.converter import PlaywrightNotInstalledError
 
+        # Refused in both modes: a draft written without the artifact would
+        # reach the logbook without it once a human submits it.
         try:
             artifact_paths = await resolve_artifact_paths(artifact_ids)
         except ValueError as exc:
@@ -600,9 +603,15 @@ async def entry_create(
             )
         except ToolError:
             raise
+        except PlaywrightNotInstalledError as exc:
+            return make_error(
+                "dependency_missing",
+                str(exc),
+                [
+                    "An entry without the artifact, or with an image or PDF artifact, needs no browser."
+                ],
+            )
         except Exception as exc:
-            # Refused in both modes: a draft written without the artifact would
-            # reach the logbook without it once a human submits it.
             logger.warning("Artifact resolution failed: %s", exc)
             return make_error(
                 "internal_error",
