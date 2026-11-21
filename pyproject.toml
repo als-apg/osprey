@@ -895,7 +895,10 @@ name = "The framework reaches the connector packages only through their namespac
 # them) are reached through the subpackage itself, and a module added there
 # later is private until it is exempted here. The simulation subpackage keeps
 # its modules public: its root is imported by readers that must not load
-# numpy, so the heavy modules are reached by their own names. The package's
+# numpy, so the heavy modules are reached by their own names. Among them,
+# `simulation.engines` is the engine plug-in contract the framework reads: the
+# entry-point group's name, the plug-in protocol, the calibration math and the
+# facility-defect refusal. The package's
 # top-level modules (config, types, posture_store, ...) are each their own
 # public API, except the private ones: `_config_read`, the config readers the
 # stand-in and the simulator share, and `_service_http`, the one HTTP path of
@@ -948,6 +951,11 @@ name = "The connector package's top-level modules, in layers"
 # record `control_context` parses, and `control_context` takes its root and
 # posture grammar from `posture_store`; `workspace` loads config through
 # `config`'s singleton, and `config` resolves paths through `workspace`.
+#
+# `simulation.engines`, the engine plug-in contract, sits inside the simulation
+# layer and imports nothing from the package. A layer may not hold a module
+# another layer already contains, so that leaf is held by the connectors suite
+# (test_engine_contract.py), not by a layer of its own.
 type = "layers"
 layers = [
     "osprey_connectors.ipc",
