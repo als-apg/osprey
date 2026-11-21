@@ -1,0 +1,1 @@
+A device card drawn by the default recipe takes a key tile from a role only when exactly one of the device's own channels plays it: a neighbour's channel the role reaches no longer hides the device's own figure, and a device with two own channels of a role still gets no tile for it.

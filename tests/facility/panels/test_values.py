@@ -594,3 +594,61 @@ def test_a_stated_precision_rounds_a_static_number_to_those_decimals() -> None:
     expression = layout.fixed_expression("{v}", 2).replace("{v}", "(1.23456)")
     names = {"floor": math.floor, "pow": pow}
     assert eval(expression, {"__builtins__": {}}, names) == pytest.approx(1.23)
+
+
+# -- a value display as wide as what the facility states it can show ----------------
+
+LONG_WORD = "Pending Off Standby Mode"
+
+
+def _stated(document) -> None:
+    for record in document["channels"]:
+        if record["id"] == "XR01-PS1:On-Sts":
+            record["options"] = ["Normal", LONG_WORD]
+    document["limits"] = {
+        "records": [
+            {"address": "XR01-IP2:Pressure-RB", "min_value": -123456.0, "max_value": 1.0},
+            {"address": "XR01-IP1:Pressure-RB", "min_value": -1.0, "max_value": 1.0},
+        ]
+    }
+
+
+@pytest.fixture(scope="module")
+def stated_graph(tmp_path_factory):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    tmp = tmp_path_factory.mktemp("stated")
+    return load_graph(write_fixture_facility(tmp / "facility.json", _stated), PANELS_DIR)
+
+
+def _displays(graph, device: str, channel: str) -> list[dict]:
+    from osprey.facility.panels.describe import channel_list
+
+    doc = stub_render(channel_list(graph, device), graph)
+    return [n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == channel]
+
+
+def test_the_graph_reads_a_channels_options_and_limits(stated_graph) -> None:
+    assert stated_graph.channel("XR01-PS1:On-Sts").options == ("Normal", LONG_WORD)
+    assert stated_graph.channel("XR01-IP2:Pressure-RB").limits == (-123456.0, 1.0)
+    assert stated_graph.channel("XR02-IP1:Pressure-RB").limits is None
+
+
+def test_a_display_is_as_wide_as_its_longest_stated_word(stated_graph) -> None:
+    displays = _displays(stated_graph, "XR01:PS1", "XR01-PS1:On-Sts")
+    assert displays
+    for display in displays:
+        assert display["geometry"]["width"] >= layout.shown_width(LONG_WORD, layout.TEXT_SIZE)
+
+
+def test_a_display_is_as_wide_as_its_limits_print_when_they_are_wider(stated_graph) -> None:
+    (wide,) = _displays(stated_graph, "XR01:IP2", "XR01-IP2:Pressure-RB")
+    assert wide["geometry"]["width"] >= layout.shown_width("-123456", layout.TEXT_SIZE)
+    # limits narrower than the stand-in leave the stand-in's width, as with none
+    (narrow,) = _displays(stated_graph, "XR01:IP1", "XR01-IP1:Pressure-RB")
+    (none,) = _displays(stated_graph, "XR02:IP1", "XR02-IP1:Pressure-RB")
+    assert narrow["geometry"]["width"] == none["geometry"]["width"]
+    assert none["geometry"]["width"] == max(
+        layout.VALUE_WIDTH, layout.shown_width(layout.VALUE_SAMPLE, layout.TEXT_SIZE)
+    )

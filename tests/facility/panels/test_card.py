@@ -457,8 +457,9 @@ def test_a_parameter_title_wraps_and_is_never_cut_and_long_conditions_wrap(tmp_p
         and n["props"]["text"].rstrip("…") in _LONG_CONDITIONS
     ]  # fmt: skip
     assert len(lines) == 2 and lines[-1]["props"]["text"].endswith("…")
+    # the cut line shows the whole conditions on hover, from a box over it
     (hover,) = [n for n in block if n["props"].get("tooltip") == _LONG_CONDITIONS]
-    assert hover["type"] == "rectangle"
+    assert hover["type"] == "rectangle" and hover["geometry"] == lines[-1]["geometry"]
     assert "serial=XQF-01" in words
     value = next(n for n in texts if n["props"]["text"].startswith("-4.9198"))
     assert all(n["geometry"]["x"] == value["geometry"]["x"] for n in lines)  # under the value
@@ -2237,7 +2238,12 @@ def test_what_tells_names_apart_drops_the_segments_they_share():
     assert _apart(["ONE"]) == ["ONE"]
 
 
-def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_number(tmp_path):
+@pytest.mark.parametrize("under", [False, True])
+def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_number(
+    tmp_path, monkeypatch, under
+):
+    if under:  # a number that needs the tile's whole width leaves no room beside it
+        monkeypatch.setattr(layout, "VALUE_WIDTH", 2 * layout.VALUE_WIDTH)
     roles = "Pump,state,*:State-Sts,device,word,,,,,stated,S,1,l\n"
     graph = _roles_graph(tmp_path, roles)  # no state word stated for it
     doc = stub_render(device_card(graph, "XR01:IP1"), graph)
@@ -2249,8 +2255,12 @@ def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_nu
         n for n in _by_type(doc, "pv-label")
         if n["props"]["pv"] == "XR01-IP1:State-Sts" and n["props"]["fontSize"] == layout.KEY_VALUE_SIZE
     ]  # fmt: skip
-    assert note["geometry"]["y"] >= number["geometry"]["y"] + number["geometry"]["height"]
-    assert number["geometry"]["width"] >= layout.VALUE_WIDTH  # the number keeps its room
+    n, t = number["geometry"], note["geometry"]
+    if under:
+        assert t["y"] >= n["y"] + n["height"]
+    else:
+        assert t["x"] >= n["x"] + n["width"] and t["y"] == n["y"]
+        assert n["width"] >= layout.VALUE_WIDTH  # the number keeps its room
 
 
 def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
@@ -2269,12 +2279,14 @@ def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
             n for n in nodes(doc)
             if n["type"] == "rectangle" and n["props"].get("lineColor") == layout.symbols.FOCUS
         ]  # fmt: skip
-        return box["geometry"]["width"]
+        (field,) = [n for n in nodes(doc) if n["type"] == "pv-label"]
+        return box["geometry"]["width"], field["geometry"]["width"]
 
     long_unit = "1/Meter^2"
-    need = layout.BLOCK_LABEL + layout.text_width(f"-0.000 {long_unit}", layout.BLOCK_TEXT_SIZE)
-    assert width(long_unit) >= need  # the field holds the number and its unit whole
-    assert width(None) == layout.BLOCK_LEAST  # the facility's unit, A, fits the least
+    _box, field = width(long_unit)
+    # the field holds the number and its unit whole
+    assert field >= layout.text_width(f"-0.000 {long_unit}", layout.BLOCK_TEXT_SIZE)
+    assert width(None)[0] == layout.BLOCK_LEAST  # the facility's unit, A, fits the least
 
 
 def _family_supply_graph(tmp_path):
@@ -2619,3 +2631,48 @@ def test_the_vocabulary_titles_its_general_signals_with_the_operator_s_word() ->
         "power_on_command": "On command", "temperature_lolo_limit_readback": "Lolo",
         "temperature_hihi_limit_setpoint": "Hihi",
     }  # fmt: skip
+
+
+def _default_tiles(graph, device: str) -> list[tuple[str, str | None]]:
+    from osprey.facility.panels.view import KeyTile
+
+    view = device_card(graph, device)
+    return [(i.title, i.channel) for s in view.sections for i in s.items if isinstance(i, KeyTile)]
+
+
+def test_a_default_tile_counts_only_the_device_s_own_channels_of_its_role(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
+        + "Pump,pressure,*:IP{n}:P,read_out_by,value,,,,,stated,S,1,l\n"  # the chassis's
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _ported), tables)
+    owners = {h.owner for h in graph.roles("XR01:IP1") if h.role.role == "pressure"}
+    assert owners == {"XR01:IP1", "XR01:CH2"}  # the role reaches a neighbour's channel too
+    # the device's one own channel of the role is its figure; the chassis's is not
+    assert ("Pressure", "XR01-IP1:Pressure-RB") in _default_tiles(graph, "XR01:IP1")
+
+
+def test_a_device_with_two_own_channels_of_a_role_gets_no_default_tile_for_it(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def second(document) -> None:
+        document["channels"].append({"id": "XR01-IP1:Pressure2-RB", "on": {"device": "XR01:IP1"}})
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "Pump,pressure,*:Pressure*-RB,device,value,,,,,stated,S,1,l\n"
+        + "Pump,state,*:State-Sts,device,word,,,,,stated,S,1,l\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", second), tables)
+    own = [h.channel for h in graph.roles("XR01:IP1") if h.role.role == "pressure"]
+    assert sorted(own) == ["XR01-IP1:Pressure-RB", "XR01-IP1:Pressure2-RB"]
+    tiles = _default_tiles(graph, "XR01:IP1")
+    assert all(channel not in own for _title, channel in tiles)  # two are no single figure
+    assert ("State", "XR01-IP1:State-Sts") in tiles  # a role of one own channel still is

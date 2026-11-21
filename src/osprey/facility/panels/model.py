@@ -312,6 +312,10 @@ class Channel:
             ``term`` being ``absolute`` or ``relative``; ``None`` with none.
         signal: The signal role the facility file states for it (its
             ``signal``), or ``None``.
+        options: The words the facility file states for its values (its
+            ``options``), in value order; empty with none.
+        limits: The facility file's limits record for it as ``(min, max)``,
+            or ``None`` with none.
     """
 
     name: str
@@ -325,6 +329,8 @@ class Channel:
     description: str | None = None
     tolerance: tuple[str, float] | None = None
     signal: str | None = None
+    options: tuple[str, ...] = ()
+    limits: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -821,6 +827,7 @@ class PanelGraph:
         self._channel: dict[str, Channel] = {}
         self._channels: dict[_Key, list[Channel]] = {}
         self._unheld: list[Channel] = []
+        limits = _limits(records.document)
         for record in records.of_kind("channel"):
             name = str(record["id"])
             if name in excluded or name.startswith(SIMULATION_PREFIX):
@@ -857,6 +864,8 @@ class PanelGraph:
                 description=_text(record.get("description")),
                 tolerance=_tolerance(record.get("tolerance")),
                 signal=_text(record.get("signal")),
+                options=tuple(str(o) for o in record.get("options") or () if o is not None),
+                limits=limits.get(name),
             )
             self._channel[name] = channel
             if row is not None:
@@ -1803,6 +1812,19 @@ class PanelGraph:
         """The readback the facility file pairs *setpoint* with, or ``None`` when it
         is its own pair, is no setpoint, or its pair is left out."""
         return self._pairs.get(setpoint)
+
+
+def _limits(document: Mapping[str, Any]) -> dict[str, tuple[float, float]]:
+    """Each channel's limits record, ``(min, max)``, where both bounds are numbers."""
+    found: dict[str, tuple[float, float]] = {}
+    section = document.get("limits")
+    for record in (section.get("records") if isinstance(section, Mapping) else None) or ():
+        if not isinstance(record, Mapping):
+            continue
+        low, high = record.get("min_value"), record.get("max_value")
+        if isinstance(low, int | float) and isinstance(high, int | float):
+            found[str(record.get("address"))] = (float(low), float(high))
+    return found
 
 
 def load_graph(facility: Path, panels_dir: Path) -> PanelGraph:

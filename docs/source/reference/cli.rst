@@ -1630,8 +1630,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    card names it without a link. ``check`` counts the devices with no card, those
    the default alone leaves without one, and how many devices each row decides. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
-   ``card`` whose ``level`` names its recipe, else its roles, but never a role
-   whose word is a ``nameplate`` signal, which says what the device is, not how
+   ``card`` whose ``level`` names its recipe, else the roles exactly one of the
+   device's own channels plays, a neighbour's channel its roles reach not
+   counted, but never a role whose word is a ``nameplate`` signal, which says what the device is, not how
    it is (a ``channel_roles.csv`` row giving the channel another word overrides
    it); a tile's measure is
    ``value`` or ``word`` of the role's first channel, or over every channel of
@@ -1748,11 +1749,31 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
-   the layout cut to fit. A class's ``sample`` names the members a reviewer
+   the layout cut to fit. The layout measures text in the viewer's own font
+   (IBM Plex Sans): a column takes the width its longest label needs (a
+   checkout's channel and thing columns their longest names), a long
+   label in a chain block takes two lines, a muted line of prose (a caption, a
+   note, what a press writes, a source, also beside a fact) takes as many lines
+   as it needs, and a
+   text still longer than its box
+   is cut there with an ellipsis and listed, with a box over it that shows the
+   whole text on hover (a link over it shows the link's label), so the viewer
+   never has to shrink or clip a label. A value display is as wide as the widest text the facility
+   states it can show: its longest state word, else its limits as the display
+   prints them when they are wider than the stand-in ``-0.00123``, else that
+   stand-in, with the unit where the display prints it. Every text label's box
+   is at least one line of the font high (a light's mark among them), grown
+   about its middle where it was lower. A class's ``sample`` names the members a reviewer
    opens: the standard, the smallest, the largest, the one with the longest
    label, the first off standard, and one member on each side of every
    variation that changes the drawing (a part drawn with or without a stated
    position, a channel list drawn as a grid or a count).
+   A device's card and channel list also state, under ``others``, what they
+   show of other things on purpose: each thing, the kind of item that draws it
+   (``strip member``, ``chain block``, ...) and the channels of it the screen
+   binds; a row that names no thing (a channel list's row of a device the
+   roles reach) is placed by its channel's owner. A checker can then tell a
+   neighbour's channel from a channel on the wrong screen.
 
 ``osprey facility panels check --out DIRECTORY [--strict] [--max-bytes N] [--limit N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
    Regenerate every screen and compare it with the files under ``--out``;
