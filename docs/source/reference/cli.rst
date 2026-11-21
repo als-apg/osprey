@@ -1731,8 +1731,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    a gate reads, with the classes of one screen per view kind. Two screens are
    of one class when they have one key: for a device's card and its channel
    list, the device's class, the card recipe it is drawn from and the set of
-   signal roles the card shows (a role played by two channels counts once; the
-   driver-internal role and channels with no role are not in it). Where cards
+   signal roles the device's channels play (a role played by two channels
+   counts once; the driver-internal role and channels with no role are not in
+   it), and, for a device with no channel at all, ``channels: none``, so it is
+   not classed with one whose channels play no stated role. Where cards
    of one such class drawn by the default recipe show different blocks (a card
    one can act from and a read-only one, a card with or without key tiles),
    the key also holds ``blocks``, the kinds of block the card shows by presence

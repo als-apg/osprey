@@ -475,6 +475,11 @@ def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, d
             "roles": roles,
         }
         readable = f"{cls}-{recipe}"
+        if not graph.card_channels(target.id):
+            # a device with no channel is another card than one with channels and no
+            # stated role; stated only where it holds, so other keys stay as they are
+            key["channels"] = "none"
+            readable += "-no-channels"
     elif target.view == "calibration":
         # Gains and offsets are different things to judge even where the layout
         # agrees: the calibration kind is the kind of signal it states.

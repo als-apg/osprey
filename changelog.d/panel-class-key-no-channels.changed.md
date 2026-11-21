@@ -1,0 +1,1 @@
+A device card or channel list of a device with no channel at all is no longer classed with one whose channels play no stated role: its class key states `channels: none`, and the class takes a name ending in `-no-channels`. Other class keys and ids are unchanged.

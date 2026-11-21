@@ -491,3 +491,22 @@ def test_a_class_names_its_standard_s_drawing_apart_from_its_layout(tmp_path, mo
     moved = _written(_graph(tmp_path, name="h"), tmp_path / "p")
     assert all(moved["classes"][c]["drawing"] != d for c, d in drawings.items())
     assert all(moved["classes"][c]["layout"] == r["layout"] for c, r in index["classes"].items())
+
+
+def test_a_device_with_no_channel_is_not_classed_with_one_whose_channels_play_no_role(tmp_path):
+    """Two devices of one class and recipe, neither with a channel that plays a role:
+    one has a channel, the other none. Their cards differ, so their classes do; the
+    key says ``channels: none`` only where it holds, so other keys stay as they were."""
+
+    def one_channel(document: dict[str, Any]) -> None:
+        document["channels"].append({"id": "XR02-BLOCK1:Note-X", "on": {"device": "XR02:BLOCK1"}})
+
+    graph = _graph(tmp_path, one_channel)
+    for view in ("card", "channels"):
+        with_one, without = (
+            class_key(graph, Target(view, "device", thing), "s")
+            for thing in ("XR02:BLOCK1", "XR02:SHIELD1")
+        )
+        assert with_one[1]["roles"] == without[1]["roles"] == []
+        assert with_one[0] != without[0]
+        assert "channels" not in with_one[1] and without[1]["channels"] == "none"
