@@ -34,6 +34,7 @@
  * `/panel/canopy/embed/?_canopyOpen=<source>:<id>`.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { fetchJSON, withPrefix } from './api.js';
 
 /** The panel id CANOPY is mounted under. */
@@ -242,21 +243,22 @@ function collectionsOf(body) {
 export function createCanopyProvider(deps) {
   const load = deps.load ?? fetchJSON;
   const navigate = deps.navigate;
-  let fetchSeq = 0;
+  /** The loads: a newer load retires this one, so only its entries are kept. */
+  const loads = createLatestRequest();
   let loading = false;
   /** @type {Array<Matchable & { run: () => void, text: string, detail?: string }>} */
   let entries = [];
 
   /** @param {() => void} [onChange] */
   function start(onChange) {
-    const token = ++fetchSeq;
+    const token = loads.begin();
     loading = true;
     entries = [];
     Promise.allSettled([
       Promise.resolve().then(() => load(MANIFEST_PATH)),
       Promise.resolve().then(() => load(COLLECTIONS_PATH)),
     ]).then(([manifest, collections]) => {
-      if (token !== fetchSeq) return;
+      if (!token.isCurrent()) return;
       /** @type {typeof entries} */
       const next = [];
       if (manifest.status === 'fulfilled') {

@@ -85,6 +85,7 @@
  * @module sidebar-artifacts
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { createEventSource } from './api.js';
 import { contributeLocal } from './tile-header-contrib.js';
@@ -720,8 +721,8 @@ export async function openInAgent(treeId, where = 'sessions') {
   await reveal(now, model.pick() ?? row.last_artifact_id ?? null, false, !wasActive);
 }
 
-/** Counts the picks, so that only the latest one lands (see pickArtifact). */
-let pickSeq = 0;
+/** The picks: a newer pick retires this one, so only the latest lands (see pickArtifact). */
+const picks = createLatestRequest();
 
 /**
  * The operator picked an artifact: show it without changing the session and
@@ -733,9 +734,9 @@ let pickSeq = 0;
  * @returns {Promise<void>}
  */
 async function pickArtifact(id) {
-  const seq = ++pickSeq;
+  const pick = picks.begin();
   const entry = held(id) ?? (await store.fetchArtifact(id));
-  if (!entry || seq !== pickSeq) return;
+  if (!entry || !pick.isCurrent()) return;
   data.hold(entry);
   model.setPick(id);
   model.recordLastArtifact(entry);

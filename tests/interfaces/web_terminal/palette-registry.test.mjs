@@ -16,6 +16,7 @@
  *   - Layouts emit items wired to applyPreset with the preset's NAME
  *   - Actions are wrapped in order with run passed through
  *   - missing optional deps never throw and contribute nothing
+ *   - the Artifacts provider shows the newest query's answer, never an older one
  *
  * Pure module, no DOM:
  *   npx vitest run tests/interfaces/web_terminal/palette-registry.test.mjs
@@ -23,7 +24,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-import { buildRegistry } from '../../../src/osprey/interfaces/web_terminal/static/js/palette-registry.js';
+import {
+  buildRegistry,
+  createArtifactsProvider,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/palette-registry.js';
 
 /** Items in a given group, in output order. Returns `any[]` so tests can read
  * navigable-only fields (run/searchText/detail) on rows they know are navigable
@@ -348,5 +352,47 @@ describe('buildRegistry', () => {
     expect(panels.map((it) => it.label)).toEqual(['Show One']);
     // No Focus items without getVisiblePanels.
     expect(panels.some((it) => it.label.startsWith('Focus'))).toBe(false);
+  });
+});
+
+describe('createArtifactsProvider', () => {
+  it("shows the newer query's answer when the older one lands last", async () => {
+    vi.useFakeTimers();
+    try {
+      /** @type {Map<string, (hits: any[]) => void>} */
+      const answers = new Map();
+      const searchArtifacts = vi.fn(
+        (/** @type {string} */ q) => new Promise((resolve) => answers.set(q, resolve))
+      );
+      const provider = createArtifactsProvider({
+        rows: () => [],
+        searchArtifacts,
+        listSessions: async () => [],
+        sessionOfArtifact: () => null,
+        switchTo: vi.fn(),
+        showArtifact: vi.fn(),
+        debounceMs: 20,
+      });
+      const onChange = vi.fn();
+      provider.start(onChange);
+
+      expect(provider.search('orb')).toBeNull();
+      await vi.advanceTimersByTimeAsync(20);
+      expect(provider.search('orbit')).toBeNull();
+      await vi.advanceTimersByTimeAsync(20);
+      expect(searchArtifacts.mock.calls.map(([q]) => q)).toEqual(['orb', 'orbit']);
+
+      answers.get('orbit')?.([{ id: 'a2', title: 'Orbit plot' }]);
+      await vi.advanceTimersByTimeAsync(0);
+      answers.get('orb')?.([{ id: 'a1', title: 'Orb notes' }]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(/** @type {any[]} */ (provider.search('orbit')).map((h) => h.label)).toEqual([
+        'Orbit plot',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -41,6 +41,7 @@
  * session's layout.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { fetchJSON, withPrefix } from './api.js';
 import { activeRow, firstLoaded, subscribe as subscribeToSessions } from './session-model.js';
 import {
@@ -91,7 +92,8 @@ let started = false;
 let following = null;
 /** The transcript writes go to: `following` once its layout has been read. @type {string | null} */
 let target = null;
-let generation = 0;
+/** The arrivals: a newer switch, a fresh start or a reset retires this one. */
+const arrivals = createLatestRequest();
 let applying = false;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let saveTimer = null;
@@ -166,7 +168,7 @@ export function resetSessionLayout() {
   stored.clear();
   started = applying = arriving = false;
   following = target = null;
-  generation += 1;
+  arrivals.cancel();
   settled = pendingSettled();
 }
 
@@ -233,20 +235,20 @@ function follow() {
   save();
   following = tid;
   target = null;
-  const gen = ++generation;
+  const arrival = arrivals.begin();
   arriving = Boolean(tid);
   // A new session the listing has not caught up with has no transcript to
   // keep a layout under yet; it keeps the screen, and saves it on arrival.
-  if (tid) void arrive(tid, gen);
+  if (tid) void arrive(tid, arrival);
   else settleIfIdle();
 }
 
 /**
  * This arrive is over, unless a newer switch took over from it.
- * @param {number} gen
+ * @param {import('/design-system/js/latest-request.js').LatestToken} arrival
  */
-function arriveFinished(gen) {
-  if (gen !== generation) return;
+function arriveFinished(arrival) {
+  if (!arrival.isCurrent()) return;
   arriving = false;
   settleIfIdle();
 }
@@ -261,7 +263,7 @@ function arriveFinished(gen) {
 function startFresh() {
   save();
   target = null;
-  generation += 1;
+  arrivals.cancel();
   arriving = false;
   settleIfIdle();
   const holder = getLayoutHolder();
@@ -277,27 +279,27 @@ function startFresh() {
  * becomes its own. A read that fails (the hub unreachable, a session not this
  * operator's) neither applies nor overwrites.
  * @param {string} tid
- * @param {number} gen
+ * @param {import('/design-system/js/latest-request.js').LatestToken} arrival
  */
-async function arrive(tid, gen) {
+async function arrive(tid, arrival) {
   /** @type {any} */
   let saved;
   try {
     saved = (await fetchJSON(layoutPath(tid)))?.layout ?? null;
   } catch (err) {
     console.warn('[session-layout] could not read the session layout', err);
-    arriveFinished(gen);
+    arriveFinished(arrival);
     return;
   }
-  if (gen !== generation) return;
+  if (!arrival.isCurrent()) return;
   target = tid;
   if (saved && apply(saved)) {
     stored.set(tid, stableJson(saved));
-    setTimeout(() => arriveFinished(gen), SETTLE_MS);
+    setTimeout(() => arriveFinished(arrival), SETTLE_MS);
     return;
   }
   save();
-  arriveFinished(gen);
+  arriveFinished(arrival);
 }
 
 /**

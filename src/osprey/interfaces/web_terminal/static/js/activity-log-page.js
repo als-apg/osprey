@@ -23,6 +23,7 @@ import { copyText } from '/design-system/js/clipboard.js';
 import { debounce } from '/design-system/js/dom.js';
 import { icon } from '/design-system/js/icons.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { showToast } from '/design-system/js/toast.js';
 
 import {
@@ -158,7 +159,8 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
   let lost = '';
   /** Whether the page shows `good`, kept through a read that got no answer. */
   let stale = false;
-  let turn = 0;
+  /** The reads: a newer read retires and aborts this one. */
+  const reads = createLatestRequest();
   let stopped = false;
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let timer;
@@ -329,8 +331,7 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
   }
 
   async function load() {
-    turn += 1;
-    const mine = turn;
+    const token = reads.begin();
     clearTimeout(timer);
     const asked = readUrl();
     /** @type {ActivityPayload} */
@@ -338,7 +339,7 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
     /** @type {'' | 'terminal' | 'record'} */
     let failed = '';
     try {
-      next = await fetchJSON(asked);
+      next = await fetchJSON(asked, { signal: token.signal });
       if (next.record === 'unavailable') failed = 'record';
     } catch {
       failed = 'terminal';
@@ -351,7 +352,7 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
       };
     }
     // An answer for a question the page no longer asks.
-    if (stopped || mine !== turn) return;
+    if (stopped || !token.isCurrent()) return;
     lost = failed;
     if (!lost) {
       good = next;

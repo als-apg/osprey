@@ -6,8 +6,8 @@
  * optionally one form's (`form`), always with `runs: "grouped"` so a run lists once, at its head. Pages walk
  * the server's opaque `next_cursor`.
  *
- * A first page replaces what the listing holds and bumps a generation, so a
- * late answer from an older request is dropped; a next page appends
+ * A first page replaces what the listing holds and retires the one before it,
+ * so a late answer from an older request is dropped; a next page appends
  * de-duplicated, one in flight at a time and never during a first page; a
  * failed request keeps the entries and the cursor.
  *
@@ -17,6 +17,7 @@
  * @module sidebar-artifact-listing
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { withPrefix } from './api.js';
 import { getPointer } from './session-pointer.js';
@@ -165,7 +166,9 @@ export function createListing({ scope, onChange, limit }) {
   let loaded = false;
   let failed = false;
   let stopped = false;
-  let generation = 0;
+  /** The listings: a first page or a stop retires this one, and its pages with it. */
+  const listings = createLatestRequest();
+  let listing = listings.begin();
   let loading = false;
   /** @type {object | null} */
   let paging = null;
@@ -186,21 +189,22 @@ export function createListing({ scope, onChange, limit }) {
 
   async function loadFirst() {
     if (stopped) return;
-    const mine = ++generation;
+    listing = listings.begin();
+    const mine = listing;
     loading = true;
     try {
       const data = await postJSON(SESSION_LIST_PATH, body());
-      if (mine !== generation) return;
+      if (!mine.isCurrent()) return;
       entries = newestFirst(data.artifacts ?? []);
       total = data.total ?? entries.length;
       cursor = data.next_cursor ?? null;
       uncounted.clear();
       failed = false;
     } catch {
-      if (mine !== generation) return;
+      if (!mine.isCurrent()) return;
       failed = true;
     } finally {
-      if (mine === generation) {
+      if (mine.isCurrent()) {
         loading = false;
         loaded = true;
       }
@@ -213,10 +217,10 @@ export function createListing({ scope, onChange, limit }) {
     if (stopped || cursor === null || paging || loading) return false;
     const token = {};
     paging = token;
-    const mine = generation;
+    const mine = listing;
     try {
       const data = await postJSON(SESSION_LIST_PATH, body(cursor));
-      if (mine !== generation) return false;
+      if (!mine.isCurrent()) return false;
       const held = new Set(entries.map((a) => a.id));
       /** @type {ArtifactEntry[]} */
       const page = data.artifacts ?? [];
@@ -279,7 +283,7 @@ export function createListing({ scope, onChange, limit }) {
 
   function stop() {
     stopped = true;
-    generation += 1;
+    listings.cancel();
   }
 
   return {
@@ -547,8 +551,7 @@ export function createTreeData({ onChange }) {
     const treeId = entry.owner;
     const own =
       treeId == null ? [] : [`${treeId}|`, ...(entry.form ? [`${treeId}|${entry.form}`] : [])];
-    const keys = [...own, ...extra];
-    for (const key of keys) {
+    for (const key of [...own, ...extra]) {
       const listing = listings.get(key);
       if (listing?.loaded) listing.add(entry);
     }
