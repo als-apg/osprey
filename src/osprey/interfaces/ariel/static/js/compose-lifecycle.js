@@ -35,6 +35,7 @@ import {
   loadCompose,
   saveCompose,
 } from './compose-autosave.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /** @typedef {import('./compose-autosave.js').ComposeSnapshot} ComposeSnapshot */
 /** @typedef {import('./compose-autosave.js').ComposeKey} ComposeKey */
@@ -127,7 +128,8 @@ export function createComposeLifecycle(hooks, options = {}) {
     /** @returns {b is HTMLButtonElement} */ (b) => !!b
   );
 
-  let token = 0;
+  /** The opens of the sheet: a newer open, a finish or a teardown retires this one. */
+  const opens = createLatestRequest();
   /** @type {ComposeKey|null} the open context's key */
   let key = null;
   /** Whether step 4 has finished for the open context. */
@@ -196,7 +198,7 @@ export function createComposeLifecycle(hooks, options = {}) {
   }
 
   function invalidate() {
-    token += 1;
+    opens.cancel();
     key = null;
     setReady(false);
   }
@@ -207,7 +209,7 @@ export function createComposeLifecycle(hooks, options = {}) {
   // Teardown (the host's destroy) drops the pending save rather than writing it.
   signal?.addEventListener('abort', () => {
     cancel();
-    token += 1;
+    opens.cancel();
     key = null;
     opener = null;
   });
@@ -217,8 +219,7 @@ export function createComposeLifecycle(hooks, options = {}) {
       flush();
       cancel();
       recordOpener();
-      const mine = ++token;
-      const isCurrent = () => mine === token;
+      const { isCurrent } = opens.begin();
       key = contextKey(compose);
       setReady(false);
 

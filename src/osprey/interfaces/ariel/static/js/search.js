@@ -16,6 +16,7 @@
 import { searchApi } from './api.js';
 import { declaredParamNames, effectiveParam } from './advanced-options.js';
 import { mergeFilter, splitFilters } from './filter-state.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /**
  * @typedef {Object} SearchResults
@@ -58,10 +59,11 @@ import { mergeFilter, splitFilters } from './filter-state.js';
  */
 export const RERANK_SETTLE_MS = 1000;
 
-// Monotonic id of the newest search started. Every await in runSearch is
-// followed by a check that its call still owns this id, so a newer call or
-// cancelSearch() silences everything an older call has left to report.
-let searchSeq = 0;
+// The searches started: a newer call or cancelSearch() retires this one. Every
+// await in runSearch is followed by a check that its call is still current, so
+// a retired call has nothing left to report. The request carries its caller's
+// signal, not this one's: the caller owns the abort on the wire.
+const searches = createLatestRequest();
 
 /**
  * The pending when-stable wait, if any. Superseding it releases the waiting
@@ -218,7 +220,7 @@ export function searchPage(request, { capabilities }) {
  */
 export async function runSearch(request, { capabilities, rerank = 'now', onResults, onStatus }) {
   releaseSettle();
-  const seq = ++searchSeq;
+  const token = searches.begin();
   if (!(request.query ?? '').trim()) return;
 
   const { mode, filters = {} } = request;
@@ -230,7 +232,7 @@ export async function runSearch(request, { capabilities, rerank = 'now', onResul
   try {
     if (!twoPhase) {
       const results = await searchApi.search({ ...req, advancedParams: sent });
-      if (seq !== searchSeq) return;
+      if (!token.isCurrent()) return;
       onStatus(null);
       onResults(results);
       return;
@@ -240,16 +242,16 @@ export async function runSearch(request, { capabilities, rerank = 'now', onResul
       advancedParams: { ...sent, rerank: false },
     });
   } catch (error) {
-    if (seq !== searchSeq) return;
+    if (!token.isCurrent()) return;
     throw error;
   }
-  if (seq !== searchSeq) return;
+  if (!token.isCurrent()) return;
   onStatus('reranking');
   onResults(fastResults);
 
   if (rerank === 'when-stable') {
     await waitUntilStable();
-    if (seq !== searchSeq) return;
+    if (!token.isCurrent()) return;
   }
 
   try {
@@ -257,11 +259,11 @@ export async function runSearch(request, { capabilities, rerank = 'now', onResul
       ...req,
       advancedParams: { ...sent, rerank: true },
     });
-    if (seq !== searchSeq) return;
+    if (!token.isCurrent()) return;
     onStatus(hasRerankFallbackWarning(reranked) ? 'fallback' : 'updated');
     onResults(reranked);
   } catch (error) {
-    if (seq !== searchSeq || isAbort(error)) return;
+    if (!token.isCurrent() || isAbort(error)) return;
     console.error('Rerank phase failed:', error);
     onStatus('fallback');
     onResults(fastResults);
@@ -273,6 +275,6 @@ export async function runSearch(request, { capabilities, rerank = 'now', onResul
  * when-stable wait is released.
  */
 export function cancelSearch() {
-  searchSeq++;
+  searches.cancel();
   releaseSettle();
 }
