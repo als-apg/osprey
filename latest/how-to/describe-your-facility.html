@@ -1465,9 +1465,47 @@ wired to, with the strength a volt stands for as its curve:</p>
 the physics value; a <code class="docutils literal notranslate"><span class="pre">table</span></code> needs an <code class="docutils literal notranslate"><span class="pre">inverse</span></code>. State the setpoint’s
 <code class="docutils literal notranslate"><span class="pre">energy_scaling</span></code> on it unless its unit does not move with the beam energy
 as the setpoint’s does. Its computed <code class="docutils literal notranslate"><span class="pre">default</span></code> is the value it is served
-with at start, and its seed’s noise and drift act in its own unit. A readback
-of a deck property such as <code class="docutils literal notranslate"><span class="pre">energy</span></code> cannot state another calibration than
-its setpoint; the build stops with <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code>.</p>
+with at start, and its seed’s noise and drift act in its own unit.</p>
+<p>A setpoint may drive a property of the whole deck: a record that names no
+element and the engine <code class="docutils literal notranslate"><span class="pre">attribute:</span> <span class="pre">energy</span></code> is the deck’s energy, set through
+the curve from its unit to electron-volts. The deck is at its own energy while
+that setpoint holds its <code class="docutils literal notranslate"><span class="pre">default</span></code>, and moves from there as the curve’s value
+does. A readback record with the same engine block reads that setpoint, and it
+too may state its own calibration. The current of a string of bending magnets
+and the string’s voltage, 0.5 V per ampere, are two channels:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">setpoint</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bending magnet string current</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">V</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bending magnet string voltage</span>
+</pre></div>
+</div>
+<p>and two records that name no element:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">energy</span>
+<span class="w">  </span><span class="nt">calibration</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">curve</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">4.0e+6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">energy</span>
+<span class="w">  </span><span class="nt">calibration</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">curve</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">8.0e+6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+</pre></div>
+</div>
+<p>The voltage reads the value of the setpoint’s curve at the current the
+setpoint holds, through its own way back: 250 V at 500 A here. Both curves end
+in the same unit, the one the setpoint’s curve states, so write the readback’s
+curve against the setpoint’s curve and not against the deck, whose energy may
+differ from the curve’s by a constant factor. Such a readback states
+<code class="docutils literal notranslate"><span class="pre">energy_scaling:</span> <span class="pre">none</span></code>, as the value of the setpoint’s curve does not move
+with the beam rigidity; the build stops on any other with <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code>.</p>
 <p>The model computes a wired readback from the setpoint record on its element,
 so it reads that setpoint whether or not the channels <code class="docutils literal notranslate"><span class="pre">pair</span></code> the two, where
 several setpoints name it, and where its seed states <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code>; its
