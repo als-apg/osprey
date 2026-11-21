@@ -387,6 +387,54 @@ def test_a_later_import_reports_each_differing_range_and_applies_none(
     assert _authored(facility) == before
 
 
+def test_a_later_import_names_each_banded_setpoint_the_file_has_no_record_for(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], imports: Callable[[str], _Imported]
+) -> None:
+    facility = imports("synthetic").copy(tmp_path)
+    path = facility / "limits.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    dropped = sorted(r["address"] for r in document["records"] if "IDGAP" in r["address"])
+    assert dropped
+    document["records"] = [r for r in document["records"] if r["address"] not in dropped]
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    before = _authored(facility)
+    ao = _edited(tmp_path, "synthetic", "quokka.sr", lambda document: None)
+    capsys.readouterr()
+
+    import_mml([ao], facility)
+
+    out = capsys.readouterr().out.splitlines()
+    (head,) = [line for line in out if line.startswith("limits not recorded:")]
+    assert head == (
+        f"limits not recorded: {len(dropped)} setpoints have a band in the export and no "
+        "record in limits.yaml; the import writes none of them"
+    )
+    named = [line.split()[0] for line in out[out.index(head) + 1 :][: len(dropped)]]
+    assert named == dropped
+    assert _authored(facility) == before  # named, never written
+
+
+def test_a_band_table_of_another_length_than_the_devices_is_named_and_skipped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def misalign(document: dict[str, Any]) -> None:
+        rows = len(document["IDGAP"]["Setpoint"]["ChannelNames"]) + 1
+        document["IDGAP"]["Setpoint"]["Range"] = [[0, 60]] * rows
+
+    ao = _edited(tmp_path, "synthetic", "quokka.sr", misalign)
+    facility = mapped_facility(tmp_path, "synthetic")
+    capsys.readouterr()
+
+    import_mml([ao], facility)
+
+    lines = [
+        line for line in capsys.readouterr().out.splitlines() if "limits table skipped" in line
+    ]
+    assert len(lines) == 1
+    assert ".Setpoint Range states 3 rows for 2 devices; no edge is taken from it" in lines[0]
+    assert not any("IDGAP" in address for address in _limits(facility))
+
+
 def test_a_wired_setpoint_without_a_band_on_both_edges_is_reported(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
