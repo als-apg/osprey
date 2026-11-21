@@ -179,7 +179,7 @@ def test_wrong_type_writes_raises_typed_error() -> None:
     ],
 )
 def test_unknown_key_is_rejected_and_named_in_the_error(unknown_key: str, value: object) -> None:
-    """A plan declaring anything outside the three-field contract — including a
+    """A plan declaring anything outside the declared metadata fields — including a
     key from an earlier metadata shape — quarantines loudly, naming the key."""
     raw = {**_WELL_FORMED, unknown_key: value}
 
