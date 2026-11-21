@@ -22,7 +22,7 @@ panel:
     - [POST, /api/discard]
     - [POST, /api/compute]
     - [POST, /api/apply]
-  roster_grant: {single_user_alias: true}
+  roster_grant: {}
 tools:
   module: orbit_bump.tools
   deny_in_jobs: true
