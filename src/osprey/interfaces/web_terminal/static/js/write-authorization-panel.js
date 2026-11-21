@@ -21,6 +21,7 @@
  * requests.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { targetRequest } from './control-target-chip.js';
 
 /** @typedef {{address: string, min: number, max: number, limit_min?: number|null,
@@ -82,12 +83,13 @@ export const READING_SENTENCE = 'reading values…';
 /** Said on Approve while the approval is being sent. */
 export const APPROVING_SENTENCE = 'Approving…';
 
-/** @type {number}  bumped by a reset, so a read that left before it is dropped */
-let epoch = 0;
+/** The listing's lives: a reset retires this one, so a read that left before it is dropped. */
+const lives = createLatestRequest();
+let life = lives.begin();
 
 /** Forget everything: the popover closed, or a test starts over. */
 export function resetPrograms() {
-  epoch += 1;
+  life = lives.begin();
   listing = null;
   card = null;
   note = null;
@@ -101,7 +103,7 @@ export function resetPrograms() {
  * @returns {Promise<void>}
  */
 export async function refreshPrograms() {
-  const then = epoch;
+  const mine = life;
   /** @type {Listing|null} */
   let answer;
   try {
@@ -111,7 +113,7 @@ export async function refreshPrograms() {
   }
   // The popover closed while this read was out: it must not bring back the
   // listing the close forgot.
-  if (then === epoch) listing = answer;
+  if (mine.isCurrent()) listing = answer;
 }
 
 /** @param {string} tag @param {string} [cls] @param {string} [text] */

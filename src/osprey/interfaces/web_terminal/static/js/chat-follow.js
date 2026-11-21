@@ -15,6 +15,7 @@
  * @module chat-follow
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { emitChat } from './chat-events.js';
 import { endsTurn, isResponseFrame } from './chat-frames.js';
 
@@ -73,11 +74,11 @@ export function createTurnFollower(host) {
   let lastSeq = null;
 
   /**
-   * Counts what changes the turn the log shows: a turn that starts or ends, a
-   * send, a cleared console. A transcript read that one of them overtook
-   * leaves the log alone.
+   * What the log shows: a turn that starts or ends, a send or a cleared console
+   * retires it. A transcript read whose log was retired leaves the log alone.
    */
-  let generation = 0;
+  const logs = createLatestRequest();
+  let log = logs.begin();
 
   /**
    * Start drawing a turn this tab did not send.
@@ -86,7 +87,7 @@ export function createTurnFollower(host) {
    */
   function start(how, prompt) {
     mirroring = how;
-    generation += 1;
+    log = logs.begin();
     host.dismissInvitation();
     if (prompt) renderer.addUserMessage(prompt);
     host.setStreaming(true);
@@ -103,7 +104,7 @@ export function createTurnFollower(host) {
   function end({ missedEnd = false } = {}) {
     const reread = missedEnd || mirroring === 'joined';
     mirroring = null;
-    generation += 1;
+    log = logs.begin();
     host.setStreaming(false);
     renderer.endTurn();
     // A turn joined part-way missed what it said before the feed connected;
@@ -120,7 +121,7 @@ export function createTurnFollower(host) {
    */
   async function rereadTranscript() {
     const key = host.key();
-    const mine = generation;
+    const mine = log;
     /** @type {ChatTurn[]} */
     let turns;
     try {
@@ -129,7 +130,7 @@ export function createTurnFollower(host) {
       return; // the log keeps what the feed drew
     }
     if (host.key() !== key || host.sending()) return;
-    if (mine !== generation) {
+    if (!mine.isCurrent()) {
       if (mirroring) mirroring = 'joined';
       else void rereadTranscript();
       return;
@@ -151,7 +152,8 @@ export function createTurnFollower(host) {
   async function resync(hello) {
     mirroring = 'joined';
     const key = host.key();
-    const mine = ++generation;
+    log = logs.begin();
+    const mine = log;
     /** @type {ChatTurn[]} */
     let turns;
     try {
@@ -159,7 +161,7 @@ export function createTurnFollower(host) {
     } catch {
       return; // the turn keeps drawing live, and is read again when it ends
     }
-    if (host.key() !== key || mine !== generation) return;
+    if (host.key() !== key || !mine.isCurrent()) return;
     host.redraw(turns);
     renderer.beginTurn();
     for (const pending of hello.pending ?? []) host.draw(pending);
@@ -246,10 +248,10 @@ export function createTurnFollower(host) {
     restart() {
       mirroring = null;
       lastSeq = null;
-      generation += 1;
+      log = logs.begin();
     },
     logChanged() {
-      generation += 1;
+      log = logs.begin();
     },
     following: () => mirroring !== null,
   };

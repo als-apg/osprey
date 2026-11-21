@@ -24,6 +24,7 @@
  * statement about the session at all.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { apiRequest, fetchJSON } from './api.js';
 import { setSessionSource } from './control-target-chip.js';
 import { fadeOutOverlay, mountOverlay } from './modal-overlay.js';
@@ -57,8 +58,8 @@ let started = false;
 let enabled = null;
 /** @type {ReturnType<typeof setInterval>|null} */
 let pollTimer = null;
-/** Ticket per read, so a slow answer cannot overwrite a newer one. */
-let readSeq = 0;
+/** The flag reads: a newer read aborts and retires this one, so a slow answer cannot overwrite it. */
+const reads = createLatestRequest();
 
 /** The session and flags on screen: exactly what a click answers. */
 /** @type {{key: string, flags: WatchdogFlag[]}|null} */
@@ -120,16 +121,18 @@ export async function refetchFlags() {
   const key = getCurrentSessionId();
   renderStatus();
   if (!key) return;
-  const seq = ++readSeq;
+  const token = reads.begin();
   try {
-    const body = await fetchJSON(`/api/watchdog/flags?session_key=${encodeURIComponent(key)}`);
-    if (seq !== readSeq) return;
+    const body = await fetchJSON(`/api/watchdog/flags?session_key=${encodeURIComponent(key)}`, {
+      signal: token.signal,
+    });
+    if (!token.isCurrent()) return;
     enabled = body.enabled === true;
     syncPoll();
     if (!answering) setNote('');
     render(key, Array.isArray(body.flags) ? body.flags : []);
   } catch (err) {
-    if (seq !== readSeq) return;
+    if (!token.isCurrent()) return;
     // Not knowing is not "no flags": what is on screen stays on screen.
     console.error('osprey web_terminal: could not read the watchdog flags', err);
     setNote('Could not refresh the flags from the server.');

@@ -19,6 +19,7 @@
 import { fetchJSON, apiRequest } from './api.js';
 import { formatBytes } from './activity-log-format.js';
 import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 // ---- Shared Fetch Cache ---- //
 
@@ -59,8 +60,10 @@ class MemoryGallery {
     this.currentView = 'gallery';
     this.editDirty = false;
     this.loaded = false;
-    // Bumped by reset(); a listing that lands under an older generation is dropped.
-    this.generation = 0;
+    // The gallery's lives: reset() retires this one, and a listing that lands
+    // under a retired life is dropped.
+    this.lives = createLatestRequest();
+    this.life = this.lives.begin();
     this.searchQuery = '';
     // Set from the list response; gauges are drawn only after it arrives.
     /** @type {number} */
@@ -150,7 +153,7 @@ class MemoryGallery {
   // ---- Data Loading ---- //
 
   async load() {
-    const generation = this.generation;
+    const mine = this.life;
     /** @type {HTMLElement} */ (this.loadingEl).style.display = 'flex';
     /** @type {HTMLElement} */ (this.errorEl).style.display = 'none';
 
@@ -158,7 +161,7 @@ class MemoryGallery {
       const data = await fetchMemoryFilesShared();
       // A reset while the listing was in flight discarded it: the next
       // activation lists afresh.
-      if (generation !== this.generation) {
+      if (!mine.isCurrent()) {
         /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
         return;
       }
@@ -170,7 +173,7 @@ class MemoryGallery {
       this.loaded = true;
     } catch (e) {
       /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
-      if (generation !== this.generation) return;
+      if (!mine.isCurrent()) return;
       /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
       /** @type {HTMLElement} */ (this.errorEl).textContent =
         `Failed to load memory files: ${/** @type {Error} */ (e).message}`;
@@ -545,7 +548,7 @@ class MemoryGallery {
   // ---- State Reset ---- //
 
   reset() {
-    this.generation += 1;
+    this.life = this.lives.begin();
     this.files = [];
     this.selectedFile = null;
     this.currentView = 'gallery';
