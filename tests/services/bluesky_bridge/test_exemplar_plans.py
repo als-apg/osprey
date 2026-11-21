@@ -17,11 +17,13 @@ drives its generator directly rather than through this registration path.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
 from osprey.services.bluesky_bridge import live_rows, plan_loader
 from osprey.services.bluesky_bridge.devices.mock import build_devices
+from osprey.services.bluesky_bridge.plan_fields import resolve_plan_args
 
 from .bluesky_plan_drive import run_plan
 
@@ -64,6 +66,55 @@ def test_orbit_bump_sweep_registers_as_shipped_with_valid_metadata() -> None:
     assert spec.name == "orbit_bump_sweep"
 
 
+# The arguments each exemplar run below is driven with.
+_ORM_ARGS: dict[str, Any] = {
+    "correctors": ["hcm1", "hcm2"],
+    "readbacks": ["bpm1", "bpm2"],
+    "span": 2.0,
+    "num": 3,
+}
+
+_GRID_SCAN_ARGS: dict[str, Any] = {
+    "readbacks": ["det1"],
+    "axes": [
+        {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
+        {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},
+    ],
+}
+
+_BUMP_ARGS: dict[str, Any] = {
+    "correctors": ["hcm1", "hcm2", "hcm3"],
+    "targets": [{"readback": "bpm1", "value": 0.0}],
+    "closure_readbacks": ["bpm2", "bpm3"],
+    "readbacks": [],
+    "num": 2,
+    "baseline_reads": 3,
+    "probe_amplitude": 0.1,
+    "tolerance": 0.01,
+    "max_trim_iterations": 1,
+    "best_effort": True,
+    "settle_s": 0.0,
+}
+
+_EXEMPLAR_ARGS: dict[str, dict[str, Any]] = {
+    "orm": _ORM_ARGS,
+    "grid_scan": _GRID_SCAN_ARGS,
+    "orbit_bump_sweep": _BUMP_ARGS,
+}
+
+
+@pytest.mark.parametrize("plan_name", sorted(_EXEMPLAR_ARGS))
+def test_every_exemplar_plan_resolves_to_a_set_that_validates_to_itself(plan_name: str) -> None:
+    """The set an exemplar run would be queued with states every field and
+    validates back to itself, so the worker fills no default of its own."""
+    schema = plan_loader.get_facility_plans().plans[plan_name].schema
+
+    resolved = resolve_plan_args(schema, _EXEMPLAR_ARGS[plan_name])
+
+    assert list(resolved) == list(schema.model_fields)
+    assert schema.model_validate(resolved).model_dump(mode="json") == resolved
+
+
 # =========================================================================
 # RunEngine dry-run against mock devices: a real run, not a no-op
 # =========================================================================
@@ -83,12 +134,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
     facility = plan_loader.get_facility_plans()
     run_uid = run_plan(
         "orm",
-        {
-            "correctors": ["hcm1", "hcm2"],
-            "readbacks": ["bpm1", "bpm2"],
-            "span": 2.0,
-            "num": 3,
-        },
+        _ORM_ARGS,
         devices=orm_devices,
         plans=facility.plans,
     )
@@ -121,13 +167,7 @@ def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) ->
     facility = plan_loader.get_facility_plans()
     run_uid = run_plan(
         "grid_scan",
-        {
-            "readbacks": ["det1"],
-            "axes": [
-                {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
-                {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},
-            ],
-        },
+        _GRID_SCAN_ARGS,
         devices=gs_devices,
         plans=facility.plans,
     )
@@ -172,19 +212,7 @@ def test_orbit_bump_sweep_plan_runs_to_completion_and_buffers_rows(bump_devices:
     facility = plan_loader.get_facility_plans()
     run_uid = run_plan(
         "orbit_bump_sweep",
-        {
-            "correctors": ["hcm1", "hcm2", "hcm3"],
-            "targets": [{"readback": "bpm1", "value": 0.0}],
-            "closure_readbacks": ["bpm2", "bpm3"],
-            "readbacks": [],
-            "num": 2,
-            "baseline_reads": 3,
-            "probe_amplitude": 0.1,
-            "tolerance": 0.01,
-            "max_trim_iterations": 1,
-            "best_effort": True,
-            "settle_s": 0.0,
-        },
+        _BUMP_ARGS,
         devices=bump_devices,
         plans=facility.plans,
     )
