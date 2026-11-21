@@ -393,6 +393,7 @@ EXPECTED_ERROR_CLASSES = {
     "incomplete": "Connection",
     "manager_unreachable": "Connection",
     "environment_unavailable": "Connection",
+    "plan_registry_unreadable": "Connection",
     "abort_pause_timeout": "Connection",
     "health_suppressed": "Connection",
     "search_timeout": "Connection",
