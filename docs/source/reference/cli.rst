@@ -1715,12 +1715,22 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    Each entry of ``index.json`` names its screen's ``class``, and the index's
    ``classes`` table states, per class, its key, its ``standard`` screen, its
    member count, how many members are ``off_standard``, how many have a ``cut``
-   label, a ``layout`` hash and a ``sample``; ``class_summary`` holds the counts
+   label, a ``layout`` hash (of the standard's structure, the format and the
+   drawing settings), a ``drawing`` digest (of the standard's written file
+   without the model stamp, which moves when the screen is drawn otherwise and
+   not when only the facility file's content hash does) and a ``sample``;
+   ``class_summary`` holds the counts
    a gate reads, with the classes of one screen per view kind. Two screens are
    of one class when they have one key: for a device's card and its channel
    list, the device's class, the card recipe it is drawn from and the set of
    signal roles the card shows (a role played by two channels counts once; the
-   driver-internal role and channels with no role are not in it); for a
+   driver-internal role and channels with no role are not in it). Where cards
+   of one such class drawn by the default recipe show different blocks (a card
+   one can act from and a read-only one, a card with or without key tiles),
+   the key also holds ``blocks``, the kinds of block the card shows by presence
+   (a channel list drawn as a grid or as a count is one block), and the class
+   splits into one per kind of card; a class whose cards all show the same
+   blocks keeps its key and its id. For a
    calibration overview, its calibration kind and its structure (a gain and an
    offset are judged apart even where they are drawn alike); for every other
    screen (a set, a place, a rack, a roll-up, a checkout, the card of a place or
@@ -1767,7 +1777,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    opens: the standard, the smallest, the largest, the one with the longest
    label, the first off standard, and one member on each side of every
    variation that changes the drawing (a part drawn with or without a stated
-   position, a channel list drawn as a grid or a count).
+   position, a channel list drawn as a grid or a count). Each member of the
+   sample is ``{"file", "as"}``: its file and what it stands for, one or more of
+   ``standard``, ``smallest``, ``largest``, ``longest labels`` and ``off
+   standard``, and the drawing sides it is the first to show (``x_mm missing``,
+   ``channel list drawn as ChannelCount``).
    A device's card and channel list also state, under ``others``, what they
    show of other things on purpose: each thing, the kind of item that draws it
    (``strip member``, ``chain block``, ...) and the channels of it the screen

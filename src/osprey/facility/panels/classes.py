@@ -8,15 +8,18 @@ when they have the same key:
     The device type, its class and the card recipe it is drawn from, and the
     set of role words its card shows. A repeated role counts once in the key.
     The driver-internal role is never shown and channels with no role are
-    listed only in the grid, so neither is in the key.
-``set``
-    The device types of its members.
+    listed only in the grid, so neither is in the key. Where the default
+    recipe's cards of one such key show different blocks, the key also holds
+    ``blocks`` (:func:`blocks`, :func:`split_by_blocks`); a key whose cards all
+    show the same blocks stays as it is, and so does its id.
 ``calibration``
-    The calibration kind and the device types of the set's members.
-Every other screen
+    The calibration kind and its structure: gains and offsets are different
+    things to judge even where the layout agrees.
+Every other screen, a set among them
     Its view kind, the kind of thing it shows, and its structure: places,
-    racks, roll-ups and the cards of places and groups that are built alike
-    share a class, and only a screen of a truly single structure stays alone.
+    racks, roll-ups, sets and the cards of places and groups that are built
+    alike share a class, and only a screen of a truly single structure stays
+    alone.
 
 Sameness is measured on the screen's view (:mod:`~osprey.facility.panels.view`),
 not on the drawn file. :func:`measure` reduces a view to its *structure*: the
@@ -43,7 +46,8 @@ Each class names a *sample* of up to five members that span its variation (the
 standard, the smallest, the largest, the one of the longest labels, the first off
 standard) and, for every variation that changes what is drawn, one member on each
 side of it, so a reviewer who opens the sample has seen every drawing the class
-makes.
+makes. Each member of the sample is named with what it stands for (``as``): one
+or more of :data:`SAMPLE_STOPS`, and the drawing sides it is the first to show.
 """
 
 from __future__ import annotations
@@ -53,12 +57,12 @@ import hashlib
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from osprey.facility.panels.describe import DEFAULT_RECIPE, INTERNAL_ROLE
 from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import Fact, Target, View
+from osprey.facility.panels.view import Fact, Operate, Target, View
 
 __all__ = [
     "DRAWN_GAPS",
@@ -88,6 +92,8 @@ KEYED_VIEWS = frozenset({"card", "channels", "set", "calibration"})
 MAX_WORDS = 8
 #: The most members a class's sample names before the drawing sides are added.
 SAMPLE_BASE = 5
+#: What the members of a class's sample stand for, before the drawing sides.
+SAMPLE_STOPS = ("standard", "smallest", "largest", "longest labels", "off standard")
 
 #: Typed parts that state what is known about a thing, not what its screen draws.
 #: Each is left out of the structure; where it is missing, or a plain fact stands
@@ -249,6 +255,11 @@ class Sample:
         cuts: The labels the layout cut to fit, before the cut.
         others: What the screen shows of other things on purpose
             (:func:`~osprey.facility.panels.describe.others`).
+        blocks: For a device card drawn by the default recipe, the kinds of
+            block it shows (:func:`blocks`); empty otherwise.
+        drawing: The digest of its written file without the model stamp
+            (:func:`drawing_digest`): it moves when the screen is drawn
+            otherwise, not when only the facility file's content hash does.
     """
 
     file: str
@@ -258,6 +269,8 @@ class Sample:
     measure: Measure
     cuts: tuple[str, ...] = ()
     others: tuple[Mapping[str, Any], ...] = ()
+    blocks: tuple[str, ...] = ()
+    drawing: str = ""
 
     @property
     def structure(self) -> str:
@@ -470,9 +483,56 @@ def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, d
     else:
         key = {"view": target.view, "kind": target.kind, "structure": structure}
         readable = target.kind
+    return _class_id(target.view, readable, key), key
+
+
+def _class_id(view: str, readable: str, key: Mapping[str, Any]) -> str:
+    """A slug of the key's readable part and the first 8 hex digits of its digest."""
     digest = _digest(repr(sorted(key.items())))[:_DIGEST]
     slug = _slug(readable)[:48].strip("-")
-    return f"{target.view}-class-{slug}-{digest}" if slug else f"{target.view}-class-{digest}", key
+    return f"{view}-class-{slug}-{digest}" if slug else f"{view}-class-{digest}"
+
+
+def blocks(view: View, key: Mapping[str, Any]) -> tuple[str, ...]:
+    """The kinds of block a device card drawn by the default recipe shows, by
+    presence: the item kinds of its sections, the size-driven drawings of one item
+    (:data:`VARIANTS`) as that item, and the operate block named by whether it
+    holds controls. Empty for every other screen."""
+    if key.get("view") != "card" or key.get("recipe") != DEFAULT_RECIPE:
+        return ()
+    found: set[str] = set()
+    for section in view.sections:
+        for item in section.items:
+            kind = type(item).__name__
+            if isinstance(item, Operate):
+                kind += " with controls" if item.groups else " without controls"
+            found.add(VARIANTS.get(kind, kind))
+    return tuple(sorted(found))
+
+
+def drawing_digest(text: str) -> str:
+    """16 hex digits naming a written screen's drawing: its file without the model
+    stamp (the stamp in its description and the one its header shows)."""
+    return _digest(text)[:16]
+
+
+def split_by_blocks(samples: list[Sample]) -> list[Sample]:
+    """Default-recipe device cards of one class whose blocks differ go to one class
+    per kind of card: their key gains ``blocks``. A class whose cards all show the
+    same blocks keeps its key and its id."""
+    by_class: dict[str, list[Sample]] = {}
+    for sample in samples:
+        by_class.setdefault(sample.cls, []).append(sample)
+    out: list[Sample] = []
+    for members in by_class.values():
+        if len({m.blocks for m in members}) < 2:
+            out.extend(members)
+            continue
+        for m in members:
+            key = {**m.key, "blocks": list(m.blocks)}
+            readable = f"{key['device_class']}-{key['recipe']}"
+            out.append(replace(m, cls=_class_id(m.target.view, readable, key), key=key))
+    return out
 
 
 def standard(samples: Iterable[Sample]) -> Sample:
@@ -594,29 +654,45 @@ def _drawn_sides(sample: Sample) -> set[tuple[str, str]]:
     return sides
 
 
-def _sample(members: list[Sample], std: Sample, off: list[Sample]) -> list[str]:
-    """Up to :data:`SAMPLE_BASE` members that span the class, then one per drawing side."""
+def _side_name(side: tuple[str, str]) -> str:
+    """What a reviewer calls one side of a drawing variation (:func:`_drawn_sides`)."""
+    variation, value = side
+    kind, name = variation.split(" ", 1)
+    if kind == "variant":
+        return f"{name} drawn as {value}"
+    present = value == "True"
+    if kind == "gap":
+        return f"{name} missing" if present else f"{name} stated"
+    return name if present else f"not {name}"
+
+
+def _sample(members: list[Sample], std: Sample, off: list[Sample]) -> list[dict[str, Any]]:
+    """Up to :data:`SAMPLE_BASE` members that span the class, then one per drawing
+    side; each with the stops it stands for (:data:`SAMPLE_STOPS`, then the drawing
+    sides it is the first to show)."""
     ordered = sorted(members, key=lambda s: s.file)
 
     def total(s: Sample) -> int:
         return sum(s.measure.sizes.values())
 
     picks = [
-        std,
-        min(ordered, key=total),
-        max(ordered, key=total),
-        max(ordered, key=lambda s: s.measure.label),
-        *off[:1],
+        ("standard", std),
+        ("smallest", min(ordered, key=total)),
+        ("largest", max(ordered, key=total)),
+        ("longest labels", max(ordered, key=lambda s: s.measure.label)),
+        *(("off standard", s) for s in off[:1]),
     ]
-    chosen = list(dict.fromkeys(s.file for s in picks))
+    stops: dict[str, list[str]] = {}
+    for stop, member in picks:
+        stops.setdefault(member.file, []).append(stop)
     by_file = {s.file: s for s in ordered}
-    seen = set().union(*(_drawn_sides(by_file[f]) for f in chosen))
+    seen = set().union(*(_drawn_sides(by_file[f]) for f in stops))
     for member in ordered:
-        sides = _drawn_sides(member)
-        if sides - seen:
-            chosen.append(member.file)
+        sides = _drawn_sides(member) - seen
+        if sides:
+            stops.setdefault(member.file, []).extend(_side_name(s) for s in sorted(sides))
             seen |= sides
-    return chosen
+    return [{"file": file, "as": named} for file, named in stops.items()]
 
 
 def classify(
@@ -641,7 +717,7 @@ def classify(
         characters.
     """
     by_class: dict[str, list[Sample]] = {}
-    for sample in samples:
+    for sample in split_by_blocks(list(samples)):
         by_class.setdefault(sample.cls, []).append(sample)
     classes: dict[str, dict[str, Any]] = {}
     entries: dict[str, dict[str, Any]] = {}
@@ -670,6 +746,7 @@ def classify(
             "off_standard": len(off),
             "cut": sum(1 for m in members if m.cuts),
             "layout": _digest(f"{std.structure} {stamp}")[:16],
+            "drawing": std.drawing,
             "sample": _sample(members, std, off),
         }
     return classes, entries

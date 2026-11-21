@@ -79,8 +79,10 @@ def test_every_screen_states_a_class_the_table_counts(written):
         members = [e["file"] for e in entries if e["class"] == name]
         assert row["standard"] in members
         assert row["members"] == len(members)
-        assert row["sample"][0] == row["standard"]
-        assert set(row["sample"]) <= set(members)
+        assert row["sample"][0]["file"] == row["standard"]
+        assert "standard" in row["sample"][0]["as"]
+        assert {stop["file"] for stop in row["sample"]} <= set(members)
+        assert all(stop["as"] for stop in row["sample"])  # each says what it stands for
 
 
 def test_differs_means_off_standard_and_nothing_else(written):
@@ -162,7 +164,7 @@ def test_the_class_id_depends_on_the_key_alone(tmp_path, written):
     assert fewer["card-xr01-ip2"]["class"].startswith("card-class-pump-default-")
 
 
-def test_a_repeated_role_keeps_the_class_and_only_what_it_draws_otherwise_is_off(tmp_path, written):
+def test_a_repeated_role_that_takes_the_tiles_away_makes_another_kind_of_card(tmp_path, written):
     def second_gauge(document: dict[str, Any]) -> None:
         document["channels"].append(
             {
@@ -177,11 +179,13 @@ def test_a_repeated_role_keeps_the_class_and_only_what_it_draws_otherwise_is_off
     index = _written(_graph(tmp_path, second_gauge), tmp_path / "out")
     entries = _entries(index)
     pump = entries["card-xr02-ip2"]
-    assert pump["class"] == _entries(written)["card-xr02-ip2"]["class"]
-    # two readbacks of the key role have no one key tile: a section is missing
-    assert pump["differs"] == ["no tiles section"]
-    assert index["classes"][pump["class"]]["off_standard"] == 1
-    assert "all channels: rows: 2, the standard 1" in pump["varies"]
+    # two readbacks of the key role have no one key tile: a card without tiles
+    # shows other blocks, so it is another kind of card, in a class of its own
+    assert pump["class"] != _entries(written)["card-xr02-ip2"]["class"]
+    assert "KeyTile" not in index["classes"][pump["class"]]["key"]["blocks"]
+    assert "differs" not in pump
+    other = entries["card-xr01-ip2"]
+    assert "KeyTile" in index["classes"][other["class"]]["key"]["blocks"]
 
 
 def test_what_is_known_varies_and_its_gaps_are_named(written):
@@ -194,13 +198,57 @@ def test_what_is_known_varies_and_its_gaps_are_named(written):
     assert "where without a link" not in entries["card-xr01-ip2"]["gaps"]
 
 
-def test_a_section_present_or_missing_puts_a_member_off_standard(written):
+def test_a_default_card_with_a_block_more_is_another_class_not_off_standard(written):
     entries = _entries(written)
-    off = entries[DIPOLE_OFF]
-    assert off["differs"] == ["a calibration section, which the standard has not"]
-    row = written["classes"][off["class"]]
-    assert row["off_standard"] == 1
-    assert off["file"] in row["sample"]
+    more = entries[DIPOLE_OFF]  # its calibration section is a block the other has not
+    plain = entries["card-xr01-bend1"]
+    assert more["class"] != plain["class"]
+    table = written["classes"]
+    assert "Calibrations" in table[more["class"]]["key"]["blocks"]
+    assert "Calibrations" not in table[plain["class"]]["key"]["blocks"]
+    assert "differs" not in more and table[more["class"]]["off_standard"] == 0
+
+
+def _card(file: str, cls: str, blocks: tuple[str, ...], **measured: Any) -> Sample:
+    key = {"view": "card", "device_class": "Pump", "recipe": "default", "roles": []}
+    target = Target("card", "device", file)
+    return Sample(file, target, cls, key, Measure((), "s", **measured), blocks=blocks)
+
+
+def test_blocks_split_only_a_class_whose_cards_differ_and_leave_the_rest_alone():
+    act = ("CardHead", "Operate with controls", "channel list")
+    look = ("CardHead", "Operate without controls", "channel list")
+    grid = {"channel list": "ChannelGrid"}
+    count = {"channel list": "ChannelCount"}
+    samples = [
+        _card("a", "split", act),
+        _card("b", "split", look),
+        _card("c", "kept", act, variants=grid),
+        _card("d", "kept", act, variants=count),  # grid or count is one block
+    ]
+    table, entries = classify(samples, stamp="x")
+    assert "kept" in table and table["kept"]["members"] == 2  # its id byte for byte
+    assert "blocks" not in table["kept"]["key"]
+    assert "split" not in table
+    halves = [c for c in table.values() if c["key"].get("blocks")]
+    assert sorted(c["key"]["blocks"] for c in halves) == [list(act), list(look)]
+    assert all(c["members"] == 1 and c["off_standard"] == 0 for c in halves)
+
+
+def test_an_unsplit_class_keeps_the_id_its_key_alone_gives(written, tmp_path):
+    graph = _graph(tmp_path)
+    kept = split = 0
+    for entry in written["screens"]:
+        if entry["kind"] != "card" or entry.get("thing_kind") != "device":
+            continue
+        own, _key = class_key(graph, Target("card", "device", entry["thing"]), "")
+        if "blocks" in written["classes"][entry["class"]]["key"]:
+            split += 1
+            assert entry["class"] != own
+        else:
+            kept += 1
+            assert entry["class"] == own  # byte for byte the id before the term
+    assert kept and split
 
 
 def test_a_label_the_layout_cuts_is_stated_apart_from_the_class(written):
@@ -248,11 +296,14 @@ def test_the_sample_spans_sizes_labels_and_each_side_of_a_drawing_variant():
         _sample("h", "s", sizes={"rows": 3}, label=10, variants=grid, gaps={"x_mm": 1}),
     ]
     table, entries = classify(members, stamp="x")
-    picked = table["c"]["sample"]
-    assert picked[:5] == ["a", "c", "d", "e", "g"]  # standard, smallest, largest, label, off
-    assert "f" in picked  # drawn as a count, not a grid
-    assert "h" in picked  # a part drawn without a stated position
-    assert "b" not in picked
+    stops = {stop["file"]: stop["as"] for stop in table["c"]["sample"]}
+    assert list(stops)[:5] == ["a", "c", "d", "e", "g"]
+    assert stops["a"][0] == "standard" and stops["c"] == ["smallest"]
+    assert stops["d"] == ["largest"] and stops["e"] == ["longest labels"]
+    assert stops["g"] == ["off standard"]
+    assert stops["f"] == ["channel list drawn as ChannelCount"]  # a count, not a grid
+    assert stops["h"] == ["x_mm missing"]  # a part drawn without a stated position
+    assert "b" not in stops
     assert entries["f"]["varies"] == [
         "channel list drawn as ChannelCount, the standard as ChannelGrid"
     ]
@@ -422,3 +473,21 @@ def test_a_row_that_names_no_thing_is_named_by_its_channels_owner(tmp_path):
         {"thing": "XR01:QF1", "as": "value row", "channels": ["XR01-QF1:Current-RB"]},
     )
     assert others(view) == ()  # without the graph, an unnamed row is not placed
+
+
+def test_a_class_names_its_standard_s_drawing_apart_from_its_layout(tmp_path, monkeypatch):
+    index = _written(_graph(tmp_path), tmp_path / "out")
+    drawings = {c: r["drawing"] for c, r in index["classes"].items()}
+    assert all(len(d) == 16 and int(d, 16) >= 0 for d in drawings.values())
+    # a facility file that differs in nothing drawn moves the stamp, not the drawing
+    again = _written(
+        _graph(tmp_path, lambda d: d.setdefault("note", "x"), name="g"), tmp_path / "o"
+    )
+    assert {c: r["drawing"] for c, r in again["classes"].items()} == drawings
+    # the engine drawing a screen otherwise moves it, and leaves `layout` alone
+    from osprey.facility.panels import layout
+
+    monkeypatch.setattr(layout, "PANEL_PAD", layout.PANEL_PAD + 1)
+    moved = _written(_graph(tmp_path, name="h"), tmp_path / "p")
+    assert all(moved["classes"][c]["drawing"] != d for c, d in drawings.items())
+    assert all(moved["classes"][c]["layout"] == r["layout"] for c, r in index["classes"].items())
