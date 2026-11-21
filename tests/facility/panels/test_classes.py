@@ -13,6 +13,7 @@ import pytest
 
 from osprey.facility.panels import load_graph
 from osprey.facility.panels.classes import (
+    DERIVED_PARTS,
     FLAGS,
     GAP_PARTS,
     SIZE_PARTS,
@@ -367,12 +368,26 @@ def _decided_fields() -> list[str]:
 def test_every_optional_typed_part_and_yes_no_field_has_a_decision():
     """A part of a view that may be absent, be of several kinds, or be yes/no is
     placed in one table: structure, gap, size or flag. None is left to a default."""
-    tables = [GAP_PARTS, SIZE_PARTS, STRUCTURE_PARTS, FLAGS, STRUCTURE_FLAGS, set(VALUE_FLAGS)]
+    tables = [
+        GAP_PARTS, SIZE_PARTS, STRUCTURE_PARTS, DERIVED_PARTS, FLAGS, STRUCTURE_FLAGS,
+        set(VALUE_FLAGS),
+    ]  # fmt: skip
     decided = set().union(*tables)
     assert [name for name in _decided_fields() if name not in decided] == []
     for i, a in enumerate(tables):
         for b in tables[i + 1 :]:
             assert not a & b  # each field is decided once
+
+
+def test_a_key_tile_s_member_names_are_no_part_of_its_structure():
+    from osprey.facility.panels import classes
+    from osprey.facility.panels.view import KeyTile
+
+    members = ("D:A", "D:B")
+    plain = KeyTile("T", members[0], "max", channels=members)
+    named = KeyTile("T", members[0], "max", channels=members, names=("A", "B"))
+    assert classes._Reader().shape(plain) == classes._Reader().shape(named)
+    assert "names" not in dict(classes._Reader().shape(named)[1])
 
 
 def test_the_layout_hash_moves_with_the_drawing_settings_not_with_a_member(tmp_path, written):

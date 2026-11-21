@@ -65,6 +65,7 @@ from osprey.facility.panels.model import PanelGraph
 from osprey.facility.panels.view import Fact, Operate, Target, View
 
 __all__ = [
+    "DERIVED_PARTS",
     "DRAWN_GAPS",
     "FLAGS",
     "GAP_FIELDS",
@@ -127,6 +128,9 @@ GAP_PARTS = frozenset(
 SIZE_PARTS = frozenset(
     {"CalibrationTallies.more", "ChannelGrid.full", "Group.more", "Strip.others"}
 )
+#: Fields read off another field of the same item, so nothing of their own: a key
+#: tile's member names are its channels short of the device's id.
+DERIVED_PARTS = frozenset({"KeyTile.names"})
 #: Typed parts that may be absent, or be one of several kinds, and are structure:
 #: present, missing or of another kind, they make another card.
 STRUCTURE_PARTS = frozenset(
@@ -301,6 +305,7 @@ class _Reader:
             fields = tuple(
                 (f.name, self._field(kind, f.name, getattr(value, f.name)))
                 for f in dataclasses.fields(value)
+                if f"{kind}.{f.name}" not in DERIVED_PARTS
             )
             if kind in VARIANTS:
                 self.variants[VARIANTS[kind]] = kind
