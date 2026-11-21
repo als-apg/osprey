@@ -700,11 +700,10 @@ Every level refuses unknown keys. Defaults in brackets.
        ``HEAD`` and ``OPTIONS`` read, every other method writes.
    * - ``panel.roster_grant``
      - Required when a roster card shows the panel: ``{}`` hands each such
-       card's secret to the panel's container. The build refuses the panel
-       without it.
-   * - ``panel.roster_grant.single_user_alias`` [false]
-     - The panel works for the alias login of a single-user deployment,
-       which has no roster.
+       card's secret to the panel's container, and on a single-user
+       deployment it names the one operator, so the panel's writes are
+       recorded under ``deployment.host_identity``. The build refuses the
+       panel without it.
    * - ``tools.module``
      - The Python module run as the tool server.
    * - ``tools.read``
