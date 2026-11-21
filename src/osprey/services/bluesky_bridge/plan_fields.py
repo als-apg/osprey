@@ -61,7 +61,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Annotated, Any, Final, Literal, get_args, get_origin
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 
 CHANNEL_ROLE_KEY: Final = "x-channel-role"
@@ -443,3 +443,47 @@ def validate_field_value(model: type[BaseModel], key: str, value: Any) -> Any:
         raise KeyError(key)
     adapter: TypeAdapter[Any] = TypeAdapter(Annotated[field.annotation, field])
     return adapter.dump_python(adapter.validate_python(value), mode="json")
+
+
+def resolve_plan_args(model: type[BaseModel], args: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate *args* against *model* as a whole and return the complete set it states.
+
+    The one place a plan's defaults are filled for a run: every field the
+    caller left out is stated with its default, a default factory is called
+    once, and the model's cross-field rules are judged on the set as a whole.
+
+    Invariants of the returned set:
+
+    - It validates to itself: validating it again against *model* fills no
+      default, calls no factory and dumps to the same set. A set for which that
+      does not hold (a field read by an alias, a computed field the model
+      forbids as input, a validator that rewrites its input) is refused here,
+      because whoever validates it next would read something other than what
+      was checked.
+    - Its values are JSON-safe (``model_dump(mode="json")``).
+    - Its keys are *model*'s field names, in declaration order.
+
+    Raises:
+        ValidationError: *args* is not a valid set for *model*; pydantic's own
+            error, unchanged.
+        ValueError: the validated set does not validate back to itself; the
+            message names the first field that differs.
+    """
+    resolved = model.model_validate(args).model_dump(mode="json")
+    try:
+        again = model.model_validate(resolved).model_dump(mode="json")
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        field = ".".join(str(part) for part in error["loc"]) or "<model>"
+        raise ValueError(
+            f"the validated arguments do not validate again: {field}: {error['msg']}"
+        ) from exc
+    if again != resolved:
+        absent = object()
+        field = next(
+            key
+            for key in (*resolved, *again)
+            if resolved.get(key, absent) != again.get(key, absent)
+        )
+        raise ValueError(f"the validated arguments do not validate to themselves: {field}")
+    return resolved

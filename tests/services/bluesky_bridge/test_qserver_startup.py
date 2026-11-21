@@ -33,10 +33,18 @@ from typing import Any
 
 import pytest
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader, preflight, qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, ConnectorSettable
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannel,
+    MovableChannels,
+    ReadableChannels,
+    channel_roles,
+    resolve_plan_args,
+)
+from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -1823,3 +1831,78 @@ def test_preview_plan_is_a_function_the_manager_executes_not_a_plan_it_runs(
     )
     assert "trajectory_scan" in existing_plans
     assert "preview_plan" not in existing_plans
+
+
+# ---------------------------------------------------------------------------
+# A queued item states every parameter: the worker fills no default
+# ---------------------------------------------------------------------------
+
+
+class _Counted:
+    """A default factory that answers a new channel name on every call."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> list[str]:
+        self.calls += 1
+        return [f"DEV_{self.calls}"]
+
+
+def _counted_spec(where: str, factory: _Counted, seen: list[Any]) -> PlanSpec[Any]:
+    """A catalog plan whose one factory default sits at the top level or nested."""
+
+    class _Axis(BaseModel):
+        setpoint: MovableChannel
+        monitors: ReadableChannels = (
+            Field(default_factory=factory) if where == "nested" else Field(default_factory=list)
+        )
+
+    class _Params(BaseModel):
+        correctors: MovableChannels = (
+            Field(default_factory=factory) if where == "top" else Field(default_factory=list)
+        )
+        axes: list[_Axis] = Field(default_factory=list)
+
+    def _plan(_devices: Any, params: Any) -> Generator[Any, Any, Any]:
+        seen.append(params)
+        yield from ()
+
+    return PlanSpec(
+        name="counted_scan", plan=_plan, schema=_Params, roles=tuple(channel_roles(_Params))
+    )
+
+
+@pytest.mark.parametrize("where", ["top", "nested"])
+def test_a_queued_factory_default_is_not_made_again_at_run_time(where: str) -> None:
+    factory = _Counted()
+    seen: list[Any] = []
+    spec = _counted_spec(where, factory, seen)
+    resolved = resolve_plan_args(spec.schema, {"axes": [{"setpoint": "COR1"}]})
+    assert factory.calls == 1
+    devices = {"COR1": object(), "DEV_1": object(), "DEV_2": object()}
+
+    plan_function = qserver_startup.build_plan_functions(devices, {spec.name: spec})[spec.name]
+    with pytest.raises(StopIteration):
+        next(plan_function(**resolved))
+
+    assert factory.calls == 1
+    (params,) = seen
+    queued = params.correctors if where == "top" else params.axes[0].monitors
+    assert queued == ["DEV_1"]
+
+
+def test_preview_of_a_resolved_set_calls_no_factory() -> None:
+    factory = _Counted()
+    spec = _counted_spec("top", factory, [])
+    resolved = resolve_plan_args(spec.schema, {})
+    plan_function = qserver_startup.build_plan_functions({"DEV_1": object()}, {spec.name: spec})[
+        spec.name
+    ]
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        spec.name, resolved, {spec.name: plan_function}
+    )
+
+    assert preview["ok"] is True, preview
+    assert factory.calls == 1

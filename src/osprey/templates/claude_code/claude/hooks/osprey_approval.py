@@ -205,7 +205,7 @@ import sys
 import time
 import tokenize
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
@@ -1946,13 +1946,36 @@ def _budgeted_preview_lines(base_url: str, plan_name, plan_args, deadline: float
     refusal) keeps its own reason word: those name something the approver can
     act on, where a spent budget names only this prompt's own impatience.
     """
+    return _budgeted_preview(base_url, plan_name, plan_args, deadline)[1]
+
+
+def _budgeted_preview(
+    base_url: str, plan_name, plan_args, deadline: float
+) -> tuple[Any, list[str]]:
+    """``(preview, lines)``: one pre-flight fetched within *deadline*, and its lines.
+
+    ``preview`` is the bridge's answer, or ``None`` when none arrived; the
+    lines are what :func:`_budgeted_preview_lines` renders for it.
+    """
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        return [_BUDGET_SPENT_TRAJECTORY_LINE]
+        return None, [_BUDGET_SPENT_TRAJECTORY_LINE]
     preview = _fetch_preview(base_url, plan_name, plan_args, remaining)
     if preview is None and time.monotonic() >= deadline:
-        return [_BUDGET_SPENT_TRAJECTORY_LINE]
-    return _preview_lines(preview)
+        return None, [_BUDGET_SPENT_TRAJECTORY_LINE]
+    return preview, _preview_lines(preview)
+
+
+def _resolved_plan_args(preview, staged):
+    """The argument set to print: the pre-flight's resolved set, else *staged*.
+
+    The pre-flight resolves the staged arguments the way the enqueue does, so
+    its ``plan_args`` is the set the queued item will carry, defaults
+    included. When it resolved none (the arguments are not a valid set, or no
+    pre-flight answered) the card prints the draft as typed.
+    """
+    resolved = preview.get("plan_args") if isinstance(preview, dict) else None
+    return resolved if isinstance(resolved, dict) else staged
 
 
 def _item_trajectory_lines(base_url: str, item: dict, deadline: float) -> list[str]:
@@ -2328,7 +2351,9 @@ def _describe_queue_add(
     `queue_add` carries only a pinned `draft_revision` (no run record exists
     yet — the bridge mints the run *from* the draft at enqueue). So this
     fetches the shared plan draft (`GET /draft`) and renders exactly what would
-    be queued: the plan name and args currently staged, whether the draft still
+    be queued: the plan name, the complete argument set the pre-flight
+    resolved from the staged args (defaults included; the staged args as typed
+    when none resolved), whether the draft still
     matches the pinned revision, the channels and setpoint trajectory the
     launch would actually drive (see :func:`_preview_lines`), the plan's
     provenance/validation/source (see :func:`_describe_plan_provenance`), and
@@ -2393,14 +2418,16 @@ def _describe_queue_add(
     plan_name = draft["plan_name"]
     lines.append(f"Plan: {_sanitize_label(plan_name)}")
 
-    plan_args = draft.get("plan_args")
+    staged = draft.get("plan_args")
+    preview, preview_lines = _budgeted_preview(base_url, plan_name, staged, _preview_deadline())
+    plan_args = _resolved_plan_args(preview, staged)
     if plan_args:
         lines.append(f"Plan args: {json.dumps(plan_args)}")
 
     # Before the source block: the trajectory is the answer to "what would this
     # move", and burying it under a plan body the approver has to scroll past
     # is the same as not showing it.
-    lines.extend(_budgeted_preview_lines(base_url, plan_name, plan_args, _preview_deadline()))
+    lines.extend(preview_lines)
     lines.extend(_describe_plan_provenance(base_url, plan_name))
     return lines
 

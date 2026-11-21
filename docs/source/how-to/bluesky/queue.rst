@@ -270,6 +270,15 @@ quirks worth knowing:
       serving the simulator in process. Composing still works; the refusal
       names the command that serves the simulator from its container.
 
+   ``invalid_item``
+      The staged arguments are not a valid set for the plan: a required
+      parameter is missing or two values contradict each other. Nothing was
+      queued. Correct the draft and add the new revision.
+
+   ``plan_registry_unreadable``
+      The bridge could not read its plan registry, so it could not check the
+      arguments. Nothing was queued. Retry.
+
    ``session_plan_unvalidated``
       An agent-written plan must pass validation, byte for byte, before it
       runs — see :doc:`write-plans`.

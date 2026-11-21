@@ -7,7 +7,8 @@ the session-layer LOAD gate (`plan_loader.py`), re-hashing fresh at request
 time rather than trusting an earlier snapshot.
 
 This is the gate the enqueue path runs (`queue.py`'s `POST /queue/items`
-calls it in a thread before anything reaches the manager) -- and, since it runs
+calls it in a thread, with the enqueue's one reading of the plan registry,
+before anything reaches the manager) -- and, since it runs
 ahead of `session_upload`'s own admissibility check, it is the refusal an
 edited-after-pass session plan actually receives. So its body must be the queue
 surface's contract shape, not a bare string; that is asserted below alongside
@@ -27,13 +28,22 @@ from fastapi import HTTPException
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.queue_backend import REASON_SESSION_PLAN_UNVALIDATED
-from osprey.services.bluesky_bridge.validation import _validate_launchable_request
+from osprey.services.bluesky_bridge.validation import (
+    _validate_launchable_request as _validate_against,
+)
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from tests.services.bluesky_bridge._session_plans import session_plan_source, write_session_plan
 
 # =========================================================================
 # The gate itself
 # =========================================================================
+
+
+def _validate_launchable_request(request: object) -> None:
+    """The gate, judged against a fresh reading of the plan registry -- the
+    reading the enqueue takes once and hands to every step that judges the
+    plan."""
+    _validate_against(request, plan_loader.get_facility_plans().plans)
 
 
 class _Snapshot:

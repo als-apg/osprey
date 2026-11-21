@@ -254,6 +254,19 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "instead. Either way, list_devices is what reads the names — pick one from "
         "there rather than guessing a spelling or a nearby name.",
     ],
+    # The item as composed is not one the plan accepts: its staged arguments
+    # are the fix, and a corrected draft is a new revision.
+    "invalid_item": [
+        "The staged arguments are not a valid set for the plan; details.field names the "
+        "first parameter it objected to, or is null for a rule over the whole set. Correct "
+        "the draft with set_draft, which mints a new revision, then add that revision.",
+    ],
+    # The bridge could not read its plans, so it judged nothing: the draft is
+    # not the fault and its revision is still unused.
+    "plan_registry_unreadable": [
+        "The bridge could not read its plan registry, so nothing was queued. The draft "
+        "needs no change and its revision is still unused.",
+    ],
     "session_plan_unvalidated": [
         "Session plans need a current passing validation; run validate_plan on the plan "
         "and add it again once it passes.",
@@ -1101,7 +1114,8 @@ async def queue_list() -> str:
         this is a recent count, not a lifetime total.
 
         ``items`` are the pending items in execution order, each with its
-        ``item_uid``, plan ``name`` and ``kwargs``. ``running_item`` is the item
+        ``item_uid``, plan ``name`` and ``kwargs``. ``kwargs`` states every
+        parameter the plan will run with. ``running_item`` is the item
         under way (``null`` when idle) and carries ``progress`` when the point
         count is known: ``fraction`` may be ``null`` for a plan whose total
         points cannot be derived, which means indeterminate — report it as "N
@@ -1220,6 +1234,13 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
           ``details.available_devices_url`` instead. Read the names with
           list_devices (pass a prefix), then correct the name with set_draft,
           which mints a new revision, and add that one.
+        - invalid_item: the staged arguments are not a valid set for the plan
+          (a required parameter is missing, or two values contradict each
+          other); ``details.field`` names the first parameter it objected to,
+          or is null for a rule over the whole set. Correct with set_draft,
+          which mints a new revision.
+        - plan_registry_unreadable: the bridge could not read its plan
+          registry, so it could not resolve the arguments. Retryable.
         - session_plan_unvalidated / session_plan_not_in_namespace: the plan is
           a session plan with no current passing validation, or its validated
           bytes are not in the worker's namespace. Run validate_plan again.
