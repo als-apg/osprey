@@ -14,15 +14,6 @@ import argparse
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from tests.facility.panels._fixture import (  # noqa: E402
-    FIXTURE_DOCUMENT,
-    build_fixture_document,
-)
-
 #: The command that regenerates the checked-in document.
 COMMAND = "uv run python tests/facility/rebuild_panel_fixture.py"
 
@@ -30,11 +21,14 @@ COMMAND = "uv run python tests/facility/rebuild_panel_fixture.py"
 def rebuilt() -> bytes:
     """The fixture tree built, as the build writes its facility file."""
     from osprey.facility.render import facility_bytes
+    from tests.facility.panels._fixture import build_fixture_document
 
     return facility_bytes(build_fixture_document())
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tests.facility.panels._fixture import FIXTURE_DOCUMENT
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--check", action="store_true", help="compare only; exit 1 when the document is stale"
@@ -59,4 +53,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Run as a file, the script's own directory is on sys.path, not the repo root.
+    REPO_ROOT = str(Path(__file__).resolve().parents[2])
+    if REPO_ROOT not in sys.path:
+        sys.path.insert(0, REPO_ROOT)
     sys.exit(main())
