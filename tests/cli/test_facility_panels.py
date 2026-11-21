@@ -364,10 +364,26 @@ def test_classes_prints_the_table_and_the_summary_a_gate_reads(facility_file, tm
     biggest = min(table, key=lambda name: (-table[name]["members"], name))  # the first row
     assert biggest in result.output
     assert f"... and {len(table) - 2} more" in result.output
-    # the table per view kind, and --differs lists each screen off its standard
+    # the table per view kind
     assert re.search(r"^card +\d+ +\d+ +\d+ +\d+ +\d+$", result.output, re.MULTILINE)
-    off = next(e for e in index["screens"] if e.get("differs"))
+
+
+def test_classes_differs_lists_each_screen_off_its_standard(facility_file, tmp_path):
+    out = tmp_path / "out"
+    assert _run(facility_file, "write", "--out", str(out)).exit_code == 0
+    # the fixture's members differ only in blocks, which split classes; the verb
+    # prints what the index says, so one entry is made off standard here
+    path = out / "index.json"
+    index = json.loads(path.read_text())
+    off = index["screens"][0]
+    off["differs"] = ["a calibration section, which the standard has not"]
+    path.write_text(json.dumps(index))
+    result = CliRunner().invoke(
+        cli, ["facility", "panels", "classes", "--out", str(out), "--differs"]
+    )
+    assert result.exit_code == 0, result.output
     assert f"{off['file']} ({off['class']}):" in result.output
+    assert "a calibration section, which the standard has not" in result.output
 
 
 def test_classes_without_an_index_fails(tmp_path):
