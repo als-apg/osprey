@@ -430,9 +430,10 @@ export async function fetchRun(execId) {
 /**
  * The session tree's data: one listing per session (`${treeId}|`) and per
  * open group (`${treeId}|${form}`), every entry seen by id, the summary
- * counts, and the run keys already counted. Live frames count once per run
- * (`exec_id`, else id), only when `operator_visible` and owned, by the listed
- * form.
+ * counts, and the run keys already listed. The counts are the summary's
+ * alone: a live frame that is `operator_visible` and owned asks the summary
+ * again for its owner and changes no number itself. The listed run keys
+ * decide only where a frame's row goes.
  * @param {{onChange: () => void}} options
  */
 export function createTreeData({ onChange }) {
@@ -449,6 +450,8 @@ export function createTreeData({ onChange }) {
   const moves = new Map();
   /** How many live frames moved the owned total. */
   let ownedMoves = 0;
+  /** The owners live frames asked about since the last re-ask. @type {Set<string>} */
+  const recounting = new Set();
   const totals = {
     /** @type {Record<string, FormCounts>} */
     counts: {},
@@ -483,10 +486,10 @@ export function createTreeData({ onChange }) {
 
   /**
    * Summarize the sessions not summarized yet, or all of them (`all`: a
-   * delete, a reconnect), one request per page. Resolves whether it asked.
-   * A session a live frame re-counted while its answer was on the way keeps
-   * the frame's count and is asked again; so does the owned total, which a
-   * frame for any session moves.
+   * delete, a reconnect, a live frame), one request per page. Resolves whether
+   * it asked. An answer for a session a live frame named while the answer was
+   * on its way is dropped and the session asked again; so is the owned total,
+   * which a frame for any session makes stale.
    * @param {string[]} ids
    * @param {boolean} [all]
    */
@@ -514,16 +517,23 @@ export function createTreeData({ onChange }) {
     return true;
   }
 
-  /** An unowned entry counts nowhere. @param {ArtifactEntry} entry @param {number} delta */
-  function bump(entry, delta) {
-    const form = entry.form;
-    if (!form || entry.owner == null) return;
+  /**
+   * Ask the summary again for an entry's owner, once per tick for all the
+   * owners asked about in it; an answer already on its way reads as stale.
+   * An unowned entry counts nowhere. @param {ArtifactEntry} entry
+   */
+  function recount(entry) {
+    if (!entry.form || entry.owner == null) return;
     moves.set(entry.owner, (moves.get(entry.owner) ?? 0) + 1);
     ownedMoves += 1;
-    const bucket = (totals.counts[entry.owner] ??= { total: 0, by_form: {} });
-    bucket.total = Math.max(0, bucket.total + delta);
-    bucket.by_form[form] = Math.max(0, (bucket.by_form[form] ?? 0) + delta);
-    totals.ownedTotal = Math.max(0, totals.ownedTotal + delta);
+    if (!recounting.size) {
+      queueMicrotask(() => {
+        const owners = [...recounting];
+        recounting.clear();
+        void summarize(owners, true).then((asked) => asked && onChange());
+      });
+    }
+    recounting.add(entry.owner);
   }
 
   /**
@@ -572,15 +582,16 @@ export function createTreeData({ onChange }) {
       setStatus(entry);
     } else {
       counted.add(key);
-      bump(entry, 1);
       place(entry, extra);
     }
+    recount(entry);
     return true;
   }
 
   /**
    * An `artifact_updated` frame: the status follows, and an entry whose
-   * owner changed is re-placed with its count. Resolves whether it moved.
+   * owner changed is re-placed and both owners are asked again. Resolves
+   * whether it moved.
    * @param {ArtifactEntry} entry
    * @param {string[]} extra  see {@link place}
    */
@@ -588,9 +599,9 @@ export function createTreeData({ onChange }) {
     const before = held.get(entry.id) ?? null;
     held.set(entry.id, { ...(before ?? {}), ...entry });
     if (before && before.owner !== entry.owner && entry.operator_visible !== false) {
-      bump(before, -1);
+      recount(before);
       unplace(entry.id);
-      bump(entry, 1);
+      recount(entry);
       place(entry, extra);
       return true;
     }
@@ -710,6 +721,7 @@ export function createTreeData({ onChange }) {
     summarized = new Set();
     held.clear();
     counted.clear();
+    recounting.clear();
     totals.counts = {};
     totals.ownedTotal = 0;
   }

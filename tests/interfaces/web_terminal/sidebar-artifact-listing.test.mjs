@@ -370,40 +370,70 @@ describe('the summary against live frames', () => {
     counts: { [tid]: { total: 0, by_form: {} } },
     owned_total: 0,
   });
+  /** A summary answer for one session. @param {string} tid @param {Record<string, number>} forms */
+  const counted = (tid, forms) => {
+    const total = Object.values(forms).reduce((a, b) => a + b, 0);
+    return { counts: { [tid]: { total, by_form: forms } }, owned_total: total };
+  };
+  /** The sessions every summary request asked about. */
+  const asked = () => fetchMock.mock.calls.map((_, n) => sent(n).sessions);
 
-  test('an answer asked before a frame moved its session does not undo the frame; it is asked again', async () => {
+  test('a frame for a run the summary already counted asks again and never counts it twice', async () => {
+    const data = mod.createTreeData({ onChange });
+    fetchMock.mockResolvedValueOnce(reply(counted('t1', { runs: 7 })));
+    await data.summarize(['t1']);
+    // The watcher announces the seventh run after the summary counted it.
+    fetchMock.mockResolvedValueOnce(reply(counted('t1', { runs: 7 })));
+    data.added(entry('p7', T, { owner: 't1', form: 'runs', exec_id: 'w' }), []);
+    expect(data.totals.counts.t1.by_form.runs).toBe(7);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(data.totals.counts.t1.by_form.runs).toBe(7);
+    expect(asked()).toEqual([['t1'], ['t1']]);
+  });
+
+  test('an output of a counted run is counted under its own form once the summary says so', async () => {
+    const data = mod.createTreeData({ onChange });
+    fetchMock.mockResolvedValueOnce(reply(counted('t1', { runs: 1 })));
+    await data.summarize(['t1']);
+    data.added(entry('p1', T, { owner: 't1', form: 'runs', exec_id: 'e1' }), []);
+    fetchMock.mockResolvedValueOnce(reply(counted('t1', { runs: 1, plots: 1 })));
+    data.added(entry('o1', T, { owner: 't1', form: 'plots', exec_id: 'e1' }), []);
+    await vi.waitFor(() => expect(data.totals.counts.t1.by_form.plots).toBe(1));
+    expect(data.totals.counts.t1.by_form.runs).toBe(1);
+    expect(asked()).toEqual([['t1'], ['t1']]);
+  });
+
+  test('an answer asked before a frame moved its session is dropped; it is asked again', async () => {
     const data = mod.createTreeData({ onChange });
     /** @type {(value: unknown) => void} */
     let answer = () => {};
     fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
-    const asked = data.summarize(['t1']);
+    const first = data.summarize(['t1']);
     // The upload lands and is announced while the summary is on its way back.
     data.added(entry('u1', T, { owner: 't1', form: 'images' }), []);
-    expect(data.totals.counts.t1.by_form.images).toBe(1);
-    // The fresh answer counts the upload.
-    fetchMock.mockResolvedValueOnce(
-      reply({ counts: { t1: { total: 1, by_form: { images: 1 } } }, owned_total: 1 })
-    );
+    // Every answer from here on counts the upload.
+    fetchMock.mockResolvedValue(reply(counted('t1', { images: 1 })));
     answer(reply(empty('t1')));
-    await asked;
+    await first;
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
     expect(data.totals.counts.t1).toEqual({ total: 1, by_form: { images: 1 } });
     expect(data.totals.ownedTotal).toBe(1);
-    expect(fetchMock.mock.calls.map((_, n) => sent(n))).toEqual([
-      { sessions: ['t1'] },
-      { sessions: ['t1'] },
-    ]);
+    expect(asked().slice(1)).toEqual([['t1'], ['t1']]); // the frame's re-ask, the stale one's
   });
 
   test('an owner a frame changed in flight is asked again on both sides; untouched ones are not', async () => {
     const data = mod.createTreeData({ onChange });
+    fetchMock.mockResolvedValueOnce(reply(counted('t0', { images: 1 })));
     data.added(entry('u1', T, { owner: 't0', form: 'images' }), []);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledOnce());
     /** @type {(value: unknown) => void} */
     let answer = () => {};
     fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
-    const asked = data.summarize(['t0', 't1', 't2']);
+    // A reconnect asks every session again.
+    const first = data.summarize(['t0', 't1', 't2'], true);
     // The turn-end stamp moves the upload from t0 to t1.
     data.updated(entry('u1', T, { owner: 't1', form: 'images' }), []);
-    fetchMock.mockResolvedValueOnce(
+    fetchMock.mockResolvedValue(
       reply({
         counts: { t0: { total: 0, by_form: {} }, t1: { total: 1, by_form: { images: 1 } } },
         owned_total: 1,
@@ -419,27 +449,32 @@ describe('the summary against live frames', () => {
         owned_total: 4,
       })
     );
-    await asked;
+    await first;
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(2));
     expect(data.totals.counts.t0.total).toBe(0);
     expect(data.totals.counts.t1.by_form.images).toBe(1);
     expect(data.totals.counts.t2.total).toBe(3);
-    expect(sent(1)).toEqual({ sessions: ['t0', 't1'] });
+    expect(asked().slice(2)).toEqual([
+      ['t0', 't1'],
+      ['t0', 't1'],
+    ]);
   });
 
-  test('a frame for another session while a summary is on its way keeps the owned total; it is asked again', async () => {
+  test('a frame for another session while a summary is on its way keeps its owned total out; it is asked again', async () => {
     const data = mod.createTreeData({ onChange });
     /** @type {(value: unknown) => void} */
     let answer = () => {};
     fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
-    const asked = data.summarize(['tA']);
+    const first = data.summarize(['tA']);
     // An entry owned by a session that was not asked lands while A's answer is on its way.
     data.added(entry('u1', T, { owner: 'tB', form: 'images' }), []);
+    fetchMock.mockResolvedValue(reply({ ...counted('tB', { images: 1 }), owned_total: 1 }));
+    answer(reply({ ...empty('tA'), owned_total: 5 }));
+    await first;
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
     expect(data.totals.ownedTotal).toBe(1);
-    fetchMock.mockResolvedValueOnce(reply({ ...empty('tA'), owned_total: 1 }));
-    answer(reply(empty('tA')));
-    await asked;
-    expect(data.totals.ownedTotal).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(data.totals.counts.tA.total).toBe(0);
+    expect(asked().slice(1)).toEqual([['tB'], ['tA']]);
   });
 
   test('two summaries on their way across one frame each ask again once, then settle', async () => {
@@ -451,20 +486,33 @@ describe('the summary against live frames', () => {
     const askedA = data.summarize(['tA']);
     const askedB = data.summarize(['tB']);
     data.added(entry('u1', T, { owner: 'tC', form: 'images' }), []);
-    fetchMock.mockResolvedValue(reply({ ...empty('tA'), owned_total: 1 }));
-    answers[0](reply(empty('tA')));
-    answers[1](reply(empty('tB')));
+    fetchMock.mockResolvedValue(reply({ ...counted('tC', { images: 1 }), owned_total: 1 }));
+    answers[0](reply({ ...empty('tA'), owned_total: 5 }));
+    answers[1](reply({ ...empty('tB'), owned_total: 5 }));
     await Promise.all([askedA, askedB]);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(asked()).toEqual([['tA'], ['tB'], ['tC'], ['tA'], ['tB']]);
     expect(data.totals.ownedTotal).toBe(1);
   });
 
-  test('a frame with no summary in flight asks nothing', async () => {
+  test('a frame with no summary in flight asks once for its owner', async () => {
     const data = mod.createTreeData({ onChange });
     fetchMock.mockResolvedValueOnce(reply(empty('t1')));
     await data.summarize(['t1']);
+    fetchMock.mockResolvedValueOnce(reply(counted('t1', { images: 1 })));
     data.added(entry('u1', T, { owner: 't1', form: 'images' }), []);
-    expect(fetchMock).toHaveBeenCalledOnce();
+    data.added(entry('u2', T, { owner: 't1', form: 'images' }), []);
+    expect(data.totals.counts.t1.by_form.images).toBeUndefined();
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledOnce());
     expect(data.totals.counts.t1.by_form.images).toBe(1);
+    expect(asked()).toEqual([['t1'], ['t1']]);
+  });
+
+  test('an unowned or hidden frame asks nothing', async () => {
+    const data = mod.createTreeData({ onChange });
+    data.added(entry('u1', T, { form: 'images' }), []);
+    data.added(entry('u2', T, { owner: 't1', form: 'images', operator_visible: false }), []);
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
