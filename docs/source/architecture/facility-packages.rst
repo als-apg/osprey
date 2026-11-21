@@ -38,8 +38,9 @@ and title) and the relation types.
 Python API, and importing the engine no longer loads click, the build stack and
 ``osprey.simulation``.
 
-*Phase:* 2. *Today:* the engine imports the records, the end identity and the
-signal helpers, and reads the vocabulary file when it is imported.
+*Phase:* 2, done. *Today:* the engine reads ``facility.json`` at ``/4`` and
+imports no description module; the build writes the ``signals`` and
+``relation_types`` tables.
 
 2. ``facility.json`` is a versioned document with a published schema
 --------------------------------------------------------------------
@@ -57,8 +58,10 @@ reader has to compare.
 
 *Phase:* the panel engine checks the version in phase 2, the framework readers
 in phase 3 with the write guard first, and the schema ships in the package in
-phase 4. *Today:* the build writes ``/3`` and no reader compares it. The exact
-rules and the reader table are in :ref:`reference-facility-json`.
+phase 4. *Today:* the build writes ``/4``, a test pins the schema against the
+floor of each ``N``, and the panel engine refuses any other version; the
+framework readers do not compare it yet. The exact rules and the reader table
+are in :ref:`reference-facility-json`.
 
 3. The description and the framework split as the code reads
 ------------------------------------------------------------
@@ -185,7 +188,8 @@ Test helpers in the wheel would become public API.
 
 *Phase:* the byte-for-byte rebuild test lives in the root suite until phase 4;
 the package suites start in phases 4 and 5. *Today:* every test is in the root
-``tests/``.
+``tests/``; the panel tests read ``tests/facility/panels/fixture/facility.json``,
+and ``tests/facility/test_panel_fixture_rebuild.py`` rebuilds it.
 
 The boundary check
 ==================
@@ -246,8 +250,8 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.
 
 The headers name these phases:
 
-- **Phase 2** removes the panel engine's imports of facility code and its read of
-  the vocabulary files.
+- **Phase 2** removed the panel engine's imports of facility code and its read
+  of the vocabulary files; its header is empty.
 - **Phase 3** removes the description's imports of the framework (views helpers,
   ``osprey.utils.facility``, the MCP registry, the command line, deployment and
   config paths, the engine implementations), its click imports in nine modules,
