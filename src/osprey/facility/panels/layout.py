@@ -37,7 +37,7 @@ from functools import partial
 from types import MappingProxyType
 from typing import Any
 
-from osprey.facility.panels import health, strip, symbols
+from osprey.facility.panels import health, metrics, strip, symbols
 from osprey.facility.panels import picture as drawing
 from osprey.facility.panels.describe import (
     ENUMERATED_OUTPUTS,
@@ -145,9 +145,9 @@ TITLE_SIZE = 20
 HEADING_SIZE = 11
 TEXT_SIZE = 13
 SMALL_SIZE = 11
-CHAR_WIDTH = 0.6  # estimated width of one character, in parts of the font size
-CAPS_WIDTH = 0.72  # the same for capitals: a title in capitals is wider
-TEXT_PAD = 10  # added to an estimated text width: the label's own padding and a margin
+CHAR_WIDTH = 0.6  # width of a digit, in parts of the font size: a number's estimate
+TEXT_PAD = 10  # added to a measured text width: the label's own padding and a margin
+LABEL_INSET = 1  # the viewer's own padding either side of a label's text
 HEADER_HEIGHT = 40  # the bar at the top of every screen
 HEADER_PAD = 8  # the bar's widgets from its top
 PANEL_PAD = 16  # a section's frame around its content: the frame stands in the margin
@@ -158,7 +158,8 @@ SECTION_GAP = 16
 STAMP_DIGITS = 8  # of the model's content hash, in the header
 GAP = 8  # between two widgets on one row
 INDENT = 20  # one level of a roll-up tree
-LABEL_WIDTH = 200
+LABEL_WIDTH = 200  # a row's label column, however short its section's labels
+LABEL_MOST = 360  # a row's label column, however long its section's labels
 VALUE_WIDTH = 130
 UNIT_WIDTH = 44  # a value's unit, beside it
 UNIT_GAP = 2
@@ -244,7 +245,8 @@ KEY_VALUE_TOP = 30  # a key tile's value under its top
 CHIP_HEIGHT_SMALL = 20  # the dashed "not served yet" chip
 BLOCK_ROW = 26
 BLOCK_TOP = 30  # a block's box above its first line
-BLOCK_LABEL = 100  # a block line's label column
+BLOCK_LABEL = 100  # a curve's or a control's label column
+BLOCK_LABEL_LEAST = 48  # a block line's label column, however short its labels
 BLOCKS_PER_ROW = 5
 #: A row of blocks too wide for the card narrows to fit: its arrows to this run, its
 #: blocks in proportion down to this width; only then does the chain wrap.
@@ -668,9 +670,15 @@ SYMBOL_WORDS: Mapping[str, str] = MappingProxyType(
 _STATE_ORDER: tuple[State, ...] = ("bad", "warn", "disagree")
 
 
-def text_width(text: str, size: float) -> float:
-    """A box wide enough for *text* at *size* px: the one text-width estimate."""
-    return math.ceil(len(text) * size * CHAR_WIDTH) + TEXT_PAD
+def text_width(text: str, size: float, *, caps: bool = False) -> float:
+    """A box wide enough for *text* at *size* px, measured in the viewer's font
+    (:mod:`.metrics`); *caps*: written in capitals."""
+    return math.ceil(_em(text.upper() if caps else text) * size / metrics.PER_EM) + TEXT_PAD
+
+
+def _em(text: str) -> int:
+    """The advance of *text* in thousandths of an em."""
+    return sum(metrics.WIDTHS.get(c, metrics.UNLISTED) for c in text)
 
 
 # --------------------------------------------------------------------------- rules
@@ -1496,6 +1504,7 @@ class _Page:
         # writable widgets only on a device card's own signals and settings
         self.on_card = view.id.view == "card" and view.id.kind == "device"
         self.label_w: float = CARD_LABEL_WIDTH  # a signal row's name, in the card's table
+        self.label_col: float = LABEL_WIDTH  # a value or fact row's label, in its section
         self.value_w: float = VALUE_WIDTH
         self.budget = Budget()  # spent by the strip's symbols, chips and summary rows
         self.colours: Mapping[str, str] = colours  # a symbol's type colour, by symbol name
@@ -1532,12 +1541,13 @@ class _Page:
         tags=(),
     ) -> float:
         """A text label; returns its right edge. Text that would run past the right
-        margin is cut there, an ellipsis marking the cut."""
+        margin, or past a stated width *w*, is cut there, an ellipsis marking the cut:
+        no label leaves its box for the viewer to shrink or clip."""
         w = text_width(text, size) if w is None else w
         right = self.right  # the inner edge of a section's frame, or the column's
         if x + w > right:
             w = max(right - x, 0)
-            text = _cut(text, w, size)
+        text = _fit(text, w, size)
         props = {
             "text": text,
             "fontSize": size,
@@ -1612,7 +1622,7 @@ class _Page:
     ) -> float:
         """A link to another screen, at most *width* wide; returns the right edge of what it drew."""
         text = link.label if label is None else label
-        w = min(text_width(text, TEXT_SIZE) + BUTTON_PAD, MAX_BUTTON_WIDTH)
+        w = min(text_width(text, TEXT_SIZE) + BUTTON_PAD, MAX_BUTTON_WIDTH, self.right - x)
         if width is not None:
             w = min(w, width)
         # Neutral: page text on the field background, outlined in the border
@@ -1794,8 +1804,7 @@ class _Page:
             self.s.widget(widget, x, y, w, ROW, props)
         elif widget == "waveform-plot":
             curve = {"name": channel, "y_channel": channel, "color": PAGE_TEXT}
-            props = {"title": channel, "curves": [curve]}
-            self.s.widget(widget, x, y, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, props)
+            self.plot(x, y, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, channel, [curve])
             self.y += WAVEFORM_HEIGHT - ROW
             return x + WAVEFORM_WIDTH
         else:
@@ -2579,16 +2588,18 @@ class _Page:
 
     def _strip_nodes(self, member: Any, x: float, y: float, scale: float) -> list[dict[str, Any]]:
         """A card strip member's symbol at (*x*, *y*): a bend a box round the pipe
-        its stated length long, any other its symbol."""
+        its stated length long, cut at the strip's ends, any other its symbol."""
         if member.symbol != "bend":
             return symbols.draw(member.symbol, x, y, unit=CARD_SYMBOL_UNIT)
-        w, h = CARD_DIPOLE_M * scale, CARD_DIPOLE_HEIGHT
+        half, h = CARD_DIPOLE_M * scale / 2, CARD_DIPOLE_HEIGHT
+        left = max(x - half, self.x0)
+        right = max(min(x + half, self.x0 + STRIP_WIDTH), left)
         props: dict[str, Any] = {
             "lineColor": symbols.FOCUS if member.focus else PAGE_TEXT,
             "lineWidth": BLOCK_LINE,
             "fill": False,
         }
-        geometry = {"x": x - w / 2, "y": y - h / 2, "width": w, "height": h}
+        geometry = {"x": left, "y": y - h / 2, "width": right - left, "height": h}
         return [{"type": "rectangle", "props": props, "geometry": geometry}]
 
     def card_strip(self, strip: CardStrip) -> None:
@@ -3380,16 +3391,26 @@ class _Page:
         if block.stack:  # a column as wide as its widest block
             return max(self.block_width(replace(b, stack=())) for b in (block, *block.stack))
         need = text_width(block.title, BLOCK_TEXT_SIZE) + 2 * GAP
+        label = _block_label(block)
+        return max(BLOCK_LEAST, min(BLOCK_MOST, max(need, label + self.block_value(block))))
+
+    def block_value(self, block: ChainBlock) -> float:
+        """The value column a block's lines need: the widest text a line shows, or a
+        number of three significant digits with its unit, whole; and its margin."""
+        need = 0.0
         for row in block.rows:
             if row.shown_as == "text":
-                text = text_width(row.text or "", BLOCK_TEXT_SIZE)
-                need = max(need, BLOCK_LABEL + text + WORD_GAP)
+                need = max(need, text_width(row.text or "", BLOCK_TEXT_SIZE) + WORD_GAP)
             elif row.shown_as == "value" and row.channel is not None:
-                # a number of three significant digits with its unit, whole
                 unit = row.unit or self.channel_unit(row.channel)
                 text = text_width(f"{_WIDEST_NUMBER} {unit or ''}", BLOCK_TEXT_SIZE)
-                need = max(need, BLOCK_LABEL + text + 2 * GAP)
-        return max(BLOCK_LEAST, min(BLOCK_MOST, need))
+                need = max(need, text + 2 * GAP)
+            elif row.channel is not None:  # a word, or a lamp and its word
+                light = LIGHT_SIZE + GAP if row.shown_as == "lamp" else 0
+                said = [w for _value, w in row.words] or [_WIDEST_NUMBER]
+                widest = max(text_width(w, BLOCK_TEXT_SIZE) for w in said)
+                need = max(need, light + widest + GAP)
+        return need
 
     def channel_unit(self, channel: str) -> str | None:
         """The unit the facility states for *channel*, which the viewer prints beside it."""
@@ -3415,7 +3436,12 @@ class _Page:
         if block.link is not None:
             self.nav(x, top, w, band, replace(block.link, label=f"open {block.link.label}"))
         box_top = top + band + ROW_GAP
-        height = BLOCK_TOP + BLOCK_ROW * max(len(block.rows), 1) - BLOCK_ROW_TOP
+        # the value column takes what its lines need, the labels the rest of the box,
+        # as wide as the longest of them; a label longer than that takes two lines
+        label = max(min(_block_label(block), w - GAP - self.block_value(block)), BLOCK_LABEL_LEAST)
+        labels = [_wrap_label(row.label, label - GAP, SMALL_SIZE, 2) for row in block.rows]
+        rows_h = [BLOCK_ROW + (len(lines) - 1) * SMALL_LINE for lines in labels] or [BLOCK_ROW]
+        height = BLOCK_TOP + sum(rows_h) - BLOCK_ROW_TOP
         if block.dashed or block.standing == _CONTESTED:
             line = symbols.ALARM_MINOR if block.standing == _CONTESTED else MUTED_TEXT
             self.box(x, box_top, w, height, line=line, dashed=True)
@@ -3440,16 +3466,16 @@ class _Page:
                 x + GAP, box_top + BLOCK_ROW_TOP, _NOT_STATED_TEXT,
                 size=SMALL_SIZE, w=w - 2 * GAP, h=line_h, fg=MUTED_TEXT,
             )  # fmt: skip
-        for n, row in enumerate(block.rows):
-            y = box_top + BLOCK_ROW_TOP + n * BLOCK_ROW
-            self.text(
-                x + GAP, y, row.label, size=SMALL_SIZE, w=BLOCK_LABEL - GAP, h=line_h, fg=MUTED_TEXT
-            )
-            vx, vw = x + BLOCK_LABEL, w - BLOCK_LABEL - GAP
+        y = box_top + BLOCK_ROW_TOP
+        for row, lines, row_h in zip(block.rows, labels, rows_h, strict=False):
+            for i, piece in enumerate(lines):
+                self.text(x + GAP, y + i * SMALL_LINE, piece, size=SMALL_SIZE, w=label - GAP, h=line_h, fg=MUTED_TEXT)  # fmt: skip
+            vx, vw = x + label, w - label - GAP
             self.shown_value(
                 vx, y, vw, row.channel, row.shown_as, row.words,
                 unit=row.unit, scale=row.scale, size=BLOCK_TEXT_SIZE, h=line_h, text=row.text,
             )  # fmt: skip
+            y += row_h
         return bottom
 
     def operate(self, operate: Operate) -> None:
@@ -4095,21 +4121,29 @@ class _Page:
             },
         )
         y = HEADER_PAD
+        # the stamp first, as wide as any hash makes it, so the line left of it
+        # stops at the same place on every screen and is cut there, not under it
+        widest = max("0123456789abcdef", key=lambda c: metrics.WIDTHS[c])
+        stamp_w = text_width(f"model {widest * STAMP_DIGITS}", SMALL_SIZE)
+        stamp = f"model {self.graph.content_hash[:STAMP_DIGITS]}"
+        stamp_x = PAGE_WIDTH - MARGIN - stamp_w
+        self.text(stamp_x, y, stamp, size=SMALL_SIZE, w=stamp_w, fg=MUTED_TEXT, align="right")
+        page_right, self.right = self.right, stamp_x - GAP
         x: float = MARGIN - GAP
         for crumb in self.view.crumbs:
+            if x + GAP + BUTTON_PAD + MARK_WIDTH > self.right:
+                break  # no room for one more step of the way out
             x = self.button(x + GAP, y, crumb)
             x = self.text(x + GAP, y, "›", w=MARK_WIDTH, fg=MUTED_TEXT)
         x = self.text(x + GAP, y, self.view.id.id)
-        if self.view.alias is not None:  # the stated short name, as a chip
-            w = text_width(self.view.alias, SMALL_SIZE)
+        if self.view.alias is not None and x + 2 * GAP < self.right:  # the short name, a chip
+            w = min(text_width(self.view.alias, SMALL_SIZE), self.right - x - GAP)
             self.box(x + GAP, y, w, ROW, fill=PANEL_BACKGROUND)
             x = self.text(x + GAP, y, self.view.alias, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
-        stamp = f"model {self.graph.content_hash[:STAMP_DIGITS]}"
-        w = text_width(stamp, SMALL_SIZE)
-        self.text(PAGE_WIDTH - MARGIN - w, y, stamp, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
         rest = self.title_rest()
-        if rest:  # what the screen shows of it ("health by place"), muted
+        if rest and x + 2 * GAP < self.right:  # what the screen shows of it, muted
             self.text(x + GAP, y, rest, fg=MUTED_TEXT)
+        self.right = page_right
 
     def title_rest(self) -> str | None:
         """What the title says after the screen's id, when it starts with the id; the
@@ -4131,7 +4165,12 @@ class _Page:
         self.y += PANEL_PAD
         if not (section.items and isinstance(section.items[0], Strip | Band | Picture)):
             self.heading(section.title)  # a picture heads itself, by its view
+        labels = [i.label for i in section.items if isinstance(i, ValueRow | Fact)]
+        self.label_col = min(
+            max([LABEL_WIDTH, *(text_width(t, TEXT_SIZE) for t in labels)]), LABEL_MOST
+        )
         self.items(section)
+        self.label_col = LABEL_WIDTH
         self.y += PANEL_PAD - ROW_GAP
         self.s.widget(
             "rectangle",
@@ -4212,7 +4251,7 @@ class _Page:
     def value_row(self, row: ValueRow) -> None:
         """A value and its readback, each with its unit once: a label prints the
         channel's own, an input has it beside it."""
-        x = self.text(self.x0, self.y, row.label, w=LABEL_WIDTH)
+        x = self.text(self.x0, self.y, row.label, w=self.label_col)
         x = self.unit_field(x + GAP, row.channel, row.unit, row.drawn_as, row.writable)
         if row.readback is not None:
             x = self.unit_field(x + GAP, row.readback, row.readback_unit, None, False)
@@ -4233,7 +4272,7 @@ class _Page:
         self.next_row()
 
     def fact_row(self, fact: Fact) -> None:
-        x = self.text(self.x0, self.y, fact.label, w=LABEL_WIDTH)
+        x = self.text(self.x0, self.y, fact.label, w=self.label_col)
         x = self.text(x + GAP, self.y, fact.text)
         if fact.basis == "inferred":
             x = self.mark(x + GAP, self.y, symbols.INFERRED_MARK)
@@ -6216,7 +6255,14 @@ class _Page:
             for n, part in enumerate(p for p in curves if p.channel is not None)
         ]
         if lines:
-            self.s.widget("waveform-plot", x, y, w, h, {"title": title, "curves": lines})
+            self.plot(x, y, w, h, title, lines)
+
+    def plot(self, x: float, y: float, w: float, h: float, title: str, curves: list) -> None:
+        """A waveform plot under its title. The title is a label of the page's own,
+        not the plot's: the viewer draws a plot's title in a weight the page's font
+        set has no face for."""
+        self.text(x, y, title, size=SMALL_SIZE, w=w, h=SMALL_LINE, fg=MUTED_TEXT)
+        self.s.widget("waveform-plot", x, y + SMALL_LINE, w, h - SMALL_LINE, {"curves": curves})
 
     def elevation(self, elevation: Elevation) -> None:
         """A rack as it stands: its frame, each chassis a bar at its true unit spanning
@@ -6287,7 +6333,7 @@ class _Page:
     def chassis(self, x: float, y: float, w: float, h: float, unit: RackUnit) -> None:
         """One bar: its name inside, the light at its right end, a link over it."""
         self.box(x, y, w, h, fill=FIELD_BACKGROUND, dashed=unit.conflicting)
-        light_x = x + w - CHIP_LIGHT - GAP / 2
+        light_x = x + w - CHIP_LIGHT - GAP / 2 - _mark_room(unit)
         light_y = y + (min(h, RACK_U) - ROW) / 2
         self.unit_light(light_x, light_y, unit)
         name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
@@ -6305,7 +6351,8 @@ class _Page:
             self.nav(x, y, w, h, unit.link)
 
     def unit_light(self, x: float, y: float, unit: RackUnit) -> None:
-        """One light over a unit's channels (and its parts'), the no-rule look with none."""
+        """One light over a unit's channels (and its parts'), the no-rule look with none;
+        an inferred mark after it takes :func:`_mark_room`."""
         if not unit.lights:
             self.no_rule(x, y, CHIP_LIGHT)
         else:
@@ -6374,13 +6421,14 @@ class _Page:
             label = f"{name} · unit {unit.unit_text}" if unit.unit_text else name
             if unit.position is not None:
                 label = f"{name} · U{unit.position}"
-            w = text_width(label, SMALL_SIZE) + CHIP_LIGHT + 2 * GAP
+            mark = _mark_room(unit)
+            w = text_width(label, SMALL_SIZE) + CHIP_LIGHT + 2 * GAP + mark
             if x > MARGIN and x + w > MARGIN + STRIP_WIDTH:
                 x = MARGIN
                 self.y += CHIP_HEIGHT + CHIP_GAP
             self.box(x, self.y, w, CHIP_HEIGHT, fill=FIELD_BACKGROUND)
             self.unit_light(x + GAP / 2, self.y + (CHIP_HEIGHT - ROW) / 2, unit)
-            self.text(x + CHIP_LIGHT + GAP, self.y, label, size=SMALL_SIZE, h=CHIP_HEIGHT)
+            self.text(x + CHIP_LIGHT + GAP + mark, self.y, label, size=SMALL_SIZE, h=CHIP_HEIGHT)
             if isinstance(unit.link, Link):
                 self.nav(x, self.y, w, CHIP_HEIGHT, unit.link)
             x += w + CHIP_GAP
@@ -6650,15 +6698,38 @@ def meaning_stated(graph: PanelGraph, channel: str) -> bool:
     return drawn_as in ("value", "setpoint")
 
 
-def _cut(text: str, width: float, size: float) -> str:
-    """*text* cut to fit *width* at *size* by :func:`text_width`, an ellipsis marking the cut."""
-    if text_width(text, size) <= width:
+def _mark_room(unit: RackUnit) -> float:
+    """The room the inferred mark after a unit's light takes: none when no light is inferred."""
+    return MARK_WIDTH + GAP if any(item.inferred for item in unit.lights) else 0.0
+
+
+def _block_label(block: ChainBlock) -> float:
+    """The label column of a block's lines: its longest label, and the gap before it."""
+    widths = [text_width(row.label, SMALL_SIZE) for row in block.rows]
+    return max([BLOCK_LABEL_LEAST, *widths]) + GAP
+
+
+def _fit(text: str, w: float, size: float) -> str:
+    """*text* as a label *w* wide shows it: whole when its letters and the viewer's
+    inset fit, else cut (:func:`_cut`)."""
+    if _em(text) * size / metrics.PER_EM + 2 * LABEL_INSET <= w:
+        return text
+    return _cut(text, w + TEXT_PAD - 2 * LABEL_INSET, size)
+
+
+def _cut(text: str, width: float, size: float, *, caps: bool = False) -> str:
+    """*text* cut to fit *width* at *size* by :func:`text_width`, an ellipsis marking
+    the cut; *caps*: written in capitals."""
+    if text_width(text, size, caps=caps) <= width:
         return text
     cuts = _CUTS.get()
     if cuts is not None:
         cuts.append(text)
-    room = math.floor((width - TEXT_PAD) / (size * CHAR_WIDTH))
-    return text[: room - 1] + _ELLIPSIS if room > 1 else ""
+    for end in range(len(text) - 1, 0, -1):
+        kept = text[:end].rstrip() + _ELLIPSIS
+        if text_width(kept, size, caps=caps) <= width:
+            return kept
+    return ""
 
 
 def _chip(title: str, item: object) -> tuple[str, Link | None]:
@@ -6674,7 +6745,7 @@ def _chip(title: str, item: object) -> tuple[str, Link | None]:
 
 def caps_width(text: str, size: float) -> float:
     """:func:`text_width` of *text* written in capitals."""
-    return text_width(text, size) * CAPS_WIDTH / CHAR_WIDTH
+    return text_width(text, size, caps=True)
 
 
 def _citation_line(citation: Citation) -> str:
@@ -6760,17 +6831,16 @@ def _wrap(
     """*text* in at most *lines* lines that each fit *width* at *size*, broken at
     spaces; the last line cut with an ellipsis when the rest does not fit. *caps*:
     measured as capitals (:func:`caps_width`)."""
-    fit = width * CHAR_WIDTH / CAPS_WIDTH if caps else width  # in text_width's measure
     out: list[str] = []
     words = text.split()
     while words and len(out) < lines:
         line = words.pop(0)
-        while words and text_width(f"{line} {words[0]}", size) <= fit:
+        while words and text_width(f"{line} {words[0]}", size, caps=caps) <= width:
             line = f"{line} {words.pop(0)}"
         if len(out) == lines - 1 and words:
-            line = _cut(" ".join([line, *words]), fit, size)
+            line = _cut(" ".join([line, *words]), width, size, caps=caps)
             words = []
-        out.append(_cut(line, fit, size))
+        out.append(_cut(line, width, size, caps=caps))
     return out or [""]
 
 

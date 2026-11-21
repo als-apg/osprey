@@ -118,7 +118,14 @@ def test_readouts_and_plots_sit_with_the_drawing(bpm_graph) -> None:
         "XR01:BPM1:tbt_y",
     ]
     assert [c["name"] for c in plot["props"]["curves"]] == ["x", "y"]
-    assert "1,000" in plot["props"]["title"]
+    assert "title" not in plot["props"]  # the viewer would draw it in a face not loaded
+    (title,) = [
+        n for n in block
+        if n["type"] == "text-label"
+        and n["geometry"]["y"] + n["geometry"]["height"] == plot["geometry"]["y"]
+        and n["geometry"]["x"] == plot["geometry"]["x"]
+    ]  # fmt: skip
+    assert "1,000" in title["props"]["text"]
 
 
 def test_inferred_buttons_are_muted_with_a_note_and_an_empty_label_has_no_letter(tmp_path):
