@@ -35,7 +35,7 @@ from osprey.cli.chat_cmd import chat
 from osprey.cli.query_cmd import query
 from osprey.stores.artifact_scope import CLI_POINTER_DIR, current_scope
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-from tests.cli._scoped_subprocess import patch_subprocess
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli.test_host_launch_record import (  # noqa: F401 - fixtures requested by name
     _config,
     _deploy,
