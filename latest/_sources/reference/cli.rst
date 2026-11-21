@@ -1206,10 +1206,18 @@ osprey facility
 Check and show the facility description under ``data/facility/`` and import
 an export into it. See :doc:`/how-to/import-mml-export` for the import end to end.
 
-``osprey facility validate [--repo DIRECTORY]``
+``osprey facility validate [--repo DIRECTORY] [--all-limits]``
    Run every check ``osprey build`` makes of ``data/facility/`` and render the
    facility views against the repo's main profile in a temporary directory.
-   Nothing is written into the repo. A clean tree exits 0, and each model with
+   Nothing is written into the repo. A clean tree reports two limits findings
+   on stderr, each a ``limits:`` count line and one indented line per
+   address, sorted: the setpoints with no limits record (the target serves
+   them writable with no range when ``control_system.limits_checking.mode`` is
+   ``optional``, and refuses writes to them otherwise), and the limits records
+   that state one of ``min_value`` and ``max_value`` (served not writable until
+   they state both). A finding lists its first ten addresses and counts the
+   rest; ``--all-limits`` lists every one. The findings change nothing,
+   the exit code included, and a finding with no address is not printed. A clean tree exits 0, and each model with
    a kept ``imported/mml/<model>.response.json`` prints one
    ``response check <model>: …`` line on stderr, pass or fail; a failing check
    exits 1 before the render. When the check left rows out of the comparison,

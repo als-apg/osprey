@@ -733,7 +733,14 @@ is yours and is only drafted when absent. The authored files beside them —
 <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>,
 <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code> — are created
 only when absent and never rewritten, so your edits to them survive a
-re-import. <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> is created when absent; when it exists, the import
+re-import. Beside an existing <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> the import prints a
+<code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">differ:</span> <span class="pre">&lt;address&gt;</span> <span class="pre">file</span> <span class="pre">[..]</span> <span class="pre">export</span> <span class="pre">[..]</span></code> line for each record whose
+band the export states otherwise, and one <code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">not</span> <span class="pre">recorded:</span></code> line
+counting the setpoints the export bands that the file has no record for,
+followed by the first ten with their band; it writes none of them. A
+<code class="docutils literal notranslate"><span class="pre">Range</span></code> given as one row per device whose row count is not the family’s
+device count gives no band, and the import prints one <code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">table</span>
+<span class="pre">skipped:</span></code> line for that field. <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> is created when absent; when it exists, the import
 appends only the classes it lacks and leaves its rows as written.
 <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> names, as <code class="docutils literal notranslate"><span class="pre">quad</span></code> and <code class="docutils literal notranslate"><span class="pre">sext</span></code>, the families the
 export tags as tune and chromaticity correctors, and lists every kind those

@@ -1542,9 +1542,17 @@ JS needs neither.</p>
 <p>Check and show the facility description under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and import
 an export into it. See <a class="reference internal" href="../how-to/import-mml-export.html"><span class="doc">Import a Middle Layer export</span></a> for the import end to end.</p>
 <dl>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Run every check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> makes of <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and render the
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--all-limits]</span></code></dt><dd><p>Run every check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> makes of <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and render the
 facility views against the repo’s main profile in a temporary directory.
-Nothing is written into the repo. A clean tree exits 0, and each model with
+Nothing is written into the repo. A clean tree reports two limits findings
+on stderr, each a <code class="docutils literal notranslate"><span class="pre">limits:</span></code> count line and one indented line per
+address, sorted: the setpoints with no limits record (the target serves
+them writable with no range when <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code> is
+<code class="docutils literal notranslate"><span class="pre">optional</span></code>, and refuses writes to them otherwise), and the limits records
+that state one of <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> (served not writable until
+they state both). A finding lists its first ten addresses and counts the
+rest; <code class="docutils literal notranslate"><span class="pre">--all-limits</span></code> lists every one. The findings change nothing,
+the exit code included, and a finding with no address is not printed. A clean tree exits 0, and each model with
 a kept <code class="docutils literal notranslate"><span class="pre">imported/mml/&lt;model&gt;.response.json</span></code> prints one
 <code class="docutils literal notranslate"><span class="pre">response</span> <span class="pre">check</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">…</span></code> line on stderr, pass or fail; a failing check
 exits 1 before the render. When the check left rows out of the comparison,
