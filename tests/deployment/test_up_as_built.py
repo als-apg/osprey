@@ -987,11 +987,24 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, monkeypatch, ca
 
 @pytest.mark.usefixtures("started")
 def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, monkeypatch):
+    """The record names exactly the services compose was handed: the build's
+    files' and the web file the start writes."""
     import yaml
+
+    from osprey.deployment.web_terminals.artifacts import web_compose_file
+    from osprey.deployment.web_terminals.render import render_web_terminals
+    from osprey_connectors.config import load_project_config
+
+    def _write_web_file(config, *args, repo_root, **kwargs):
+        web_file = web_compose_file(repo_root)
+        web_file.parent.mkdir(parents=True, exist_ok=True)
+        web_file.write_text(
+            render_web_terminals(config)["docker-compose.web.yml"], encoding="utf-8"
+        )
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     (lifecycle_repo / ".env.users").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
-    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", _write_web_file)
     monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
     render_build(
         lifecycle_repo,
@@ -1001,8 +1014,16 @@ def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, mo
                 "build_dir": "./build",
                 "deployed_services": [],
                 "claude_code": {"provider": "anthropic"},
+                "deploy": {"fqdn": "example.invalid"},
                 "registry": {"url": "registry.example.org/demo"},
-                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "users": ["alice"],
+                        "default_tier": "assistant",
+                        "renders": {"assistant": tier_render("assistant", "ex-assistant")},
+                    }
+                },
             }
         ),
         with_compose=False,
@@ -1011,8 +1032,18 @@ def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, mo
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 0, result.output
+    config = load_project_config(str(container_lifecycle.as_built_config_path(lifecycle_repo)))
+    handed = [
+        lifecycle_repo / path
+        for path in container_lifecycle.as_built_compose_files(config, lifecycle_repo)
+    ] + [web_compose_file(lifecycle_repo)]
     record = read_deployment_record(lifecycle_repo)
     assert record is not None
+    assert set(record.compose_services or ()) == {
+        name
+        for file in handed
+        for name in container_lifecycle.rendered_compose_services(file) or {}
+    }
     assert {"nginx", "web-alice"} <= set(record.compose_services or ())
 
 
