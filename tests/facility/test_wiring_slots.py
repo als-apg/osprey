@@ -134,6 +134,87 @@ class TestDefault:
         assert filled["SR/U:RB"]["default"] == 0.0
 
 
+class TestDefaultThroughAReadbacksOwnCalibration:
+    """A readback stating another calibration than the setpoint on its target."""
+
+    VOLT_GAIN, VOLT_OFFSET = 0.02, 0.003
+
+    def _voltage(self, **calibration: Any) -> dict[str, Any]:
+        own = {"curve": {"linear": {"gain": self.VOLT_GAIN, "offset": self.VOLT_OFFSET}}}
+        return {
+            "address": "U:RB",
+            "slices": SLICES,
+            "engine": ENGINE,
+            "calibration": {**own, **calibration},
+        }
+
+    def _filled(self, tmp_path: Path, record: dict[str, Any]) -> StageReport:
+        files = _files()
+        sr = files["models.yaml"][0]
+        sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "U:RB"] + [record]
+        return _run(tmp_path, files)
+
+    def test_it_takes_the_setpoints_physics_value_through_its_own(self, tmp_path):
+        result = self._filled(tmp_path, self._voltage())
+        assert result.ok, _lines(result)
+        expected = (K_A / 2 - self.VOLT_OFFSET) / self.VOLT_GAIN
+        assert _records(result)["SR/U:RB"]["default"] == pytest.approx(expected, abs=1e-9)
+
+    def test_stating_the_setpoints_calibration_it_starts_at_the_setpoint(self, tmp_path):
+        result = self._filled(tmp_path, {**self._voltage(), "calibration": CALIBRATION})
+        assert result.ok, _lines(result)
+        records = _records(result)
+        assert records["SR/U:RB"]["default"] == pytest.approx(
+            records["SR/Q1:SP"]["default"], abs=1e-12
+        )
+
+    def test_a_table_with_no_inverse_stops_on_the_readback(self, tmp_path):
+        table = {"table": {"grid": [0.0, 1.0], "values": [0.0, 2.0]}}
+        result = self._filled(tmp_path, self._voltage(curve=table))
+        assert result.failed == "wiring"
+        assert _lines(result) == [
+            "facility: engine-invalid: wiring SR/U:RB — a table calibration has no inverse "
+            "to serve the reading; fix: add calibration.inverse"
+        ]
+
+    def _paired(self, tmp_path: Path, calibration: dict[str, Any], **channel: Any) -> StageReport:
+        """The setpoint's own pair, ``Q1:RB``, wired to the setpoint's slices."""
+        files = _files()
+        sr = files["models.yaml"][0]
+        row = {"address": "Q1:RB", "slices": SLICES, "engine": ENGINE, "calibration": calibration}
+        sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "Q1:RB"] + [row]
+        channels = files["records/channels.yaml"]
+        channels[1].update(channel.pop("readback", {}))
+        channels.extend(channel.pop("more", []))
+        return _run(tmp_path, files)
+
+    @pytest.mark.parametrize(
+        "channel",
+        [
+            pytest.param({}, id="followed"),
+            pytest.param({"readback": {"simulation": {"follows": "none"}}}, id="follows-none"),
+            pytest.param(
+                {"more": [{"id": "Q1:RESET", "role": "setpoint", "pair": "Q1:RB"}]},
+                id="shared",
+            ),
+        ],
+    )
+    def test_it_starts_through_its_own_whether_or_not_its_pair_is_followed(self, tmp_path, channel):
+        result = self._paired(tmp_path, self._voltage()["calibration"], **channel)
+        assert result.ok, _lines(result)
+        expected = (K_A / 2 - self.VOLT_OFFSET) / self.VOLT_GAIN
+        assert _records(result)["SR/Q1:RB"]["default"] == pytest.approx(expected, abs=1e-9)
+
+    def test_a_pair_not_followed_still_starts_at_the_setpoint_on_its_target(self, tmp_path):
+        """The model serves it from that setpoint, so that is where it starts."""
+        result = self._paired(tmp_path, CALIBRATION, readback={"simulation": {"follows": "none"}})
+        assert result.ok, _lines(result)
+        records = _records(result)
+        assert records["SR/Q1:RB"]["default"] == pytest.approx(
+            records["SR/Q1:SP"]["default"], abs=1e-12
+        )
+
+
 class TestDirection:
     def test_a_setpoint_is_written(self, filled):
         assert filled["SR/Q1:SP"]["direction"] == "write"

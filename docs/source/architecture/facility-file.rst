@@ -12,7 +12,8 @@ the channel finder, the limits check, the simulator and the knowledge graph
 cannot disagree about which channels exist or what they are.
 
 Writing the sources is in :doc:`/how-to/describe-your-facility`. This page is
-about what the build makes of them.
+about what the build makes of them. How the facility code splits into the
+osprey-facility and osprey-panels packages is in :doc:`facility-packages`.
 
 .. raw:: html
    :file: ../_diagrams/facility-map.html
@@ -485,6 +486,9 @@ How the composite serves the models over Channel Access and PVAccess is in
 
    :doc:`/how-to/describe-your-facility`
       The source tree, file by file.
+
+   :doc:`facility-packages`
+      The split into osprey-facility and osprey-panels, and its boundary check.
 
    :doc:`/how-to/control-systems/use-virtual-accelerator`
       Running the simulator and serving a facility's own model.

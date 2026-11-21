@@ -39,11 +39,13 @@ import logging
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.build_profile import load_profile
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
+from tests._builds import BuiltProject
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: The preset that ships the graph store. Every project here starts from it.
@@ -146,11 +148,21 @@ def _mcp_servers(project: Path) -> dict:
 
 
 @pytest.fixture(scope="module")
-def baseline_render(tmp_path_factory, monkeypatch_module) -> Path:
-    """The preset built untouched — the store this feature lets a profile omit."""
-    project = _init_project(tmp_path_factory.mktemp("baseline"), "baseline", MODE)
-    result = _build(project, monkeypatch_module)
-    assert result.exit_code == 0, result.output
+def baseline_render(built_demo_hierarchical: BuiltProject) -> Path:
+    """The preset built untouched — the store this feature lets a profile omit.
+
+    The session's shared build of the preset in :data:`MODE`, read only. It is
+    built with ``--repo`` and the lifecycle on, where :func:`storeless_render`
+    builds from the working directory with ``--skip-lifecycle``. The comparison
+    in :class:`TestDeletingTheKeysRemovesTheStore` reads only the names of
+    services, ``deployed_services`` and MCP servers, which neither difference
+    reaches: the repo's name and path appear in none of them, and the demo's
+    one lifecycle step, ``canopy-payload``, runs before the render and writes
+    nothing it reads.
+    """
+    project = built_demo_hierarchical.repo
+    profile = yaml.safe_load((project / "profile.yml").read_text(encoding="utf-8"))
+    assert profile["channel_finder_mode"] == MODE
     return project
 
 

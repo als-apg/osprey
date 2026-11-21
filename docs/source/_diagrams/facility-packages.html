@@ -1,0 +1,115 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="fp-title fp-desc">
+  <title id="fp-title">The facility packages: the framework, osprey-facility, osprey-panels and osprey-connectors, the directions each may import, and facility.json as the one seam between the facility and the panels</title>
+  <desc id="fp-desc">Read left to right along the data flow, with the import directions drawn in accent. Column 1, the source: the facility tree, its records, documents, layers and scenarios, and the panels data beside them. Column 2, the description. osprey-facility, imported as osprey_facility, holds the description and the build, imports nothing of osprey, and depends on pydantic, PyYAML, packaging and numpy; it is released under its own tags, osprey-facility-v*. The build reads the facility tree. Above it sits the framework, osprey: views, settings, the CLI and the engine implementations such as pyat. The framework imports osprey-facility through its public API only. Below it sits osprey-connectors, which holds the engine contract at osprey_connectors.simulation.engines; osprey-facility depends on it, and the framework's engines implement that contract. Column 3, the seam. The build is the sole producer of facility.json, written under the render root. Its header is osprey.facility.facility/N, it has a published JSON Schema, and every reader checks N before it reads; the framework reads it too. A box of edges that do not exist: osprey-facility never imports osprey; osprey-panels never imports osprey or osprey_facility; the framework never imports osprey_panels. Column 4, the panels. osprey-panels, imported as osprey_panels, reads facility.json, the panels data and a theme file passed in, depends on the standard library and jsonschema only, has its own command, osprey-panels write, check and classes, and is released under its own tags, osprey-panels-v*. A fork is a separate distribution that replaces it. It emits Screen-IR, validated at run time against the schema it vendors; a sync test holds the vendored schema to Canopy at the pinned commit. Footer: panels and facility meet only in facility.json; an import outside the accent arrows fails the boundary check.</desc>
+  <defs>
+    <marker id="fp-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fp-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+  </defs>
+
+  <!-- column labels -->
+  <text class="te" x="20" y="32">1 · SOURCE</text>
+  <text class="te" x="273" y="32">2 · DESCRIPTION</text>
+  <text class="te" x="526" y="32">3 · SEAM</text>
+  <text class="te" x="779" y="32">4 · PANELS</text>
+
+  <!-- framework -->
+  <rect class="nb" x="273" y="50" width="210" height="110" rx="6"/>
+  <text class="ta" x="285" y="68">OSPREY · FRAMEWORK</text>
+  <text class="ts" x="285" y="86">views · settings · CLI</text>
+  <text class="ts" x="285" y="100">engine implementations (pyat …)</text>
+  <text class="ts" x="285" y="118">imports osprey_facility's</text>
+  <text class="ts" x="285" y="132">public API, nothing else of it</text>
+  <text class="ts" x="285" y="146">reads facility.json, checks /N</text>
+
+  <!-- 1. facility tree -->
+  <rect class="nb-in" x="20" y="226" width="210" height="104" rx="6"/>
+  <text class="ta" x="32" y="244">FACILITY TREE</text>
+  <text class="ts" x="32" y="262">records/ · documents.yaml</text>
+  <text class="ts" x="32" y="276">layers · scenarios</text>
+  <text class="ts" x="32" y="294">panels/ data, read by</text>
+  <text class="ts" x="32" y="308">osprey-panels at write time</text>
+
+  <!-- 2. osprey-facility -->
+  <rect class="nb-foc" x="273" y="220" width="210" height="130" rx="6"/>
+  <text class="ta ta-acc" x="285" y="238">OSPREY-FACILITY</text>
+  <text class="ts" x="285" y="254">import osprey_facility</text>
+  <text class="ts" x="285" y="272">description + build</text>
+  <text class="ts t-acc" x="285" y="286">imports nothing of osprey</text>
+  <text class="ts" x="285" y="304">pydantic · PyYAML</text>
+  <text class="ts" x="285" y="318">packaging · numpy</text>
+  <text class="ts" x="285" y="336">tags osprey-facility-v*</text>
+
+  <!-- connectors -->
+  <rect class="nb" x="273" y="420" width="210" height="100" rx="6"/>
+  <text class="ta" x="285" y="438">OSPREY-CONNECTORS</text>
+  <text class="ts" x="285" y="456">the engine contract</text>
+  <text class="ts" x="285" y="470">osprey_connectors</text>
+  <text class="ts" x="285" y="484">  .simulation.engines</text>
+  <text class="ts" x="285" y="502">its own repository</text>
+
+  <!-- 3. facility.json -->
+  <rect class="nb-st" x="526" y="226" width="210" height="118" rx="6"/>
+  <text class="ta" x="538" y="244">FACILITY.JSON</text>
+  <text class="ts" x="538" y="262">osprey.facility.facility/N</text>
+  <text class="ts" x="538" y="276">published JSON Schema</text>
+  <text class="ts" x="538" y="294">sole producer: the build</text>
+  <text class="ts" x="538" y="308">&lt;render root&gt;/facility.json</text>
+  <text class="ts" x="538" y="326">every reader checks /N</text>
+
+  <!-- edges that do not exist -->
+  <rect class="nb-warn" x="526" y="410" width="210" height="96" rx="6"/>
+  <text class="ta ta-warn" x="538" y="428">NO IMPORT</text>
+  <text class="ts" x="538" y="446">osprey-facility → osprey</text>
+  <text class="ts" x="538" y="460">osprey-panels → osprey</text>
+  <text class="ts" x="538" y="474">osprey-panels → osprey_facility</text>
+  <text class="ts" x="538" y="488">framework → osprey_panels</text>
+
+  <!-- 4. osprey-panels -->
+  <rect class="nb-foc" x="779" y="214" width="210" height="150" rx="6"/>
+  <text class="ta ta-acc" x="791" y="232">OSPREY-PANELS</text>
+  <text class="ts" x="791" y="248">import osprey_panels</text>
+  <text class="ts" x="791" y="266">reads facility.json, checks /N</text>
+  <text class="ts" x="791" y="280">+ panels/ data + theme file</text>
+  <text class="ts" x="791" y="298">stdlib · jsonschema</text>
+  <text class="ts" x="791" y="316">osprey-panels write | check</text>
+  <text class="ts" x="791" y="330">  | classes</text>
+  <text class="ts" x="791" y="348">tags osprey-panels-v*</text>
+
+  <rect class="nb-st" x="779" y="396" width="210" height="62" rx="6"/>
+  <text class="ta" x="791" y="414">SCREEN-IR</text>
+  <text class="ts" x="791" y="430">validated at run time against</text>
+  <text class="ts" x="791" y="444">the vendored schema</text>
+
+  <rect class="nb-ext" x="779" y="482" width="210" height="62" rx="6"/>
+  <text class="ta" x="791" y="500">CANOPY · PINNED COMMIT</text>
+  <text class="ts" x="791" y="516">a sync test holds the vendored</text>
+  <text class="ts" x="791" y="530">schema to the pinned schema</text>
+
+  <!-- data flow -->
+  <line class="e" x1="230" y1="278" x2="271" y2="278" marker-end="url(#fp-arr)"/>
+  <text class="ta" x="236" y="272">read</text>
+  <line class="e-acc" x1="483" y1="285" x2="524" y2="285" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="487" y="279">writes</text>
+  <line class="e-acc" x1="736" y1="285" x2="777" y2="285" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="742" y="279">reads</text>
+  <line class="e-acc" x1="884" y1="364" x2="884" y2="394" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="892" y="383">emits</text>
+  <line class="e" x1="884" y1="458" x2="884" y2="480" marker-end="url(#fp-arr)"/>
+  <text class="ta" x="892" y="473">pinned to</text>
+
+  <!-- imports -->
+  <line class="e-acc" x1="378" y1="160" x2="378" y2="218" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="386" y="186">imports</text>
+  <text class="ta ta-acc" x="386" y="198">public API</text>
+  <line class="e-acc" x1="378" y1="350" x2="378" y2="418" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="386" y="398">depends on</text>
+  <polyline class="e-acc" points="273,140 250,140 250,470 271,470" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="32" y="452">framework engines</text>
+  <text class="ta ta-acc" x="32" y="464">implement the contract</text>
+  <polyline class="e-acc" points="483,105 631,105 631,224" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="639" y="160">reads, checks /N</text>
+
+  <text class="ts" x="20" y="582">osprey-facility and osprey-panels meet only in facility.json; an import outside the accent arrows fails the boundary check.</text>
+</svg>
+</div>

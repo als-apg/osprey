@@ -34,6 +34,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Any
 
 from osprey.facility.pairing import signal_quantity
 from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
@@ -149,6 +150,7 @@ __all__ = [
     "device_card",
     "health_rollup",
     "light",
+    "others",
     "place_view",
     "rack_elevation",
     "set_overview",
@@ -1292,8 +1294,9 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
     """The tiles: the ``metrics.csv`` rows of view ``card`` of the device's class
     whose ``level`` is its recipe or empty, by order, each
     the first channel of its role (``signal``) or not served yet; with none, the
-    first :data:`DEFAULT_TILES` roles that one channel plays and that show a value,
-    a word or a lamp, identity roles left out."""
+    first :data:`DEFAULT_TILES` roles that exactly one of the device's own
+    channels plays and that show a value, a word or a lamp, identity roles left
+    out."""
     by_role: dict[str, list[RoleHit]] = {}
     for hit in hits:
         by_role.setdefault(hit.role.role, []).append(hit)
@@ -1347,24 +1350,26 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
     for role, found in by_role.items():
         if len(tiles) == DEFAULT_TILES:
             break
-        first = found[0].role
-        if (
-            role in graph.identity
-            or role == INTERNAL_ROLE
-            or first.shown_as in CONTROLS
-            or len(found) != 1
-        ):
+        # Only the device's own channels of a role count: a neighbour's channel
+        # its roles reach is no figure of this device, and two own channels of
+        # one role are no single figure either.
+        own = [h for h in found if h.owner == thing.id]
+        if len(own) != 1:
             continue
-        unit, scale = _role_unit(graph, found[0])
+        hit = own[0]
+        first = hit.role
+        if role in graph.identity or role == INTERNAL_ROLE or first.shown_as in CONTROLS:
+            continue
+        unit, scale = _role_unit(graph, hit)
         tiles.append(
             KeyTile(
                 _role_word(first),
-                found[0].channel,
+                hit.channel,
                 first.shown_as,
                 unit,
                 scale,
                 None,
-                _words(graph, found[0].channel),
+                _words(graph, hit.channel),
             )
         )
     return tiles
@@ -4493,3 +4498,67 @@ def describe(
     if target.view == "checkout":
         return checkout(graph, target.id)
     raise ValueError(f"no view kind {target.view!r}")
+
+
+def others(view: View, graph: PanelGraph | None = None) -> tuple[dict[str, Any], ...]:
+    """What a device's screen shows of other things, on purpose: each thing an item
+    of the view is about other than the device (a neighbour on the strip, a block of
+    the chain, a far end), the kind of item that draws it, and the channels of it
+    the screen binds; with *graph*, also each channel an item binds that is on
+    another thing although the item names none (a row of a channel list the
+    device's roles reach). A checker reads it to tell a channel drawn as a
+    neighbour's from a channel on the wrong screen. Empty for a screen not about
+    a device.
+
+    Returns:
+        One entry per thing and kind of item, sorted: ``{"thing", "as", "channels"}``.
+    """
+    if view.id.kind != "device" or view.id.view not in ("card", "channels"):
+        return ()
+    found: dict[tuple[str, str], set[str]] = {}
+
+    def about(node: Any) -> str | None:
+        thing = getattr(node, "thing", None)
+        if isinstance(thing, str):
+            return thing
+        link = getattr(node, "link", None)
+        if isinstance(node, ChainBlock) and isinstance(link, Link):
+            return link.target.id
+        return None
+
+    def channels(node: Any) -> set[str]:
+        bound = {getattr(node, "channel", None), *getattr(node, "channels", ())}
+        for row in getattr(node, "rows", ()):
+            bound |= {getattr(row, "channel", None), *getattr(row, "channels", ())}
+        return {c for c in bound if isinstance(c, str)}
+
+    def owner(channel: str) -> str | None:
+        try:
+            return graph.channel(channel).thing if graph is not None else None
+        except KeyError:
+            return None
+
+    def walk(node: Any, named: bool = False) -> None:
+        if dataclasses.is_dataclass(node) and not isinstance(node, type):
+            thing = about(node)
+            kind = re.sub(r"(?<!^)(?=[A-Z])", " ", type(node).__name__).lower()
+            bound = channels(node)
+            if thing is not None and thing != view.id.id and bound:
+                found.setdefault((thing, kind), set()).update(bound)
+            elif thing is None and not named:  # an item that names no thing: by owner
+                own = {getattr(node, "channel", None), *getattr(node, "channels", ())}
+                for channel in (c for c in own if isinstance(c, str)):
+                    held = owner(channel)
+                    if held is not None and held != view.id.id:
+                        found.setdefault((held, kind), set()).add(channel)
+            for f in dataclasses.fields(node):
+                walk(getattr(node, f.name), named or thing is not None)
+        elif isinstance(node, (tuple, list)):
+            for item in node:
+                walk(item, named)
+
+    walk(view.sections)
+    return tuple(
+        {"thing": thing, "as": kind, "channels": sorted(bound)}
+        for (thing, kind), bound in sorted(found.items())
+    )

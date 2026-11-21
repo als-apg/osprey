@@ -510,6 +510,15 @@ def test_every_invariant_test_exists() -> None:
     assert "tests/integrations/canopy/test_contract_marker.py" in canopy.INVARIANT_TESTS
 
 
+def test_the_package_boundary_scan_runs_on_every_change() -> None:
+    """The facility boundary test scans framework modules outside ``src/osprey/facility``.
+
+    Its dynamic-spelling scan reads all of ``src/osprey``, so a change to a
+    framework module alone can break it: change selection must never leave it out.
+    """
+    assert "tests/facility/test_package_boundary.py" in fw.INVARIANT_TESTS
+
+
 def test_every_invariant_test_runs_in_its_owners_invariant_check() -> None:
     """Each module's invariant tests are the files of an invariant check it declares."""
     for path, module in check.DECLARED.modules.items():
@@ -1084,6 +1093,8 @@ SWEEP_IGNORES = [
     "--ignore=tests/va/test_timed_passes_live.py",
     "--ignore=tests/va/test_injection_live.py",
     "--ignore=tests/va/test_turn_by_turn_live.py",
+    "--ignore=tests/va/test_stopped_servers_live.py",
+    "--ignore=tests/va/test_server_fleet_live.py",
     "--ignore=tests/integration/test_build_boot.py",
     "--ignore=tests/integration/test_preset_static.py",
     "--ignore=tests/integration/test_preset_build.py",

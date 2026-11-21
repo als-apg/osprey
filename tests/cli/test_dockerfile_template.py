@@ -34,6 +34,7 @@ from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH
+from tests._builds import BuiltProject
 from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._dockerfile_frontend import builtin_frontend_problems
 from tests.deployment._pip_probe import (
@@ -1415,15 +1416,15 @@ class TestSetupCapabilityConditional:
 
 
 @pytest.fixture(scope="module")
-def tiered_render(tmp_path_factory):
-    """Render the `demo` preset once — the deployment's own project
-    plus one per layer, all from a single `osprey build`.
+def tiered_render(built_demo: BuiltProject) -> pathlib.Path:
+    """The `demo` preset's render — the deployment's own project plus one per
+    layer, all from a single `osprey build`: the session's shared build.
 
-    Module-scoped: the tier question below is asked of five Dockerfiles out of
-    the same render, and rendering per test would pay for the same build five
-    times over.
+    The tier question below is asked of five Dockerfiles out of the same
+    render, and rendering per test would pay for the same build five times
+    over. Read only.
     """
-    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "demo")
+    return built_demo.build_dir
 
 
 class TestTieredPresetConfigChown:
@@ -1765,12 +1766,8 @@ class TestBrowserLayerAndImageChecks:
             ), dockerfile
             if shown:
                 with_checks.add(config["project_name"])
-        assert with_checks == {
-            "ca-docker",
-            "ca-docker-readonly",
-            "ca-docker-readwrite",
-            "ca-docker-admin",
-        }
+        name = tiered_render.parent.name
+        assert with_checks == {name, f"{name}-readonly", f"{name}-readwrite", f"{name}-admin"}
 
     def test_line_order(self, panel):
         """deps → browser → wheel drop → deployment COPY → checks → chown.

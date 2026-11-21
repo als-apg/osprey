@@ -8,9 +8,10 @@ costs the agent a shortcut, not the build — and that is exactly what makes it
 easy to lose silently: the render carries on, the prompt quietly falls back,
 and nothing goes red.
 
-Two properties keep it honest. The embedding has to actually happen for the
-reference deployment, which is what a database malformed in a way no test read
-would otherwise catch; and the swallowed failure has to be *reported* as one
+Two properties keep it honest. The embedding has to actually happen in a real
+build of the demo preset in the hierarchical paradigm, which is what a database
+malformed in a way no test read would otherwise catch; and the swallowed
+failure has to be *reported* as one
 line, not as a raw traceback. A traceback under an exit-0 build is worse than
 no message at all: it is an alarm the operator is being trained to scroll past.
 """
@@ -24,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.templates.claude_code import resolve_hierarchy_context
+from tests._builds import BuiltProject
 from tests.cli._lifecycle_build import invoke_build_in
 
 RESOLVER_LOGGER = "osprey.cli.templates.claude_code"
@@ -95,18 +97,25 @@ class TestUnreadableDatabaseIsReportedNotDumped:
 
 
 class TestTheReferenceDeploymentEmbedsItsHierarchy:
-    """The positive property, against a real build of the exemplar repo."""
+    """The positive property, against real builds of the demo preset in the hierarchical paradigm.
 
-    def test_the_rendered_agent_carries_the_hierarchy_levels(self, lifecycle_repo: Path) -> None:
+    The render test reads the session's shared build of the demo preset with
+    ``channel_finder_mode=hierarchical`` set at init
+    (``built_demo_hierarchical``), not the exemplar repo. The log test builds
+    the exemplar repo itself, pinned to the same paradigm by
+    :func:`_pin_hierarchical`, because it reads log records that a shared build
+    does not keep.
+    """
+
+    def test_the_rendered_agent_carries_the_hierarchy_levels(
+        self, built_demo_hierarchical: BuiltProject
+    ) -> None:
         """The index the build writes has to load, or the prompt is poorer.
 
         This fails the moment the build writes an index the loader rejects,
         which is the failure the build itself only ever warned about.
         """
-        _pin_hierarchical(lifecycle_repo)
-        assert invoke_build_in(lifecycle_repo).exit_code == 0
-
-        build_dir = lifecycle_repo / "build"
+        build_dir = built_demo_hierarchical.build_dir
         index = json.loads(
             (build_dir / "data" / "channel_finder" / "hierarchical.json").read_text(
                 encoding="utf-8"

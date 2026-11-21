@@ -30,6 +30,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment import run_once
 from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -7850,25 +7851,6 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     return sorted(names)
 
 
-def _run_once_services(services: Mapping[str, Any]) -> set[str]:
-    """The services another one waits on with ``condition: service_completed_successfully``.
-
-    Compose's own declaration that a service runs to completion and exits.
-    """
-    run_once: set[str] = set()
-    for spec in services.values():
-        depends = spec.get("depends_on") if isinstance(spec, Mapping) else None
-        if not isinstance(depends, Mapping):
-            continue
-        for name, condition in depends.items():
-            if (
-                isinstance(condition, Mapping)
-                and condition.get("condition") == "service_completed_successfully"
-            ):
-                run_once.add(str(name))
-    return run_once
-
-
 def _row_is_running(row: Mapping[str, Any]) -> bool:
     """Whether a ``ps`` row is a running container, in either runtime's spelling."""
     state = str(row.get("State") or "").lower()
@@ -7887,15 +7869,30 @@ def _row_state(row: Mapping[str, Any]) -> str:
     return state or str(row.get("State") or "unknown").lower()
 
 
-def services_without_a_running_container(
-    repo_root: Path, services: Mapping[str, Any]
-) -> dict[str, str]:
-    """The *services* a start that returned has not left running, with what was seen.
+class StartCheck(NamedTuple):
+    """What a start that returned left behind, service by service.
+
+    Attributes:
+        missing: Service name to what was seen (``no container``, or the states
+            of its containers), for each service the start did not leave
+            running or done; in the order of the services.
+        allowed: Service name to exit code, for each ``may-fail`` run-once
+            service that exited non-zero (:mod:`~osprey.deployment.run_once`).
+    """
+
+    missing: dict[str, str]
+    allowed: dict[str, int]
+
+
+def check_started_services(repo_root: Path, services: Mapping[str, Any]) -> StartCheck:
+    """Which of *services* a start that returned has not left running or done.
 
     A start that returns has handed every service to compose to run in the
-    background, so each one has a running container afterwards. A service that
-    another declares ``service_completed_successfully`` on runs once instead: a
-    container of it that exited 0 satisfies it. A ``restarting`` container is
+    background, so each one has a running container afterwards. A service
+    declared run-once (:mod:`~osprey.deployment.run_once`) has exited instead:
+    a ``must-succeed`` one is done when a container of it exited 0, a
+    ``may-fail`` one when a container of it exited at all. A service that
+    declares nothing is never taken for run-once. A ``restarting`` container is
     not running.
 
     This deployment's containers, as :func:`_checkout_containers` claims them,
@@ -7904,13 +7901,13 @@ def services_without_a_running_container(
 
     :param repo_root: The deployment repo that was started.
     :param services: The ``services`` mappings the start handed to compose, merged.
-    :return: Service name to ``no container`` or the states of its containers,
-        in the order of *services*; empty when every service is satisfied.
+    :return: The services not left running or done, and the ``may-fail`` ones
+        that exited non-zero.
     :raises RuntimeError: The containers could not be listed.
     :raises DeploymentRecordError: The deployment record cannot be read.
     """
     _runtime, rows = _checkout_containers(repo_root)
-    run_once = _run_once_services(services)
+    declared = run_once.declarations(services)
     by_service: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         service = container_label(row, COMPOSE_SERVICE_LABEL)
@@ -7918,16 +7915,21 @@ def services_without_a_running_container(
             by_service.setdefault(service, []).append(row)
 
     missing: dict[str, str] = {}
+    allowed: dict[str, int] = {}
     for name in services:
         service = str(name)
         seen = by_service.get(service, [])
         if any(_row_is_running(row) for row in seen):
             continue
-        states = [_row_state(row) for row in seen]
-        if service in run_once and "exited (0)" in states:
+        codes = [code for code in map(run_once.exit_code, seen) if code is not None]
+        if service in declared and 0 in codes:
             continue
+        if declared.get(service) == run_once.MAY_FAIL and codes:
+            allowed[service] = min(codes)
+            continue
+        states = [_row_state(row) for row in seen]
         missing[service] = ", ".join(sorted(set(states))) if states else "no container"
-    return missing
+    return StartCheck(missing, allowed)
 
 
 def _started_services(
@@ -7937,19 +7939,32 @@ def _started_services(
 
     Relative entries of *compose_files* are resolved against *repo_root*, as the
     compose invocation resolves them. A service several files define is merged
-    key by key, the later file winning, as compose merges its ``-f`` list.
+    key by key, the later file winning, as compose merges its ``-f`` list; its
+    ``labels`` are merged label by label, as compose merges them, so the labels
+    the build adds do not drop the ones the service's own template sets.
     """
     files = [
         repo_root / path if not Path(path).is_absolute() else Path(path) for path in compose_files
     ]
     if _web_terminals_enabled(config):
         files.append(web_compose_file(repo_root))
+    return merged_compose_services(files)
+
+
+def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
+    """The ``services`` of rendered compose *files*, merged as compose merges its ``-f`` list.
+
+    A service several files define is merged key by key, the later file
+    winning; its ``labels`` are merged label by label. A file that cannot be
+    read adds nothing.
+    """
     started: dict[str, Any] = {}
     for file in files:
         for name, spec in (rendered_compose_services(file) or {}).items():
             earlier = started.get(name)
             if isinstance(earlier, Mapping) and isinstance(spec, Mapping):
-                spec = {**earlier, **spec}
+                labels = {**run_once.service_labels(earlier), **run_once.service_labels(spec)}
+                spec = {**earlier, **spec, **({"labels": labels} if labels else {})}
             started[name] = spec
     return started
 
@@ -7976,19 +7991,28 @@ def _driven_service_names(
 def _refuse_services_not_running(
     config: dict, compose_files: Sequence[str | Path], repo_root: Path
 ) -> None:
-    """Fail a start that returned unless every service it started has a running container.
+    """Fail a start that returned unless every service it started is running or done.
 
-    :raises ServicesNotRunningError: Some service has no running container.
+    Done is a run-once service's end (:func:`check_started_services`); a
+    ``may-fail`` one that exited non-zero is reported and does not fail it.
+
+    :raises ServicesNotRunningError: Some service is neither running nor done.
     :raises RuntimeError: The containers could not be listed, so nothing is verified.
     """
     services = _started_services(config, compose_files, repo_root)
     try:
-        missing = services_without_a_running_container(repo_root, services)
+        found = check_started_services(repo_root, services)
     except (RuntimeError, DeploymentRecordError, OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError(f"could not verify the start: {exc}") from exc
-    if missing:
-        raise ServicesNotRunningError(missing)
-    _report_step("every service has a running container")
+    for service, code in found.allowed.items():
+        _warn_fact(
+            f"run-once service {service} exited {code}",
+            f"it is declared {run_once.RUN_ONCE_LABEL}={run_once.MAY_FAIL}, so the start goes on",
+            f"run `osprey logs {service}` to see why",
+        )
+    if found.missing:
+        raise ServicesNotRunningError(found.missing)
+    _report_step("every service is running or done")
 
 
 #: Why a ``down`` sweeps by label when ``build/`` holds no compose files.
