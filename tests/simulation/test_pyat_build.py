@@ -393,25 +393,126 @@ class TestDeckProperties:
             setpoint["default"] * 1.001, rel=1e-12
         )
 
-    def test_an_energy_readback_stating_another_calibration_is_refused(self, demo):
-        setpoint = self.knob(demo, "BEND:SP", "write")
-        other = {"curve": {"linear": {"gain": 2.0, "offset": 0.0}}, "energy_scaling": "none"}
-        readback = {**self.knob(demo, "BEND:RB", "read"), "calibration": other}
+    #: The bend string's voltage: the energy, in eV, one volt stands for.
+    VOLT_GAIN, VOLT_OFFSET = 6.0e6, 1.5e7
+    #: The way back the current setpoint needs for a start value: eV to amperes.
+    BACK = {"table": {"grid": [0.0, 1.5e9, 3.0e9], "values": [0.0, 500.0, 1000.0]}}
 
-        with pytest.raises(ValueError, match="BEND:RB states another calibration than its"):
-            build(demo, wiring=[*demo["wiring"], setpoint, readback])
-        line = {"curve": {"linear": {"gain": 3.0e6, "offset": 0.0}}, "energy_scaling": "none"}
+    def voltage(self, demo, **calibration: Any) -> dict[str, Any]:
+        """A further readback of the energy knob, on a line of its own."""
+        own = {
+            "curve": {"linear": {"gain": self.VOLT_GAIN, "offset": self.VOLT_OFFSET}},
+            "energy_scaling": "none",
+            **calibration,
+        }
+        return {**self.knob(demo, "BEND:VOLTAGE", "read"), "calibration": own, "default": 0.0}
+
+    def volts(self, current: float) -> float:
+        """What the voltage reads at ``current``: the curve's value on the voltage's line."""
+        return (3.0e6 * current - self.VOLT_OFFSET) / self.VOLT_GAIN
+
+    def test_a_readback_stating_its_own_calibration_reads_the_knobs_curve_value(self, demo):
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        readback = self.knob(demo, "BEND:RB", "read")
+        model = build(demo, wiring=[*demo["wiring"], setpoint, readback, self.voltage(demo)])
+        boot = setpoint["default"]
+
+        assert model.supported_variables["BEND:VOLTAGE"].read_only
+        assert model.get(["BEND:VOLTAGE"])["BEND:VOLTAGE"] == pytest.approx(
+            self.volts(boot), rel=1e-12
+        )
+        model.set({"BEND:SP": boot * 1.001})
+        moved = model.get(["BEND:VOLTAGE", "BEND:RB"])
+        assert moved["BEND:VOLTAGE"] == pytest.approx(self.volts(boot * 1.001), rel=1e-12)
+        assert moved["BEND:RB"] == pytest.approx(boot * 1.001, rel=1e-12)
+        model.reset()
+        assert model.get(["BEND:VOLTAGE"])["BEND:VOLTAGE"] == pytest.approx(
+            self.volts(boot), rel=1e-12
+        )
+
+    def test_it_follows_the_setpoint_where_the_curve_and_the_deck_disagree(self, demo):
+        """The curve's absolute scale is not the deck's; the reading is the curve's value."""
+        setpoint = {**self.knob(demo, "BEND:SP", "write")}
+        setpoint["default"] *= 0.9
+        model = build(demo, wiring=[*demo["wiring"], setpoint, self.voltage(demo)])
+
+        assert model.lattice.energy == pytest.approx(at.load_lattice(str(demo["deck"])).energy)
+        assert model.get(["BEND:VOLTAGE"])["BEND:VOLTAGE"] == pytest.approx(
+            self.volts(setpoint["default"]), rel=1e-12
+        )
+
+    def test_its_stated_inverse_is_the_way_back(self, demo):
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        back = {"linear": {"gain": 2.0e-7, "offset": -0.5}}
+        model = build(demo, wiring=[*demo["wiring"], setpoint, self.voltage(demo, inverse=back)])
+
+        assert model.get(["BEND:VOLTAGE"])["BEND:VOLTAGE"] == pytest.approx(
+            2.0e-7 * 3.0e6 * setpoint["default"] - 0.5, rel=1e-12
+        )
+
+    def test_its_start_value_is_the_value_it_is_served_with(self, demo):
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        setpoint["calibration"] = {**setpoint["calibration"], "inverse": self.BACK}
+        voltage = self.voltage(demo)
+
+        start = engine.start_values(
+            demo["deck"], [setpoint, voltage], demo["settings"], readbacks={"BEND:VOLTAGE": None}
+        )
+        filled = [{**record, "default": start[record["address"]]} for record in (setpoint, voltage)]
+        model = build(demo, wiring=[*demo["wiring"], *filled])
+
+        assert start["BEND:VOLTAGE"] == pytest.approx(self.volts(start["BEND:SP"]), rel=1e-12)
+        assert model.get(["BEND:VOLTAGE"])["BEND:VOLTAGE"] == pytest.approx(
+            start["BEND:VOLTAGE"], rel=1e-12
+        )
+
+    def test_one_no_setpoint_pairs_with_starts_at_the_setpoint_it_reads(self, demo):
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        setpoint["calibration"] = {**setpoint["calibration"], "inverse": self.BACK}
+        readback = {**self.knob(demo, "BEND:RB", "read"), "calibration": setpoint["calibration"]}
+
+        start = engine.start_values(
+            demo["deck"], [setpoint, readback], demo["settings"], readbacks={"BEND:RB": None}
+        )
+
+        assert start["BEND:RB"] == start["BEND:SP"]
+
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        setpoint["calibration"] = {**setpoint["calibration"], "inverse": self.BACK}
+        scaled = self.voltage(demo, energy_scaling="brho")
+
+        with pytest.raises(ValueError, match="BEND:VOLTAGE .*state energy_scaling: none"):
+            build(demo, wiring=[*demo["wiring"], setpoint, scaled])
         with pytest.raises(FacilityBuildError) as caught:
             engine.start_values(
-                demo["deck"],
-                [{**setpoint, "calibration": line}, readback],
-                demo["settings"],
-                readbacks={"BEND:RB": None},
+                demo["deck"], [setpoint, scaled], demo["settings"], readbacks={"BEND:VOLTAGE": None}
             )
 
         assert caught.value.kind == "engine-invalid"
-        assert caught.value.record_id == f"{MODEL}/BEND:RB"
-        assert "states another calibration than its setpoint BEND:SP" in caught.value.detail
+        assert caught.value.record_id == f"{MODEL}/BEND:VOLTAGE"
+        assert "energy_scaling brho" in caught.value.detail
+        assert caught.value.remedy == "state energy_scaling: none on the readback"
+
+    def test_a_table_with_no_inverse_is_refused(self, demo):
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        setpoint["calibration"] = {**setpoint["calibration"], "inverse": self.BACK}
+        table = {"table": {"grid": [0.0, 500.0], "values": [0.0, 3.0e9]}}
+        voltage = self.voltage(demo, curve=table)
+
+        with pytest.raises(ValueError, match="a table calibration has no inverse"):
+            build(demo, wiring=[*demo["wiring"], setpoint, voltage])
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                demo["deck"],
+                [setpoint, voltage],
+                demo["settings"],
+                readbacks={"BEND:VOLTAGE": None},
+            )
+
+        assert caught.value.kind == "engine-invalid"
+        assert caught.value.record_id == f"{MODEL}/BEND:VOLTAGE"
+        assert "no inverse to serve the reading" in caught.value.detail
+        assert caught.value.remedy == "add calibration.inverse"
 
     def test_an_energy_readback_with_no_setpoint_reads_its_default(self, demo):
         readback = {**self.knob(demo, "BEND:RB", "read"), "default": 42.0}
