@@ -29,46 +29,21 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.records import FacilityRecords
+from osprey.facility.validate import record_writable
 from osprey.facility.views import ViewInputs
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 
 __all__ = [
     "LIMITS_FILE",
     "LIMITS_VERSION",
-    "NUMERIC_TYPES",
     "limits_document",
-    "record_writable",
     "write_limits_view",
 ]
 
 LIMITS_FILE = "channel_limits.json"
 LIMITS_VERSION = "4.0"
 
-#: The value types a limits record bounds; every other type carries no bounds.
-NUMERIC_TYPES = ("float", "int")
-
 _BOUNDS = ("min_value", "max_value", "max_step")
-
-
-def record_writable(record: Mapping[str, Any], role: str, value_type: str) -> bool:
-    """Whether a channel's limits record leaves it writable.
-
-    Args:
-        record: The channel's limits record.
-        role: The channel's role; only a setpoint is ever writable.
-        value_type: The channel's value type.
-
-    Returns:
-        False for any role but setpoint and for ``writable: false``; on a
-        numeric channel, whether the record carries both ``min_value`` and
-        ``max_value``; on any other, whether it says ``writable: true``.
-    """
-    writable = record.get("writable")
-    if role != "setpoint" or writable is False:
-        return False
-    if value_type in NUMERIC_TYPES:
-        return record.get("min_value") is not None and record.get("max_value") is not None
-    return writable is True
 
 
 def _entry(record: Mapping[str, Any], role: str, value_type: str) -> dict[str, Any]:
