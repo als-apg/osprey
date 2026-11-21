@@ -60,7 +60,7 @@ from .models import (
     PlanSessionWriteRequest,
     PlanValidateRequest,
 )
-from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
+from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels, resolve_plan_args
 from .plan_metadata import extract_plan_name_from_source
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
@@ -1250,15 +1250,20 @@ def _preview_params(body: bytes) -> dict[str, Any] | None:
 
 
 def _preview_unavailable(
-    name: str, channels: list[dict[str, str]], reason: str, detail: str
+    name: str,
+    channels: list[dict[str, str]],
+    reason: str,
+    detail: str,
+    *,
+    plan_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The answer when no trajectory could be summarized: same keys, no moves.
 
     Deliberately identical in shape to a successful summary. Whatever went
-    wrong, the caller reads one payload — and keeps whatever channel list could
-    still be derived, because "these are the channels this launch declares it
-    would move" stays true and stays worth showing even when the trajectory
-    behind them is unavailable.
+    wrong, the caller reads one payload — and keeps whatever channel list and
+    resolved argument set could still be derived, because "these are the
+    channels this launch declares it would move" stays true and stays worth
+    showing even when the trajectory behind them is unavailable.
 
     ``reason`` is one of the pre-flight's own words or a backend reason; any
     other code fails here, where it is made. ``retryable`` is the backend row's
@@ -1278,6 +1283,7 @@ def _preview_unavailable(
         "reason": reason,
         "detail": detail[:_PREVIEW_DETAIL_CHARS],
         "retryable": REFUSAL_REASONS[reason].retryable if reason in REFUSAL_REASONS else False,
+        "plan_args": plan_args,
     }
 
 
@@ -1332,6 +1338,20 @@ async def preview_plan(name: str, request: Request) -> dict:
       step earlier, and it is answered before the plan is even looked up, so it
       is what a request with both a bad body and an unknown name reports.
 
+    The posted parameters are first resolved against the plan's own model
+    (`plan_fields.resolve_plan_args`), the step the enqueue takes: defaults
+    filled, factories called. ``plan_args`` is that complete set, and both
+    ``channels`` and the worker's walk read it, so the channels and the moves
+    describe the one argument set a queued item would carry. Parameters that do
+    not resolve are previewed as posted and ``plan_args`` is ``None``: the
+    worker then judges them, and its own reason arrives as ``plan_error``. On
+    an external-worker lane nothing is resolved: the enqueue there queues the
+    arguments as typed, so they are previewed as posted and ``plan_args`` is
+    ``None``.
+    ``plan_args`` is present on every answer. A default factory whose value
+    changes from call to call is resolved again when the plan is queued, and
+    the queued item is the authority on what runs.
+
     On success the payload carries the worker's summary — ``moves`` (each
     ``{"channel", "target"}``, in the order the run would make them),
     ``total_moves`` (the exact count, whether or not the list holds them all),
@@ -1372,7 +1392,26 @@ async def preview_plan(name: str, request: Request) -> dict:
         )
 
     try:
-        channels = _declared_channels(spec, plan_params)
+        # An external-worker lane queues the arguments as typed, so the
+        # preview resolves none there either.
+        resolves = not getattr(get_queue_backend(), "external_worker", False)
+    except Exception:
+        # A queue connection that cannot be built is answered by the worker
+        # call below, in its own words.
+        resolves = False
+    resolved: dict[str, Any] | None = None
+    if resolves:
+        try:
+            resolved = resolve_plan_args(spec.schema, plan_params)
+        except Exception:
+            # Not a set the plan accepts, or a model that raised while judging
+            # it: the worker judges the posted set and its reason is the
+            # answer, so the route stays total.
+            resolved = None
+    previewed = plan_params if resolved is None else resolved
+
+    try:
+        channels = _declared_channels(spec, previewed)
     except Exception:
         # The parameters are whatever the caller sent, and reading a channel
         # list out of them is a description of the launch — a description must
@@ -1381,16 +1420,20 @@ async def preview_plan(name: str, request: Request) -> dict:
         channels = []
 
     try:
-        payload = await get_queue_backend().function_execute(_PREVIEW_FUNCTION, name, plan_params)
+        payload = await get_queue_backend().function_execute(_PREVIEW_FUNCTION, name, previewed)
     except QueueBackendError as exc:
-        return _preview_unavailable(name, channels, exc.reason, str(exc))
+        return _preview_unavailable(name, channels, exc.reason, str(exc), plan_args=resolved)
     except Exception as exc:
         # The ladder ends on a rung that cannot be fallen off, and that rung
         # names no cause: a failure outside the backend's vocabulary is relayed
         # in its own text and never reaches an approver as a 500.
         logger.warning("pre-flight: the queue call for %r failed", name, exc_info=True)
         return _preview_unavailable(
-            name, channels, PREVIEW_REASON_FAILED, str(exc) or type(exc).__name__
+            name,
+            channels,
+            PREVIEW_REASON_FAILED,
+            str(exc) or type(exc).__name__,
+            plan_args=resolved,
         )
 
     if not isinstance(payload, dict):
@@ -1399,6 +1442,7 @@ async def preview_plan(name: str, request: Request) -> dict:
             channels,
             PREVIEW_REASON_FAILED,
             f"The pre-flight answered with {type(payload).__name__}, not a summary.",
+            plan_args=resolved,
         )
     if not payload.get("ok"):
         return _preview_unavailable(
@@ -1406,6 +1450,7 @@ async def preview_plan(name: str, request: Request) -> dict:
             channels,
             PREVIEW_REASON_PLAN_ERROR,
             str(payload.get("error") or "The pre-flight reported no reason."),
+            plan_args=resolved,
         )
 
     moves = payload.get("moves")
@@ -1422,6 +1467,7 @@ async def preview_plan(name: str, request: Request) -> dict:
             channels,
             PREVIEW_REASON_FAILED,
             "The pre-flight answered without the moves it would make.",
+            plan_args=resolved,
         )
 
     return {
@@ -1435,6 +1481,7 @@ async def preview_plan(name: str, request: Request) -> dict:
         "reason": None,
         "detail": None,
         "retryable": False,
+        "plan_args": resolved,
     }
 
 
