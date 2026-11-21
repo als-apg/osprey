@@ -259,3 +259,23 @@ def test_every_cut_label_shows_its_whole_text_on_hover(screens):
                 missing.append((name, text))
     assert missing == []
     assert shown  # the fixture cuts some labels, so the rule is exercised
+
+
+def test_a_fact_s_long_note_wraps_beside_it_and_the_row_grows(panel_graph):
+    from osprey.facility.panels.view import Fact, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    caveat = "read from the drawing's own frame, " * 8 + "the rest of what it assumes"
+    here = Target("card", "device", "XR01:PS1")
+    view = View(
+        here,
+        "XR01:PS1",
+        (),
+        (Section("where", (Fact("pose", "s 1.0 m", caveat=caveat), Fact("after", "next"))),),
+    )
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
+    note = [n for n in texts if n["props"]["text"] and n["props"]["text"] in caveat]
+    assert len(note) > 1 and not any(n["props"]["text"].endswith("…") for n in note)
+    after = next(n for n in texts if n["props"]["text"] == "after")
+    assert after["geometry"]["y"] >= max(n["geometry"]["y"] + n["geometry"]["height"] for n in note)

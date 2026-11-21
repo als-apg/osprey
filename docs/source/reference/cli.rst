@@ -1752,7 +1752,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
    label in a chain block takes two lines, a muted line of prose (a caption, a
-   note, what a press writes, a source) takes as many lines as it needs, and a
+   note, what a press writes, a source, also beside a fact) takes as many lines
+   as it needs, and a
    text still longer than its box
    is cut there with an ellipsis and listed, with a box over it that shows the
    whole text on hover (a link over it shows the link's label), so the viewer

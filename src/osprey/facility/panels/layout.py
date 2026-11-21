@@ -4357,9 +4357,21 @@ class _Page:
         if fact.standing == _CONTESTED:
             x = self.text(x + GAP, self.y, _CONTESTED, size=SMALL_SIZE)
         note = " · ".join(t for t in (fact.caveat, _citation_text(fact.citation)) if t)
-        if note:
-            self.text(x + GAP, self.y, note, size=SMALL_SIZE)
-        self.next_row()
+        self.next_row(self.row_note(x + GAP, note))
+
+    def row_note(self, x: float, note: str) -> float:
+        """A row's small note from *x* to the right edge, in as many lines as it
+        needs (:func:`_prose`); the row's height."""
+        if not note:
+            return ROW
+        lines = _prose(note, self.right - x, SMALL_SIZE)
+        if len(lines) == 1:
+            self.text(x, self.y, note, size=SMALL_SIZE)
+            return ROW
+        top = self.y + (ROW - SMALL_LINE) / 2
+        for n, line in enumerate(lines):
+            self.text(x, top + n * SMALL_LINE, line, size=SMALL_SIZE, h=SMALL_LINE)
+        return max(ROW, top - self.y + len(lines) * SMALL_LINE)
 
     def placement_row(self, item: Placement) -> None:
         x = self.button(self.x0, self.y, item.link, width=self.right - self.x0)
@@ -4370,9 +4382,7 @@ class _Page:
             parts.append(f"{item.size_u} U")
         if item.citation is not None:
             parts.append(_citation_text(item.citation))
-        if parts:
-            self.text(x + GAP, self.y, " · ".join(parts), size=SMALL_SIZE)
-        self.next_row()
+        self.next_row(self.row_note(x + GAP, " · ".join(parts)))
 
     def grid(self, grid: Grid) -> None:
         """A set's members as an equal grid: a row per place under its short name, the
