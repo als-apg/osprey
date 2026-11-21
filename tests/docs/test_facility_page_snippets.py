@@ -201,6 +201,8 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "SR:VAC:VALVE:01:POSITION:OPEN:": ("seeds.yaml", _update),
     "- id: SR:MAG:QF:01:VOLTAGE:RB": ("records/channels.yaml", _by("id")),
     "- address: SR:MAG:QF:01:VOLTAGE:RB": ("models.yaml", _wired_in("SR")),
+    "- id: SR:MAG:BEND:CURRENT:SP": ("records/channels.yaml", _by("id")),
+    "- address: SR:MAG:BEND:CURRENT:SP": ("models.yaml", _wired_in("SR")),
 }
 
 #: Blocks that show part of a preset record, by first line: the preset file.
