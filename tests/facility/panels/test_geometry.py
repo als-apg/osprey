@@ -254,7 +254,7 @@ def test_a_line_of_prose_takes_the_lines_it_needs_and_loses_no_text():
     assert "".join(lines).replace(" ", "") == text.replace(" ", "")
 
 
-def test_every_cut_label_shows_its_whole_text_on_hover(screens):
+def test_every_cut_label_carries_its_whole_text_as_a_tooltip(screens):
     def covers(box: dict[str, Any], g: dict[str, Any]) -> bool:
         b = box["geometry"]
         return (
