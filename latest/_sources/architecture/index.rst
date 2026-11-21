@@ -12,10 +12,10 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 
    Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
-Eight pages break that picture down — how a write is guarded on its way to the
+Nine pages break that picture down — how a write is guarded on its way to the
 machine, how reading differs from writing, how one facility description feeds
-every service, the subsystems with architecture of their own, and how all of it
-is tested:
+every service and how its code splits into packages, the subsystems with
+architecture of their own, and how all of it is tested:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -72,6 +72,15 @@ is tested:
       each, the place a ``located_in`` claim projects, the views that read
       them, and the sector-3 example.
 
+   .. grid-item-card:: Facility Packages
+      :link: facility-packages
+      :link-type: doc
+      :shadow: md
+
+      How the facility code leaves the framework as osprey-facility and
+      osprey-panels: the nine decisions behind the split and the boundary
+      check that holds the code to them.
+
    .. grid-item-card:: Virtual Accelerator
       :link: virtual-accelerator
       :link-type: doc
@@ -107,5 +116,6 @@ is tested:
    python-executor
    facility-file
    facility-relations
+   facility-packages
    virtual-accelerator
    testing

@@ -74,6 +74,15 @@ guides are the better starting point.
       What the facility graph stores, how its names are spelled, and what each
       of the four ``graph`` MCP tools returns.
 
+   .. grid-item-card:: The ``facility.json`` Contract
+      :link: facility-json
+      :link-type: doc
+      :shadow: md
+
+      The versioned document the build writes: its header, what counts as a
+      breaking change, which versions a reader accepts, and what is enforced
+      today.
+
    .. grid-item-card:: Facility Kinds Contract
       :link: facility-kinds
       :link-type: doc
@@ -136,6 +145,7 @@ guides are the better starting point.
    ariel
    channel-finder
    facility-graph
+   facility-json
    facility-kinds
    guarded-run
    audit-trail

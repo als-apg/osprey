@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 20, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 21, 2026"/>
   </head>
   
   
@@ -402,6 +402,9 @@
 
 
 
+<li class="toctree-l1"><a class="reference internal" href="facility-packages.html">Facility Packages</a></li>
+
+
 <li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 </ul>
@@ -473,7 +476,8 @@ the shape the service needs. No service keeps a channel list of its own, so
 the channel finder, the limits check, the simulator and the knowledge graph
 cannot disagree about which channels exist or what they are.</p>
 <p>Writing the sources is in <a class="reference internal" href="../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>. This page is
-about what the build makes of them.</p>
+about what the build makes of them. How the facility code splits into the
+osprey-facility and osprey-panels packages is in <a class="reference internal" href="facility-packages.html"><span class="doc">Facility Packages</span></a>.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1200 700" role="img" aria-labelledby="fm-title fm-desc">
   <title id="fm-title">The facility file: sources under data/facility, one facility file, a view per service</title>
@@ -1221,6 +1225,8 @@ does are in <a class="reference internal" href="../how-to/control-systems/use-vi
 <p class="admonition-title">See also</p>
 <dl class="simple">
 <dt><a class="reference internal" href="../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a></dt><dd><p>The source tree, file by file.</p>
+</dd>
+<dt><a class="reference internal" href="facility-packages.html"><span class="doc">Facility Packages</span></a></dt><dd><p>The split into osprey-facility and osprey-panels, and its boundary check.</p>
 </dd>
 <dt><a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>Running the simulator and serving a facility’s own model.</p>
 </dd>
