@@ -741,7 +741,7 @@ class PanelGraph:
         things: dict[_Key, Thing] = {}
         self._left_out: set[_Key] = set()
         for kind in END_KINDS:
-            for record in records.of_kind(kind):  # type: ignore[arg-type]
+            for record in records.of_kind(kind):
                 thing_id = str(record["id"])
                 if (
                     thing_id in excluded
