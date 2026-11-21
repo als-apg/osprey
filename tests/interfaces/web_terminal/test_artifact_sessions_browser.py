@@ -186,6 +186,36 @@ def _group_count(page: Page, sid: str, form: str):
     return page.locator(f'{_TREE} [data-group-head="{sid}:{form}"] .osprey-tree-n')
 
 
+def _expect_runs_count(page: Page, sid: str, n: int) -> None:
+    """The session's Runs head reads *n*; a failure lists every run row the tree shows."""
+    head = _group_count(page, sid, "runs")
+    try:
+        expect(head).to_have_text(str(n))
+    except AssertionError as exc:
+        rows = page.evaluate(
+            """(tree) => [...document.querySelectorAll(`${tree} .osprey-tree-run`)].map((r) => ({
+              run: r.dataset.run ?? null,
+              id: r.dataset.id ?? null,
+              status: r.dataset.runStatus ?? null,
+              label: r.querySelector('.osprey-list-title')?.textContent ?? null,
+            }))""",
+            _TREE,
+        )
+        shown = head.text_content()
+        runs = [row["run"] for row in rows]
+        twice = sorted({run for run in runs if runs.count(run) > 1})
+        lines = [
+            f"Runs head reads {shown!r}, expected {n}; {len(rows)} run rows",
+            f"head equals row count: {shown == str(len(rows))}",
+            f"runs shown twice: {twice or 'none'}",
+            *(
+                f"run={row['run']} id={row['id']} status={row['status']} label={row['label']}"
+                for row in rows
+            ),
+        ]
+        raise AssertionError("\n".join(lines)) from exc
+
+
 def _menu(page: Page, row, item: str) -> None:
     row.click(button="right")
     page.get_by_role("menuitem", name=item).click()
@@ -327,7 +357,7 @@ def test_every_run_is_one_runs_row_and_an_awaited_one_settles_live(hub, page):
     _boot(page, hub)
     _open_session(page, sid)
     _open_group(page, sid, "runs")
-    expect(_group_count(page, sid, "runs")).to_have_text("7")
+    _expect_runs_count(page, sid, 7)
     expected = {
         "approved": "succeeded",
         "failed": "failed",
@@ -358,7 +388,7 @@ def test_every_run_is_one_runs_row_and_an_awaited_one_settles_live(hub, page):
     expect(_run_row(page, calls["waiting"])).to_have_attribute(
         "data-run-status", "succeeded", timeout=_TIMEOUT_MS
     )
-    expect(_group_count(page, sid, "runs")).to_have_text("7")
+    _expect_runs_count(page, sid, 7)
 
 
 # --- /clear -------------------------------------------------------------------------
