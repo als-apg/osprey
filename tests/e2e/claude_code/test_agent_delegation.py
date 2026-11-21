@@ -35,12 +35,18 @@ from __future__ import annotations
 
 import pytest
 
+from osprey.facility import FACILITY_FILE
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.channel_finder import HIERARCHICAL_FILE
+from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from tests.e2e.ariel_picture import absent_qmd_sidecar
+from tests.e2e.channel_finder_judge import expected_horizontal_bpms, judge_channel_finder_run
 from tests.e2e.sdk_helpers import (
     ariel_db_skip_reason,
     e2e_budget_scale,
     init_project,
     print_run_summary,
+    render_dir,
     run_sdk_query,
 )
 from tests.e2e.tool_errors import assert_no_tool_errors
@@ -214,7 +220,12 @@ class TestAgentDelegation:
         tier=1,
         title="Look up BPM addresses",
         asks="What are the PV addresses of the horizontal BPMs in the storage ring?",
-        passes_if="the channel-finder subagent looks them up; no invented addresses",
+        passes_if=(
+            "the channel-finder subagent looks them up and the answer names every "
+            "storage-ring BPM's horizontal position address and no other; a refused "
+            "options request passes only when the product's level-order refusal is "
+            "followed by the repaired request"
+        ),
     )
     @pytest.mark.asyncio
     @pytest.mark.flaky(reruns=2)
@@ -229,9 +240,14 @@ class TestAgentDelegation:
         tools (which means real channel database traversal happened).
 
         Channel-finder needs no external backend — its database ships with
-        the deployment — so this is an unconditional always-run test. The
-        ``test_channel_finder_mcp_benchmarks.py`` suite covers retrieval
-        accuracy; this one only validates the delegation handoff.
+        the deployment — so this is an unconditional always-run test.
+
+        The run is then judged by :func:`judge_channel_finder_run` against the
+        render's own facility file and index: the final answer names every
+        storage-ring horizontal BPM address and no other facility address, and
+        no tool erred save the hierarchical finder's level-order refusal, which
+        passes only when the repaired options request and a successful
+        ``build_channels`` follow it.
         """
         prompt = (
             "What's the PV address for the horizontal beam position monitors "
@@ -276,9 +292,16 @@ class TestAgentDelegation:
             f"directive was ignored. Names: {[t.name for t in direct_cf_calls]}"
         )
 
-        # No tool errors — the database ships with the build so retrieval
-        # should always succeed.
-        assert_no_tool_errors(result)
+        build = render_dir(delegation_project)
+        database = HierarchicalChannelDatabase(
+            str(build / "data" / "channel_finder" / HIERARCHICAL_FILE)
+        )
+        records = FacilityRecords.from_file(build / FACILITY_FILE)
+        assert records is not None, f"the render holds no {FACILITY_FILE}"
+        failures = judge_channel_finder_run(
+            result, database, records, expected_horizontal_bpms(records)
+        )
+        assert not failures, "\n".join(failures)
 
         # Cost under budget.
         if result.cost_usd is not None:
