@@ -1288,6 +1288,54 @@ def _row_word(row: ChannelRole) -> str:
 
 #: A card key number's measures over every channel of its role on the device.
 _OVER_ALL = ("count_true", "max", "sum")
+#: The figure a default tile shows over several own channels of one role, by how
+#: the role shows one: how many are true, or the highest. A role shown as a word
+#: or a text has no figure over many.
+_MANY_MEASURE = {"lamp": "count_true", "value": "max"}
+#: A default figure's title, from the role's word: ``count_true`` with the word the
+#: facility states for the true state (else :data:`_TRUE_WORD`), ``max`` before it.
+_TRUE_WORD = "on"
+_HIGHEST = "Highest {}"
+
+
+def _over_all_title(graph: PanelGraph, row: ChannelRole, measure: str, channel: str) -> str:
+    """A default figure's title: "<role> <true word>" for a count of the true ones,
+    "Highest <role>" for the largest. A stated label keeps its case; a word made
+    from the role is lower case after the title's first word."""
+    word = _role_word(row)
+    if measure == "count_true":
+        true = graph.state_words(channel).get("1") or _TRUE_WORD
+        return f"{word} {true}"
+    if not row.label:
+        word = word.lower()
+    return _HIGHEST.format(word)
+
+
+def _channel_short(thing: str, channel: str) -> str:
+    """A channel's name short of its device's id: what follows the id and its
+    separator when the name begins with it (``:``, ``-``, ``_`` and ``.`` alike),
+    else the whole name."""
+
+    def plain(text: str) -> str:
+        return text.translate(_SEPARATORS)
+
+    if len(channel) > len(thing) and plain(channel[: len(thing)]) == plain(thing):
+        rest = channel[len(thing) :].lstrip(":-_.")
+        if rest:
+            return rest
+    return channel
+
+
+def _holders(thing: str, members: tuple[str, ...], measure: str) -> tuple[str, ...]:
+    """The short names a tile names its figure's holder by: one per member for the
+    highest (:func:`_channel_short`), none for a count or a sum, which no one
+    member holds."""
+    if measure != "max":
+        return ()
+    return tuple(_channel_short(thing, m) for m in members)
+
+
+_SEPARATORS = str.maketrans({"-": ":", "_": ":", ".": ":"})
 
 
 def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[KeyTile]:
@@ -1328,6 +1376,7 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
                     None if counted else scale,
                     row.precision,
                     channels=members,
+                    names=_holders(thing.id, members, row.measure),
                 )
             )
             continue
@@ -1351,16 +1400,34 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
         if len(tiles) == DEFAULT_TILES:
             break
         # Only the device's own channels of a role count: a neighbour's channel
-        # its roles reach is no figure of this device, and two own channels of
-        # one role are no single figure either.
+        # its roles reach is no figure of this device.
         own = [h for h in found if h.owner == thing.id]
-        if len(own) != 1:
+        if not own:
             continue
         hit = own[0]
         first = hit.role
         if role in graph.identity or role == INTERNAL_ROLE or first.shown_as in CONTROLS:
             continue
         unit, scale = _role_unit(graph, hit)
+        if len(own) > 1:  # several own channels: one figure over them all, or none
+            measure = _MANY_MEASURE.get(first.shown_as)
+            if measure is None:
+                continue
+            members = tuple(dict.fromkeys(h.channel for h in own))
+            counted = measure == "count_true"
+            tiles.append(
+                KeyTile(
+                    _over_all_title(graph, first, measure, members[0]),
+                    hit.channel,
+                    measure,
+                    None if counted else unit,
+                    None if counted else scale,
+                    None,
+                    channels=members,
+                    names=_holders(thing.id, members, measure),
+                )
+            )
+            continue
         tiles.append(
             KeyTile(
                 _role_word(first),

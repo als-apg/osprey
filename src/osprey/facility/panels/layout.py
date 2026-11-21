@@ -244,6 +244,7 @@ ARROW_INSET = 4  # an arrow stops short of the next block
 WORD_GAP = 24  # between a name and the muted words after it
 DESCRIPTION_LINE = 19
 KEY_VALUE_TOP = 30  # a key tile's value under its top
+KEY_NOTE_MARGIN = 4  # under the line below a key figure, above the tile's border
 CHIP_HEIGHT_SMALL = 20  # the dashed "not served yet" chip
 BLOCK_ROW = 26
 BLOCK_TOP = 30  # a block's box above its first line
@@ -579,6 +580,7 @@ _TRAY_TITLE = "in our lists, not placed"
 _NO_DATA = "no data yet"
 _NEEDS_SERVER = "needs a server-side aggregate"
 _A_MEMBER_MISSING = "one of {} has no value"
+_HOLDS_HIGHEST = "highest of {} · {}"
 _NO_OK_STATED = "no ok state stated"
 _INFERRED_WORD = "inferred"
 _PER_PLACE = "counted per place"
@@ -682,6 +684,20 @@ def line_height(size: float) -> float:
     """The height of one line of text at *size* px in the viewer's font
     (:data:`.metrics.LINE`): a label's box lower than this the viewer shrinks."""
     return math.ceil(size * metrics.LINE / metrics.PER_EM)
+
+
+def baseline_drop(size: float) -> float:
+    """How far below its box's middle the viewer draws the baseline of a line of
+    text at *size* px: the viewer centres the line in the box, and the font puts
+    the baseline :data:`.metrics.ASCENT` under the line's top."""
+    return size * (metrics.ASCENT - metrics.LINE / 2) / metrics.PER_EM
+
+
+def on_baseline(top: float, h: float, size: float, h_beside: float, size_beside: float) -> float:
+    """The top of a box *h_beside* high whose text at *size_beside* px stands on the
+    baseline of a text at *size* px in a box *h* high at *top*."""
+    base = top + h / 2 + baseline_drop(size)
+    return base - baseline_drop(size_beside) - h_beside / 2
 
 
 def _line_room(g: Mapping[str, float], size: float) -> Mapping[str, float]:
@@ -2464,8 +2480,10 @@ class _Page:
 
     def key_figure(self, x: float, y: float, w: float, tile: KeyTile) -> None:
         """A key tile's figure over every channel of its role: "k of N" true, the
-        largest or the sum, from one formula; while any of them has no value the
-        figure is a dash and a line under it says so, so no part is shown as whole."""
+        largest or the sum, from one formula. A count reads as one: "of N" follows
+        the figure on its baseline. Under the figure is one line: while any member
+        has no value the figure is a dash and the line says so, so no part is shown
+        as whole; with values, the largest's line names the member that holds it."""
         members = tile.channels
         keys = [f"c{i}" for i in range(len(members))]
         tokens = [f"{{{key}}}" for key in keys]
@@ -2494,9 +2512,16 @@ class _Page:
             {"name": name, "kind": "scalar", "expression": figure, "bindings": bindings}
         )
         pv = _FORMULA_PREFIX + name
-        beside = f"of {len(members)}" if counted else (tile.unit or "")
-        beside_w = text_width(beside, SMALL_SIZE) if beside else 0
-        number_w = max(w - beside_w - GAP, 0)
+        high = KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE - KEY_NOTE_MARGIN
+        if counted:  # the widest count it can print, then "of N" right after it
+            beside = f"of {len(members)}"
+            number_w = text_width("0" * len(str(len(members))), KEY_VALUE_SIZE)
+            beside_x = x + number_w + ROW_GAP
+        else:  # the unit in the unit slot at the tile's right
+            beside = tile.unit or ""
+            beside_w = text_width(beside, SMALL_SIZE) if beside else 0
+            number_w = max(w - beside_w - GAP, 0)
+            beside_x = x + number_w + GAP
         self.s._rules += 1
         rule = {
             "id": f"r-{self.s._rules:04d}",
@@ -2511,13 +2536,14 @@ class _Page:
             "foregroundColor": PAGE_TEXT,
             "backgroundColor": TRANSPARENT,
             "align": "left",
-            _TOOLTIP: f"{tile.shown_as.replace('_', ' ')} over {len(members)} channels",
+            _TOOLTIP: _over_all_tooltip(tile),
         }
-        high = KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE  # the figure, the note under it
         self.s.widget("text-label", x, y, number_w, high, props, rules=[rule])
         if beside:
-            self.small(x + number_w + GAP, y + high - SMALL_LINE, beside, fg=MUTED_TEXT)
-        # the line that names a missing member; empty once every one reports
+            top = on_baseline(y, high, KEY_VALUE_SIZE, SMALL_LINE, SMALL_SIZE)
+            self.small(beside_x, top, beside, fg=MUTED_TEXT)
+        # the one line under the figure: a missing member while one has no value
+        below = y + high
         self.s._rules += 1
         missing = {
             "id": f"r-{self.s._rules:04d}",
@@ -2534,7 +2560,46 @@ class _Page:
             "backgroundColor": TRANSPARENT,
             "align": "left",
         }
-        self.s.widget("text-label", x, y + high, w, SMALL_LINE, note, rules=[missing])
+        self.s.widget("text-label", x, below, w, SMALL_LINE, note, rules=[missing])
+        if tile.names:
+            self.holder_lines(x, below, w, tile)
+
+    def holder_lines(self, x: float, y: float, w: float, tile: KeyTile) -> None:
+        """Under a largest figure, the member that holds it: one line per member in
+        the one slot, each empty but while its member is the first that holds the
+        largest value, so one shows at a time, and none while any has no value (the
+        largest is then no number). Left out when the screen's rules do not fit."""
+        members = tile.channels
+        whole = f"max(({', '.join(f'{{{i}}}' for i in range(len(members)))},))"
+        lines: list[tuple[str, str]] = []
+        for k, short in enumerate(tile.names):
+            test = f"{{{k}}} == {whole}"
+            if k:  # the first that holds it: above every one before it
+                test += f" and {{{k}}} > max(({', '.join(f'{{{i}}}' for i in range(k))},))"
+            if len(test) > RULE_EXPRESSION_LIMIT:
+                return
+            lines.append((test, _cut(_HOLDS_HIGHEST.format(len(members), short), w, SMALL_SIZE)))
+        if not self.budget.take([(len(lines), frozenset(members))]):
+            return
+        pvs = [{"name": m, "trigger": True} for m in members]
+        for k, (test, text) in enumerate(lines):
+            self.s._rules += 1
+            rule = {
+                "id": f"r-{self.s._rules:04d}",
+                "name": f"{tile.title} held by {members[k]}",
+                "targetProperty": "text",
+                "pvs": pvs,
+                "conditions": [{"expression": test, "value": text}],
+                "default": "",
+            }
+            props = {
+                "text": "",
+                "fontSize": SMALL_SIZE,
+                "foregroundColor": MUTED_TEXT,
+                "backgroundColor": TRANSPARENT,
+                "align": "left",
+            }
+            self.s.widget("text-label", x, y, w, SMALL_LINE, props, rules=[rule])
 
     def shown_value(
         self,
@@ -7141,6 +7206,17 @@ def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
             ends[lane] = left + w
         out.append(lane)
     return out
+
+
+def _over_all_tooltip(tile: KeyTile) -> str:
+    """A key figure's tooltip: what it counts or reduces, then its members by name,
+    one per line, the rest counted past :data:`TOOLTIP_LINES`."""
+    members = tile.names or tile.channels
+    head = f"{tile.shown_as.replace('_', ' ')} over {len(members)} channels"
+    shown = list(members[:TOOLTIP_LINES])
+    if len(members) > TOOLTIP_LINES:
+        shown.append(f"and {len(members) - TOOLTIP_LINES} more")
+    return "\n".join([head, *shown])
 
 
 def metric_formula(name: str, item: Tile) -> dict[str, Any]:

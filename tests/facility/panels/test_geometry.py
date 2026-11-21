@@ -196,11 +196,12 @@ def test_the_metrics_measure_the_font_the_layout_names():
 
 def test_the_metrics_table_is_the_font_file_it_names():
     script = load_module("panel_font_metrics", FONT_METRICS)
-    family, version, widths, line = script.measure()
+    family, version, widths, line, ascent = script.measure()
     # regenerate the module from the font file: it is the module in the tree
     assert metrics.FONT == family
     assert metrics.WIDTHS == widths
     assert metrics.LINE == line
+    assert metrics.ASCENT == ascent
     assert f"from {family}, {version};" in (metrics.__doc__ or "")
     assert (script.FONT_FILE.parent / "OFL.txt").is_file()  # the font's licence beside it
 

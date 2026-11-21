@@ -164,7 +164,7 @@ def test_the_class_id_depends_on_the_key_alone(tmp_path, written):
     assert fewer["card-xr01-ip2"]["class"].startswith("card-class-pump-default-")
 
 
-def test_a_repeated_role_that_takes_the_tiles_away_makes_another_kind_of_card(tmp_path, written):
+def test_a_repeated_role_keeps_the_class_and_its_tiles_section(tmp_path, written):
     def second_gauge(document: dict[str, Any]) -> None:
         document["channels"].append(
             {
@@ -179,13 +179,10 @@ def test_a_repeated_role_that_takes_the_tiles_away_makes_another_kind_of_card(tm
     index = _written(_graph(tmp_path, second_gauge), tmp_path / "out")
     entries = _entries(index)
     pump = entries["card-xr02-ip2"]
-    # two readbacks of the key role have no one key tile: a card without tiles
-    # shows other blocks, so it is another kind of card, in a class of its own
-    assert pump["class"] != _entries(written)["card-xr02-ip2"]["class"]
-    assert "KeyTile" not in index["classes"][pump["class"]]["key"]["blocks"]
+    assert pump["class"] == _entries(written)["card-xr02-ip2"]["class"]
+    # two readbacks of the key role are one figure, the highest: the tiles stay
     assert "differs" not in pump
-    other = entries["card-xr01-ip2"]
-    assert "KeyTile" in index["classes"][other["class"]]["key"]["blocks"]
+    assert "all channels: rows: 2, the standard 1" in pump["varies"]
 
 
 def test_what_is_known_varies_and_its_gaps_are_named(written):

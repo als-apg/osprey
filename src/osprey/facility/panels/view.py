@@ -705,6 +705,9 @@ class KeyTile:
         words: The stated word per value, ``(value, word)``.
         channels: For ``count_true``, ``max`` or ``sum``: every channel of the
             role on the device, the figure computed over them all.
+        names: Each of *channels*' name short of the device's id, in the same
+            order, where the tile names the channel that holds the figure; empty
+            where it names none.
     """
 
     title: str
@@ -715,6 +718,7 @@ class KeyTile:
     precision: int | None = None
     words: tuple[tuple[str, str], ...] = ()
     channels: tuple[str, ...] = ()
+    names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

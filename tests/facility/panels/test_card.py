@@ -335,6 +335,147 @@ def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_pat
         assert rule["conditions"][0]["value"] == ""  # cleared once every member reports
 
 
+def _over_all_card(tmp_path, metrics: str = "", words: str = ""):
+    """A supply with three outlets (a lamp each) and three loads (a value each);
+    *metrics* card rows and *words* state-label rows as given."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def outlets(document) -> None:
+        for n in (1, 2, 3):
+            for name in ("On-Sts", "Cur-RB"):
+                document["channels"].append(
+                    {"id": f"XR01-PS1:Out{n}{name}", "on": {"device": "XR01:PS1"}}
+                )
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "PowerSupply,outlet,*:Out[0-9]On-Sts,device,lamp,,,,,stated,S,1,l\n"
+        + "PowerSupply,load,*:Out[0-9]Cur-RB,device,value,A,,,,stated,S,1,l\n"
+    )
+    if metrics:
+        with (tables / "metrics.csv").open("a") as handle:
+            handle.write(metrics)
+    if words:
+        labels = tables / "state_labels.csv"
+        if not labels.exists():
+            labels.write_text("channel,value,label,source,revision,locator\n")
+        with labels.open("a") as handle:
+            handle.write(words)
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", outlets), tables)
+    return graph, device_card(graph, "XR01:PS1")
+
+
+def _figures(doc) -> list[dict]:
+    return [
+        n
+        for n in _by_type(doc, "text-label")
+        if any(r["name"].endswith(" figure") for r in n.get("rules", ()))
+    ]
+
+
+def test_several_own_channels_of_a_role_get_a_default_figure_titled_by_the_role(tmp_path):
+    from osprey.facility.panels.view import KeyTile
+
+    _graph, view = _over_all_card(tmp_path)
+    tiles = {t.title: t for s in view.sections for t in s.items if isinstance(t, KeyTile)}
+    assert tiles["Outlet on"].shown_as == "count_true"  # a lamp: how many are true
+    assert tiles["Outlet on"].names == ()  # a count names no holder
+    assert tiles["Highest load"].shown_as == "max"  # a value: the highest
+    assert tiles["Highest load"].unit == "A"
+    assert tiles["Highest load"].names == ("Out1Cur-RB", "Out2Cur-RB", "Out3Cur-RB")
+
+
+def test_a_count_s_title_takes_the_word_stated_for_the_true_state(tmp_path):
+    from osprey.facility.panels.view import KeyTile
+
+    words = "".join(f"XR01-PS1:Out{n}On-Sts,1,live,S,1,l\n" for n in (1, 2, 3))
+    _graph, view = _over_all_card(tmp_path, words=words)
+    titles = [t.title for s in view.sections for t in s.items if isinstance(t, KeyTile)]
+    assert "Outlet live" in titles
+
+
+def test_a_stated_card_row_wins_over_the_default_figure(tmp_path):
+    from osprey.facility.panels.view import KeyTile
+
+    _graph, view = _over_all_card(
+        tmp_path, metrics="card,,1,Live,count_true,outlet,PowerSupply,,,S\n"
+    )
+    tiles = [t for s in view.sections for t in s.items if isinstance(t, KeyTile)]
+    assert [t.title for t in tiles] == ["Live"]  # the stated row only, no default beside it
+
+
+def test_a_count_reads_k_of_n_on_the_figure_s_baseline_and_the_line_keeps_a_margin(tmp_path):
+    graph, view = _over_all_card(tmp_path)
+    doc = stub_render(view, graph)
+    figure, _highest = _figures(doc)
+    g = figure["geometry"]
+    (of,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "of 3"]
+    o = of["geometry"]
+    # "of 3" follows the figure's widest count, a small gap after it, not at the tile's end
+    assert o["x"] == pytest.approx(g["x"] + g["width"] + layout.ROW_GAP)
+    assert g["width"] == layout.text_width("0", layout.KEY_VALUE_SIZE)
+    figure_base = g["y"] + g["height"] / 2 + layout.baseline_drop(layout.KEY_VALUE_SIZE)
+    of_base = o["y"] + o["height"] / 2 + layout.baseline_drop(of["props"]["fontSize"])
+    assert of_base == pytest.approx(figure_base, abs=0.5)  # one reading, on one baseline
+    # the line under the figure ends a margin above the tile's border
+    (note,) = [
+        n for n in _by_type(doc, "text-label")
+        if n["props"]["text"] == "one of 3 has no value" and n["geometry"]["x"] == g["x"]
+    ]  # fmt: skip
+    tile = next(
+        n for n in _by_type(doc, "rectangle")
+        if n["geometry"]["x"] < g["x"] < n["geometry"]["x"] + n["geometry"]["width"]
+        and n["geometry"]["height"] == layout.KEY_TILE_HEIGHT
+    )  # fmt: skip
+    bottom = note["geometry"]["y"] + note["geometry"]["height"]
+    assert bottom + layout.KEY_NOTE_MARGIN == tile["geometry"]["y"] + layout.KEY_TILE_HEIGHT
+
+
+def _holds(test: str, values: list[float]) -> bool:
+    """A rule's condition evaluated as the formula engine would, over *values*: its
+    ``max`` is numpy's, so one missing value (NaN) makes the largest no number."""
+    import numpy as np
+
+    expression = test
+    for i, v in enumerate(values):
+        expression = expression.replace(f"{{{i}}}", repr(v))
+    # the expression is one the layout just wrote, evaluated with nothing but max
+    names = {"__builtins__": {}, "max": lambda t: float(np.max(t)), "nan": float("nan")}
+    return bool(eval(expression, names))
+
+
+def test_the_highest_s_line_names_the_first_member_that_holds_it(tmp_path):
+    graph, view = _over_all_card(tmp_path)
+    doc = stub_render(view, graph)
+    _count, highest = _figures(doc)
+    g = highest["geometry"]
+    under = [
+        n for n in _by_type(doc, "text-label")
+        if n["geometry"]["x"] == g["x"] and n["geometry"]["y"] == g["y"] + g["height"]
+    ]  # fmt: skip
+    lines = [n for n in under if n["props"]["text"] == ""]  # empty until values come
+    assert len(lines) == 3  # one per member, in the one slot of the line
+    shown = []
+    for values in ([1.0, 5.0, 2.0], [7.0, 7.0, 2.0], [1.0, float("nan"), 2.0]):
+        texts = [
+            rule["conditions"][0]["value"]
+            for line in lines
+            for rule in line["rules"]
+            if _holds(rule["conditions"][0]["expression"], values)
+        ]
+        shown.append(texts)
+    assert shown == [
+        ["highest of 3 · Out2Cur-RB"],
+        ["highest of 3 · Out1Cur-RB"],  # a tie: the first that holds it, one line only
+        [],  # one member has no value: no name; the missing note says so
+    ]
+    # what the figure is over is its tooltip, member by member
+    tooltip = highest["props"]["tooltip"].splitlines()
+    assert tooltip == ["max over 3 channels", "Out1Cur-RB", "Out2Cur-RB", "Out3Cur-RB"]
+
+
 def test_a_row_named_by_its_raw_channel_shows_the_last_part_and_the_name_muted(
     panel_graph,
 ) -> None:
@@ -1959,7 +2100,11 @@ def test_a_front_row_with_no_far_relation_is_a_reading_with_no_far_end(tmp_path)
     assert [c.sides for c in phases] == [(), ()]
     assert {front_state(c.sides) for c in phases} == {FRONT_READING}
     doc = stub_render(device_card(graph, "XR01:PS1"), graph)
-    dashes = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == layout._NOTHING]
+    dashes = [
+        n
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"] == layout._NOTHING and not n.get("rules")  # a figure's is ruled
+    ]
     assert len(dashes) == 2  # the two outlets with nothing stated, not the phases
     (states,) = front_states(graph, ["XR01:PS1"]).values()
     assert states[FRONT_READING] == 2
@@ -2657,8 +2802,9 @@ def test_a_default_tile_counts_only_the_device_s_own_channels_of_its_role(tmp_pa
     assert ("Pressure", "XR01-IP1:Pressure-RB") in _default_tiles(graph, "XR01:IP1")
 
 
-def test_a_device_with_two_own_channels_of_a_role_gets_no_default_tile_for_it(tmp_path):
+def test_a_device_with_two_own_channels_of_a_role_gets_one_figure_over_both(tmp_path):
     from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import KeyTile
     from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 
     def second(document) -> None:
@@ -2673,6 +2819,11 @@ def test_a_device_with_two_own_channels_of_a_role_gets_no_default_tile_for_it(tm
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", second), tables)
     own = [h.channel for h in graph.roles("XR01:IP1") if h.role.role == "pressure"]
     assert sorted(own) == ["XR01-IP1:Pressure-RB", "XR01-IP1:Pressure2-RB"]
-    tiles = _default_tiles(graph, "XR01:IP1")
-    assert all(channel not in own for _title, channel in tiles)  # two are no single figure
-    assert ("State", "XR01-IP1:State-Sts") in tiles  # a role of one own channel still is
+    view = device_card(graph, "XR01:IP1")
+    tiles = [i for s in view.sections for i in s.items if isinstance(i, KeyTile)]
+    (over,) = [t for t in tiles if t.channels]  # two are one figure: the highest
+    assert over.shown_as == "max"
+    assert sorted(over.channels) == own
+    assert over.title == "Highest pressure"  # the role's word, after the generic word
+    assert over.names == ("Pressure-RB", "Pressure2-RB")  # each short of the device's id
+    assert ("State", "XR01-IP1:State-Sts") in _default_tiles(graph, "XR01:IP1")

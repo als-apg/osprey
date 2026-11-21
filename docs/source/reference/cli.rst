@@ -1638,14 +1638,22 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    card names it without a link. ``check`` counts the devices with no card, those
    the default alone leaves without one, and how many devices each row decides. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
-   ``card`` whose ``level`` names its recipe, else the roles exactly one of the
-   device's own channels plays, a neighbour's channel its roles reach not
-   counted, but never a role whose word is a ``nameplate`` signal, which says what the device is, not how
+   ``card`` whose ``level`` names its recipe, else the roles the device's own
+   channels play, a neighbour's channel its roles reach not counted, but never a
+   role whose word is a ``nameplate`` signal, which says what the device is, not how
    it is (a ``channel_roles.csv`` row giving the channel another word overrides
-   it); a tile's measure is
+   it); a role that several own channels play is one figure over them all, a
+   count of the true ones for a lamp titled "<role> <true word>" (the word
+   ``state_labels.csv`` states for 1, else "on"), the highest for a value titled
+   "Highest <role>", and no tile for a word; a stated card row for the class
+   wins over this default; a tile's measure is
    ``value`` or ``word`` of the role's first channel, or over every channel of
-   the role on the device ``count_true`` shown "k of N", ``max`` or ``sum``, a
-   dash and "one of N has no value" while any member has none), its relations as
+   the role on the device ``count_true``, ``max`` or ``sum``. A count reads "k of
+   N", "of N" on the figure's baseline right after it; the highest's line under
+   the figure names the member that holds it ("highest of N · <name>", the first
+   such member, its name short of the device's id); the figure's tooltip names
+   what it is over, member by member; while any member has no value the figure is
+   a dash and the line says "one of N has no value"), its relations as
    a chain of blocks (the device's own block showing only roles one channel of
    it plays: a role played per connector or member is not rows there), its
    drawings (a drawing none of whose parts has a place is a compact row of
