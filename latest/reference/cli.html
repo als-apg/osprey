@@ -2037,12 +2037,22 @@ command prints the screen count and size per view kind, the class summary
 <p>Each entry of <code class="docutils literal notranslate"><span class="pre">index.json</span></code> names its screen’s <code class="docutils literal notranslate"><span class="pre">class</span></code>, and the index’s
 <code class="docutils literal notranslate"><span class="pre">classes</span></code> table states, per class, its key, its <code class="docutils literal notranslate"><span class="pre">standard</span></code> screen, its
 member count, how many members are <code class="docutils literal notranslate"><span class="pre">off_standard</span></code>, how many have a <code class="docutils literal notranslate"><span class="pre">cut</span></code>
-label, a <code class="docutils literal notranslate"><span class="pre">layout</span></code> hash and a <code class="docutils literal notranslate"><span class="pre">sample</span></code>; <code class="docutils literal notranslate"><span class="pre">class_summary</span></code> holds the counts
+label, a <code class="docutils literal notranslate"><span class="pre">layout</span></code> hash (of the standard’s structure, the format and the
+drawing settings), a <code class="docutils literal notranslate"><span class="pre">drawing</span></code> digest (of the standard’s written file
+without the model stamp, which moves when the screen is drawn otherwise and
+not when only the facility file’s content hash does) and a <code class="docutils literal notranslate"><span class="pre">sample</span></code>;
+<code class="docutils literal notranslate"><span class="pre">class_summary</span></code> holds the counts
 a gate reads, with the classes of one screen per view kind. Two screens are
 of one class when they have one key: for a device’s card and its channel
 list, the device’s class, the card recipe it is drawn from and the set of
 signal roles the card shows (a role played by two channels counts once; the
-driver-internal role and channels with no role are not in it); for a
+driver-internal role and channels with no role are not in it). Where cards
+of one such class drawn by the default recipe show different blocks (a card
+one can act from and a read-only one, a card with or without key tiles),
+the key also holds <code class="docutils literal notranslate"><span class="pre">blocks</span></code>, the kinds of block the card shows by presence
+(a channel list drawn as a grid or as a count is one block), and the class
+splits into one per kind of card; a class whose cards all show the same
+blocks keeps its key and its id. For a
 calibration overview, its calibration kind and its structure (a gain and an
 offset are judged apart even where they are drawn alike); for every other
 screen (a set, a place, a rack, a roll-up, a checkout, the card of a place or
@@ -2087,7 +2097,11 @@ about its middle where it was lower. A class’s <code class="docutils literal n
 opens: the standard, the smallest, the largest, the one with the longest
 label, the first off standard, and one member on each side of every
 variation that changes the drawing (a part drawn with or without a stated
-position, a channel list drawn as a grid or a count).
+position, a channel list drawn as a grid or a count). Each member of the
+sample is <code class="docutils literal notranslate"><span class="pre">{&quot;file&quot;,</span> <span class="pre">&quot;as&quot;}</span></code>: its file and what it stands for, one or more of
+<code class="docutils literal notranslate"><span class="pre">standard</span></code>, <code class="docutils literal notranslate"><span class="pre">smallest</span></code>, <code class="docutils literal notranslate"><span class="pre">largest</span></code>, <code class="docutils literal notranslate"><span class="pre">longest</span> <span class="pre">labels</span></code> and <code class="docutils literal notranslate"><span class="pre">off</span>
+<span class="pre">standard</span></code>, and the drawing sides it is the first to show (<code class="docutils literal notranslate"><span class="pre">x_mm</span> <span class="pre">missing</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channel</span> <span class="pre">list</span> <span class="pre">drawn</span> <span class="pre">as</span> <span class="pre">ChannelCount</span></code>).
 A device’s card and channel list also state, under <code class="docutils literal notranslate"><span class="pre">others</span></code>, what they
 show of other things on purpose: each thing, the kind of item that draws it
 (<code class="docutils literal notranslate"><span class="pre">strip</span> <span class="pre">member</span></code>, <code class="docutils literal notranslate"><span class="pre">chain</span> <span class="pre">block</span></code>, …) and the channels of it the screen
