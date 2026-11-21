@@ -1630,8 +1630,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    card names it without a link. ``check`` counts the devices with no card, those
    the default alone leaves without one, and how many devices each row decides. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
-   ``card`` whose ``level`` names its recipe, else its roles, but never a role
-   whose word is a ``nameplate`` signal, which says what the device is, not how
+   ``card`` whose ``level`` names its recipe, else the roles exactly one of the
+   device's own channels plays, a neighbour's channel its roles reach not
+   counted, but never a role whose word is a ``nameplate`` signal, which says what the device is, not how
    it is (a ``channel_roles.csv`` row giving the channel another word overrides
    it); a tile's measure is
    ``value`` or ``word`` of the role's first channel, or over every channel of
