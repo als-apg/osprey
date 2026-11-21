@@ -347,7 +347,8 @@ class RuntimeProbe:
     so the whole destructive surface of ``osprey reset`` can be read in one
     screen and exercised in tests without a runtime. ``run`` is injected for
     exactly that — the tests pass a recorder, and no test in this feature ever
-    reaches a real daemon.
+    reaches a real daemon. Without it, each call looks up this module's
+    ``subprocess.run`` when it runs.
 
     Every listing is label-filtered and read-only; every removal names exactly
     one resource. There is no ``prune``, no ``-a``/``--all``, no wildcard, and
@@ -359,7 +360,7 @@ class RuntimeProbe:
         runtime: str,
         *,
         env: Mapping[str, str] | None = None,
-        run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+        run: Callable[..., subprocess.CompletedProcess] | None = None,
     ) -> None:
         #: Runtime binary — ``docker`` or ``podman``, never the compose argv.
         self.runtime = runtime
@@ -374,7 +375,7 @@ class RuntimeProbe:
 
     def _capture(self, args: Sequence[str]) -> subprocess.CompletedProcess:
         logger.debug("Running command:\n    %s", " ".join([self.runtime, *args]))
-        return self._run(
+        return (self._run or subprocess.run)(
             [self.runtime, *args], capture_output=True, text=True, env=self._env, check=False
         )
 
