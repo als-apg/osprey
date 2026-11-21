@@ -8,7 +8,10 @@ when they have the same key:
     The device type, its class and the card recipe it is drawn from, and the
     set of role words its card shows. A repeated role counts once in the key.
     The driver-internal role is never shown and channels with no role are
-    listed only in the grid, so neither is in the key.
+    listed only in the grid, so neither is in the key. Where the default
+    recipe's cards of one such key show different blocks, the key also holds
+    ``blocks`` (:func:`blocks`, :func:`split_by_blocks`); a key whose cards all
+    show the same blocks stays as it is, and so does its id.
 ``calibration``
     The calibration kind and its structure: gains and offsets are different
     things to judge even where the layout agrees.
@@ -54,12 +57,12 @@ import hashlib
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from osprey.facility.panels.describe import DEFAULT_RECIPE, INTERNAL_ROLE
 from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import Fact, Target, View
+from osprey.facility.panels.view import Fact, Operate, Target, View
 
 __all__ = [
     "DRAWN_GAPS",
@@ -252,6 +255,11 @@ class Sample:
         cuts: The labels the layout cut to fit, before the cut.
         others: What the screen shows of other things on purpose
             (:func:`~osprey.facility.panels.describe.others`).
+        blocks: For a device card drawn by the default recipe, the kinds of
+            block it shows (:func:`blocks`); empty otherwise.
+        drawing: The digest of its written file without the model stamp
+            (:func:`drawing_digest`): it moves when the screen is drawn
+            otherwise, not when only the facility file's content hash does.
     """
 
     file: str
@@ -261,6 +269,8 @@ class Sample:
     measure: Measure
     cuts: tuple[str, ...] = ()
     others: tuple[Mapping[str, Any], ...] = ()
+    blocks: tuple[str, ...] = ()
+    drawing: str = ""
 
     @property
     def structure(self) -> str:
@@ -473,9 +483,56 @@ def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, d
     else:
         key = {"view": target.view, "kind": target.kind, "structure": structure}
         readable = target.kind
+    return _class_id(target.view, readable, key), key
+
+
+def _class_id(view: str, readable: str, key: Mapping[str, Any]) -> str:
+    """A slug of the key's readable part and the first 8 hex digits of its digest."""
     digest = _digest(repr(sorted(key.items())))[:_DIGEST]
     slug = _slug(readable)[:48].strip("-")
-    return f"{target.view}-class-{slug}-{digest}" if slug else f"{target.view}-class-{digest}", key
+    return f"{view}-class-{slug}-{digest}" if slug else f"{view}-class-{digest}"
+
+
+def blocks(view: View, key: Mapping[str, Any]) -> tuple[str, ...]:
+    """The kinds of block a device card drawn by the default recipe shows, by
+    presence: the item kinds of its sections, the size-driven drawings of one item
+    (:data:`VARIANTS`) as that item, and the operate block named by whether it
+    holds controls. Empty for every other screen."""
+    if key.get("view") != "card" or key.get("recipe") != DEFAULT_RECIPE:
+        return ()
+    found: set[str] = set()
+    for section in view.sections:
+        for item in section.items:
+            kind = type(item).__name__
+            if isinstance(item, Operate):
+                kind += " with controls" if item.groups else " without controls"
+            found.add(VARIANTS.get(kind, kind))
+    return tuple(sorted(found))
+
+
+def drawing_digest(text: str) -> str:
+    """16 hex digits naming a written screen's drawing: its file without the model
+    stamp (the stamp in its description and the one its header shows)."""
+    return _digest(text)[:16]
+
+
+def split_by_blocks(samples: list[Sample]) -> list[Sample]:
+    """Default-recipe device cards of one class whose blocks differ go to one class
+    per kind of card: their key gains ``blocks``. A class whose cards all show the
+    same blocks keeps its key and its id."""
+    by_class: dict[str, list[Sample]] = {}
+    for sample in samples:
+        by_class.setdefault(sample.cls, []).append(sample)
+    out: list[Sample] = []
+    for members in by_class.values():
+        if len({m.blocks for m in members}) < 2:
+            out.extend(members)
+            continue
+        for m in members:
+            key = {**m.key, "blocks": list(m.blocks)}
+            readable = f"{key['device_class']}-{key['recipe']}"
+            out.append(replace(m, cls=_class_id(m.target.view, readable, key), key=key))
+    return out
 
 
 def standard(samples: Iterable[Sample]) -> Sample:
@@ -660,7 +717,7 @@ def classify(
         characters.
     """
     by_class: dict[str, list[Sample]] = {}
-    for sample in samples:
+    for sample in split_by_blocks(list(samples)):
         by_class.setdefault(sample.cls, []).append(sample)
     classes: dict[str, dict[str, Any]] = {}
     entries: dict[str, dict[str, Any]] = {}
@@ -689,6 +746,7 @@ def classify(
             "off_standard": len(off),
             "cut": sum(1 for m in members if m.cuts),
             "layout": _digest(f"{std.structure} {stamp}")[:16],
+            "drawing": std.drawing,
             "sample": _sample(members, std, off),
         }
     return classes, entries

@@ -586,6 +586,9 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
         colours=draw.colours,
         cuts=cuts,
     )
+    unstamped = json.dumps(
+        document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    )
     document["metadata"]["description"] += _stamp(graph, draw)
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
@@ -593,7 +596,17 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
     measure = screen_classes.measure(view)
     cls, key = screen_classes.class_key(graph, target, measure.structure)
     sample = screen_classes.Sample(
-        own, target, cls, key, measure, tuple(dict.fromkeys(cuts)), others(view, graph)
+        own,
+        target,
+        cls,
+        key,
+        measure,
+        tuple(dict.fromkeys(cuts)),
+        others(view, graph),
+        blocks=screen_classes.blocks(view, key),
+        drawing=screen_classes.drawing_digest(
+            unstamped.replace(f"model {graph.content_hash[: layout.STAMP_DIGITS]}", "model")
+        ),
     )
     return _Drawn(
         (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked)), sample
@@ -843,6 +856,7 @@ def write(
             )
     for relative in sorted(owned.keys() - paths):
         _remove(out, relative, seen)
+    samples = screen_classes.split_by_blocks(samples)
     table, stated = _classes(samples, draw)
     for sample in samples:
         entries[sample.file].update(stated[sample.file], **{"class": sample.cls})
@@ -1179,6 +1193,7 @@ def _check_classes(
     """``stale_class`` problems: an entry's class or what it states about it, or the
     class table or its summary, other than the model gives now."""
     del graph  # the samples carry what the model gives
+    samples = screen_classes.split_by_blocks(samples)
     table, stated = _classes(samples, draw)
     problems = [
         Problem(
