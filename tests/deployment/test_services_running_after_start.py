@@ -14,13 +14,15 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import repo_identity
 from osprey.deployment.container_lifecycle import check_started_services
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.errors import ServicesNotRunningError
-from osprey.deployment.web_terminals.artifacts import web_compose_file
+from osprey.deployment.web_terminals.render import render_web_terminals
+from tests._renders import tier_render
 
 # The real check, taken before the conftest seam replaces it for every test.
 _REAL_REFUSE_SERVICES_NOT_RUNNING = container_lifecycle._refuse_services_not_running
@@ -237,19 +239,31 @@ def test_a_missing_service_fails_the_start_naming_it_and_its_logs(repo, monkeypa
 
 
 def test_the_expected_set_is_every_rendered_service_plus_the_web_stack(tmp_path):
+    """The web stack's services are the ones its renderer renders, known
+    before the start writes its file."""
     _compose(tmp_path / "build" / "services" / "docker-compose.yml", "  api:\n    image: a\n")
     absolute = tmp_path / "build" / "services" / "worker" / "docker-compose.yml"
     _compose(absolute, "  worker:\n    image: w\n")
-    _compose(web_compose_file(tmp_path), "  web-terminal-alice:\n    image: t\n")
     files = ["build/services/docker-compose.yml", str(absolute)]
+    web_config = {
+        "deploy": {"fqdn": "example.invalid"},
+        "registry": {"url": "registry.example.org/demo"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": ["alice"],
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "ex-assistant")},
+            }
+        },
+    }
+    rendered = yaml.safe_load(render_web_terminals(web_config)["docker-compose.web.yml"])
 
     without_web = container_lifecycle._started_services({}, files, tmp_path)
-    with_web = container_lifecycle._started_services(
-        {"modules": {"web_terminals": {"enabled": True}}}, files, tmp_path
-    )
+    with_web = container_lifecycle._started_services(web_config, files, tmp_path)
 
     assert list(without_web) == ["api", "worker"]
-    assert list(with_web) == ["api", "worker", "web-terminal-alice"]
+    assert list(with_web) == ["api", "worker", *rendered["services"]]
 
 
 def test_a_service_two_files_define_keeps_what_each_says(tmp_path):
