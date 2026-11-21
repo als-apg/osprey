@@ -1419,6 +1419,11 @@ class _Screen:
         if tags:
             out["meta"] = {"comment": "; ".join(tags)}
         self.nodes.append(out)
+        cut = out["props"].get("text") if out["type"] == "text-label" else None
+        if isinstance(cut, _Cut) and not rules:
+            # a cut label shows its whole text on hover; a link drawn over it
+            # later shows its own label instead
+            self.add(_hover_box(out["geometry"], cut.whole))
         return out
 
     def widget(self, kind: str, x, y, w, h, props: dict[str, Any], **kw: Any) -> dict[str, Any]:
@@ -4670,8 +4675,6 @@ class _Page:
             lines = _wrap(row.conditions, widths[1], SMALL_SIZE, lines=CAL_CONDITION_LINES)
             for n, line in enumerate(lines):
                 self.small(x[1], under + n * SMALL_LINE, line, fg=MUTED_TEXT)
-            if " ".join(lines) != " ".join(row.conditions.split()):
-                self.hover(x[1], under, widths[1], len(lines) * SMALL_LINE, row.conditions)
             under += len(lines) * SMALL_LINE
         _name_x, _value_x, chip_x, *rest_x = x
         under = max(under, self.basis_chip(chip_x, top, row))
@@ -4684,22 +4687,8 @@ class _Page:
                 y0 = top + (ROW - SMALL_LINE) / 2
                 for n, line in enumerate(lines):
                     self.small(left, y0 + n * SMALL_LINE, line)
-                if " ".join(lines) != " ".join(text.split()):
-                    self.hover(left, y0, width, len(lines) * SMALL_LINE, text)
                 under = max(under, y0 + len(lines) * SMALL_LINE)
         self.y = max(under, top + ROW + (len(titles) - 1) * TITLE_LINE) + ROW_GAP
-
-    def hover(self, x: float, y: float, w: float, h: float, text: str) -> None:
-        """A transparent box that shows *text* while the pointer is on it: the whole
-        of a text drawn cut."""
-        props = {
-            "lineColor": TRANSPARENT,
-            "lineWidth": 0,
-            "fill": False,
-            _TOOLTIP: text,
-            _HOVER_LABEL: text,
-        }
-        self.s.widget("rectangle", x, y, w, h, props)
 
     def held_height(self, channels: tuple[str, ...], w: float) -> float:
         """How tall :meth:`held` draws *channels* within *w*: its lines of fields."""
@@ -6783,6 +6772,12 @@ def _block_label(block: ChainBlock) -> float:
     return max([BLOCK_LABEL_LEAST, *widths]) + GAP
 
 
+def _hover_box(g: Mapping[str, float], text: str) -> dict[str, Any]:
+    """A transparent box over *g* that shows *text* while the pointer is on it."""
+    props = {"lineColor": TRANSPARENT, "lineWidth": 0, "fill": False, _TOOLTIP: text}
+    return {"type": "rectangle", "props": {**props, _HOVER_LABEL: text}, "geometry": dict(g)}
+
+
 def _fit(text: str, w: float, size: float) -> str:
     """*text* as a label *w* wide shows it: whole when its letters and the viewer's
     inset fit, else cut (:func:`_cut`)."""
@@ -6791,18 +6786,34 @@ def _fit(text: str, w: float, size: float) -> str:
     return _cut(text, w + TEXT_PAD - 2 * LABEL_INSET, size)
 
 
-def _cut(text: str, width: float, size: float, *, caps: bool = False) -> str:
+class _Cut(str):
+    """A text cut to fit, which remembers the whole: a label drawn from it gets a
+    box that shows the whole text on hover (:meth:`_Screen.add`)."""
+
+    whole: str
+
+    def __new__(cls, kept: str, whole: str) -> _Cut:
+        made = super().__new__(cls, kept)
+        made.whole = whole
+        return made
+
+
+def _cut(
+    text: str, width: float, size: float, *, caps: bool = False, whole: str | None = None
+) -> str:
     """*text* cut to fit *width* at *size* by :func:`text_width`, an ellipsis marking
-    the cut; *caps*: written in capitals."""
+    the cut; *caps*: written in capitals; *whole*: the text it is a part of, shown
+    on hover (else *text*)."""
     if text_width(text, size, caps=caps) <= width:
         return text
     cuts = _CUTS.get()
     if cuts is not None:
         cuts.append(text)
+    whole = whole or str(getattr(text, "whole", text))
     for end in range(len(text) - 1, 0, -1):
         kept = text[:end].rstrip() + _ELLIPSIS
         if text_width(kept, size, caps=caps) <= width:
-            return kept
+            return _Cut(kept, whole)
     return ""
 
 
@@ -6912,7 +6923,7 @@ def _wrap(
         while words and text_width(f"{line} {words[0]}", size, caps=caps) <= width:
             line = f"{line} {words.pop(0)}"
         if len(out) == lines - 1 and words:
-            line = _cut(" ".join([line, *words]), width, size, caps=caps)
+            line = _cut(" ".join([line, *words]), width, size, caps=caps, whole=text)
             words = []
         out.append(_cut(line, width, size, caps=caps))
     return out or [""]
@@ -6948,7 +6959,7 @@ def _wrap_label(text: str, width: float, size: float, lines: int) -> list[str]:
             line += pieces.pop(0)
         if len(out) == lines - 1 and pieces:
             line, pieces = line + "".join(pieces), []
-        out.append(_cut(line.strip(), width, size))
+        out.append(_cut(line.strip(), width, size, whole=text))
     return out or [""]
 
 
@@ -6963,7 +6974,7 @@ def _wrap_name(text: str, width: float, size: float, lines: int) -> list[str]:
             line += pieces.pop(0)
         if len(out) == lines - 1 and pieces:
             line, pieces = line + "".join(pieces), []
-        out.append(_cut(line, width, size))
+        out.append(_cut(line, width, size, whole=text))
     return out or [""]
 
 

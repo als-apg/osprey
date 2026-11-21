@@ -231,3 +231,31 @@ def test_a_line_of_prose_takes_the_lines_it_needs_and_loses_no_text():
     assert not any(line.endswith("…") for line in lines)  # nothing cut
     # breaking at a space, a slash, a comma or a semicolon keeps every character
     assert "".join(lines).replace(" ", "") == text.replace(" ", "")
+
+
+def test_every_cut_label_shows_its_whole_text_on_hover(screens):
+    def covers(box: dict[str, Any], g: dict[str, Any]) -> bool:
+        b = box["geometry"]
+        return (
+            b["x"] <= g["x"] + 0.01
+            and b["y"] <= g["y"] + 0.01
+            and b["x"] + b["width"] >= g["x"] + g["width"] - 0.01
+            and b["y"] + b["height"] >= g["y"] + g["height"] - 0.01
+        )
+
+    missing, shown = [], 0
+    for name, doc in screens.items():
+        found = list(_nodes(doc["root"]))
+        hovers = [n for n in found if n["type"] == "rectangle" and n["props"].get("tooltip")]
+        for node in found:
+            text = node["props"].get("text", "")
+            if node["type"] != "text-label" or node.get("rules") or not text.endswith("…"):
+                continue
+            kept = text[:-1].rstrip()
+            boxes = [h for h in hovers if covers(h, node["geometry"])]
+            if any(kept in h["props"]["tooltip"] or h["props"].get("actions") for h in boxes):
+                shown += 1
+            else:
+                missing.append((name, text))
+    assert missing == []
+    assert shown  # the fixture cuts some labels, so the rule is exercised

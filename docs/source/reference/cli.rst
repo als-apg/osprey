@@ -1754,8 +1754,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    label in a chain block takes two lines, a muted line of prose (a caption, a
    note, what a press writes, a source) takes as many lines as it needs, and a
    text still longer than its box
-   is cut there with an ellipsis and listed, so the viewer never has to shrink
-   or clip a label. A value display is as wide as the widest text the facility
+   is cut there with an ellipsis and listed, with a box over it that shows the
+   whole text on hover (a link over it shows the link's label), so the viewer
+   never has to shrink or clip a label. A value display is as wide as the widest text the facility
    states it can show: its longest state word, else its limits as the display
    prints them when they are wider than the stand-in ``-0.00123``, else that
    stand-in, with the unit where the display prints it. Every text label's box

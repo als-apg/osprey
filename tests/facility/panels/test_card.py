@@ -457,8 +457,9 @@ def test_a_parameter_title_wraps_and_is_never_cut_and_long_conditions_wrap(tmp_p
         and n["props"]["text"].rstrip("…") in _LONG_CONDITIONS
     ]  # fmt: skip
     assert len(lines) == 2 and lines[-1]["props"]["text"].endswith("…")
+    # the cut line shows the whole conditions on hover, from a box over it
     (hover,) = [n for n in block if n["props"].get("tooltip") == _LONG_CONDITIONS]
-    assert hover["type"] == "rectangle"
+    assert hover["type"] == "rectangle" and hover["geometry"] == lines[-1]["geometry"]
     assert "serial=XQF-01" in words
     value = next(n for n in texts if n["props"]["text"].startswith("-4.9198"))
     assert all(n["geometry"]["x"] == value["geometry"]["x"] for n in lines)  # under the value
