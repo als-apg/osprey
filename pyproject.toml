@@ -514,6 +514,15 @@ webhook = "osprey.dispatch.sources.webhook:WebhookSource"
 cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
+# Simulation engine plug-ins under `osprey_connectors.simulation.engines`, the
+# value of `osprey_connectors.simulation.engines.ENGINE_GROUP`, which the
+# virtual accelerator reads. The same engines stay registered under the old
+# group below, which the facility build still reads; chain step 3 switches the
+# build over and removes the old group.
+[project.entry-points."osprey_connectors.simulation.engines"]
+pyat = "osprey.simulation.engines.pyat"
+injection = "osprey.simulation.engines.injection"
+
 # Simulation engine plug-ins, each entry naming the module that implements the
 # plug-in contract; a facility build reaches an engine only through this group.
 [project.entry-points."osprey.simulation.engines"]
