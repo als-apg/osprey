@@ -329,6 +329,61 @@ def test_conditions_several_calibration_rows_share_are_stated_once_under_them(pa
     assert not any(n["props"]["text"].endswith("…") for n in texts if "frame" in n["props"]["text"])
 
 
+def test_shared_conditions_stand_apart_under_a_rule_tied_to_their_rows_by_a_mark(panel_graph):
+    """The shared line must not read as the last row's note: half a row of space and
+    a thin rule set it off, and a reference mark, readable at the card's small size,
+    follows the title of every row it holds for and starts the line; a second shared
+    text gets the next mark."""
+    from osprey.facility.panels.view import CalibrationRow, Calibrations, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    def row(title: str, conditions: str | None) -> CalibrationRow:
+        return CalibrationRow(
+            title, conditions, "0.1 mrad", None, "stated", "stated", False, None, None, None
+        )
+
+    frame, warm = "in the support frame", "at 20 C"
+    rows = (row("Roll", frame), row("Gain", warm), row("Yaw", frame), row("Offset", warm))
+    rows += (row("Tilt", "alone"),)
+    view = View(
+        Target("card", "device", "XR01:PS1"), "XR01:PS1", (),
+        (Section("calibration", (Calibrations(rows),)),),
+    )  # fmt: skip
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
+
+    def at(text: str) -> dict[str, Any]:
+        return next(n for n in texts if n["props"]["text"] == text)
+
+    marks = {m: [n for n in texts if n["props"]["text"] == m] for m in ("1", "2")}
+    for mark, titles in (("1", ("Roll", "Yaw")), ("2", ("Gain", "Offset"))):
+        assert len(marks[mark]) == len(titles) + 1  # after each title, and at its line
+        for title in titles:
+            g = at(title)["geometry"]
+            assert any(
+                m["geometry"]["y"] == g["y"] and m["geometry"]["x"] > g["x"] for m in marks[mark]
+            )
+        assert all(m["props"]["fontSize"] >= layout.SMALL_SIZE for m in marks[mark])
+    first = next(n for n in texts if n["props"]["text"].startswith("Roll, Yaw:"))
+    second = next(n for n in texts if n["props"]["text"].startswith("Gain, Offset:"))
+    assert first["geometry"]["y"] < second["geometry"]["y"]  # in the order the rows state
+    line_mark = max(marks["1"], key=lambda m: m["geometry"]["y"])
+    assert line_mark["geometry"]["y"] == first["geometry"]["y"]
+    assert line_mark["geometry"]["x"] < first["geometry"]["x"]
+    assert "alone" in " ".join(n["props"]["text"] for n in texts)  # its own row keeps it
+    last = max(
+        n["geometry"]["y"] + n["geometry"]["height"]
+        for n in texts
+        if n["geometry"]["y"] < first["geometry"]["y"] - layout.ROW_GAP
+    )
+    rules = [
+        n for n in _nodes(doc["root"])
+        if n["type"] == "line" and last <= n["geometry"]["y"] <= first["geometry"]["y"]
+    ]  # fmt: skip
+    (rule,) = rules  # one thin rule between the rows and the shared lines
+    assert rule["geometry"]["y"] - last >= (layout.ROW + layout.ROW_GAP) / 2
+
+
 def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
     width = layout.text_width("Electronics", layout.SMALL_SIZE) + 4
     assert layout._wrap_label("ElectronicsChassis", width, layout.SMALL_SIZE, 2) == [

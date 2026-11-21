@@ -157,6 +157,7 @@ ROW_GAP = 4
 SECTION_GAP = 16
 STAMP_DIGITS = 8  # of the model's content hash, in the header
 GAP = 8  # between two widgets on one row
+MARK_GAP = 2  # between a title and the reference mark after it
 INDENT = 20  # one level of a roll-up tree
 LABEL_WIDTH = 200  # a row's label column, however short its section's labels
 LABEL_MOST = 360  # a row's label column, however long its section's labels
@@ -4649,34 +4650,57 @@ class _Page:
     def calibrations(self, table: Calibrations) -> None:
         """A device's calibration block: column heads, then a row per kind (see
         :meth:`calibration_row`); conditions that several rows state alike once,
-        under the rows, after the titles of the rows they hold for. Read-only."""
+        under the rows: after half a row of space and a thin rule, each such text
+        behind a reference mark (1, 2, ...) that also follows the title of every
+        row it holds for, so it reads as theirs and not as the last row's note.
+        Read-only."""
         for word, dx in zip(_CAL_HEADS, CAL_COLUMNS, strict=True):
             self.text(MARGIN + dx, self.y, word.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
         self.y += ROW
         # conditions that several rows state alike are stated once, under the rows
         shared = Counter(row.conditions for row in table.rows if row.conditions)
-        once = {text for text, n in shared.items() if n > 1}
+        once = [
+            text
+            for text in dict.fromkeys(row.conditions for row in table.rows)
+            if text is not None and shared[text] > 1
+        ]
+        marks = {text: str(n) for n, text in enumerate(once, start=1)}
         for row in table.rows:
-            self.calibration_row(replace(row, conditions=None) if row.conditions in once else row)
-        for text in sorted(once, key=lambda t: [r.conditions for r in table.rows].index(t)):
+            if row.conditions in marks:
+                self.calibration_row(replace(row, conditions=None), mark=marks[row.conditions])
+            else:
+                self.calibration_row(row)
+        if not once:
+            return
+        self.y += (ROW + ROW_GAP) / 2
+        self.line([(MARGIN, self.y), (MARGIN + STRIP_WIDTH, self.y)], MUTED_TEXT, LINE_WIDTH)
+        self.y += ROW_GAP
+        for text in once:
+            mark = marks[text]
+            indent = text_width(mark, SMALL_SIZE) + GAP / 2
+            self.small(MARGIN, self.y, mark)
             titles = ", ".join(r.title for r in table.rows if r.conditions == text)
-            for line in _prose(f"{titles}: {text}", STRIP_WIDTH, SMALL_SIZE):
-                self.small(MARGIN, self.y, line, fg=MUTED_TEXT)
+            for line in _prose(f"{titles}: {text}", STRIP_WIDTH - indent, SMALL_SIZE):
+                self.small(MARGIN + indent, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
             self.y += ROW_GAP
 
-    def calibration_row(self, row: CalibrationRow) -> None:
+    def calibration_row(self, row: CalibrationRow, mark: str | None = None) -> None:
         """One kind: its title (a link to the kind's view over a set), wrapped and
-        never cut; the value in force, or the live channels, with the note and the
+        never cut, and after it the *mark* of conditions stated under the table;
+        the value in force, or the live channels, with the note and the
         conditions muted under it (at most :data:`CAL_CONDITION_LINES` lines, the
         whole text on hover when cut); the basis chip; date, source and history."""
         x = [MARGIN + dx for dx in CAL_COLUMNS]
         widths = [b - a - GAP for a, b in itertools.pairwise([*x, MARGIN + STRIP_WIDTH])]
         top = self.y
-        titles = _wrap(row.title, widths[0], TEXT_SIZE, lines=len(row.title.split()))
+        room = widths[0] - (text_width(mark, SMALL_SIZE) + MARK_GAP if mark else 0)
+        titles = _wrap(row.title, room, TEXT_SIZE, lines=len(row.title.split()))
         for n, line in enumerate(titles):
-            w = min(text_width(line, TEXT_SIZE), widths[0])
-            self.text(x[0], top + n * TITLE_LINE, line, w=w)
+            w = min(text_width(line, TEXT_SIZE), room)
+            right = self.text(x[0], top + n * TITLE_LINE, line, w=w)
+        if mark:  # raised beside the title's last line, as a reference mark
+            self.small(right + MARK_GAP, top + (len(titles) - 1) * TITLE_LINE, mark)
         if row.link is not None:
             wide = max(min(text_width(line, TEXT_SIZE), widths[0]) for line in titles)
             self.nav(x[0], top, wide, ROW + (len(titles) - 1) * TITLE_LINE, row.link)
