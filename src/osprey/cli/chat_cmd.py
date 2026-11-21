@@ -27,7 +27,7 @@ import logging
 import os
 
 # Module level so tests can scope a stand-in to this module without patching the
-# stdlib for every thread in the worker (see tests/cli/_scoped_subprocess.py).
+# stdlib for every thread in the worker (see tests/_scoped_stdlib.py).
 import subprocess
 from pathlib import Path
 

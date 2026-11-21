@@ -40,6 +40,7 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import time
 from collections.abc import Iterable, Mapping, Sequence
@@ -1346,7 +1347,6 @@ def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str
     no warning rather than a failed build.
     """
     import functools
-    import subprocess
 
     try:
         from osprey.deployment.compose_generator import (
