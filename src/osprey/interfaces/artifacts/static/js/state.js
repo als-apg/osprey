@@ -20,6 +20,8 @@
  * @module state
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
+
 // ---- Gallery State (module-private) ---- //
 
 /** @type {any[]} */
@@ -30,7 +32,7 @@ let selectedArtifact = null;
 let currentSessionId = null; // the session key the host reports; null outside a session
 /** @type {string|null} */
 let heldTranscript = null; // the transcript the session view's first page resolved the key to; null otherwise
-let fetchGeneration = 0; // bumped by every fetch; a stale response is dropped
+const fetches = createLatestRequest(); // a newer fetch retires this one; a retired response is dropped
 
 // ---- Accessors ---- //
 
@@ -163,7 +165,7 @@ function requestListing(sessionView) {
  * @returns {Promise<void>}
  */
 export async function fetchArtifacts() {
-  const generation = ++fetchGeneration;
+  const token = fetches.begin();
   const sessionView = inSessionView();
   try {
     const resp = await requestListing(sessionView);
@@ -174,7 +176,7 @@ export async function fetchArtifacts() {
     }
     hideErrorBanner();
     const data = await resp.json();
-    if (generation !== fetchGeneration) return;
+    if (!token.isCurrent()) return;
     artifacts = data.artifacts || [];
     heldTranscript = sessionView ? (data.transcript ?? null) : null;
   } catch (err) {

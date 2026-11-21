@@ -41,6 +41,8 @@
  * @module viewer
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
+
 /**
  * The actions the hub may ask for. A message that names any other action is
  * ignored.
@@ -68,8 +70,9 @@ export const VIEWER_ACTIONS = ['print', 'logbook'];
  * @returns {void}
  */
 export function createViewer({ getHeld, fetchEntry, show, update, remove, actions, win = window }) {
-  // Bumped by every select; a fetch that answers an older select is dropped.
-  let generation = 0;
+  // The selects: a newer select retires this one, and a fetch that answers a
+  // retired select is dropped.
+  const selects = createLatestRequest();
 
   /**
    * Hand the entry for `id` to `use`: the held one at once, else the
@@ -91,13 +94,13 @@ export function createViewer({ getHeld, fetchEntry, show, update, remove, action
 
   /** @param {string|null} id */
   function select(id) {
-    const token = ++generation;
+    const token = selects.begin();
     if (id === null) {
       show(null);
       return;
     }
     withEntry(id, (entry) => {
-      if (token === generation) show(entry);
+      if (token.isCurrent()) show(entry);
     });
   }
 
