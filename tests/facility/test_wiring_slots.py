@@ -215,6 +215,99 @@ class TestDefaultThroughAReadbacksOwnCalibration:
         )
 
 
+class TestDefaultThroughADeckPropertyReadbacksOwnCalibration:
+    """A readback of the deck energy stating another calibration than the energy setpoint."""
+
+    ENERGY = {"attribute": "energy"}
+    KNOB_GAIN = 1.0e7
+    VOLT_GAIN, VOLT_OFFSET = 2.0e6, 1.0e6
+
+    def _voltage(self, **calibration: Any) -> dict[str, Any]:
+        own = {
+            "curve": {"linear": {"gain": self.VOLT_GAIN, "offset": self.VOLT_OFFSET}},
+            "energy_scaling": "none",
+        }
+        return {"address": "U:RB", "engine": self.ENERGY, "calibration": {**own, **calibration}}
+
+    def _filled(self, tmp_path: Path, record: dict[str, Any], **channel: Any) -> StageReport:
+        knob = {
+            "address": "K",
+            "engine": self.ENERGY,
+            "calibration": {"curve": {"linear": {"gain": self.KNOB_GAIN, "offset": 0.0}}},
+        }
+        files = _files(knob)
+        sr = files["models.yaml"][0]
+        sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "U:RB"] + [record]
+        channels = {row["id"]: row for row in files["records/channels.yaml"]}
+        channels["K"].update(channel.pop("setpoint", {}))
+        channels["U:RB"].update(channel.pop("readback", {}))
+        return _run(tmp_path, files)
+
+    @pytest.mark.parametrize(
+        "channel",
+        [
+            pytest.param({}, id="unpaired"),
+            pytest.param({"setpoint": {"pair": "U:RB"}}, id="followed"),
+            pytest.param(
+                {"setpoint": {"pair": "U:RB"}, "readback": {"simulation": {"follows": "none"}}},
+                id="follows-none",
+            ),
+        ],
+    )
+    def test_it_takes_the_setpoints_curve_value_through_its_own(self, tmp_path, channel):
+        result = self._filled(tmp_path, self._voltage(), **channel)
+        assert result.ok, _lines(result)
+        records = _records(result)
+        curve_value = self.KNOB_GAIN * records["SR/K"]["default"]
+        assert records["SR/U:RB"]["default"] == pytest.approx(
+            (curve_value - self.VOLT_OFFSET) / self.VOLT_GAIN, abs=1e-9
+        )
+        assert records["SR/U:RB"]["direction"] == "read"
+
+    def test_stating_the_setpoints_calibration_it_is_a_readback_no_setpoint_pairs_with(
+        self, tmp_path
+    ):
+        """It reads the setpoint that states its engine block, and starts at its value."""
+        same = {"curve": {"linear": {"gain": self.KNOB_GAIN, "offset": 0.0}}}
+        result = self._filled(tmp_path, {**self._voltage(), "calibration": same})
+        assert result.ok, _lines(result)
+        records = _records(result)
+        record = records["SR/U:RB"]
+        assert (record["engine_role"], record["direction"]) == ("readback", "read")
+        assert record["default"] == records["SR/K"]["default"]
+
+    def test_a_record_of_the_whole_deck_no_setpoint_drives_is_still_an_output(self, tmp_path):
+        files = _files()
+        sr = files["models.yaml"][0]
+        sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "U:RB"] + [
+            {"address": "U:RB", "engine": self.ENERGY}
+        ]
+        result = _run(tmp_path, files)
+        assert _lines(result) == [
+            "facility: engine-invalid: model SR — the engine describes U:RB as a readback; it "
+            "is a output: it names no element; fix: make the engine's describe() call U:RB a "
+            "output"
+        ]
+
+        result = self._filled(tmp_path, self._voltage(energy_scaling="brho"))
+        assert result.failed == "wiring"
+        assert _lines(result) == [
+            "facility: engine-invalid: wiring SR/U:RB — U:RB states energy_scaling brho on its "
+            "own calibration; a readback of a deck property reads the curve value of its "
+            "setpoint K, which no rigidity scales; fix: state energy_scaling: none on the "
+            "readback"
+        ]
+
+    def test_a_table_with_no_inverse_stops_on_the_readback(self, tmp_path):
+        table = {"table": {"grid": [0.0, 1.0], "values": [0.0, 2.0]}}
+        result = self._filled(tmp_path, self._voltage(curve=table))
+        assert result.failed == "wiring"
+        assert _lines(result) == [
+            "facility: engine-invalid: wiring SR/U:RB — a table calibration has no inverse "
+            "to serve the reading; fix: add calibration.inverse"
+        ]
+
+
 class TestDirection:
     def test_a_setpoint_is_written(self, filled):
         assert filled["SR/Q1:SP"]["direction"] == "write"
