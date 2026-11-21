@@ -610,8 +610,9 @@ and title) and the relation types.</p>
 <p><em>Why:</em> a fork of the engine tracks one versioned document, not the description’s
 Python API, and importing the engine no longer loads click, the build stack and
 <code class="docutils literal notranslate"><span class="pre">osprey.simulation</span></code>.</p>
-<p><em>Phase:</em> 2. <em>Today:</em> the engine imports the records, the end identity and the
-signal helpers, and reads the vocabulary file when it is imported.</p>
+<p><em>Phase:</em> 2, done. <em>Today:</em> the engine reads <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> at <code class="docutils literal notranslate"><span class="pre">/4</span></code> and
+imports no description module; the build writes the <code class="docutils literal notranslate"><span class="pre">signals</span></code> and
+<code class="docutils literal notranslate"><span class="pre">relation_types</span></code> tables.</p>
 </section>
 <section id="facility-json-is-a-versioned-document-with-a-published-schema">
 <h2>2. <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> is a versioned document with a published schema<a class="headerlink" href="#facility-json-is-a-versioned-document-with-a-published-schema" title="Link to this heading">#</a></h2>
@@ -626,8 +627,10 @@ needs a contract it can check by machine, and one number is the only thing a
 reader has to compare.</p>
 <p><em>Phase:</em> the panel engine checks the version in phase 2, the framework readers
 in phase 3 with the write guard first, and the schema ships in the package in
-phase 4. <em>Today:</em> the build writes <code class="docutils literal notranslate"><span class="pre">/3</span></code> and no reader compares it. The exact
-rules and the reader table are in <a class="reference internal" href="../reference/contracts/facility-json.html#reference-facility-json"><span class="std std-ref">The facility.json Contract</span></a>.</p>
+phase 4. <em>Today:</em> the build writes <code class="docutils literal notranslate"><span class="pre">/4</span></code>, a test pins the schema against the
+floor of each <code class="docutils literal notranslate"><span class="pre">N</span></code>, and the panel engine refuses any other version; the
+framework readers do not compare it yet. The exact rules and the reader table
+are in <a class="reference internal" href="../reference/contracts/facility-json.html#reference-facility-json"><span class="std std-ref">The facility.json Contract</span></a>.</p>
 </section>
 <section id="the-description-and-the-framework-split-as-the-code-reads">
 <h2>3. The description and the framework split as the code reads<a class="headerlink" href="#the-description-and-the-framework-split-as-the-code-reads" title="Link to this heading">#</a></h2>
@@ -731,7 +734,8 @@ and preset fixtures stay in the framework.</p>
 Test helpers in the wheel would become public API.</p>
 <p><em>Phase:</em> the byte-for-byte rebuild test lives in the root suite until phase 4;
 the package suites start in phases 4 and 5. <em>Today:</em> every test is in the root
-<code class="docutils literal notranslate"><span class="pre">tests/</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">tests/</span></code>; the panel tests read <code class="docutils literal notranslate"><span class="pre">tests/facility/panels/fixture/facility.json</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">tests/facility/test_panel_fixture_rebuild.py</span></code> rebuilds it.</p>
 </section>
 </section>
 <section id="the-boundary-check">
@@ -797,7 +801,7 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fpt-title fpt-desc">
   <title id="fpt-title">Today versus target: the one facility package with its import cycle, and the edges the boundary ratchet lists, grouped by the phase that removes them</title>
-  <desc id="fpt-desc">Two halves. The left half is today. src/osprey/facility is one package. Its description, some 22 modules such as records, combine, build, validate, render, scenarios, compute, layers and kinds, imports itself in one cycle, and the cycle runs through the framework's views, scenarios and render: the description reaches into the framework, and the framework imports description modules that are not its public API. The panels code lives inside it, at facility/panels: model and describe import records, relations, validate and pairing, tables reads the vocabulary files of the description, and emit climbs its own file path to reach the framework's theme and imports osprey_connectors.safety_file. The framework's facility CLI imports the panels. Beside it, third-party reaches: click in nine description modules, and kinds into pyaml_cs_osprey. Warn edges are the ones the ratchet lists; each is an allowed entry today and fails the check once its phase has passed. The right half is the ratchet, drawn by edge class and the phase that removes it, not entry by entry. Phase 2, the panels seam: panels to facility code, the model and describe imports and the tables read of the vocabulary; after it the panels read facility.json only. Phase 3, the facility untangle: every description edge into the framework, the views helpers, utils.facility, registry.mcp, the CLI, deployment, config paths, the osprey.simulation root and the engine implementations such as pyat; the edges to click and to pyaml_cs_osprey; the engine contract's osprey.simulation.engines spelling, which moves to osprey_connectors; and any description edge to the panels; this breaks the import cycle. Phase 4, the facility package: framework edges into description modules outside the public API, such as the CLI's read of the MML layer data, after which the public API is protected. Phase 5, the panels package: the framework CLI's import of the panels, the panels' climb to the framework theme, which becomes a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: both packages tag and publish. Footer: the ratchet only shrinks; an edge of none of these classes fails the boundary check today.</desc>
+  <desc id="fpt-desc">Two halves. The left half is today. src/osprey/facility is one package. Its description, some 22 modules such as records, combine, build, validate, render, scenarios, compute, layers and kinds, imports itself in one cycle, and the cycle runs through the framework's views, scenarios and render: the description reaches into the framework, and the framework imports description modules that are not its public API. The panels code lives inside it, at facility/panels: it reads facility.json only and imports no description module, and emit climbs its own file path to reach the framework's theme and imports osprey_connectors.safety_file. The framework's facility CLI imports the panels. Beside it, third-party reaches: click in nine description modules, and kinds into pyaml_cs_osprey. Warn edges are the ones the ratchet lists; each is an allowed entry today and fails the check once its phase has passed. The right half is the ratchet, drawn by edge class and the phase that removes it, not entry by entry. Phase 2, the panels seam, is done and lists no edge: the panels read facility.json only. Phase 3, the facility untangle: every description edge into the framework, the views helpers, utils.facility, registry.mcp, the CLI, deployment, config paths, the osprey.simulation root and the engine implementations such as pyat; the edges to click and to pyaml_cs_osprey; the engine contract's osprey.simulation.engines spelling, which moves to osprey_connectors; and any description edge to the panels; this breaks the import cycle. Phase 4, the facility package: framework edges into description modules outside the public API, such as the CLI's read of the MML layer data, after which the public API is protected. Phase 5, the panels package: the framework CLI's import of the panels, the panels' climb to the framework theme, which becomes a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: both packages tag and publish. Footer: the ratchet only shrinks; an edge of none of these classes fails the boundary check today.</desc>
   <defs>
     <marker id="fpt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fpt-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/></marker>
@@ -823,9 +827,8 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
 
   <rect class="nb-warn" x="32" y="240" width="266" height="110" rx="6"/>
   <text class="ta ta-warn" x="44" y="258">PANELS · FACILITY/PANELS/</text>
-  <text class="ts" x="44" y="276">model, describe → records,</text>
-  <text class="ts" x="44" y="290">  relations, validate, pairing</text>
-  <text class="ts" x="44" y="304">tables → vocabulary files</text>
+  <text class="ts" x="44" y="276">reads facility.json only,</text>
+  <text class="ts" x="44" y="290">  no description import</text>
   <text class="ts" x="44" y="318">emit → framework theme (path climb)</text>
   <text class="ts" x="44" y="332">emit → osprey_connectors.safety_file</text>
 
@@ -849,8 +852,6 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
   <text class="ta ta-warn" x="303" y="112">reaches</text>
   <line class="e" x1="350" y1="180" x2="300" y2="180" marker-end="url(#fpt-arr)"/>
   <text class="ta" x="303" y="174">imports</text>
-  <line class="e-warn" x1="165" y1="240" x2="165" y2="206" marker-end="url(#fpt-arr-warn)"/>
-  <text class="ta ta-warn" x="172" y="227">imports</text>
   <line class="e-warn" x1="350" y1="278" x2="300" y2="278" marker-end="url(#fpt-arr-warn)"/>
   <text class="ta ta-warn" x="303" y="272">imports</text>
   <line class="e-warn" x1="298" y1="314" x2="348" y2="314" marker-end="url(#fpt-arr-warn)"/>
@@ -869,12 +870,10 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
   <text class="ts" x="70" y="511">an edge the end state keeps, through the public API</text>
 
   <!-- target: the ratchet by phase -->
-  <rect class="nb-bnd" x="520" y="50" width="460" height="88" rx="6"/>
-  <text class="ta ta-warn" x="532" y="68">PHASE 2 · PANELS SEAM</text>
-  <text class="ts" x="532" y="86">panels → facility code: model, describe → records, relations,</text>
-  <text class="ts" x="532" y="100">  validate, pairing</text>
-  <text class="ts" x="532" y="114">panels → the description's vocabulary files</text>
-  <text class="ts t-acc" x="532" y="128">after it, the panels read facility.json only</text>
+  <rect class="nb-st" x="520" y="50" width="460" height="70" rx="6"/>
+  <text class="ta" x="532" y="68">PHASE 2 · PANELS SEAM · DONE</text>
+  <text class="ts" x="532" y="86">lists no edge</text>
+  <text class="ts t-acc" x="532" y="104">the panels read facility.json only</text>
 
   <rect class="nb-bnd" x="520" y="148" width="460" height="130" rx="6"/>
   <text class="ta ta-warn" x="532" y="166">PHASE 3 · FACILITY UNTANGLE</text>
@@ -909,8 +908,8 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
 </div>
 <p>The headers name these phases:</p>
 <ul class="simple">
-<li><p><strong>Phase 2</strong> removes the panel engine’s imports of facility code and its read of
-the vocabulary files.</p></li>
+<li><p><strong>Phase 2</strong> removed the panel engine’s imports of facility code and its read
+of the vocabulary files; its header is empty.</p></li>
 <li><p><strong>Phase 3</strong> removes the description’s imports of the framework (views helpers,
 <code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code>, the MCP registry, the command line, deployment and
 config paths, the engine implementations), its click imports in nine modules,

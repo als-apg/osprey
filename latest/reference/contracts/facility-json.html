@@ -494,7 +494,8 @@ fork of it, the framework’s own readers, or a reader in another language. What
 the records mean is in <a class="reference internal" href="../../architecture/facility-file.html#architecture-facility-file"><span class="std std-ref">Facility File and Its Views</span></a>; this page covers the
 version rules only.</p>
 <p>Parts of the contract are not enforced yet. Each rule below says whether it
-holds today or is a target, and which phase of the package split makes it hold.</p>
+holds today or is a target, and which phase of the package split makes it hold.
+The panel engine checks the version today; the framework’s readers do not yet.</p>
 <section id="producer">
 <h2>Producer<a class="headerlink" href="#producer" title="Link to this heading">#</a></h2>
 <p>The description’s build is the only producer. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> assembles the
@@ -505,12 +506,30 @@ the build for it.</p>
 <section id="the-header">
 <h2>The header<a class="headerlink" href="#the-header" title="Link to this heading">#</a></h2>
 <p>The document’s first key is its header:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;osprey.facility.facility/3&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;...&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">}}</span>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;osprey.facility.facility/4&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;...&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">}}</span>
 </pre></div>
 </div>
 <p>The header is <code class="docutils literal notranslate"><span class="pre">osprey.facility.facility/N</span></code>, where <code class="docutils literal notranslate"><span class="pre">N</span></code> is a positive integer
-with no leading zero. The current version is <code class="docutils literal notranslate"><span class="pre">3</span></code>; the build takes it from
+with no leading zero. The current version is <code class="docutils literal notranslate"><span class="pre">4</span></code>; the build takes it from
 <code class="docutils literal notranslate"><span class="pre">osprey.facility.validate.FACILITY_HEADER</span></code>.</p>
+</section>
+<section id="tables-a-reader-needs-besides-the-records">
+<h2>Tables a reader needs besides the records<a class="headerlink" href="#tables-a-reader-needs-besides-the-records" title="Link to this heading">#</a></h2>
+<p>The document carries what a reader would otherwise derive from the
+description’s vocabulary, so a reader needs the document alone:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">signals</span></code> is the effective signal-role table, one row per role: the
+vocabulary’s roles and the ones the facility adds, sorted by name. A row
+keeps the fields its source states: <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">aliases</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>,
+<code class="docutils literal notranslate"><span class="pre">nameplate</span></code> (the signal names the unit, not its state) and <code class="docutils literal notranslate"><span class="pre">title</span></code> (the
+word a screen names it by).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">relation_types</span></code> is the vocabulary’s relation types, sorted by name: each
+type’s <code class="docutils literal notranslate"><span class="pre">name</span></code>, the record kinds it may join, whether it is symmetric, and
+what it is single per.</p></li>
+<li><p>every group has a <code class="docutils literal notranslate"><span class="pre">kind</span></code>. When no source states one, the build writes
+<code class="docutils literal notranslate"><span class="pre">family</span></code> and records it in the group’s <code class="docutils literal notranslate"><span class="pre">provenance.defaults</span></code>.</p></li>
+</ul>
+<p>Version <code class="docutils literal notranslate"><span class="pre">4</span></code> added these tables and made a group’s <code class="docutils literal notranslate"><span class="pre">kind</span></code> always present.</p>
 </section>
 <section id="breaking-changes-and-the-bump-rule">
 <h2>Breaking changes and the bump rule<a class="headerlink" href="#breaking-changes-and-the-bump-rule" title="Link to this heading">#</a></h2>
@@ -535,23 +554,36 @@ build at the same <code class="docutils literal notranslate"><span class="pre">N
 strings, and compares the document’s <code class="docutils literal notranslate"><span class="pre">schema</span></code> value against that set exactly.
 A document whose header is missing, malformed or not in the set is refused, and
 the refusal tells the user to rebuild:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>build/facility.json is osprey.facility.facility/2; this reader reads
-osprey.facility.facility/3 -- rebuild with osprey build
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>build/facility.json is osprey.facility.facility/3; this reader reads
+osprey.facility.facility/4 -- rebuild with osprey build
 </pre></div>
 </div>
 <p>A reader does not try to read a version it did not declare, older or newer, and
 does not guess from the keys present. A fork that tracks the document declares
-the versions it has been tested against – today that is <code class="docutils literal notranslate"><span class="pre">/3</span></code> – and adds a
+the versions it has been tested against – today that is <code class="docutils literal notranslate"><span class="pre">/4</span></code> – and adds a
 new <code class="docutils literal notranslate"><span class="pre">N</span></code> only after it has read that version’s breaking change.</p>
 </section>
 <section id="the-published-schema">
 <h2>The published schema<a class="headerlink" href="#the-published-schema" title="Link to this heading">#</a></h2>
 <p>The document’s shape is published as a JSON Schema generated from the
-description’s schema model. A test pins the generated schema: a change to the
-document’s shape fails that test until its author either bumps <code class="docutils literal notranslate"><span class="pre">N</span></code> or marks
-the change additive. The schema file ships inside the description package, so
-forks and readers outside Python can validate a document without OSPREY’s
-source tree.</p>
+description’s schema model, in <code class="docutils literal notranslate"><span class="pre">src/osprey/facility/schema/_generated/</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">facility.schema.json</span></code> is the current shape. It is open: it does not
+refuse a key it does not name, so a document with an added key validates.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">facility-&lt;N&gt;.schema.json</span></code> is the floor for version <code class="docutils literal notranslate"><span class="pre">N</span></code>, written once
+when <code class="docutils literal notranslate"><span class="pre">N</span></code> first appears and never rewritten. <code class="docutils literal notranslate"><span class="pre">facility-4.schema.json</span></code> is
+today’s floor.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/facility_schema/json_schema.py</span></code> regenerates them, and
+its <code class="docutils literal notranslate"><span class="pre">--check</span></code> fails when the current file is stale or a floor is missing. A
+test compares the current schema with the floor of the current <code class="docutils literal notranslate"><span class="pre">N</span></code>: a change
+that is not additive – a removed, renamed or retyped key, a newly required
+key, a removed enum value – fails until its author bumps <code class="docutils literal notranslate"><span class="pre">N</span></code>. The test
+sees shape only; a key that keeps its shape and changes its meaning is held by
+review.</p>
+<p>The schema files ship inside the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> wheel today, so forks and readers
+outside Python can validate a document without OSPREY’s source tree. In
+phase 4 they ship in the description’s own package.</p>
 </section>
 <section id="what-holds-today">
 <h2>What holds today<a class="headerlink" href="#what-holds-today" title="Link to this heading">#</a></h2>
@@ -577,26 +609,36 @@ names its header, and <code class="docutils literal notranslate"><span class="pr
 <td><p>Holds, not checked</p></td>
 <td><p>Only the build’s render writes the file; no test guards it</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">N</span></code> bumps on a breaking change, not on an added key</p></td>
-<td><p>Target</p></td>
-<td><p>Phase 2: the schema-pin test and a producer-side check of the header
-version land with the document-only seam</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">N</span></code> bumps on a change of shape, not on an added key</p></td>
+<td><p>Enforced</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_facility_json_schema.py</span></code>: the current schema
+must be additive over the floor of the current <code class="docutils literal notranslate"><span class="pre">N</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>The generated JSON Schema is pinned by a test</p></td>
-<td><p>Target</p></td>
-<td><p>Phase 2, with the document-only seam</p></td>
-</tr>
-<tr class="row-even"><td><p>The schema ships in the package</p></td>
-<td><p>Target</p></td>
-<td><p>Phase 4, when the description becomes its own package</p></td>
-</tr>
-<tr class="row-odd"><td><p>Readers ignore unknown keys</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">N</span></code> bumps on a change of meaning that keeps the shape</p></td>
 <td><p>Holds, not checked</p></td>
-<td><p>Today’s readers look up the keys they use and pass over the rest</p></td>
+<td><p>Review; no test can see a meaning</p></td>
 </tr>
-<tr class="row-even"><td><p>Readers check <code class="docutils literal notranslate"><span class="pre">N</span></code> and refuse others</p></td>
+<tr class="row-even"><td><p>The generated JSON Schema is pinned by a test</p></td>
+<td><p>Enforced</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_facility_json_schema.py</span></code>: the committed schema
+and the floors equal the generator’s output, and the schema’s header is
+<code class="docutils literal notranslate"><span class="pre">FACILITY_HEADER</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>The schema ships in the description’s package</p></td>
 <td><p>Target</p></td>
-<td><p>No reader compares the header today; see the readers below</p></td>
+<td><p>Phase 4, when the description becomes its own package; today it ships
+in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> wheel</p></td>
+</tr>
+<tr class="row-even"><td><p>Readers ignore unknown keys</p></td>
+<td><p>Enforced for the panel engine</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/panels/test_unknown_keys.py</span></code>; the framework’s readers
+look up the keys they use and pass over the rest, not checked</p></td>
+</tr>
+<tr class="row-odd"><td><p>Readers check <code class="docutils literal notranslate"><span class="pre">N</span></code> and refuse others</p></td>
+<td><p>Enforced for the panel engine</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/panels/test_document.py</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tests/cli/test_facility_panels.py</span></code>; the framework’s readers in
+phase 3, see the readers below</p></td>
 </tr>
 </tbody>
 </table>
@@ -604,8 +646,9 @@ version land with the document-only seam</p></td>
 </section>
 <section id="the-readers">
 <h2>The readers<a class="headerlink" href="#the-readers" title="Link to this heading">#</a></h2>
-<p>The contract binds every reader of <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>. Each starts checking the
-header in the phase shown; until then it reads whatever <code class="docutils literal notranslate"><span class="pre">N</span></code> it finds.</p>
+<p>The contract binds every reader of <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>. The panel engine checks
+the header today; each framework reader starts checking it in the phase shown,
+and until then reads whatever <code class="docutils literal notranslate"><span class="pre">N</span></code> it finds.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -619,9 +662,10 @@ header in the phase shown; until then it reads whatever <code class="docutils li
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>The panel engine (<code class="docutils literal notranslate"><span class="pre">osprey.facility.panels.model.load_graph</span></code>)</p></td>
-<td><p>Every record, to lay out the facility’s screens</p></td>
-<td><p>Phase 2</p></td>
+<tr class="row-even"><td><p>The panel engine (<code class="docutils literal notranslate"><span class="pre">osprey.facility.panels.document</span></code>)</p></td>
+<td><p>Every record and the <code class="docutils literal notranslate"><span class="pre">signals</span></code> and <code class="docutils literal notranslate"><span class="pre">relation_types</span></code> tables, to lay
+out the facility’s screens</p></td>
+<td><p>Enforced: reads <code class="docutils literal notranslate"><span class="pre">/4</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>The write guard (<code class="docutils literal notranslate"><span class="pre">osprey.runtime.guarded_run</span></code>)</p></td>
 <td><p>Each channel’s <code class="docutils literal notranslate"><span class="pre">command</span></code>, before a write is let through</p></td>
@@ -647,8 +691,8 @@ Canopy screen guide, the channel finder’s database, the CLI)</p></td>
 </tbody>
 </table>
 </div>
-<p>The panel engine checks first because it is the reader a fork replaces: from
-phase 2 it imports no facility code and reads the document alone. The write
+<p>The panel engine checks first because it is the reader a fork replaces: it
+imports no facility code and reads the document alone. The write
 guard is the first framework reader to check, because a write must never pass
 on a document the guard cannot vouch for.</p>
 </section>
@@ -703,6 +747,7 @@ on a document the guard cannot vouch for.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#producer">Producer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-header">The header</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tables-a-reader-needs-besides-the-records">Tables a reader needs besides the records</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#breaking-changes-and-the-bump-rule">Breaking changes and the bump rule</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-reader-rule">The reader rule</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-published-schema">The published schema</a></li>
