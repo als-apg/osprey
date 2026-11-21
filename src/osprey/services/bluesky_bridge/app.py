@@ -783,7 +783,7 @@ def write_session_plan(request: PlanSessionWriteRequest) -> dict:
     """Author a session-tier plan file. NEVER imports or execs it.
 
     Assembles the final file content as ONE string — a generated
-    `PLAN_METADATA = {...}` block carrying exactly the three declared fields
+    `PLAN_METADATA = {...}` block carrying the three required fields
     (``name``/``description``/``writes``), followed by the author's own
     ``body`` — and writes exactly that string to ``resolve_session_plan_dir()/<name>.py``,
     overwriting any existing file of the same name (a name reused for
