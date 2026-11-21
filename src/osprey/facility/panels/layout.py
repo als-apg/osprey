@@ -1429,6 +1429,29 @@ class _Screen:
     def widget(self, kind: str, x, y, w, h, props: dict[str, Any], **kw: Any) -> dict[str, Any]:
         return self.add({"type": kind, "props": props, "geometry": _geometry(x, y, w, h)}, **kw)
 
+    def link_tip(self, label: str, x: float, y: float, w: float, h: float) -> str:
+        """The tooltip of a link box over ``(x, y, w, h)``: the whole text of every
+        cut label already drawn under it, one per line in the order drawn, so a
+        link drawn over cut labels shows what they cannot, and the link's own
+        *label* first where none of those texts holds it. Past
+        :data:`TOOLTIP_LINES` lines the rest is counted, as the viewer shows a
+        bubble only as far as the window reaches."""
+        wholes: list[str] = []
+        for node in self.nodes:
+            text = node["props"].get("text") if node["type"] == "text-label" else None
+            if not isinstance(text, _Cut):
+                continue
+            g = node["geometry"]
+            middle_x, middle_y = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+            if x <= middle_x <= x + w and y <= middle_y <= y + h and text.whole not in wholes:
+                wholes.append(text.whole)
+        if not any(label in whole for whole in wholes):
+            wholes.insert(0, label)
+        if len(wholes) > TOOLTIP_LINES:
+            rest = len(wholes) - TOOLTIP_LINES + 1
+            wholes = [*wholes[: TOOLTIP_LINES - 1], f"and {rest} more"]
+        return "\n".join(wholes)
+
     def rule(self, name: str, target: str, ladder: Ladder, values: Mapping[str, Any]) -> dict:
         """One prop's rule: the value of the first arm that holds, else unknown's."""
         self._rules += 1
@@ -4922,11 +4945,12 @@ class _Page:
         file = self.screens(link.target)
         if file is None:
             return
+        tip = self.s.link_tip(link.label, x, y, w, h)
         props: dict[str, Any] = {
             "lineColor": BOX_BORDER if outline else TRANSPARENT,
             "lineWidth": LINE_WIDTH if outline else 0,
             "fill": False,
-            _TOOLTIP: link.label,
+            _TOOLTIP: tip,
             "actions": [
                 {
                     "type": "open_display",
@@ -4936,7 +4960,7 @@ class _Page:
             ],
         }
         if not outline:
-            props[_HOVER_LABEL] = link.label
+            props[_HOVER_LABEL] = tip
         self.s.widget("rectangle", x, y, w, h, props, tags=(_need("clickable text"),))
 
     # -- the strip ------------------------------------------------------------
