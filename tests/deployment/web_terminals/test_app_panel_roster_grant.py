@@ -46,7 +46,7 @@ def _deployment(project: Path, operator_panels: dict, *, granted: bool = False) 
     """
     services: dict = {"knob": {}}
     if granted:
-        services["knob"]["roster_grant"] = {"panel_id": "knob", "single_user_alias": False}
+        services["knob"]["roster_grant"] = {"panel_id": "knob"}
     return {
         "services": services,
         "modules": {

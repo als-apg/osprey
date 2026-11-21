@@ -261,7 +261,7 @@ def deployment_slice(repo: Path) -> dict[str, Any]:
         "app-config.yml": app_config,
         "roster_grant": {
             "service": grant.service,
-            "single_user_alias": grant.single_user_alias,
+            "names_single_user_operator": grant.names_single_user_operator,
         },
         "reach_contract": {
             "service": contract.service,
