@@ -1751,7 +1751,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the layout cut to fit. The layout measures text in the viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
-   label in a chain block takes two lines, and a text still longer than its box
+   label in a chain block takes two lines, a muted line of prose (a caption, a
+   note, what a press writes, a source) takes as many lines as it needs, and a
+   text still longer than its box
    is cut there with an ellipsis and listed, so the viewer never has to shrink
    or clip a label. A value display is as wide as the widest text the facility
    states it can show: its longest state word, else its limits as the display

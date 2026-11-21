@@ -2776,7 +2776,7 @@ class _Page:
         notes = [strip.caption or "", _DIPOLE_DRAWN.format(CARD_DIPOLE_M) if dipoles else ""]
         line = "; ".join(n for n in notes if n)
         if line:
-            for text in _wrap(line, STRIP_WIDTH, SMALL_SIZE):
+            for text in _prose(line, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
 
@@ -2888,7 +2888,7 @@ class _Page:
         if ladder.left_out:
             notes.append(_LADDER_LEFT_OUT.format(", ".join(ladder.left_out)))
         for text in [*notes, *([ladder.caption] if ladder.caption else [])]:
-            for line in _wrap(text, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+            for line in _prose(text, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
         self.y += ROW_GAP
@@ -2957,7 +2957,7 @@ class _Page:
             self.ring_columns(ring.members[start : start + k], self.x0 + head, cw, per, height)
             start += k
         if ring.caption:
-            for text in _wrap(ring.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+            for text in _prose(ring.caption, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
         self.y += ROW_GAP
@@ -3116,7 +3116,7 @@ class _Page:
             self.small(self.x0, self.y, _NO_CONNECTOR, fg=MUTED_TEXT)
             self.y += SMALL_LINE + ROW_GAP
         if front.writes:
-            for text in _wrap(front.writes, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+            for text in _prose(front.writes, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
             self.y += ROW_GAP
@@ -3125,7 +3125,7 @@ class _Page:
         if front.loose:
             self.front_loose(front)
         if front.caption:
-            for text in _wrap(front.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+            for text in _prose(front.caption, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
         self.y += ROW_GAP
@@ -3414,7 +3414,7 @@ class _Page:
                 x += w + (gaps[k] if k < len(gaps) else 0)
             self.y = bottom + GAP + (2 * ROW_GAP if n < len(chain.blocks) else 0)
         if chain.foot:
-            for line in _wrap(chain.foot, STRIP_WIDTH, SMALL_SIZE):
+            for line in _prose(chain.foot, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
         self.y += ROW_GAP
@@ -3627,7 +3627,7 @@ class _Page:
                         )  # fmt: skip
                         x += room + GAP
             self.y += CONTROL_HEIGHT + ROW_GAP
-        for line in _wrap(group.writes, width, SMALL_SIZE):
+        for line in _prose(group.writes, width, SMALL_SIZE):
             self.small(x0, self.y, line, fg=MUTED_TEXT)
             self.y += SMALL_LINE
         self.y += GAP
@@ -3745,7 +3745,7 @@ class _Page:
         """A group's muted line of what it writes; over many channels, their names
         on hover."""
         top = self.y
-        for line in _wrap(group.writes, width, SMALL_SIZE):
+        for line in _prose(group.writes, width, SMALL_SIZE):
             self.small(self.x0, self.y, line, fg=MUTED_TEXT)
             self.y += SMALL_LINE
         if len(group.controls) > ENTRIES_IN_ONE_COLUMN:
@@ -6073,7 +6073,7 @@ class _Page:
         if note and x + GAP + text_width(note, SMALL_SIZE) <= self.right:
             self.small(x + GAP, self.y, note, fg=MUTED_TEXT)
         elif note:
-            for line in _wrap(note, self.right - left, SMALL_SIZE):
+            for line in _prose(note, self.right - left, SMALL_SIZE):
                 self.y += SMALL_LINE
                 self.small(left, self.y, line, fg=MUTED_TEXT)
         self.y += SMALL_LINE + GAP
@@ -6112,16 +6112,15 @@ class _Page:
                 text += f" ({_NOT_PLACED})"
             elif loose:
                 text += f" ({', '.join(loose)} {_NOT_PLACED})"
-            lines = _wrap(text, width - PART_LABEL_WIDTH - GAP, SMALL_SIZE)
+            lines = _prose(text, width - PART_LABEL_WIDTH - GAP, SMALL_SIZE)
             for n, line in enumerate(lines):
                 self.text(x + GAP, self.y + n * SMALL_LINE, line, size=SMALL_SIZE, h=SMALL_LINE)
             self.y += max(1, len(lines)) * SMALL_LINE + ROW_GAP
         sources = list(dict.fromkeys(_source(p) for p in picture.parts if _source(p)))
         for source in sources[:PICTURE_SOURCES]:
-            self.text(
-                self.x0, self.y, f"source {source}", size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT
-            )
-            self.y += SMALL_LINE
+            for line in _prose(f"source {source}", self.right - self.x0, SMALL_SIZE):
+                self.text(self.x0, self.y, line, size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
         if len(sources) > PICTURE_SOURCES:
             more = _MORE_ROWS.format(len(sources) - PICTURE_SOURCES)
             self.text(self.x0, self.y, more, size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT)
@@ -6916,6 +6915,24 @@ def _wrap(
             line = _cut(" ".join([line, *words]), width, size, caps=caps)
             words = []
         out.append(_cut(line, width, size, caps=caps))
+    return out or [""]
+
+
+def _prose(text: str, width: float, size: float) -> list[str]:
+    """A muted line of prose (a caption, a note, what a press writes, a source) in
+    as many lines as it needs, so none is cut: the page grows instead. It breaks
+    after a space, and inside a long word after a slash, comma or semicolon; only
+    a piece wider than the line by itself is cut."""
+    pieces = re.findall(r"[^\s/,;]*[\s/,;]+|[^\s/,;]+$", text.strip())
+    out: list[str] = []
+    line = ""
+    for piece in pieces:
+        if line and text_width((line + piece).rstrip(), size) > width:
+            out.append(_cut(line.rstrip(), width, size))
+            line = ""
+        line += piece
+    if line.strip():
+        out.append(_cut(line.rstrip(), width, size))
     return out or [""]
 
 

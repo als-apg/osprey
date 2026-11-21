@@ -215,3 +215,19 @@ def test_a_checkout_s_name_columns_take_their_longest_names_and_stay_on_the_page
     huge = "X" * 120
     channel_w, thing_w = layout.check_columns([row(huge, huge)])
     assert thing_w == layout.NAME_LEAST and channel_w + thing_w == room
+
+
+def test_a_line_of_prose_takes_the_lines_it_needs_and_loses_no_text():
+    text = (
+        "source XR-0001-0002 B.5 (drawing) released in XR-0003-0004 A.12 feature 7, "
+        "path XR-0005-0006/XR-0003-0004/XR-0001-0002; the rest of the note follows"
+    )
+    width = 240
+    lines = layout._prose(text, width, layout.SMALL_SIZE)
+    assert len(lines) > layout.TILE_LINES  # more than the old limit of two
+    assert all(
+        layout.text_width(line, layout.SMALL_SIZE) <= width + layout.TEXT_PAD for line in lines
+    )
+    assert not any(line.endswith("…") for line in lines)  # nothing cut
+    # breaking at a space, a slash, a comma or a semicolon keeps every character
+    assert "".join(lines).replace(" ", "") == text.replace(" ", "")
