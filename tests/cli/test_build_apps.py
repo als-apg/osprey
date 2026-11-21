@@ -36,6 +36,7 @@ KNOB: dict[str, Any] = {
         "container": "knob",
         "launch_token": True,
         "agent_routes": [["GET", "/api/state"], ["POST", "/api/set"]],
+        "roster_grant": {},
     },
     "tools": {
         "module": "knob_app.tools",
@@ -234,6 +235,21 @@ def test_a_shared_person_card_on_an_arming_login_is_refused_naming_the_card(
     assert "alice" in output
     assert "knob" in output
     assert "is shared" in output
+
+
+def test_a_roster_card_showing_a_panel_with_no_roster_grant_is_refused(
+    lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    panel = {k: v for k, v in KNOB["panel"].items() if k != "roster_grant"}
+    _with_knob(lifecycle_repo, panel=panel)
+
+    result = invoke_build(lifecycle_repo)
+    output = result.output + caplog.text
+
+    assert result.exit_code != 0, output
+    assert "roster_grant" in output
+    assert "'knob'" in output
+    assert "'alice'" in output
 
 
 @pytest.mark.parametrize(
@@ -535,7 +551,11 @@ def test_an_unlisted_directory_is_reported_and_not_built(roster_repo: Path) -> N
 
 @pytest.fixture
 def built_packages(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The names of the packages the build went on to build and install."""
+    """The names of the packages the build went on to build and install.
+
+    Its tests build the exemplar :func:`_roster_less`: which packages a build makes
+    follows from ``dependencies:`` and ``apps:`` alone, and a roster only adds logins.
+    """
     from osprey.cli import build_cmd
 
     names: list[str] = []
@@ -568,6 +588,7 @@ def test_an_unlisted_directory_is_reported_and_nothing_of_it_is_built_or_install
     listing: bool,
     unlisted: Any,
 ) -> None:
+    _roster_less(lifecycle_repo)
     if listing:
         _with_knob(lifecycle_repo)
     unlisted(lifecycle_repo / "apps" / "helper")
@@ -600,7 +621,7 @@ def test_a_dependency_an_unlisted_directory_declares_is_refused(
 def test_the_local_path_form_builds_what_the_unlisted_directory_declares(
     lifecycle_repo: Path, built_packages: list[str], caplog: pytest.LogCaptureFixture
 ) -> None:
-    _package(lifecycle_repo / "apps" / "helper", "lab-helper")
+    _package(_roster_less(lifecycle_repo) / "apps" / "helper", "lab-helper")
     _with_dependency(lifecycle_repo, "./apps/helper")
 
     result = invoke_build(lifecycle_repo)
@@ -612,7 +633,7 @@ def test_the_local_path_form_builds_what_the_unlisted_directory_declares(
 def test_a_package_that_is_no_application_builds_as_a_local_dependency(
     lifecycle_repo: Path, built_packages: list[str], caplog: pytest.LogCaptureFixture
 ) -> None:
-    _package(lifecycle_repo / "libs" / "helper", "helper")
+    _package(_roster_less(lifecycle_repo) / "libs" / "helper", "helper")
     profile = yaml.safe_load((lifecycle_repo / "profile.yml").read_text(encoding="utf-8"))
     profile["dependencies"] = [*(profile.get("dependencies") or []), "./libs/helper"]
     (lifecycle_repo / "profile.yml").write_text(
@@ -628,7 +649,7 @@ def test_a_package_that_is_no_application_builds_as_a_local_dependency(
 def test_a_listed_application_package_is_built(
     lifecycle_repo: Path, built_packages: list[str], caplog: pytest.LogCaptureFixture
 ) -> None:
-    _package(_with_knob(lifecycle_repo) / "apps" / "knob", "knob-app")
+    _package(_with_knob(_roster_less(lifecycle_repo)) / "apps" / "knob", "knob-app")
 
     result = invoke_build(lifecycle_repo)
 
@@ -726,12 +747,9 @@ def test_a_host_network_runtime_container_declares_its_bind_variable(lifecycle_r
     assert render["services"]["knob"]["bind_env"] == "OSPREY_APP_BIND"
 
 
-def test_a_bridge_network_runtime_container_declares_nothing(lifecycle_repo: Path) -> None:
-    _with_knob(lifecycle_repo)
-
-    render = rendered_config(_built(lifecycle_repo))
-
-    assert "bind_env" not in render["services"]["knob"]
+def test_a_bridge_network_runtime_container_declares_nothing(roster_repo: Path) -> None:
+    """``roster_repo`` lists the knob with no ``network``, which is a bridge container."""
+    assert "bind_env" not in rendered_config(roster_repo)["services"]["knob"]
 
 
 # --- the two readings of the host ---------------------------------------------------

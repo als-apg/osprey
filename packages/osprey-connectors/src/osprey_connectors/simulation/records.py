@@ -156,6 +156,7 @@ class WiringRecord(TypedDict, total=False):
 
     id: str
     address: Required[str]
+    also: Sequence[str]
     element: str
     direction: str
     default: object

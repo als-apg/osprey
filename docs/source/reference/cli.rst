@@ -507,11 +507,16 @@ Stop this deployment, keeping all data. It renders nothing; destroying data is
 
 If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
 compose files from ``profile.yml`` — those describe what would be started now,
-not what is running. Instead it stops the containers this repository labelled as
-its own, which is the recovery path for a ``build/`` deleted while the stack was
-up. Containers are labelled when they are *created*, so a stack started before
-this labelling existed cannot be found that way; run ``osprey build`` to restore
-``build/`` and ``down`` works normally again.
+not what is running. Instead it stops the services the last start recorded, in
+the compose project it recorded, and leaves any container another checkout
+created. That is the recovery path for a ``build/`` deleted while the stack was
+up.
+
+A deployment whose record names no services, or a repository with no record, is
+stopped by the label this repository put on its containers. Containers are
+labelled when they are *created*, so a stack started before this labelling
+existed cannot be found that way; run ``osprey build`` to restore ``build/`` and
+``down`` works normally again.
 
 osprey restart
 --------------
@@ -564,7 +569,8 @@ osprey reset
 Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
-out of ``.env``, and deletes ``build/`` and ``var/deployment.json``.
+out of ``.env``, and deletes ``build/``, ``var/deployment.json`` and
+``var/host-network-ports.json``.
 
 What survives, the plan lists before you confirm:
 
@@ -1179,8 +1185,9 @@ is :doc:`/how-to/apps/index`.
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
    ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` loads the design-system ``tokens.css``,
-   ``base.css`` and ``primitives.css`` and every class the panel sets has a CSS
+   packages, that ``panel/index.html`` passes the panel validator's page rules
+   (the three design-system sheets, the theme boot script, the font sheet, no raw
+   hex colour, the page-ready mark) and every class the panel sets has a CSS
    rule, ESLint over ``panel/`` when it holds JS, and Vitest over
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
@@ -1199,10 +1206,18 @@ osprey facility
 Check and show the facility description under ``data/facility/`` and import
 an export into it. See :doc:`/how-to/import-mml-export` for the import end to end.
 
-``osprey facility validate [--repo DIRECTORY]``
+``osprey facility validate [--repo DIRECTORY] [--all-limits]``
    Run every check ``osprey build`` makes of ``data/facility/`` and render the
    facility views against the repo's main profile in a temporary directory.
-   Nothing is written into the repo. A clean tree exits 0, and each model with
+   Nothing is written into the repo. A clean tree reports two limits findings
+   on stderr, each a ``limits:`` count line and one indented line per
+   address, sorted: the setpoints with no limits record (the target serves
+   them writable with no range when ``control_system.limits_checking.mode`` is
+   ``optional``, and refuses writes to them otherwise), and the limits records
+   that state one of ``min_value`` and ``max_value`` (served not writable until
+   they state both). A finding lists its first ten addresses and counts the
+   rest; ``--all-limits`` lists every one. The findings change nothing,
+   the exit code included, and a finding with no address is not printed. A clean tree exits 0, and each model with
    a kept ``imported/mml/<model>.response.json`` prints one
    ``response check <model>: …`` line on stderr, pass or fail; a failing check
    exits 1 before the render. When the check left rows out of the comparison,
@@ -1623,8 +1638,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    card names it without a link. ``check`` counts the devices with no card, those
    the default alone leaves without one, and how many devices each row decides. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
-   ``card`` whose ``level`` names its recipe, else its roles, but never a role
-   whose word is a ``nameplate`` signal, which says what the device is, not how
+   ``card`` whose ``level`` names its recipe, else the roles exactly one of the
+   device's own channels plays, a neighbour's channel its roles reach not
+   counted, but never a role whose word is a ``nameplate`` signal, which says what the device is, not how
    it is (a ``channel_roles.csv`` row giving the channel another word overrides
    it); a tile's measure is
    ``value`` or ``word`` of the role's first channel, or over every channel of
@@ -1701,8 +1717,87 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    nothing else is touched, and a non-empty ``--out`` without an
    ``index.json`` is refused. ``--kind`` (repeatable) and ``--under`` write
    only the screens that match; links to the others are still written. The
-   command prints the screen count and size per view kind and the ``--top``
-   largest screens (default 10).
+   command prints the screen count and size per view kind, the class summary
+   (see ``panels classes``) and the ``--top`` largest screens (default 10).
+
+   Each entry of ``index.json`` names its screen's ``class``, and the index's
+   ``classes`` table states, per class, its key, its ``standard`` screen, its
+   member count, how many members are ``off_standard``, how many have a ``cut``
+   label, a ``layout`` hash (of the standard's structure, the format and the
+   drawing settings), a ``drawing`` digest (of the standard's written file
+   without the model stamp, which moves when the screen is drawn otherwise and
+   not when only the facility file's content hash does) and a ``sample``;
+   ``class_summary`` holds the counts
+   a gate reads, with the classes of one screen per view kind. Two screens are
+   of one class when they have one key: for a device's card and its channel
+   list, the device's class, the card recipe it is drawn from and the set of
+   signal roles the card shows (a role played by two channels counts once; the
+   driver-internal role and channels with no role are not in it). Where cards
+   of one such class drawn by the default recipe show different blocks (a card
+   one can act from and a read-only one, a card with or without key tiles),
+   the key also holds ``blocks``, the kinds of block the card shows by presence
+   (a channel list drawn as a grid or as a count is one block), and the class
+   splits into one per kind of card; a class whose cards all show the same
+   blocks keeps its key and its id. For a
+   calibration overview, its calibration kind and its structure (a gain and an
+   offset are judged apart even where they are drawn alike); for every other
+   screen (a set, a place, a rack, a roll-up, a checkout, the card of a place or
+   a group), its view kind, the kind of thing it shows and its structure. The
+   device types of a set's members are names, not a layout, and are not in its
+   key.
+
+   Sameness is measured on what a screen shows, not on its file. Its structure
+   is its sections and the kinds of item, block and relation they hold. Left
+   out are text and numbers; how many items a repeated block holds and their
+   order (a size); the parts that state what is known rather than what is drawn,
+   such as a source, a unit, a stated position or a link to the thing's screen
+   (a gap where one is missing); and data-state flags such as inferred,
+   contested or writable. The standard is the member whose structure most
+   members share (a tie goes to the smaller structure hash), and the ``layout``
+   hash covers the standard's structure, the panels format and the drawing
+   settings: it changes when the class's typical screen changes, not when a
+   member is added or renamed.
+
+   An entry off its standard lists how under ``differs``, in words: a section,
+   a kind of item, a block or a relation present or missing (``no tiles
+   section``, ``relations: a value row, which the standard has not``). What
+   varies from the standard without making another screen is under
+   ``varies``: sizes (``foot: where: 4, the standard 3``), gaps, flags and
+   drawing variants (a channel list drawn as a count above its size). Each
+   entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
+   ``unit`` or ``where without a link``, for a checker to total per class),
+   ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
+   the layout cut to fit. The layout measures text in the viewer's own font
+   (IBM Plex Sans): a column takes the width its longest label needs (a
+   checkout's channel and thing columns their longest names), a long
+   label in a chain block takes two lines, a muted line of prose (a caption, a
+   note, what a press writes, a source, also beside a fact) takes as many lines
+   as it needs, conditions that several calibration rows state alike are stated
+   once under the rows, a name with no separator breaks where a small letter
+   meets a capital, and a text still longer than its box is cut there with an
+   ellipsis and listed. The engine writes the whole text as a tooltip on a box
+   over the cut label (a link over it carries the link's label); a viewer that
+   shows tooltips shows it, and no viewer has to shrink or clip a label. A
+   value display is as wide as the widest text the facility
+   states it can show: its longest state word, else its limits as the display
+   prints them when they are wider than the stand-in ``-0.00123``, else that
+   stand-in, with the unit where the display prints it. Every text label's box
+   is at least one line of the font high (a light's mark among them), grown
+   about its middle where it was lower. A class's ``sample`` names the members a reviewer
+   opens: the standard, the smallest, the largest, the one with the longest
+   label, the first off standard, and one member on each side of every
+   variation that changes the drawing (a part drawn with or without a stated
+   position, a channel list drawn as a grid or a count). Each member of the
+   sample is ``{"file", "as"}``: its file and what it stands for, one or more of
+   ``standard``, ``smallest``, ``largest``, ``longest labels`` and ``off
+   standard``, and the drawing sides it is the first to show (``x_mm missing``,
+   ``channel list drawn as ChannelCount``).
+   A device's card and channel list also state, under ``others``, what they
+   show of other things on purpose: each thing, the kind of item that draws it
+   (``strip member``, ``chain block``, ...) and the channels of it the screen
+   binds; a row that names no thing (a channel list's row of a device the
+   roles reach) is placed by its channel's owner. A checker can then tell a
+   neighbour's channel from a channel on the wrong screen.
 
 ``osprey facility panels check --out DIRECTORY [--strict] [--max-bytes N] [--limit N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
    Regenerate every screen and compare it with the files under ``--out``;
@@ -1712,15 +1807,30 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``stamp``, ``invalid``, ``incomplete``, ``oversize`` (over
    ``--max-bytes``), ``unrolled`` (a rule channel no roll-up reads),
    ``static_rollup``, ``long_formula`` (an expression over the viewer's
-   length limit) or ``over_budget`` (more rules or channels than one screen
-   may bind). A link outside the written set, a card or checkout over its
+   length limit), ``over_budget`` (more rules or channels than one screen
+   may bind) or ``stale_class`` (a screen's class or what its entry states about
+   it, or the class table or its summary, in ``index.json`` other than the
+   model gives now). A link outside the written set, a card or checkout over its
    budget, a probe row whose signal no channel states, and a ``pictures.csv``
    row whose signal binds no channel (``unbound_picture``) or channels of two
    devices (``ambiguous_picture``) are notes, and fail only with ``--strict``.
    Before the problems it prints the device classes by how ``pictures.csv``
    draws them (with a drawing, with parts only, with none) and, per class, the
    parts not placed (no position and no angle): information, never a problem.
-   A clean set prints ``The written screens match the model.``
+   After the problems it prints the class summary from the index. A clean set
+   prints ``The written screens match the model.``
+
+``osprey facility panels classes --out DIRECTORY [--limit N] [--differs]``
+   Print the class table of the ``index.json`` under ``--out``; nothing else is
+   read. One row per class, the largest first: its members, those off the
+   standard, those with a cut label, the class and its standard's file; the
+   first ``--limit`` rows (default 30, ``0`` for all). Then one row per view
+   kind: its screens, classes, classes of one screen, screens off their
+   standard and screens with a cut label. ``--differs`` adds every screen off
+   its standard, and how. The last line is the summary a gate reads:
+   ``classes: N classes (S of more than one screen), M screens off their
+   standard, C with a label cut; single: <view> <count>, ...``. Exits 1 when
+   the index is missing or holds no class table.
 
    Where a screen needs a widget the Screen-IR format lacks (a five-state
    light, a hatched fill, a scrolling table, clickable text, a condition on an

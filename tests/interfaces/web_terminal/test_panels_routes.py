@@ -14,15 +14,29 @@ nothing; agent dock writes are the ``/api/panel-op/*`` routes
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.design_system.panels.validator import (
+    PanelFinding,
+    PanelRule,
+    validate_panel,
+)
+from osprey.interfaces.web_terminal.panel_discovery import (
+    DiscoveryFinding,
+    DiscoveryRule,
+    RefusedPanel,
+    apply_discovered_panels,
+)
 from osprey.interfaces.web_terminal.routes.panels import router
 
 from .conftest import bare_route_app
+from .test_panel_discovery import _UNMARKED_HTML, _VALID_HTML
 
 
 def _make_app(project_cwd) -> FastAPI:
@@ -81,6 +95,7 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
     assert set(body) == {
         "enabled",
         "custom",
+        "refused",
         "default",
         "visible",
         "active",
@@ -544,3 +559,93 @@ def test_api_panels_carries_an_application_panels_presentation(tmp_path):
     (row,) = _panels(app)["custom"]
 
     assert {key: row[key] for key in PRESENTATION} == PRESENTATION
+
+
+# ---- The refused panels: every bundle under panels/ that is not served ----
+
+_NEVER_READY = "never sets the page-ready mark"
+
+
+def _refused_app(tmp_path, refused, **state) -> FastAPI:
+    return bare_route_app(router, project_cwd=str(tmp_path), refused_panels=refused, **state)
+
+
+def test_refused_is_empty_when_nothing_was_refused(tmp_path):
+    assert _panels(_make_app(tmp_path))["refused"] == []
+
+
+def test_a_refused_panel_carries_the_validators_findings_relative_to_the_project(tmp_path):
+    finding = PanelFinding(PanelRule.PAGE_READY, _NEVER_READY, f"{tmp_path}/panels/xyz/index.html")
+    body = _panels(_refused_app(tmp_path, [RefusedPanel("xyz", (finding,), "xyz")]))
+    assert body["refused"] == [
+        {
+            "id": "xyz",
+            "findings": [
+                {"rule": "page_ready", "message": _NEVER_READY, "source": "panels/xyz/index.html"}
+            ],
+        }
+    ]
+
+
+def test_a_located_finding_keeps_its_line(tmp_path):
+    finding = PanelFinding(PanelRule.RAW_HEX_COLOR, "raw hex", f"{tmp_path}/panels/xyz/app.css:3")
+    body = _panels(_refused_app(tmp_path, [RefusedPanel("xyz", (finding,), "xyz")]))
+    assert body["refused"][0]["findings"][0]["source"] == "panels/xyz/app.css:3"
+
+
+def test_a_source_outside_the_project_stays_as_given(tmp_path):
+    finding = PanelFinding(PanelRule.PAGE_READY, _NEVER_READY, "/elsewhere/index.html")
+    body = _panels(_refused_app(tmp_path, [RefusedPanel("xyz", (finding,), "xyz")]))
+    assert body["refused"][0]["findings"][0]["source"] == "/elsewhere/index.html"
+
+
+def test_a_refusal_naming_a_withheld_panel_is_left_out(tmp_path):
+    secret = {"id": "secret", "label": "S", "url": "http://x/", "access": ["user:a@example.org"]}
+    finding = DiscoveryFinding(
+        DiscoveryRule.ID_TAKEN, "taken", f"{tmp_path}/panels/s/manifest.json"
+    )
+    unmarked = PanelFinding(PanelRule.PAGE_READY, _NEVER_READY, f"{tmp_path}/panels/u/index.html")
+    app = _refused_app(
+        tmp_path,
+        [
+            RefusedPanel("s", (finding,), "secret"),
+            RefusedPanel("secret", (unmarked,), None),
+            RefusedPanel("u", (unmarked,), None),
+        ],
+        custom_panels=[secret],
+    )
+    body = _panels(app)
+    assert [c["id"] for c in body["custom"]] == []
+    assert [r["id"] for r in body["refused"]] == ["u"]
+
+
+def test_the_panels_list_and_discovery_agree(tmp_path):
+    good = tmp_path / "panels" / "good"
+    unmarked = tmp_path / "panels" / "unmarked"
+    for bundle, html in ((good, _VALID_HTML), (unmarked, _UNMARKED_HTML)):
+        bundle.mkdir(parents=True)
+        (bundle / "manifest.json").write_text(
+            json.dumps({"id": bundle.name, "label": "X", "entry": "index.html", "version": 1}),
+            encoding="utf-8",
+        )
+        (bundle / "index.html").write_text(html, encoding="utf-8")
+    app = bare_route_app(
+        router,
+        project_cwd=str(tmp_path),
+        allow_runtime_panels=True,
+        custom_panels=[],
+        visible_panels=[],
+    )
+    apply_discovered_panels(app)
+    body = _panels(app)
+    assert [c["id"] for c in body["custom"]] == ["good"]
+    [refused] = body["refused"]
+    assert refused["id"] == "unmarked"
+    assert refused["findings"] == [
+        {
+            "rule": str(f.rule),
+            "message": f.message,
+            "source": str(Path(f.source).relative_to(tmp_path)),
+        }
+        for f in validate_panel(unmarked)
+    ]

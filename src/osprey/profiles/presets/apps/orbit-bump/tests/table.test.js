@@ -23,7 +23,7 @@ import {
  */
 
 const MARKUP = `
-  <span data-field="plane"><button data-plane="x"></button><button data-plane="y"></button></span>
+  <span data-field="plane"><button data-value="x"></button><button data-value="y"></button></span>
   <select data-field="model" hidden></select>
   <span data-field="orm"><i></i><span data-field="orm-text"></span><button data-field="recompute"></button></span>
   <span data-field="no-model" hidden>no closed-orbit model</span>
@@ -232,11 +232,10 @@ function choose(select, value) {
  * Press the button of a segmented control.
  * @param {Element} root
  * @param {string} name the control's data-field
- * @param {string} attr the attribute its buttons carry their value in
  * @param {string} value
  */
-function pressSeg(root, name, attr, value) {
-  const button = field(root, name).querySelector(`[${attr}="${value}"]`);
+function pressSeg(root, name, value) {
+  const button = field(root, name).querySelector(`[data-value="${value}"]`);
   if (!button) throw new Error(`no ${value} in ${name}`);
   click(button);
 }
@@ -245,10 +244,11 @@ function pressSeg(root, name, attr, value) {
  * The value of the pressed button of a segmented control.
  * @param {Element} root
  * @param {string} name
- * @param {string} attr
  */
-function pressed(root, name, attr) {
-  return field(root, name).querySelector('[aria-pressed="true"]')?.getAttribute(attr) ?? null;
+function pressed(root, name) {
+  return (
+    field(root, name).querySelector('[aria-pressed="true"]')?.getAttribute('data-value') ?? null
+  );
 }
 
 /**
@@ -437,9 +437,9 @@ describe('the orbit-bump table and controls', () => {
   describe('the corrector rule', () => {
     it('defaults to auto and offers auto, tight and manual as a segmented control', () => {
       showState(root, state());
-      expect(pressed(root, 'rule', 'data-rule')).toBe('auto');
-      const offered = [...field(root, 'rule').querySelectorAll('[data-rule]')].map((button) => [
-        button.getAttribute('data-rule'),
+      expect(pressed(root, 'rule')).toBe('auto');
+      const offered = [...field(root, 'rule').querySelectorAll('[data-value]')].map((button) => [
+        button.getAttribute('data-value'),
         button.textContent,
       ]);
       expect(offered).toEqual([
@@ -454,10 +454,21 @@ describe('the orbit-bump table and controls', () => {
       const { fetcher, log } = backend(() => state());
       bindControls(root, fetcher);
       showState(root, state({ plan: plan() }));
-      pressSeg(root, 'rule', 'data-rule', 'mml:[-1 1]');
+      pressSeg(root, 'rule', 'mml:[-1 1]');
       expect(panelOf(root).selection.rule).toBe('mml:[-1 1]');
-      expect(pressed(root, 'rule', 'data-rule')).toBe('mml:[-1 1]');
+      expect(pressed(root, 'rule')).toBe('mml:[-1 1]');
       expect(log).toEqual([]);
+    });
+
+    it('moves to the next rule on the right arrow key', () => {
+      bindControls(root, backend(() => state()).fetcher);
+      showState(root, state());
+      const auto = field(root, 'rule').querySelector('[aria-pressed="true"]');
+      if (!auto) throw new Error('no pressed rule');
+      press(auto, 'ArrowRight');
+      expect(panelOf(root).selection.rule).toBe('mml:[-1 1]');
+      const tight = field(root, 'rule').querySelector('[aria-pressed="true"]');
+      expect(tight?.textContent).toBe('tight');
     });
 
     describe('the overflow menu', () => {
@@ -490,7 +501,7 @@ describe('the orbit-bump table and controls', () => {
         click(item(value));
         expect(panelOf(root).selection.rule).toBe(value);
         expect(panelOf(root).selection.correctors).toEqual([]);
-        expect(pressed(root, 'rule', 'data-rule')).toBeNull();
+        expect(pressed(root, 'rule')).toBeNull();
         expect(more().getAttribute('aria-pressed')).toBe('true');
         expect(items().map((i) => i.getAttribute('aria-checked'))).toEqual(
           value === 'mml:[-2 -1 1 2]' ? ['true', 'false'] : ['false', 'true']
@@ -500,8 +511,8 @@ describe('the orbit-bump table and controls', () => {
       it('goes back to a toggle button and clears the mark', () => {
         showState(root, state());
         click(item('mml:[-3 -1 1 3]'));
-        pressSeg(root, 'rule', 'data-rule', 'auto');
-        expect(pressed(root, 'rule', 'data-rule')).toBe('auto');
+        pressSeg(root, 'rule', 'auto');
+        expect(pressed(root, 'rule')).toBe('auto');
         expect(more().getAttribute('aria-pressed')).toBe('false');
         expect(items().map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'false']);
       });
@@ -510,7 +521,7 @@ describe('the orbit-bump table and controls', () => {
         showState(root, state({ plan: plan({ rule: 'mml:[-2 -1 1 2]' }) }));
         expect(panelOf(root).selection.rule).toBe('mml:[-2 -1 1 2]');
         expect(panelOf(root).selection.correctors).toEqual([]);
-        expect(pressed(root, 'rule', 'data-rule')).toBeNull();
+        expect(pressed(root, 'rule')).toBeNull();
         expect(more().getAttribute('aria-pressed')).toBe('true');
         expect(item('mml:[-2 -1 1 2]').getAttribute('aria-checked')).toBe('true');
       });
@@ -598,7 +609,7 @@ describe('the orbit-bump table and controls', () => {
         expect(panelOf(root).selection.priority).toBe('targets');
         expect(panelOf(root).selection.others).toBe('zero');
         expect(panelOf(root).selection.all_correctors).toBe(true);
-        expect(pressed(root, 'others', 'data-others')).toBe('zero');
+        expect(pressed(root, 'others')).toBe('zero');
         expect(field(root, 'priority-chip').hidden).toBe(false);
         expect(field(root, 'all-chip').hidden).toBe(false);
         expect(marks('data-all-correctors').map(([, , checked]) => checked)).toEqual(['true']);
@@ -608,7 +619,7 @@ describe('the orbit-bump table and controls', () => {
       it('still hydrates a plan without a wider rule as manual', () => {
         showState(root, state({ plan: plan() }));
         expect(panelOf(root).selection.rule).toBe('manual');
-        expect(pressed(root, 'rule', 'data-rule')).toBe('manual');
+        expect(pressed(root, 'rule')).toBe('manual');
         expect(more().getAttribute('aria-pressed')).toBe('false');
       });
     });
@@ -616,7 +627,7 @@ describe('the orbit-bump table and controls', () => {
     it('drops manual correctors when the rule leaves manual', () => {
       showState(root, state());
       setSelection(root, { rule: 'manual', correctors: ['H2'] });
-      pressSeg(root, 'rule', 'data-rule', 'auto');
+      pressSeg(root, 'rule', 'auto');
       expect(panelOf(root).selection.correctors).toEqual([]);
     });
 
@@ -755,9 +766,9 @@ describe('the orbit-bump table and controls', () => {
       amp.value = '0.4';
       amp.dispatchEvent(new Event('change', { bubbles: true }));
       expect(panelOf(root).selection.targets).toEqual({ B1: 0.4, B2: 0.4, B3: 0.4 });
-      pressSeg(root, 'shape', 'data-shape', 'peak');
+      pressSeg(root, 'shape', 'peak');
       expect(panelOf(root).selection.targets).toEqual({ B1: 0, B2: 0.4, B3: 0 });
-      expect(pressed(root, 'shape', 'data-shape')).toBe('peak');
+      expect(pressed(root, 'shape')).toBe('peak');
       // The amplitude steps by the nudge step.
       const more = field(root, 'shape-row').querySelector('[data-step-dir="1"]');
       if (!more) throw new Error('no + button');
@@ -772,18 +783,18 @@ describe('the orbit-bump table and controls', () => {
       expect(others.getAttribute('aria-label')).toBe('other BPMs');
       expect(others.title).not.toBe('');
       const buttons = [...others.querySelectorAll('button')];
-      expect(buttons.map((b) => [b.getAttribute('data-others'), b.textContent])).toEqual([
+      expect(buttons.map((b) => [b.getAttribute('data-value'), b.textContent])).toEqual([
         ['free', 'free'],
         ['hold', 'hold'],
         ['zero', 'zero'],
       ]);
       expect(buttons.every((b) => b.title !== '')).toBe(true);
-      expect(pressed(root, 'others', 'data-others')).toBe('hold');
-      pressSeg(root, 'others', 'data-others', 'zero');
+      expect(pressed(root, 'others')).toBe('hold');
+      pressSeg(root, 'others', 'zero');
       expect(panelOf(root).selection.others).toBe('zero');
-      expect(pressed(root, 'others', 'data-others')).toBe('zero');
+      expect(pressed(root, 'others')).toBe('zero');
       expect(field(root, 'plan-status').textContent).toBe('edited · not computed');
-      pressSeg(root, 'others', 'data-others', 'free');
+      pressSeg(root, 'others', 'free');
       expect(panelOf(root).selection.others).toBe('free');
       // The all-correctors choice is its own.
       expect(panelOf(root).selection.all_correctors).toBe(false);
@@ -813,13 +824,13 @@ describe('the orbit-bump table and controls', () => {
       bindControls(root, backend(() => state()).fetcher);
       showState(root, state());
       const step = field(root, 'step');
-      expect(pressed(root, 'step', 'data-step')).toBe('0.01');
+      expect(pressed(root, 'step')).toBe('0.01');
       expect([...step.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
         '1 µm',
         '10 µm',
         '100 µm',
       ]);
-      pressSeg(root, 'step', 'data-step', '0.001');
+      pressSeg(root, 'step', '0.001');
       expect(panelOf(root).step).toBe(0.001);
       setSelection(root, { targets: { B2: 0 } });
       expect(input(root, 'B2').step).toBe('0.001');
@@ -858,7 +869,7 @@ describe('the orbit-bump table and controls', () => {
       const { fetcher, log } = backend(() => state());
       bindControls(root, fetcher);
       showState(root, state({ plan: plan() }));
-      const vertical = root.querySelector('[data-plane="y"]');
+      const vertical = root.querySelector('[data-value="y"]');
       if (!vertical) throw new Error('no plane button');
       click(vertical);
       await vi.waitFor(() => expect(panelOf(root).selection.plane).toBe('y'));

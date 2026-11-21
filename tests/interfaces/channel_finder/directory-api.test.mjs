@@ -4,6 +4,7 @@
  *   npx vitest run tests/interfaces/channel_finder/directory-api.test.mjs
  */
 
+import './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 
 const JS = '../../../src/osprey/interfaces/channel_finder/static/js';
@@ -39,7 +40,7 @@ describe('directory-api routes', () => {
       q: 'beam current',
       name: 'SR*',
       origin: ['curated', 'directory'],
-      ioc: ['ioc a', 'ioc&b'],
+      server: ['ioc a', 'ioc&b'],
       record_type: ['ai'],
       alarm: ['MAJOR', 'none'],
       page: 0,
@@ -52,7 +53,7 @@ describe('directory-api routes', () => {
     expect(params.get('q')).toBe('beam current');
     expect(params.get('name')).toBe('SR*');
     expect(params.getAll('origin')).toEqual(['curated', 'directory']);
-    expect(params.getAll('ioc')).toEqual(['ioc a', 'ioc&b']);
+    expect(params.getAll('server')).toEqual(['ioc a', 'ioc&b']);
     expect(params.getAll('record_type')).toEqual(['ai']);
     expect(params.getAll('alarm')).toEqual(['MAJOR', 'none']);
     expect(params.get('page')).toBe('0');
@@ -68,8 +69,8 @@ describe('directory-api routes', () => {
 
   test('the CSV export is a url with the same filters', async () => {
     const { directoryExportUrl } = await import(DIRECTORY_API_MODULE);
-    expect(directoryExportUrl({ q: 'a b', ioc: ['x', 'y'] })).toBe(
-      '/api/directory/export.csv?q=a+b&ioc=x&ioc=y'
+    expect(directoryExportUrl({ q: 'a b', server: ['x', 'y'] })).toBe(
+      '/api/directory/export.csv?q=a+b&server=x&server=y'
     );
     expect(directoryExportUrl({})).toBe('/api/directory/export.csv');
   });
@@ -85,11 +86,11 @@ describe('directory-api routes', () => {
 
   test('pv and ioc encode the name as one segment', async () => {
     const fetchMock = stubFetch({ name: 'SR01:X/Y', outcome: 'unknown', sections: [] });
-    const { fetchPvFacts, fetchIocFacts } = await import(DIRECTORY_API_MODULE);
-    expect((await fetchPvFacts('SR01:X/Y')).outcome).toBe('unknown');
-    expect(lastCall(fetchMock).url).toBe('/api/directory/pv/SR01%3AX%2FY');
-    await fetchIocFacts('ioc a');
-    expect(lastCall(fetchMock).url).toBe('/api/directory/ioc/ioc%20a');
+    const { fetchChannelFacts, fetchServerFacts } = await import(DIRECTORY_API_MODULE);
+    expect((await fetchChannelFacts('SR01:X/Y')).outcome).toBe('unknown');
+    expect(lastCall(fetchMock).url).toBe('/api/directory/channel/SR01%3AX%2FY');
+    await fetchServerFacts('ioc a');
+    expect(lastCall(fetchMock).url).toBe('/api/directory/server/ioc%20a');
   });
 
   test('logbook availability and values', async () => {
@@ -131,9 +132,9 @@ describe('directory-api routes', () => {
 
   test('the PV facts and the values take an abort signal', async () => {
     const fetchMock = stubFetch([]);
-    const { fetchPvFacts, readValues } = await import(DIRECTORY_API_MODULE);
+    const { fetchChannelFacts, readValues } = await import(DIRECTORY_API_MODULE);
     const { signal } = new AbortController();
-    await fetchPvFacts('A', signal);
+    await fetchChannelFacts('A', signal);
     expect(lastCall(fetchMock).opts.signal).toBe(signal);
     await readValues(['A'], signal);
     expect(lastCall(fetchMock).opts.signal).toBe(signal);

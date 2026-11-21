@@ -122,11 +122,31 @@ class TestRecords:
 
 
 class TestPorts:
-    def test_probed_ports_are_distinct_and_never_occupied(self):
+    def test_probed_ports_are_distinct_and_never_occupied(self, monkeypatch):
+        """The harness hands back every occupied port before any other, and then
+        one free port twice: a host's ephemeral range practically never holds an
+        occupied port, and the harness never hands out a port twice, so without
+        this a probe that took whatever it was handed would pass."""
+        from osprey_connectors_tests._harness import _ports
+
+        real = _ports.hold_ports
+        feed: list[int] = []
+
+        def occupied_first(count: int) -> list[int]:
+            assert count == 1
+            return [feed.pop(0)] if feed else real(count)
+
+        monkeypatch.setattr(_ports, "hold_ports", occupied_first)
+        feed[:] = sorted(OCCUPIED_PORTS)
+        assert probe_free_port() not in OCCUPIED_PORTS
+        assert feed == [], "the probe returned before it was handed every occupied port"
+        (spare,) = real(1)
         for _ in range(20):
+            feed[:] = [*sorted(OCCUPIED_PORTS), spare, spare]
             ports = IOCPorts.probe()
-            assert len(ports.as_set()) == 4
+            assert len(ports.as_set()) == 4, f"the probe took {spare} twice: {ports}"
             assert not ports.as_set() & OCCUPIED_PORTS
+            assert feed == [], "the probe returned before it was handed the spare port twice"
 
     def test_probe_honours_an_exclude_set(self):
         first = probe_free_port()

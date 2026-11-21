@@ -53,9 +53,12 @@ class IntervalThread:
         self._thread.start()
 
     def stop(self, *, timeout: float) -> None:
-        """Signal the loop to exit and join it. A no-op if never started."""
+        """Signal the loop to exit and join it. A no-op if never started.
+
+        Callable from a tick: the loop then ends after that tick, without a join.
+        """
         self._stop_event.set()
-        if self._thread is not None:
+        if self._thread is not None and self._thread is not threading.current_thread():
             self._thread.join(timeout=timeout)
 
     def is_alive(self) -> bool:

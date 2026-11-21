@@ -368,6 +368,26 @@ keys:
       trailing slash is dropped. OSPREY_BASE_REGISTRY overrides it in the
       environment (not in the scaffolded pipeline, which reads the profile).
     default: ''
+  images.playwright_download_host:
+    rendered: false
+    evidence: '"PLAYWRIGHT_DOWNLOAD_HOST": "playwright_download_host"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the
+      presets. The host Playwright downloads the headless browser from, for a
+      site that mirrors cdn.playwright.dev. The mirror must keep
+      cdn.playwright.dev's paths. The build arg carries Playwright's own
+      environment name; unset, Playwright downloads from its CDN.
+      PLAYWRIGHT_DOWNLOAD_HOST overrides it in the environment.
+    default: ''
+  images.skip_browser:
+    rendered: false
+    evidence: 'images\.get\("skip_browser"\)'
+    note: >-
+      Hidden key, commented in the framework template and unset in the
+      presets. True builds the project image without the headless browser;
+      artifact-to-image export and CANOPY screenshots then report it missing.
+      Must be a bool. OSPREY_SKIP_BROWSER overrides it in the environment.
+    default: false
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
@@ -969,6 +989,22 @@ keys:
   services.optimizer_web: {rendered: false, evidence: 'hostenv\.passthrough\(services\.optimizer_web\)', default: null}
   services.optimizer_web.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the optimizer-web injector writes ./services/optimizer_web"}
   services.optimizer_web.port: {rendered: false, evidence: '"optimizer-web": "services\.optimizer_web\.port"', default: derived, default_note: the layout's optimizer_web slot at this deployment's port base}
+  # The server fleet service: live in the demo preset's deploying render, whose
+  # `channel_directory.fleet` block makes the server fleet injector write it.
+  services.server_fleet: {evidence: 'set svc = \(services \| default\(\{\}, true\)\)\.server_fleet', default: null, note: "Written by the build exactly when channel_directory.fleet is set; the server fleet service"}
+  services.server_fleet.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the server fleet injector writes ./services/server_fleet"}
+  services.server_fleet.port: {evidence: 'PortSlot\("server_fleet", 84', default: derived, default_note: the layout's server_fleet slot at this deployment's port base}
+  services.server_fleet.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\) \}\}\}\n    container_name: \{\{ osprey_labels\.project_name \}\}-server-fleet'
+    note: >-
+      OSPREY-built image, same layering as `services.archive.image`: the IOC
+      fleet service runs the bare project image and shares `OSPREY_WORKER_IMAGE`
+      with it. The evidence anchors on the image line beside the service's own
+      container name.
+    default: derived
+    default_note: osprey_images.worker — the server fleet service runs the worker image
+  services.server_fleet.network: {rendered: false, evidence: 'set on_host = \(svc\.network \| default\(.bridge., true\)\) == .host.', default: bridge}
   services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
   services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}
   services.virtual_accelerator.port: {evidence: 'dotted_get\(config, "services\.virtual_accelerator\.port"\) or DEFAULT_VA_PORT', default: derived, default_note: the virtual accelerator's Channel Access default port}
@@ -2255,8 +2291,8 @@ keys:
   claude_code.servers.ariel.enabled: {covered-by: claude_code.servers.ariel, default: derived, default_note: the ariel server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.channel-finder: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.channel-finder.enabled: {covered-by: claude_code.servers.channel-finder, default: derived, default_note: the channel-finder server's FRAMEWORK_SERVERS default_enabled}
-  claude_code.servers.pv-directory: {covered-by: claude_code.servers, default: n/a}
-  claude_code.servers.pv-directory.enabled: {covered-by: claude_code.servers.pv-directory, default: derived, default_note: the pv-directory server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.channel-directory: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.channel-directory.enabled: {covered-by: claude_code.servers.channel-directory, default: derived, default_note: the channel-directory server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.osprey_facility_knowledge: {evidence: 'osprey_facility_knowledge', default: n/a}
   claude_code.servers.osprey_facility_knowledge.enabled: {covered-by: claude_code.servers.osprey_facility_knowledge, default: derived, default_note: "the osprey_facility_knowledge server's FRAMEWORK_SERVERS default_enabled"}
   claude_code.servers.bluesky: {covered-by: claude_code.servers, default: n/a}
@@ -2487,154 +2523,178 @@ keys:
       drop inferred relations and inferred alias names.
     default: all
 
-  # ── PV directory ────────────────────────────────────────────────────
-  # Read by services/pv_directory/resolve.py (the build's check and the
+  # ── channel directory ────────────────────────────────────────────────────
+  # Read by services/channel_directory/resolve.py (the build's check and the
   # predicates) and by service_targets in the connectors, which builds one
   # backend spec per sub-block from its type and settings. A child profile
-  # turns the section off with `pv_directory: null`, which builds only over a
+  # turns the section off with `channel_directory: null`, which builds only over a
   # parent that spells the section as one nested mapping.
-  pv_directory:
+  channel_directory:
     evidence: 'section = config\.get\(SECTION_KEY\)'
     default: no-fallback
     default_note: >-
-      absent or null, resolve_section answers None, every pv_directory_* predicate
+      absent or null, resolve_section answers None, every channel_directory_* predicate
       is false and nothing of the section is rendered; a section without `type`
       lists the build's simulator channels and IOC health PVs
-  pv_directory.type:
+  channel_directory.type:
     rendered: false
-    covered-by: pv_directory
+    covered-by: channel_directory
     default: no-fallback
     default_note: >-
       absent, the section is VA-only: the simulator's channels on `va` and
       nothing on `live` or `standin`; with no simulator either, the build warns
       and every section answers 'not available for this target'
-  pv_directory.settings: {rendered: false, covered-by: pv_directory, default: {}}
-  pv_directory.settings.url:
+  channel_directory.settings: {rendered: false, covered-by: channel_directory, default: {}}
+  channel_directory.settings.url:
     rendered: false
-    covered-by: pv_directory.settings
+    covered-by: channel_directory.settings
     default: no-fallback
     default_note: >-
       the build refuses a `type` without it, naming this key; a VA-only section
       reads no url
-  pv_directory.settings.timeout_s: {rendered: false, evidence: 'settings\.get\("timeout_s"\)', default: 6.0}
-  pv_directory.settings.auth:
+  channel_directory.settings.timeout_s: {rendered: false, evidence: 'settings\.get\("timeout_s"\)', default: 6.0}
+  channel_directory.settings.auth:
     rendered: false
-    covered-by: pv_directory.settings
+    covered-by: channel_directory.settings
     note: >-
       the login a proxy in front of the service asks for — a bearer token or a
       user and password, each secret named by environment variable; unset
       sends no login
     default: null
-  pv_directory.settings.auth.token_env: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
-  pv_directory.settings.auth.username: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
-  pv_directory.settings.auth.password_env: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
-  pv_directory.settings.tls: {rendered: false, covered-by: pv_directory.settings, default: null}
-  pv_directory.settings.tls.ca_bundle: {rendered: false, covered-by: pv_directory.settings.tls, default: null}
-  pv_directory.description_property: {rendered: false, evidence: 'get\("description_property"\)', default: recordDesc}
-  pv_directory.caveats: {rendered: false, evidence: '_present\(caveats=block\.get\("caveats"\)\)', default: []}
-  pv_directory.display: {rendered: false, evidence: 'self\._section\.get\("display"\)', default: {}}
-  pv_directory.display.detail_properties:
+  channel_directory.settings.auth.token_env: {rendered: false, covered-by: channel_directory.settings.auth, default: null}
+  channel_directory.settings.auth.username: {rendered: false, covered-by: channel_directory.settings.auth, default: null}
+  channel_directory.settings.auth.password_env: {rendered: false, covered-by: channel_directory.settings.auth, default: null}
+  channel_directory.settings.tls: {rendered: false, covered-by: channel_directory.settings, default: null}
+  channel_directory.settings.tls.ca_bundle: {rendered: false, covered-by: channel_directory.settings.tls, default: null}
+  channel_directory.description_property: {rendered: false, evidence: 'get\("description_property"\)', default: recordDesc}
+  channel_directory.caveats: {rendered: false, evidence: '_present\(caveats=block\.get\("caveats"\)\)', default: []}
+  channel_directory.display: {rendered: false, evidence: 'self\._section\.get\("display"\)', default: {}}
+  channel_directory.display.detail_properties:
     rendered: false
     evidence: 'self\._display\.get\("detail_properties"\)'
     default: derived
     default_note: every property the record carries, sorted by name
-  pv_directory.display.hidden_properties: {rendered: false, evidence: 'self\._display\.get\("hidden_properties"\)', default: []}
-  pv_directory.display.exact_properties: {rendered: false, evidence: 'display\.get\("exact_properties"\)', default: [pvStatus, recordType]}
-  pv_directory.display.filter_cap: {rendered: false, evidence: 'self\._display\.get\("filter_cap"\)', default: 5000}
-  pv_directory.display.ioc_health_suffixes: {rendered: false, evidence: 'self\._display\.get\("ioc_health_suffixes"\)', default: {heartbeat: HEARTBEAT, uptime: UPTIME}}
-  pv_directory.display.ioc_health_suffixes.heartbeat: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: HEARTBEAT}
-  pv_directory.display.ioc_health_suffixes.uptime: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: UPTIME}
-  pv_directory.display.ioc_health_suffixes.engineer: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: null}
-  pv_directory.display.engineer_property: {rendered: false, evidence: 'self\._display\.get\("engineer_property"\)', default: Engineer}
-  pv_directory.alarm_log:
+  channel_directory.display.hidden_properties: {rendered: false, evidence: 'self\._display\.get\("hidden_properties"\)', default: []}
+  channel_directory.display.exact_properties: {rendered: false, evidence: 'display\.get\("exact_properties"\)', default: [pvStatus, recordType]}
+  channel_directory.display.filter_cap: {rendered: false, evidence: 'self\._display\.get\("filter_cap"\)', default: 5000}
+  channel_directory.display.server_health_suffixes: {rendered: false, evidence: 'self\._display\.get\("server_health_suffixes"\)', default: {heartbeat: HEARTBEAT, uptime: UPTIME}}
+  channel_directory.display.server_health_suffixes.heartbeat: {rendered: false, covered-by: channel_directory.display.server_health_suffixes, default: HEARTBEAT}
+  channel_directory.display.server_health_suffixes.uptime: {rendered: false, covered-by: channel_directory.display.server_health_suffixes, default: UPTIME}
+  channel_directory.display.server_health_suffixes.engineer: {rendered: false, covered-by: channel_directory.display.server_health_suffixes, default: null}
+  channel_directory.display.engineer_property: {rendered: false, evidence: 'self\._display\.get\("engineer_property"\)', default: Engineer}
+  channel_directory.alarm_log:
     rendered: false
     evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
     default: no-fallback
     default_note: >-
-      absent, no alarm history and pv_directory_alarm_log is false; the block
+      absent, no alarm history and channel_directory_alarm_log is false; the block
       serves `live` and `standin` only
-  pv_directory.alarm_log.type:
+  channel_directory.alarm_log.type:
     rendered: false
-    covered-by: pv_directory.alarm_log
+    covered-by: channel_directory.alarm_log
     default: no-fallback
     default_note: absent, the block serves no target; the built-in type is phoebus_alarm_logger
-  pv_directory.alarm_log.settings: {rendered: false, covered-by: pv_directory.alarm_log, default: {}}
-  pv_directory.alarm_log.settings.url:
+  channel_directory.alarm_log.settings: {rendered: false, covered-by: channel_directory.alarm_log, default: {}}
+  channel_directory.alarm_log.settings.url:
     rendered: false
-    covered-by: pv_directory.alarm_log.settings
+    covered-by: channel_directory.alarm_log.settings
     default: no-fallback
     default_note: the build refuses a `type` without it, naming this key
-  pv_directory.alarm_log.caveats: {rendered: false, covered-by: pv_directory.alarm_log, default: []}
-  pv_directory.alarm_state:
+  channel_directory.alarm_log.caveats: {rendered: false, covered-by: channel_directory.alarm_log, default: []}
+  channel_directory.alarm_state:
     evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
     default: no-fallback
     default_note: >-
-      absent, no alarm feed and pv_directory_alarm_state is false; `type:
+      absent, no alarm feed and channel_directory_alarm_state is false; `type:
       phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic,
       `type: osprey_alarm_relay` needs settings.url
-  pv_directory.alarm_state.type:
+  channel_directory.alarm_state.type:
     rendered: false
-    covered-by: pv_directory.alarm_state
+    covered-by: channel_directory.alarm_state
     default: no-fallback
     default_note: >-
       absent, `live` and `standin` have no alarm feed; the built-in types are
       phoebus_alarm_server, which needs the alarm-state extra, and
       osprey_alarm_relay, which reads a relay over HTTP
-  pv_directory.alarm_state.settings: {rendered: false, covered-by: pv_directory.alarm_state, default: {}}
-  pv_directory.alarm_state.settings.bootstrap_servers:
+  channel_directory.alarm_state.settings: {rendered: false, covered-by: channel_directory.alarm_state, default: {}}
+  channel_directory.alarm_state.settings.bootstrap_servers:
     rendered: false
     evidence: 'settings\.get\("bootstrap_servers"\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
-  pv_directory.alarm_state.settings.topic:
+  channel_directory.alarm_state.settings.topic:
     rendered: false
     evidence: 'settings\.get\("topic"\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
-  pv_directory.alarm_state.settings.url:
+  channel_directory.alarm_state.settings.url:
     rendered: false
-    covered-by: pv_directory.alarm_state.settings
+    covered-by: channel_directory.alarm_state.settings
     default: no-fallback
     default_note: "the build refuses `type: osprey_alarm_relay` without it, naming this key"
-  pv_directory.alarm_state.settings.auth:
+  channel_directory.alarm_state.settings.auth:
     rendered: false
-    covered-by: pv_directory.alarm_state.settings
+    covered-by: channel_directory.alarm_state.settings
     note: >-
       the login a Kafka broker asks for — a user and a password named by
       environment variable, sent as SASL; unset sends no login
     default: null
-  pv_directory.alarm_state.settings.auth.username: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: null}
-  pv_directory.alarm_state.settings.auth.password_env: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: null}
-  pv_directory.alarm_state.settings.auth.mechanism: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: PLAIN}
-  pv_directory.alarm_state.settings.auth.cleartext: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: false}
-  pv_directory.alarm_state.settings.tls: {rendered: false, covered-by: pv_directory.alarm_state.settings, default: null}
-  pv_directory.alarm_state.settings.tls.ca_bundle: {rendered: false, covered-by: pv_directory.alarm_state.settings.tls, default: null}
-  pv_directory.alarm_state.replay_file:
+  channel_directory.alarm_state.settings.auth.username: {rendered: false, covered-by: channel_directory.alarm_state.settings.auth, default: null}
+  channel_directory.alarm_state.settings.auth.password_env: {rendered: false, covered-by: channel_directory.alarm_state.settings.auth, default: null}
+  channel_directory.alarm_state.settings.auth.mechanism: {rendered: false, covered-by: channel_directory.alarm_state.settings.auth, default: PLAIN}
+  channel_directory.alarm_state.settings.auth.cleartext: {rendered: false, covered-by: channel_directory.alarm_state.settings.auth, default: false}
+  channel_directory.alarm_state.settings.tls: {rendered: false, covered-by: channel_directory.alarm_state.settings, default: null}
+  channel_directory.alarm_state.settings.tls.ca_bundle: {rendered: false, covered-by: channel_directory.alarm_state.settings.tls, default: null}
+  channel_directory.alarm_state.replay_file:
     evidence: 'block\.get\("replay_file"\)'
     default: no-fallback
     default_note: >-
       absent, nothing is replayed; `demo:<name>` names a packaged feed, any other
       value a project-relative .ndjson path, checked at build
-  pv_directory.alarm_state.caveats: {rendered: false, covered-by: pv_directory.alarm_state, default: []}
-  pv_directory.put_log:
+  channel_directory.alarm_state.caveats: {rendered: false, covered-by: channel_directory.alarm_state, default: []}
+  channel_directory.put_log:
     rendered: false
     evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
     default: no-fallback
     default_note: >-
-      absent, no put history and pv_directory_put_log is false; the block
+      absent, no put history and channel_directory_put_log is false; the block
       serves `live` and `standin` only
-  pv_directory.put_log.type:
+  channel_directory.put_log.type:
     rendered: false
-    covered-by: pv_directory.put_log
+    covered-by: channel_directory.put_log
     default: no-fallback
     default_note: absent, the block serves no target; the built-in type is caputlog
-  pv_directory.put_log.settings: {rendered: false, covered-by: pv_directory.put_log, default: {}}
-  pv_directory.put_log.settings.url:
+  channel_directory.put_log.settings: {rendered: false, covered-by: channel_directory.put_log, default: {}}
+  channel_directory.put_log.settings.url:
     rendered: false
-    covered-by: pv_directory.put_log.settings
+    covered-by: channel_directory.put_log.settings
     default: no-fallback
     default_note: the build refuses a `type` without it, naming this key
-  pv_directory.put_log.caveats: {rendered: false, covered-by: pv_directory.put_log, default: []}
+  channel_directory.put_log.caveats: {rendered: false, covered-by: channel_directory.put_log, default: []}
+  # The server fleet: resolved by services/channel_directory/fleet/settings.py into one
+  # settings object; the build refuses a malformed value naming its key. The
+  # demo preset ships `fleet: {period_s: 10}` (and the presets built on it carry
+  # it), so the block and period_s are live; the other keys take their defaults.
+  channel_directory.fleet:
+    evidence: '_FLEET_BLOCK = "fleet"'
+    default: no-fallback
+    default_note: >-
+      absent or null, there is no IOCs view, no fleet tool, no fleet service and
+      no periodic read, and channel_directory_fleet is false; `fleet: {}` turns the
+      view on with every default below
+  channel_directory.fleet.targets:
+    rendered: false
+    evidence: 'fleet\.get\("targets"\)'
+    default: derived
+    default_note: >-
+      the deployment's baseline target; a virtual accelerator served in process
+      is never refreshed
+  channel_directory.fleet.period_s: {evidence: 'fleet\.get\("period_s"\)', default: 30.0}
+  channel_directory.fleet.retention_days: {rendered: false, evidence: 'fleet\.get\("retention_days"\)', default: 7.0}
+  channel_directory.fleet.listing_deadline_s: {rendered: false, evidence: 'fleet\.get\("listing_deadline_s"\)', default: 60.0}
+  channel_directory.fleet.group_by: {rendered: false, evidence: 'fleet\.get\("group_by"\)', default: host}
+  channel_directory.fleet.classes: {rendered: false, data-map: true, evidence: 'fleet\.get\("classes"\)', default: {}}
+  channel_directory.fleet.roster_sources: {rendered: false, evidence: 'fleet\.get\("roster_sources"\)', default: []}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
@@ -4481,6 +4541,13 @@ deleted:
 - modules.web_terminals.default_persona  # retired-spelling
   # OSPREY no longer deletes channel readings, so no window bounds them.
 - control_system.channel_read_artifact_retention
+  # The channel directory's EPICS-worded spellings. Core names are control-system
+  # neutral, so the section, its server's switch and its health-suffix block
+  # took channel and server words; the profile parser refuses each old spelling
+  # naming the new one (osprey.agent_record.config.RETIRED_CONFIG_KEYS).
+- pv_directory
+- claude_code.servers.pv-directory
+- channel_directory.display.ioc_health_suffixes
   # The ariel corpus's embed switch. The ariel qmd sidecar embeds exactly when
   # ARIEL hybrid search queries qmd's vectors. No orphan_sites row, because the
   # back-test baseline never held a site of it.
@@ -4915,7 +4982,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 440
+  expected_union_size: 445
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

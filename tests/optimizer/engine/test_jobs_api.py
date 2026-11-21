@@ -309,14 +309,15 @@ class TestGetJobStatus:
         assert data["status"] == "running"
         assert data["logs"] == logs
 
-    def test_completed_job_marks_tracker(
+    def test_a_read_of_a_finished_job_writes_nothing(
         self, client: TestClient, mock_job_tracker: MagicMock
     ) -> None:
         with patched_job_state(JobStatus.COMPLETED):
             resp = client.get("/jobs/test-job-id")
 
         assert resp.status_code == 200
-        mock_job_tracker.mark_completed.assert_called_once_with("test-job-id")
+        mock_job_tracker.mark_completed.assert_not_called()
+        mock_job_tracker.expire_job.assert_not_called()
 
     @pytest.mark.usefixtures("mock_job_tracker")
     def test_returns_503_when_real_reader_hits_redis_error(
@@ -685,6 +686,7 @@ class TestStartJob:
                     "osprey_optimizer.api.optimization_lifecycle.initialize_results_dir",
                     return_value=tmp_path,
                 ),
+                patch("osprey_optimizer.api.job_control._start_launch_keep_alive"),
             ):
                 resp = test_client.post(
                     f"/jobs/{job_id}/start", params={"config_revision": draft_revision(draft)}
@@ -1028,7 +1030,6 @@ class TestOptimizationEndpoint:
             "expected_status",
             "expected_results_path",
             "expected_message",
-            "expects_mark_completed",
         ),
         [
             pytest.param(
@@ -1039,7 +1040,6 @@ class TestOptimizationEndpoint:
                 "running",
                 None,
                 None,
-                False,
                 id="returns_reader_status",
             ),
             pytest.param(
@@ -1050,7 +1050,6 @@ class TestOptimizationEndpoint:
                 "completed",
                 "test_env/2026-02-05_23-50-01",
                 None,
-                True,
                 id="with_completed_job",
             ),
             pytest.param(
@@ -1061,7 +1060,6 @@ class TestOptimizationEndpoint:
                 "error",
                 None,
                 "Something went wrong",
-                True,  # ERROR is terminal, so the tracker is told to mark completed
                 id="with_error_status",
             ),
         ],
@@ -1077,7 +1075,6 @@ class TestOptimizationEndpoint:
         expected_status: str,
         expected_results_path: str | None,
         expected_message: str | None,
-        expects_mark_completed: bool,
     ) -> None:
         """Summary surfaces status, results path, and error message from the reader."""
         mock_job_tracker.get_job.return_value = job_meta(job_id)
@@ -1094,10 +1091,7 @@ class TestOptimizationEndpoint:
         assert data["status"] == expected_status
         assert data["results_path"] == expected_results_path
         assert data["error_message"] == expected_message
-        if expects_mark_completed:
-            mock_job_tracker.mark_completed.assert_called_once_with(job_id)
-        else:
-            mock_job_tracker.mark_completed.assert_not_called()
+        mock_job_tracker.mark_completed.assert_not_called()
 
     @pytest.mark.parametrize(
         ("get_side_effect", "detail_tokens"),

@@ -20,7 +20,7 @@
         "status": "Active",
         "description": "BPM 01 horizontal position",
         "record_type": "ai",
-        "ioc": "demo-ioc-bpm",
+        "server": "demo-ioc-bpm",
         "host": "ioc-host-01",
         "last_announced": "2026-11-05T08:12:40.000Z"
       },
@@ -32,7 +32,7 @@
         "status": "Inactive",
         "description": null,
         "record_type": "calc",
-        "ioc": "demo-ioc-bpm",
+        "server": "demo-ioc-bpm",
         "host": "ioc-host-01",
         "last_announced": "2026-11-01T17:02:11.000Z"
       }
@@ -41,7 +41,7 @@
     "partial": [],
     "facets": {
       "origin": [{"value": "curated", "count": 1}, {"value": "directory", "count": 1}],
-      "ioc": [{"value": "demo-ioc-bpm", "count": 2}],
+      "server": [{"value": "demo-ioc-bpm", "count": 2}],
       "record_type": [{"value": "ai", "count": 1}, {"value": "calc", "count": 1}],
       "alarm": [{"value": "MAJOR", "count": 1}, {"value": "none", "count": 1}],
       "archived": [{"value": "yes", "count": 1}, {"value": "no", "count": 1}]
@@ -85,7 +85,7 @@
             "status": "Active",
             "description": "BPM 01 horizontal position",
             "record_type": "ai",
-            "ioc": "demo-ioc-bpm",
+            "server": "demo-ioc-bpm",
             "host": "ioc-host-01",
             "last_announced": "2026-11-05T08:12:40.000Z"
           },
@@ -160,7 +160,7 @@
         "rows": [
           {
             "at": "2026-11-04T14:20:00.000Z",
-            "pv": "DEMO:BPM01:X",
+            "channel": "DEMO:BPM01:X",
             "field": ".HIHI",
             "old": "1.5",
             "new": "2.0",
@@ -174,24 +174,24 @@
     ]
   },
   "ioc/{name}": {
-    "ioc": "demo-ioc-bpm",
+    "server": "demo-ioc-bpm",
     "outcome": "found",
     "source": {"target": "live", "service": "channelfinder", "label": "All PVs", "rehearsal": false},
     "host": "ioc-host-01",
     "ports": [5064, 5075],
-    "pv_count": 2,
+    "channel_count": 2,
     "inactive_count": 1,
     "curated_count": 1,
     "engineer": "operator",
     "engineer_source": "directory property",
-    "health_pvs": [{"name": "DEMO:BPM01:HEARTBEAT", "role": "heartbeat"}],
+    "health_channels": [{"name": "DEMO:BPM01:HEARTBEAT", "role": "heartbeat"}],
     "alarms": {
       "outcome": "found",
       "total": 1,
       "counts": {"MAJOR": 1},
       "rows": [
         {
-          "pv": "DEMO:BPM01:X",
+          "channel": "DEMO:BPM01:X",
           "severity": "MAJOR",
           "status": "HIGH_ALARM",
           "latched": true,
@@ -200,7 +200,7 @@
         }
       ]
     },
-    "links": {"panel": "/panel/channel-finder/#/ioc/demo-ioc-bpm"}
+    "links": {"panel": "/panel/channel-finder/#/server/demo-ioc-bpm"}
   },
   "logbook/availability": {
     "available": true,
@@ -210,9 +210,9 @@
     "outcome": "found",
     "source": {"target": "va", "service": "mongodb_archiver", "label": "mongodb_archiver", "rehearsal": false},
     "archived": {"count": 4731, "of": 4750},
-    "by_ioc": [
-      {"ioc": "sim-SR", "pvs": 2400, "archived": 2390},
-      {"ioc": "sim-BR", "pvs": 2350, "archived": 2341}
+    "by_server": [
+      {"server": "sim-SR", "channels": 2400, "archived": 2390},
+      {"server": "sim-BR", "channels": 2350, "archived": 2341}
     ],
     "newest_sample": "2026-11-12T08:00:04+00:00",
     "oldest_sample": "2026-10-13T08:00:00+00:00",
@@ -237,7 +237,7 @@
     "total": 3,
     "rows": [
       {
-        "pv": "SR:RF:CAVITY:01:TEMPERATURE:RB",
+        "channel": "SR:RF:CAVITY:01:TEMPERATURE:RB",
         "path": "/Demo/SR/RF/SR:RF:CAVITY:01:TEMPERATURE:RB",
         "severity": "MAJOR",
         "status": "NO_ALARM",
@@ -248,7 +248,7 @@
         "stale": false
       },
       {
-        "pv": "SR:VAC:GAUGE:SR03:PRESSURE:RB",
+        "channel": "SR:VAC:GAUGE:SR03:PRESSURE:RB",
         "path": "/Demo/SR/Vacuum/SR:VAC:GAUGE:SR03:PRESSURE:RB",
         "severity": "MINOR",
         "status": "HIGH_ALARM",
@@ -288,5 +288,96 @@
       "enum_label": null,
       "reason": "no answer within 2 s"
     }
-  ]
+  ],
+  "fleet": {
+    "outcome": "ok",
+    "target": "live",
+    "reason": null,
+    "generated_at": 1700000000.0,
+    "snapshot": {
+      "outcome": "ok",
+      "target": "live",
+      "generated_at": 1700000000.0,
+      "cycle": 4,
+      "period_s": 30.0,
+      "cycle_duration_s": 2.0,
+      "read_path": {
+        "status": "ok",
+        "channel": "SR:PROBE"
+      },
+      "sources": [
+        {
+          "name": "directory",
+          "outcome": "ok",
+          "reason": null
+        }
+      ],
+      "counts": {
+        "by_state": {
+          "alive": 1,
+          "stalled": 0,
+          "silent": 1,
+          "unreached": 0,
+          "unknown": 0
+        },
+        "by_finding": {
+          "degraded": 0,
+          "expected_running_not_alive": 1,
+          "expected_stopped_alive": 0,
+          "alive_unexpected": 0
+        }
+      },
+      "group_by": "host",
+      "servers": [
+        {
+          "name": "demo-ioc-rf",
+          "host": "ioc-host-02",
+          "class_name": "default",
+          "group": null,
+          "state": "silent",
+          "since": 1699999400.0,
+          "reason": "heartbeat did not answer",
+          "findings": [
+            "expected_running_not_alive"
+          ],
+          "directory_status": "Active",
+          "listed": true,
+          "sources": [
+            "directory"
+          ],
+          "liveness": {
+            "channel": "demo-ioc-rf:HB",
+            "kind": "counter",
+            "value": 3,
+            "read_at": 1700000000.0,
+            "ambiguous": false
+          },
+          "health": []
+        },
+        {
+          "name": "demo-ioc-bpm",
+          "host": "ioc-host-01",
+          "class_name": "default",
+          "group": null,
+          "state": "alive",
+          "since": 1699999900.0,
+          "reason": "counter moved",
+          "findings": [],
+          "directory_status": "Active",
+          "listed": true,
+          "sources": [
+            "directory"
+          ],
+          "liveness": {
+            "channel": "demo-ioc-bpm:HB",
+            "kind": "counter",
+            "value": 3,
+            "read_at": 1700000000.0,
+            "ambiguous": false
+          },
+          "health": []
+        }
+      ]
+    }
+  }
 }

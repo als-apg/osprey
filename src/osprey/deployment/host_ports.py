@@ -15,7 +15,9 @@ Two kinds of collision are detected:
 2. **External** — a TCP connect-probe finds something already listening on a
    published address. The holder is attributed by querying the container
    runtime; a listener that belongs to one of THIS project's own containers is
-   not a conflict, so an idempotent redeploy stays green.
+   not a conflict, so an idempotent redeploy stays green. A host-network
+   container maps no port, so its listener is excused only on a port the last
+   passing start recorded for that service (:func:`write_host_network_ports`).
 
 A service placed on the host's network namespace renders no ``ports:`` block at
 all — it binds its port on the host directly — so parsing compose files alone
@@ -92,7 +94,9 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
+from osprey.utils.workspace import STATE_DIR_NAME
 from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 logger = get_logger("deployment.host_ports")
 
@@ -1299,7 +1303,7 @@ def _is_va_pva_binding(binding, pva_port):
     return binding.service == "virtual-accelerator" and binding.container_port == pva_port
 
 
-def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
+def find_port_conflicts(bindings, project_name, config=None, repo_id=None, last_host_ports=None):
     """Find every host-port collision among ``bindings``.
 
     :param bindings: Published bindings from :func:`parse_host_port_bindings`
@@ -1319,6 +1323,11 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
         deploy wants; a caller that already holds the identity passes it rather
         than having it worked out a second time
     :type repo_id: str, optional
+    :param last_host_ports: The host ports the last passing start recorded per
+        service (:func:`read_host_network_ports`), ``None`` when no start
+        recorded any. A listener with no visible owner is excused only on a
+        port recorded for its binding's service
+    :type last_host_ports: Mapping[str, Collection[int]], optional
     :return: One :class:`PortConflict` per collision
     :rtype: list[PortConflict]
     """
@@ -1389,14 +1398,18 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
         holder = holders.get(binding.host_port)
         if holder is not None and _holder_is_ours(holder, project_name, identity):
             continue  # our own container from a prior deploy — not a conflict
-        if holder is None and _runs_service(records, project_name, identity, binding.service):
-            # Our own host-network container, which maps no port: either this
-            # binding's service redeployed as it was, or one leaving the host
-            # network to publish the port it listened on there, which `up`
-            # recreates either way. Which port that container holds is not in
-            # `ps`, so a service that leaves the host network AND moves its port
-            # in one deploy is excused on the new port too: an unrelated
-            # listener there surfaces at `up` as "address already in use".
+        if (
+            holder is None
+            and _runs_service(records, project_name, identity, binding.service)
+            and (
+                last_host_ports is None
+                or binding.host_port in last_host_ports.get(_service_key(binding.service), ())
+            )
+        ):
+            # Our own host-network container maps no port, so `ps` cannot say
+            # which ports it holds; the last passing start's recorded ports say
+            # it. A port that start did not bind for this service is somebody
+            # else's. With no recorded ports the running service alone decides.
             continue
         if holder is None and _held_by_own_host_record(binding, config):
             continue  # this deployment's host-local record, which the stack takes over
@@ -1404,6 +1417,85 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
         conflicts.append(_conflict(binding, "external", description))
 
     return conflicts
+
+
+#: Where the last passing start's host-network ports live, relative to the repo root.
+HOST_NETWORK_PORTS_RELPATH = Path(STATE_DIR_NAME) / "host-network-ports.json"
+
+
+def host_network_ports(config):
+    """The host ports this deployment's host-network containers bind, per service.
+
+    The bindings are the three derived families the preflight probes: the
+    host-network services, the web-terminal roster and the history origin.
+
+    Args:
+        config: Loaded (rendered) configuration mapping, or ``None``.
+
+    Returns:
+        Service name (``_`` and ``-`` made equal) to its sorted host ports.
+    """
+    ports: dict[str, set[int]] = {}
+    for binding in (
+        derive_host_network_bindings(config)
+        + derive_web_terminal_bindings(config)
+        + derive_history_origin_bindings(config)
+    ):
+        ports.setdefault(_service_key(binding.service), set()).add(binding.host_port)
+    return {service: sorted(found) for service, found in ports.items()}
+
+
+def write_host_network_ports(repo_root, ports):
+    """Replace the repo's host-network ports file with ``ports``, whole; return its path.
+
+    The file holds the host ports this deployment's host-network containers were
+    started to bind, written by the last start whose port preflight passed.
+
+    Args:
+        repo_root: The deploying checkout's root.
+        ports: Service name to host ports, as :func:`host_network_ports` returns.
+
+    Returns:
+        The path written.
+    """
+    path = Path(repo_root) / HOST_NETWORK_PORTS_RELPATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {service: sorted(found) for service, found in ports.items()}
+    atomic_replace(path, (json.dumps(document, sort_keys=True) + "\n").encode(), mode=0o644)
+    return path
+
+
+def read_host_network_ports(repo_root):
+    """The host ports the last passing start recorded per service, or ``None`` when unknown.
+
+    The file holds the host ports this deployment's host-network containers were
+    started to bind, written by the last start whose port preflight passed. A
+    file that is absent, unreadable or not a mapping of service to a list of
+    ports reads as unknown; the next passing preflight rewrites it.
+
+    Args:
+        repo_root: The deploying checkout's root.
+
+    Returns:
+        Service name to its recorded ports, or ``None``.
+    """
+    path = Path(repo_root) / HOST_NETWORK_PORTS_RELPATH
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        logger.debug(f"{path} is not a host-network ports file: {exc}")
+        return None
+    if not isinstance(document, dict) or not all(
+        isinstance(service, str)
+        and isinstance(found, list)
+        and all(isinstance(port, int) and not isinstance(port, bool) for port in found)
+        for service, found in document.items()
+    ):
+        logger.debug(f"{path} is not a host-network ports file")
+        return None
+    return {service: frozenset(found) for service, found in document.items()}
 
 
 def _held_by_own_host_record(binding, config):

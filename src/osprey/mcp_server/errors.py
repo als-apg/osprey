@@ -70,7 +70,7 @@ MAP_KEYS: Mapping[str, str] = MappingProxyType(
         "channel_write": RESULTS_KEY,
         "entries_by_ids": MISSING_KEY,
         "model_response_matrix": MISSING_KEY,
-        "pv_record": MISSING_KEY,
+        "channel_record": MISSING_KEY,
         "pyaml_measure": MISSING_KEY,
     }
 )

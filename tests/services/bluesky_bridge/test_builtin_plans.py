@@ -30,7 +30,7 @@ from bluesky import RunEngine
 from bluesky.protocols import Location
 from bluesky.utils import FailedStatus, RequestAbort
 from ophyd_async.core import AsyncStatus
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.devices._connect import connect_all
@@ -45,6 +45,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MOVABLE_ROLE,
     READABLE_ROLE,
     channel_roles,
+    validate_field_value,
 )
 from osprey.services.bluesky_bridge.plan_metadata import parse_plan_metadata_dict
 from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep
@@ -63,6 +64,27 @@ from osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep import (
 )
 from osprey.services.bluesky_bridge.plans_core.orm import PARAMS as ORMParams
 from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
+
+# =========================================================================
+# Every shipped default, as the catalog serves it and as the load gate judges it
+# =========================================================================
+
+
+def test_bump_monitors_default_is_an_empty_list_in_the_catalog() -> None:
+    spec = plan_loader.get_facility_plans().plans["orbit_bump_sweep"]
+
+    assert spec.to_dict()["schema"]["properties"]["monitors"]["default"] == []
+
+
+@pytest.mark.parametrize(
+    "params", [ORMParams, GridScanParams, BumpParams], ids=lambda m: m.__module__
+)
+def test_every_shipped_default_passes_its_field(params: type[BaseModel]) -> None:
+    for name, field in params.model_fields.items():
+        if field.is_required():
+            continue
+        validate_field_value(params, name, field.get_default(call_default_factory=True))
+
 
 # =========================================================================
 # Tests of GridScanParams in plans_core/grid_scan.py

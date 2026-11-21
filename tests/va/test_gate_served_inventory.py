@@ -1,7 +1,7 @@
 """The served addresses of a view are composed once, and the image gate reads them there.
 
 A virtual accelerator serves three classes of address its view's
-``addresses.json`` lists: ``channels``, ``status`` and ``ioc_health``.
+``addresses.json`` lists: ``channels``, ``status`` and ``server_health``.
 ``served_addresses`` is the one composition of them, the model RPC's ``info``
 lists exactly that, and ``scripts/va/build_and_boot_check.sh`` compares what
 ``info`` answers over the wire with the same function's reading of the view on
@@ -32,26 +32,14 @@ HEALTH = [
 ]
 
 #: An address class of ``addresses.json`` read by subscript: ``addresses["status"]``.
-_CLASS_SUBSCRIPT = re.compile(r"""addresses\[["'](channels|status|ioc_health)["']\]""")
-
-
-class _OlderView:
-    """A view as a connectors release without ``ioc_health_by_model`` presents it."""
-
-    def __init__(self, view: SimulatorView) -> None:
-        self._view = view
-
-    def __getattr__(self, name: str) -> Any:
-        if name == "ioc_health_by_model":
-            raise AttributeError(name)
-        return getattr(self._view, name)
+_CLASS_SUBSCRIPT = re.compile(r"""addresses\[["'](channels|status|server_health)["']\]""")
 
 
 def _view(path: Path, *, health: bool = True) -> SimulatorView:
     """A view of one texture setpoint and a physics model ``M`` with no deck."""
     addresses: dict[str, Any] = {"channels": [SETPOINT], "status": [STATUS]}
     if health:
-        addresses["ioc_health"] = list(HEALTH)
+        addresses["server_health"] = list(HEALTH)
     documents = {
         "served_models.json": {"models": ["M", "texture"]},
         "addresses.json": addresses,
@@ -90,12 +78,6 @@ def test_the_served_addresses_are_the_channels_then_status_then_ioc_health(
 
 def test_a_view_without_the_field_serves_its_channels_and_status_alone(tmp_path: Path) -> None:
     assert served_addresses(_view(tmp_path, health=False)) == [SETPOINT, STATUS]
-
-
-def test_a_view_without_the_accessor_serves_its_channels_and_status_alone(
-    tmp_path: Path,
-) -> None:
-    assert served_addresses(_OlderView(_view(tmp_path))) == [SETPOINT, STATUS]
 
 
 def test_the_gate_reads_the_served_addresses_from_the_one_composition() -> None:

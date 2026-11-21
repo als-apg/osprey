@@ -416,9 +416,10 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
     A fault name is ``<address>/<field>`` or, for an element error,
     ``<element>/<field>``. A monitor readback (an engine
     ``axis`` and no ``attribute``) carries ``offset``, ``gain``, ``noise`` and
-    ``polarity`` on its own axis, the first readback of each element and axis
-    only; each monitor element carries one ``roll``, on its x-axis readback or
-    else its first one. A setpoint (``direction: write``) on ``PolynomB`` or
+    ``polarity`` on its own axis; each monitor element carries one ``roll``, on
+    its x-axis readback or else its first one. A monitor has one readback per
+    axis: a second address of the same reading is stated under the record's
+    ``also``, which this engine never sees. A setpoint (``direction: write``) on ``PolynomB`` or
     ``KickAngle`` carries ``cal_factor`` and ``cal_offset``.
 
     Every element a record that is no monitor reading binds (its ``element``
@@ -445,6 +446,7 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
             malformed or names an element twice, or it declares an element
             that can carry no element error (a wired monitor's element, or
             one named like a wired address).
+        ValueError: two records read the same axis of one monitor element.
     """
     declared, problems = error_elements(settings)
     if problems:
@@ -475,7 +477,12 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
             for bound in _bound_elements(record):
                 magnets[bound] = magnets.get(bound, False) or polynomial
         if attribute is None and axis in _AXES:
-            monitors.setdefault(element, {}).setdefault(str(axis), address)
+            first = monitors.setdefault(element, {}).setdefault(str(axis), address)
+            if first != address:
+                raise ValueError(
+                    f"{first} and {address} both read {axis} of monitor {element}, which has "
+                    f"one reading per axis; state {address} under `also` of {first}'s record"
+                )
         elif _slot(record, "direction") == "write" and attribute in CALIBRATED_ATTRIBUTES:
             for field in SUPPLY_IDENTITY:
                 declare(address, field, element)

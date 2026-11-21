@@ -15,27 +15,38 @@ then a difference here means the builder reads something it should not.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from tests.facility._graph_relations import strip
 
 from osprey.services.channel_finder.graph_index.builder import ParsedCorpus, parse_corpus
 
-
-@pytest.fixture(scope="module")
-def parsed(demo_path: Path) -> tuple[ParsedCorpus, ParsedCorpus]:
-    """The rows parsed from the demo graph view and from its stripped copy."""
-    text = demo_path.read_text(encoding="utf-8")
-    stripped = strip(text).serialize(format="turtle")
-    return parse_corpus(text), parse_corpus(stripped)
-
-
-def test_the_strip_removes_something(demo_path: Path) -> None:
-    """The comparison is not vacuous: the demo graph view carries the added triples."""
+if TYPE_CHECKING:
     from rdflib import Graph
 
-    full = Graph().parse(data=demo_path.read_text(encoding="utf-8"), format="turtle")
-    assert len(strip(full)) < len(full)
+
+@pytest.fixture(scope="module")
+def graphs(demo_path: Path) -> tuple[str, Graph, Graph]:
+    """The demo graph view's text, its graph parsed once, and that graph stripped."""
+    from rdflib import Graph
+
+    text = demo_path.read_text(encoding="utf-8")
+    full = Graph().parse(data=text, format="turtle")
+    return text, full, strip(full)
+
+
+@pytest.fixture(scope="module")
+def parsed(graphs: tuple[str, Graph, Graph]) -> tuple[ParsedCorpus, ParsedCorpus]:
+    """The rows parsed from the demo graph view and from its stripped copy."""
+    text, _full, stripped = graphs
+    return parse_corpus(text), parse_corpus(stripped.serialize(format="turtle"))
+
+
+def test_the_strip_removes_something(graphs: tuple[str, Graph, Graph]) -> None:
+    """The comparison is not vacuous: the demo graph view carries the added triples."""
+    _text, full, stripped = graphs
+    assert len(stripped) < len(full)
 
 
 def test_binding_rows_are_equal(parsed: tuple[ParsedCorpus, ParsedCorpus]) -> None:

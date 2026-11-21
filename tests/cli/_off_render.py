@@ -1,6 +1,6 @@
 """Render a deployment from any source tree, in a form two renders can be compared in.
 
-The comparison against ``main`` in ``test_pv_directory_off_render.py`` stores nothing
+The comparison against ``main`` in ``test_channel_directory_off_render.py`` stores nothing
 rendered: the baseline is rendered live, from a detached scratch worktree of
 :func:`baseline_ref`, so it never depends on the order tasks landed in. A stored tree
 would be half a gigabyte and go red on every later template change on ``main``.
@@ -122,7 +122,7 @@ DEMO_HIERARCHICAL = Configuration(
     "demo-hierarchical", "demo", ("channel_finder_mode=hierarchical",)
 )
 HELLO_WORLD = Configuration("hello-world", "hello-world")
-#: None adds a ``pv_directory`` section. A preset that ships one has it removed by the
+#: None adds a ``channel_directory`` section. A preset that ships one has it removed by the
 #: caller's ``prepare`` before the build, which is what makes the render an off render.
 CONFIGURATIONS = (DEMO, DEMO_HIERARCHICAL, HELLO_WORLD)
 
@@ -282,6 +282,8 @@ def is_excluded(relative: str) -> bool:
 
 
 def _mask_versions(text: str) -> str:
+    if "OSPREY" not in text:  # every stamp starts with it; most of a render holds none
+        return text
     for stamp in _VERSION_STAMPS:
         text = stamp.sub(rf"\g<1>{VERSION_MARK}", text)
     return text
@@ -347,7 +349,12 @@ def manifest_view(
     return json.dumps(document, sort_keys=True, indent=1)
 
 
-def snapshot(repo: Path, *, unseen_rows: Collection[str] = ()) -> dict[str, str]:
+def snapshot(
+    repo: Path,
+    *,
+    unseen_rows: Collection[str] = (),
+    normalised_digests: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     """Repo-relative path to what the comparison sees of it, for one rendered repo.
 
     A symlink is its target, without being followed. A directory is its mode, so an empty
@@ -357,7 +364,12 @@ def snapshot(repo: Path, *, unseen_rows: Collection[str] = ()) -> dict[str, str]
         repo: The rendered repo.
         unseen_rows: Repo-relative paths the caller compares its own way, whose checksum
             rows are dropped from every manifest as those of normalised files are.
+        normalised_digests: By repo-relative path, the sha256 hex digest of a file's
+            content after :func:`normalise`, for files other than manifests that the
+            caller has already normalised. Such a file is not read again, so whether
+            normalising changed it is the caller's to say: it is in *unseen_rows* if so.
     """
+    known = normalised_digests or {}
     digests: dict[str, str] = {}
     unseen = set(unseen_rows)
     manifests: dict[str, tuple[str, bytes]] = {}
@@ -372,6 +384,8 @@ def snapshot(repo: Path, *, unseen_rows: Collection[str] = ()) -> dict[str, str]
         elif is_excluded(relative):
             unseen.add(relative)
             digests[relative] = f"{mode} {EXCLUDED_MARK}"
+        elif relative in known and path.name != MANIFEST_NAME:
+            digests[relative] = f"{mode} {known[relative]}"
         else:
             content = path.read_bytes()
             normalised = normalise(relative, content)

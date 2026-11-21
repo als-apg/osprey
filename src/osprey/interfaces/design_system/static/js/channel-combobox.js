@@ -25,6 +25,7 @@
 
 import { matchChannels } from '/design-system/js/channel-matcher.js';
 import { el, debounce } from '/design-system/js/dom.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /**
  * Trailing-edge delay between the last keystroke and a matcher query.
@@ -231,11 +232,11 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
   let armed = -1;
   let isOpen = false;
   /**
-   * Bumped on every user-intent close (Escape, select, outside click, blur)
-   * so a debounced query scheduled before the close aborts instead of
-   * reopening a popup the user just dismissed.
+   * The newest scheduled query. Every user-intent close (Escape, select,
+   * outside click, blur) cancels it, so a debounced query scheduled before the
+   * close aborts instead of reopening a popup the user just dismissed.
    */
-  let generation = 0;
+  const latest = createLatestRequest();
   /** True while the accept path re-dispatches its synthetic `input` event. */
   let suppressInput = false;
 
@@ -279,13 +280,13 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
 
   /**
    * Close triggered by explicit user intent — additionally cancels any
-   * pending debounced query via the generation counter, so the popup stays
-   * dismissed even when a keystroke was still in flight.
+   * pending debounced query, so the popup stays dismissed even when a
+   * keystroke was still in flight.
    *
    * @returns {void}
    */
   function dismiss() {
-    generation += 1;
+    latest.cancel();
     close();
   }
 
@@ -488,8 +489,8 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
   }
 
   const debouncedQuery = debounce(
-    /** @param {number} gen */ (gen) => {
-      if (gen === generation) runQuery();
+    /** @param {import('/design-system/js/latest-request.js').LatestToken} token */ (token) => {
+      if (token.isCurrent()) runQuery();
     },
     debounceMs
   );
@@ -497,7 +498,7 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
   /** @returns {void} */
   function onInput() {
     if (suppressInput) return;
-    debouncedQuery(generation);
+    debouncedQuery(latest.begin());
   }
 
   /**

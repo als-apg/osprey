@@ -1,4 +1,4 @@
-"""The panels fixture, built once per session; see ``_fixture.py``."""
+"""The panels fixture, read from its checked-in document; see ``_fixture.py``."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+from tests.facility.panels._fixture import FIXTURE_DOCUMENT, PANELS_DIR, write_fixture_facility
 
 
 @pytest.fixture(scope="session")
-def panel_facility(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The fixture's built facility file."""
-    return write_fixture_facility(tmp_path_factory.mktemp("panels") / "facility.json")
+def panel_facility() -> Path:
+    """The fixture's facility file: the checked-in built document, read-only."""
+    return FIXTURE_DOCUMENT
 
 
 @pytest.fixture(scope="session")

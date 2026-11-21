@@ -463,7 +463,7 @@ judge is always a reachable remote model and never the model under test.
 
 **Tier 2 in CI.** The stack-free Tier 2 tests run in the ``benchmarks`` job on the
 ``run_benchmarks`` dispatch. The two that deploy a real stack,
-``test_chart_value_reading.py`` and ``test_pv_directory_agentic.py``, run on the
+``test_chart_value_reading.py`` and ``test_channel_directory_agentic.py``, run on the
 board only, where parallel cells take turns on a host-wide lock. A miss in
 Tier 2 says something about the model, not the change, and no pull-request lane
 runs the directory.

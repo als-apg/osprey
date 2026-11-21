@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.validate import FACILITY_HEADER
+from osprey.facility.validate import FACILITY_HEADER, vocabulary
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = REPO_ROOT / "src" / "osprey" / "facility" / "schema"
@@ -123,6 +123,8 @@ def _zero_source() -> dict[str, Any]:
         "schema": FACILITY_HEADER,
         "identity": {"code": "my_proj", "name": "my proj"},
         "classes": [],
+        "signals": vocabulary()["signal_roles"],
+        "relation_types": vocabulary()["relations"],
         "places": [],
         "devices": [],
         "channels": [],
@@ -184,6 +186,35 @@ def test_facility_files_validate(document: dict[str, Any]) -> None:
 
     facility = Facility.model_validate(document)
     assert facility.schema == document["schema"]
+
+
+@pytest.mark.parametrize("slot", ["signals", "relation_types"])
+def test_a_file_without_a_vocabulary_table_fails_validation(slot: str) -> None:
+    from pydantic import ValidationError
+
+    from osprey.facility.schema import Facility
+
+    document = _zero_source()
+    del document[slot]
+    with pytest.raises(ValidationError) as caught:
+        Facility.model_validate(document)
+    assert [(error["type"], error["loc"]) for error in caught.value.errors()] == [
+        ("missing", (slot,))
+    ]
+
+
+def test_a_relation_type_of_an_unknown_end_kind_fails_validation() -> None:
+    from pydantic import ValidationError
+
+    from osprey.facility.schema import Facility
+
+    document = _zero_source()
+    document["relation_types"] = [
+        {"name": "next_to", "subject": ["device"], "object": ["beamline"], "symmetric": True}
+    ]
+    with pytest.raises(ValidationError) as caught:
+        Facility.model_validate(document)
+    assert [error["type"] for error in caught.value.errors()] == ["enum"]
 
 
 def test_unknown_key_fails_validation() -> None:

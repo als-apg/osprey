@@ -24,9 +24,9 @@ Three contracts the callers depend on, each load-bearing:
   deploy is broken", which is the harder failure to read. Unrecognized calls are
   recorded with ``"handled": false`` instead, and the gate reads that flag.
 * **Every invocation is logged**, one JSON object per line, to
-  ``$OSPREY_STUB_RUNTIME_LOG`` — argv, cwd, stdin, the resolved seam, and
-  whether it was handled. Appended under an exclusive lock, because compose
-  invocations overlap.
+  ``$OSPREY_STUB_RUNTIME_LOG`` — argv, cwd, stdin, the resolved seam,
+  whether it was handled, and which compose files each reader opened.
+  Each line is one append-mode write, because compose invocations overlap.
 * **Answers are plausible, and consistent with each other.** ``compose up``
   reads the service names out of the very compose files it was handed and
   records them in ``$OSPREY_STUB_RUNTIME_STATE``, so the ``ps`` that follows
@@ -299,12 +299,34 @@ def write_state(state: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+#: The compose files this invocation opened, per reader (``services`` or
+#: ``labels``), in the order opened. Logged with the invocation, so a test sees
+#: what the stub read and not only what it was handed: a file that declares no
+#: services (the base network file) changes nothing else the stub reports.
+_FILES_READ: dict[str, list[str]] = {}
+
+
+def _read_compose_file(reader: str, compose_file: Path) -> list[str] | None:
+    """*compose_file*'s lines, noted as read by *reader*; ``None`` if unreadable."""
+    try:
+        lines = compose_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    _FILES_READ.setdefault(reader, []).append(str(compose_file))
+    return lines
+
+
 #: A ``services:`` key: two spaces of indent under the top-level block. Crude on
 #: purpose — the stub reads rendered compose files, which are emitted by
 #: OSPREY's own generator in exactly this shape, and a YAML dependency in a
 #: script that must run under the bare system interpreter is not worth it.
 _SERVICE_KEY = re.compile(r"^ {2}([A-Za-z0-9][A-Za-z0-9_.-]*):\s*$")
 _CONTAINER_NAME = re.compile(r"^\s+container_name:\s*['\"]?([^'\"\s]+)['\"]?\s*$")
+#: A service's ``labels:`` key, and one entry under it in either compose spelling:
+#: ``key: value`` in the mapping form, ``- key=value`` in the list form.
+_LABELS_KEY = re.compile(r"^ {4}labels:\s*$")
+_LABEL_MAPPING_ENTRY = re.compile(r"^ {6}['\"]?([^'\":\s]+)['\"]?:\s*(.*?)\s*$")
+_LABEL_LIST_ENTRY = re.compile(r"^ {6}-\s*['\"]?([^'\"=\s]+)=(.*?)['\"]?\s*$")
 
 
 def services_in(compose_file: Path) -> list[tuple[str, str]]:
@@ -314,9 +336,8 @@ def services_in(compose_file: Path) -> list[tuple[str, str]]:
     itself would name it if it had to: the service name stands in, and the
     caller prefixes the project.
     """
-    try:
-        lines = compose_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    lines = _read_compose_file("services", compose_file)
+    if lines is None:
         return []
 
     found: list[tuple[str, str]] = []
@@ -339,6 +360,50 @@ def services_in(compose_file: Path) -> list[tuple[str, str]]:
         named = _CONTAINER_NAME.match(line)
         if named and current is not None and found:
             found[-1] = (current, named.group(1))
+    return found
+
+
+def labels_in(compose_file: Path) -> dict[str, list[str]]:
+    """``key=value`` labels each service declares in one compose file.
+
+    Compose stamps a service's declared labels on its containers, and the deploy
+    path selects this checkout's containers by one of them, so a started
+    container has to carry them.
+    """
+    lines = _read_compose_file("labels", compose_file)
+    if lines is None:
+        return {}
+
+    found: dict[str, list[str]] = {}
+    in_services = False
+    current: str | None = None
+    in_labels = False
+    for line in lines:
+        if line.startswith("services:"):
+            in_services = True
+            continue
+        if line and not line[0].isspace() and not line.startswith("#"):
+            in_services = False
+            continue
+        if not in_services:
+            continue
+        match = _SERVICE_KEY.match(line)
+        if match:
+            current = match.group(1)
+            in_labels = False
+            continue
+        if current is None:
+            continue
+        if _LABELS_KEY.match(line):
+            in_labels = True
+            continue
+        if in_labels:
+            entry = _LABEL_LIST_ENTRY.match(line) or _LABEL_MAPPING_ENTRY.match(line)
+            if entry:
+                value = entry.group(2).strip().strip("'\"")
+                found.setdefault(current, []).append(f"{entry.group(1)}={value}")
+                continue
+            in_labels = False
     return found
 
 
@@ -374,9 +439,16 @@ def _project_name(args: list[str]) -> str:
     return os.environ.get("COMPOSE_PROJECT_NAME", "osprey")
 
 
-def _container_record(project: str, service: str, name: str, index: int) -> dict[str, Any]:
-    """One ``ps``-shaped record, with the keys the status renderer reads."""
+def _container_record(
+    project: str, service: str, name: str, index: int, labels: list[str]
+) -> dict[str, Any]:
+    """One ``ps``-shaped record, with the keys the status renderer reads.
+
+    ``Labels`` is docker's comma-joined string: compose's own two labels, then
+    the ones the compose files declare for the service.
+    """
     qualified = name if name != service else f"{project}-{service}-1"
+    stamped = [f"com.docker.compose.project={project}", f"com.docker.compose.service={service}"]
     return {
         "ID": f"{index:012x}",
         "Names": qualified,
@@ -385,7 +457,7 @@ def _container_record(project: str, service: str, name: str, index: int) -> dict
         "State": "running",
         "Status": "Up 3 seconds",
         "Ports": "",
-        "Labels": f"com.docker.compose.project={project},com.docker.compose.service={service}",
+        "Labels": ",".join(stamped + labels),
         "Networks": f"{project}_default",
         "RunningFor": "3 seconds ago",
         "Service": service,
@@ -685,9 +757,13 @@ def _handle_compose_up(args: list[str], remainder: list[str]) -> None:
     project = _project_name(args)
     state = read_state()
     existing = {c["Names"]: c for c in state["containers"]}
+    declared_labels: dict[str, list[str]] = {}
+    for compose_file in _compose_files(args):
+        for service, labels in labels_in(compose_file).items():
+            declared_labels.setdefault(service, []).extend(labels)
     lines: list[str] = []
     for index, (service, name) in enumerate(_selected_services(args, remainder), start=1):
-        record = _container_record(project, service, name, index)
+        record = _container_record(project, service, name, index, declared_labels.get(service, []))
         was_running = record["Names"] in existing
         existing[record["Names"]] = record
         lines.append(f" Container {record['Names']}  {'Recreated' if was_running else 'Created'}")
@@ -740,6 +816,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     raw = list(sys.argv if argv is None else argv)
     args = raw[1:]
+    _FILES_READ.clear()
     stdin_text = _read_stdin()
     is_compose, seam, remainder = split_argv(args)
 
@@ -757,6 +834,7 @@ def main(argv: list[str] | None = None) -> int:
                 "compose": is_compose,
                 "seam": f"compose {seam}".strip() if is_compose else seam,
                 "handled": handled,
+                "read": {reader: list(files) for reader, files in _FILES_READ.items()},
                 "cwd": os.getcwd(),
                 "stdin": stdin_text,
                 "pid": os.getpid(),

@@ -1,4 +1,4 @@
-"""Tests for the ``.npy`` branch of ``build_data_reader`` (_viz_common).
+"""Tests for the ``.npy`` branch of ``DATA_READER_SOURCE`` (_viz_common).
 
 A ``channel_read`` image/waveform artifact is stored as a ``.npy`` file, so
 passing its artifact id as ``data_source=`` to the plot tools must resolve to
@@ -48,13 +48,17 @@ def _save_npy_artifact(store, array: np.ndarray, filename: str = "frame.npy") ->
 
 
 def _run_reader_in_sandbox(data_source: str, tmp_path: Path) -> dict:
-    """Run the generated reader in a fresh interpreter; return what it loaded."""
-    from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+    """Run the reader in a fresh interpreter; return what it loaded."""
+    from osprey.mcp_server.workspace.tools._viz_common import (
+        DATA_READER_SOURCE,
+        resolve_data_source,
+    )
 
     script = tmp_path / "sandbox_run.py"
     script.write_text(
         _SANDBOX_PREAMBLE
-        + build_data_reader(data_source)
+        + f"_data_path = {resolve_data_source(data_source)!r}\n"
+        + DATA_READER_SOURCE
         + "\n"
         + "import json as _out_json\n"
         + "print('__RESULT__' + _out_json.dumps({\n"
@@ -94,16 +98,14 @@ class TestResolveNpyArtifact:
         assert resolved.suffix == ".npy"
         np.testing.assert_array_equal(np.load(resolved), array)
 
-    def test_generated_code_embeds_the_resolved_path(self, art_store):
-        """Resolution happens server-side: the emitted code carries an absolute path."""
-        from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+    def test_the_reader_names_no_path(self, art_store):
+        """The path reaches the sandbox as data: the reader code binds and names none."""
+        from osprey.mcp_server.workspace.tools._viz_common import DATA_READER_SOURCE
 
         artifact_id = _save_npy_artifact(art_store, np.zeros((2, 2)))
 
-        code = build_data_reader(artifact_id)
-
-        assert str(art_store.get_file_path(artifact_id)) in code
-        assert ".npy'" in code
+        assert "_data_path =" not in DATA_READER_SOURCE
+        assert str(art_store.get_file_path(artifact_id)) not in DATA_READER_SOURCE
 
 
 class TestNpyReaderRoundTrip:
@@ -156,23 +158,22 @@ class TestNpyReaderRoundTrip:
 
     def test_missing_file_raises_before_load(self, tmp_path: Path):
         """The existing existence guard still fires for a .npy path."""
-        from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+        from osprey.mcp_server.workspace.tools._viz_common import DATA_READER_SOURCE
 
-        code = build_data_reader(str(tmp_path / "absent.npy"))
-        namespace: dict = {}
+        namespace: dict = {"_data_path": str(tmp_path / "absent.npy")}
 
         with pytest.raises(FileNotFoundError):
-            exec(code, namespace)
+            exec(DATA_READER_SOURCE, namespace)
 
 
 class TestNpyReaderSandboxSafety:
     """The emitted .npy loader must clear the viz sandbox import whitelist."""
 
-    def test_generated_code_has_no_disallowed_imports(self, tmp_path: Path):
+    def test_generated_code_has_no_disallowed_imports(self):
         from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sandbox_code
-        from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+        from osprey.mcp_server.workspace.tools._viz_common import DATA_READER_SOURCE
 
-        is_safe, violations = validate_sandbox_code(build_data_reader(str(tmp_path / "f.npy")))
+        is_safe, violations = validate_sandbox_code(DATA_READER_SOURCE)
 
         assert is_safe, violations
 
@@ -183,13 +184,13 @@ class TestExistingBranchesUnchanged:
     def test_csv_still_yields_a_dataframe_with_columns(self, tmp_path: Path):
         import pandas as pd
 
-        from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+        from osprey.mcp_server.workspace.tools._viz_common import DATA_READER_SOURCE
 
         fp = tmp_path / "data.csv"
         fp.write_text("a,b\n1,2\n3,4\n")
 
-        namespace: dict = {"pd": pd}
-        exec(build_data_reader(str(fp)), namespace)
+        namespace: dict = {"pd": pd, "_data_path": str(fp)}
+        exec(DATA_READER_SOURCE, namespace)
 
         data = namespace["data"]
         assert isinstance(data, pd.DataFrame)

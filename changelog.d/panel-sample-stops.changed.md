@@ -1,0 +1,1 @@
+A class's `sample` in the panels index names, for each member, what it stands for (`as`): the standard, the smallest, the largest, the one with the longest labels, the first off standard, and the drawing sides it is the first to show. Each member is `{"file", "as"}` instead of a bare file name.

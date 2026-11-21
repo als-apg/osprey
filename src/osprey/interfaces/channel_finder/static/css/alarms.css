@@ -209,7 +209,7 @@
   background: var(--color-warning);
 }
 
-.alarms-pv a {
+.alarms-channel a {
   font-family: var(--cf-font-pv);
   color: var(--text-primary);
 }

@@ -296,9 +296,20 @@ def _cell_widgets(doc: dict, cell: dict) -> list[dict]:
         if n["props"].get("actions") or n["type"] == "rectangle":
             continue
         inside = cell["x"] <= mx <= cell["x"] + cell["width"]
-        if inside and cell["y"] <= my <= cell["y"] + cell["height"] and g not in out:
-            out.append(g)  # a light's layers share one box: one widget
+        if inside and cell["y"] <= my <= cell["y"] + cell["height"] and not _layer(g, out):
+            out.append(g)
     return out
+
+
+def _layer(g: dict, found: list[dict]) -> bool:
+    """A light's layers are one widget: they share its box, its mark grown about
+    the box's middle to one line of text."""
+    return any(
+        g["x"] == o["x"]
+        and g["width"] == o["width"]
+        and abs((g["y"] + g["height"] / 2) - (o["y"] + o["height"] / 2)) < 0.01
+        for o in found
+    )
 
 
 def _apart(a: dict, b: dict) -> bool:
@@ -426,7 +437,7 @@ def test_a_section_is_never_a_set_and_a_family_needs_one_class(tmp_path) -> None
     graph = _grouped(
         tmp_path,
         {"id": "XR-ZONE", "kind": "section", "members": ["XR01:QF1"]},
-        {"id": "XR-FAM", "members": ["XR01:QF1", "XR02:QF1"]},  # a family when absent
+        {"id": "XR-FAM", "kind": "family", "members": ["XR01:QF1", "XR02:QF1"]},
     )
     sets = {t.id for t in targets(graph) if t.view == "set"}
     assert "XR-FAM" in sets and "XR-ZONE" not in sets
@@ -435,7 +446,10 @@ def test_a_section_is_never_a_set_and_a_family_needs_one_class(tmp_path) -> None
 def test_check_names_a_family_that_is_no_set_for_want_of_a_members_class(tmp_path) -> None:
     from osprey.facility.panels import emit
 
-    graph = _grouped(tmp_path, {"id": "XR-HALF", "members": ["XR01:QF1", "XR02:QF1", "XR01:ODD1"]})
+    graph = _grouped(
+        tmp_path,
+        {"id": "XR-HALF", "kind": "family", "members": ["XR01:QF1", "XR02:QF1", "XR01:ODD1"]},
+    )
     emit.write(graph, tmp_path / "out")
     (note,) = [p for p in emit.check(graph, tmp_path / "out") if p.kind == "unset_group"]
     assert note.note and note.detail.startswith("XR-HALF is no set: XR01:ODD1 is no device")

@@ -28,6 +28,7 @@ below is pinned in both states.
 from __future__ import annotations
 
 import ast
+import json
 import logging
 import re
 import subprocess
@@ -387,6 +388,29 @@ class TestDestructiveActionsAreReported:
         assert_promoted(default_altitude, printed, "stopping the 2 container(s) labelled")
         assert "volumes and the compose network are kept" in printed.flowed
 
+    def test_a_stop_of_recorded_services_says_how_many_containers_it_stops(
+        self, default_altitude, printed, tmp_path, monkeypatch
+    ):
+        rows = [
+            {
+                "Names": [name],
+                "Labels": {
+                    "com.docker.compose.project": "demo",
+                    "com.docker.compose.service": "qmd",
+                },
+            }
+            for name in ("demo-qmd-1", "demo-qmd-2")
+        ]
+        _stub_label_sweep(monkeypatch, container_ids=[], rows=rows)
+
+        container_lifecycle._down_recorded_services(tmp_path, "docker", "demo", ["qmd"])
+
+        assert_promoted(
+            default_altitude,
+            printed,
+            "stopping the 2 container(s) of the services the last start recorded",
+        )
+
     def test_finding_nothing_to_stop_states_the_limit_of_the_sweep(
         self, default_altitude, printed, tmp_path, monkeypatch
     ):
@@ -629,13 +653,17 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _stop)
 
 
-def _stub_label_sweep(monkeypatch: pytest.MonkeyPatch, *, container_ids: list[str]) -> None:
-    """Answer the label sweep's ``ps`` with ``container_ids`` and nothing else."""
+def _stub_label_sweep(
+    monkeypatch: pytest.MonkeyPatch, *, container_ids: list[str], rows: list[dict] | None = None
+) -> None:
+    """Answer ``ps`` with ``container_ids``, or with ``rows`` as JSON under ``--format json``."""
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
     def _run(cmd, **kwargs):
+        if "--format" in cmd and rows is not None:
+            return subprocess.CompletedProcess(list(cmd), 0, stdout=json.dumps(rows), stderr="")
         stdout = "\n".join(container_ids) + ("\n" if container_ids else "")
         return subprocess.CompletedProcess(list(cmd), 0, stdout=stdout, stderr="")
 
@@ -1973,6 +2001,12 @@ def _stub_one_port_conflict(monkeypatch: pytest.MonkeyPatch, *, host_network: bo
 
 class TestTheHostPortConflictReport:
     """The preflight's refusal, in the shape every other refusal wears."""
+
+    @pytest.fixture(autouse=True)
+    def _repo_root_in_tmp(self, monkeypatch, tmp_path):
+        """An empty config resolves the repo root to the working directory, where
+        the preflight reads and writes its host-network ports file."""
+        monkeypatch.chdir(tmp_path)
 
     @pytest.mark.usefixtures("default_altitude")
     def test_the_report_lands_on_stderr_as_a_failure(self, printed_err, monkeypatch):

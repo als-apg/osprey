@@ -1,0 +1,2968 @@
+{
+  "_reproduce": "Frozen: no command rewrites this golden; it was captured from the demo build at 8f22637c06, the last /3 build, whose views unioned the vocabulary's signal roles with the document's.",
+  "_description": "What the facts view and the channel-finder role descriptions give for the demo build. A build that writes the effective signal-role table into the document must give the same.",
+  "facts": {
+    "channel_count": 4731,
+    "device_classes": {
+      "AcceleratingCavity": {
+        "aliases": [
+          "RF cavity",
+          "accelerating cavity",
+          "cavity"
+        ],
+        "count": 2,
+        "groups": [
+          "SR/RF"
+        ]
+      },
+      "AirHandler": {
+        "aliases": [
+          "AHU",
+          "air handler",
+          "air handling unit"
+        ],
+        "count": 5,
+        "groups": [
+          "SR/ENV"
+        ]
+      },
+      "Aperture": {
+        "aliases": [
+          "aperture",
+          "collimator",
+          "scraper"
+        ],
+        "count": 9,
+        "groups": [
+          "SR/SCRAPER"
+        ]
+      },
+      "BeamCurrentMonitor": {
+        "aliases": [
+          "BC",
+          "BCM",
+          "beam current monitor",
+          "current monitor"
+        ],
+        "count": 6,
+        "groups": [
+          "BR/DIAG",
+          "BTS/ICT",
+          "GTL/ICT",
+          "LN/ICT",
+          "LTB/ICT",
+          "SR/DIAG"
+        ]
+      },
+      "BeamLossMonitor": {
+        "aliases": [
+          "BLM",
+          "LM",
+          "beam loss monitor",
+          "loss monitor"
+        ],
+        "count": 8,
+        "groups": [
+          "SR/DIAG"
+        ]
+      },
+      "BeamPositionMonitor": {
+        "aliases": [
+          "BPM",
+          "PM",
+          "beam position monitor",
+          "position monitor",
+          "position pickup"
+        ],
+        "count": 100,
+        "groups": [
+          "BR/BPM",
+          "BR/DIAG",
+          "BTS/BPM",
+          "BTS/DIAG",
+          "GTL/BPM",
+          "LINE/BPM",
+          "LN/BPM",
+          "LTB/BPM",
+          "SR/BPM",
+          "SR/DIAG",
+          "SR/VS03"
+        ]
+      },
+      "BuckingCoil": {
+        "aliases": [],
+        "count": 2,
+        "groups": [
+          "GTL/BC"
+        ]
+      },
+      "BunchingCavity": {
+        "aliases": [],
+        "count": 1,
+        "groups": [
+          "LN/BUNCHER"
+        ]
+      },
+      "Circuit": {
+        "aliases": [],
+        "count": 1,
+        "groups": []
+      },
+      "ControlApplication": {
+        "aliases": [],
+        "count": 1,
+        "groups": []
+      },
+      "Dipole": {
+        "aliases": [
+          "bend",
+          "bend magnet",
+          "bending magnet",
+          "dipole",
+          "dipole magnet"
+        ],
+        "count": 53,
+        "groups": [
+          "BR/DIPOLE",
+          "BR/DIPOLE-RAMP",
+          "BR/MAG",
+          "BTS/DIPOLE",
+          "LTB/DIPOLE",
+          "SR/DIPOLE",
+          "SR/MAG"
+        ]
+      },
+      "ElectronGun": {
+        "aliases": [],
+        "count": 1,
+        "groups": [
+          "GTL/EGUN"
+        ]
+      },
+      "ElectronicsChassis": {
+        "aliases": [],
+        "count": 3,
+        "groups": []
+      },
+      "Gauge": {
+        "aliases": [
+          "gauge",
+          "pressure gauge",
+          "vacuum gauge"
+        ],
+        "count": 29,
+        "groups": [
+          "SR/VAC"
+        ]
+      },
+      "HCorrector": {
+        "aliases": [
+          "HCOR",
+          "HCorrector",
+          "horizontal corrector",
+          "horizontal orbit corrector",
+          "horizontal steering magnet"
+        ],
+        "count": 93,
+        "groups": [
+          "BTS/HCM",
+          "BTS/MAG",
+          "GTL/HCM",
+          "LINE/HCM",
+          "LN/HCM",
+          "LTB/HCM",
+          "SR/HCM",
+          "SR/MAG"
+        ]
+      },
+      "HarmonicCavity": {
+        "aliases": [
+          "bunch lengthening cavity",
+          "harmonic cavity",
+          "third harmonic cavity"
+        ],
+        "count": 3,
+        "groups": [
+          "SR/HC"
+        ]
+      },
+      "Host": {
+        "aliases": [],
+        "count": 1,
+        "groups": []
+      },
+      "InsertionDevice": {
+        "aliases": [
+          "EPU",
+          "ID",
+          "insertion device",
+          "undulator",
+          "wiggler"
+        ],
+        "count": 14,
+        "groups": [
+          "SR/ID"
+        ]
+      },
+      "Kicker": {
+        "aliases": [
+          "extraction kicker",
+          "injection kicker",
+          "kicker",
+          "kicker magnet",
+          "pulsed kicker"
+        ],
+        "count": 1,
+        "groups": [
+          "BR/KICKER"
+        ]
+      },
+      "Modulator": {
+        "aliases": [],
+        "count": 2,
+        "groups": [
+          "SR/RF"
+        ]
+      },
+      "NetworkSwitch": {
+        "aliases": [],
+        "count": 1,
+        "groups": []
+      },
+      "PhotonShutter": {
+        "aliases": [
+          "beamline shutter",
+          "front-end shutter",
+          "photon shutter"
+        ],
+        "count": 56,
+        "groups": [
+          "SR/FE"
+        ]
+      },
+      "PowerSupply": {
+        "aliases": [],
+        "count": 1,
+        "groups": []
+      },
+      "Pump": {
+        "aliases": [
+          "ion pump",
+          "pump",
+          "vacuum pump"
+        ],
+        "count": 72,
+        "groups": [
+          "SR/VAC",
+          "SR/VS03"
+        ]
+      },
+      "Quadrupole": {
+        "aliases": [
+          "defocusing magnet",
+          "focusing magnet",
+          "quad",
+          "quadrupole",
+          "quadrupole magnet"
+        ],
+        "count": 113,
+        "groups": [
+          "BR/MAG",
+          "BR/QD",
+          "BR/QD-RAMP",
+          "BR/QF",
+          "BR/QF-RAMP",
+          "BTS/MAG",
+          "BTS/QD",
+          "BTS/QF",
+          "LINE/QD",
+          "LINE/QF",
+          "LN/QD",
+          "LN/QF",
+          "LTB/QD",
+          "LTB/QF",
+          "SR/MAG",
+          "SR/QD",
+          "SR/QF",
+          "SR/QFA",
+          "SR/VS03"
+        ]
+      },
+      "RadioFrequency": {
+        "aliases": [
+          "RF",
+          "radio frequency",
+          "radiofrequency"
+        ],
+        "count": 2,
+        "groups": [
+          "LN/MASTER",
+          "LN/WATER"
+        ]
+      },
+      "ScreenDiagnostic": {
+        "aliases": [
+          "profile screen",
+          "screen",
+          "viewer"
+        ],
+        "count": 22,
+        "groups": [
+          "BR/TV",
+          "BTS/PADDLES",
+          "BTS/TV",
+          "GTL/TV",
+          "LN/TV",
+          "LTB/TV"
+        ]
+      },
+      "Septum": {
+        "aliases": [
+          "extraction septum",
+          "injection septum",
+          "septum",
+          "septum magnet"
+        ],
+        "count": 4,
+        "groups": [
+          "BR/SEPTUM",
+          "SR/SEPTUM"
+        ]
+      },
+      "Sextupole": {
+        "aliases": [
+          "sext",
+          "sextupole"
+        ],
+        "count": 96,
+        "groups": [
+          "SR/MAG",
+          "SR/SD",
+          "SR/SF",
+          "SR/SHD",
+          "SR/SHF"
+        ]
+      },
+      "Solenoid": {
+        "aliases": [
+          "axial focusing magnet",
+          "solenoid",
+          "solenoid magnet"
+        ],
+        "count": 7,
+        "groups": [
+          "GTL/SOL",
+          "LN/SOL"
+        ]
+      },
+      "SubHarmonicBuncher": {
+        "aliases": [],
+        "count": 2,
+        "groups": [
+          "GTL/SHB"
+        ]
+      },
+      "TemperatureSensor": {
+        "aliases": [
+          "TC",
+          "temperature sensor",
+          "thermocouple"
+        ],
+        "count": 190,
+        "groups": [
+          "SR/ENV",
+          "SR/TC"
+        ]
+      },
+      "TimingChannel": {
+        "aliases": [],
+        "count": 1,
+        "groups": []
+      },
+      "TravellingWaveCavity": {
+        "aliases": [],
+        "count": 2,
+        "groups": [
+          "LN/ACC"
+        ]
+      },
+      "UtilityLoop": {
+        "aliases": [],
+        "count": 1,
+        "groups": []
+      },
+      "VCorrector": {
+        "aliases": [
+          "VCOR",
+          "VCorrector",
+          "vertical corrector",
+          "vertical orbit corrector",
+          "vertical steering magnet"
+        ],
+        "count": 98,
+        "groups": [
+          "BTS/MAG",
+          "BTS/VCM",
+          "GTL/VCM",
+          "LINE/VCM",
+          "LN/VCM",
+          "LTB/VCM",
+          "SR/MAG",
+          "SR/VCM"
+        ]
+      },
+      "Valve": {
+        "aliases": [
+          "BV",
+          "FV",
+          "beamline valve",
+          "fast valve",
+          "gate valve",
+          "isolation valve",
+          "valve"
+        ],
+        "count": 24,
+        "groups": [
+          "SR/VAC"
+        ]
+      }
+    },
+    "hierarchy_levels": [
+      "machine",
+      "sector"
+    ],
+    "identity": {
+      "code": "ca",
+      "description": "A fictional multi-purpose user facility bundled with OSPREY as its example.",
+      "name": "Example Research Facility"
+    },
+    "measurement_kinds": {
+      "chromaticity_monitor": {
+        "corrector_roles": [],
+        "description": "the chromaticity [xi_x, xi_y] (steps the RF)",
+        "matrix": false,
+        "members": {
+          "rf": "wired",
+          "tune": "wired"
+        },
+        "single_pass": false,
+        "stepped_roles": [
+          "rf"
+        ],
+        "takes_by": false
+      },
+      "crm": {
+        "corrector_roles": [],
+        "description": "chromaticity response of the sextupoles (steps the RF)",
+        "matrix": true,
+        "members": {
+          "rf": "wired",
+          "sext": "wired",
+          "tune": "wired"
+        },
+        "single_pass": false,
+        "stepped_roles": [
+          "sext",
+          "rf"
+        ],
+        "takes_by": true
+      },
+      "dispersion": {
+        "corrector_roles": [],
+        "description": "orbit response to the RF frequency",
+        "matrix": true,
+        "members": {
+          "bpm": "wired",
+          "hcor": "wired",
+          "rf": "wired",
+          "vcor": "wired"
+        },
+        "single_pass": false,
+        "stepped_roles": [
+          "rf"
+        ],
+        "takes_by": false
+      },
+      "orm": {
+        "corrector_roles": [
+          "hcor",
+          "vcor"
+        ],
+        "description": "orbit response of the corrector setpoints",
+        "matrix": true,
+        "members": {
+          "bpm": "wired",
+          "hcor": "wired",
+          "vcor": "wired"
+        },
+        "single_pass": true,
+        "stepped_roles": [
+          "hcor",
+          "vcor"
+        ],
+        "takes_by": false
+      },
+      "trm": {
+        "corrector_roles": [],
+        "description": "tune response of the quadrupoles",
+        "matrix": true,
+        "members": {
+          "quad": "wired",
+          "tune": "wired"
+        },
+        "single_pass": false,
+        "stepped_roles": [
+          "quad"
+        ],
+        "takes_by": true
+      }
+    },
+    "measurement_models": {
+      "BTS": {
+        "files": {},
+        "instruments": {},
+        "kinds": {
+          "orm": {
+            "corrector_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "description": "orbit response of the corrector setpoints",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "corrector_names": "$names",
+                  "n_avg_meas": "$n_avg_meas",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                },
+                "set_delta": true
+              },
+              "bpm_array": "bpm_array_name",
+              "delta": "corrector_delta",
+              "fit": "magnet-group",
+              "magnets": {
+                "members": [
+                  "hcorrectors",
+                  "vcorrectors"
+                ]
+              },
+              "missing": "kind",
+              "named": true,
+              "result": "matrix",
+              "tool": {
+                "attribute": "orm"
+              },
+              "unipolar": {
+                "factory": "orm",
+                "kwargs": {
+                  "bpm_array": "@bpm_array_name",
+                  "correctors": "$names",
+                  "deltas": "$deltas",
+                  "n_avg_meas": "$n_avg_meas",
+                  "set_wait_time": "$settle"
+                },
+                "per_member": true
+              }
+            },
+            "members": {
+              "bpm": {
+                "addresses": [
+                  "BTS:DIAG:BPM:01:POSITION:X",
+                  "BTS:DIAG:BPM:01:POSITION:Y",
+                  "BTS:DIAG:BPM:02:POSITION:X",
+                  "BTS:DIAG:BPM:02:POSITION:Y",
+                  "BTS:DIAG:BPM:03:POSITION:X",
+                  "BTS:DIAG:BPM:03:POSITION:Y",
+                  "BTS:DIAG:BPM:04:POSITION:X",
+                  "BTS:DIAG:BPM:04:POSITION:Y",
+                  "BTS:DIAG:BPM:05:POSITION:X",
+                  "BTS:DIAG:BPM:05:POSITION:Y",
+                  "BTS:DIAG:BPM:06:POSITION:X",
+                  "BTS:DIAG:BPM:06:POSITION:Y"
+                ],
+                "requirement": "wired"
+              },
+              "hcor": {
+                "addresses": [
+                  "BTS:MAG:HCM:01:CURRENT:SP",
+                  "BTS:MAG:HCM:02:CURRENT:SP",
+                  "BTS:MAG:HCM:03:CURRENT:SP",
+                  "BTS:MAG:HCM:04:CURRENT:SP",
+                  "BTS:MAG:HCM:05:CURRENT:SP",
+                  "BTS:MAG:HCM:06:CURRENT:SP",
+                  "BTS:MAG:HCM:07:CURRENT:SP",
+                  "BTS:MAG:HCM:08:CURRENT:SP",
+                  "BTS:MAG:HCM:09:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "vcor": {
+                "addresses": [
+                  "BTS:MAG:VCM:01:CURRENT:SP",
+                  "BTS:MAG:VCM:02:CURRENT:SP",
+                  "BTS:MAG:VCM:03:CURRENT:SP",
+                  "BTS:MAG:VCM:04:CURRENT:SP",
+                  "BTS:MAG:VCM:05:CURRENT:SP",
+                  "BTS:MAG:VCM:06:CURRENT:SP",
+                  "BTS:MAG:VCM:07:CURRENT:SP",
+                  "BTS:MAG:VCM:08:CURRENT:SP",
+                  "BTS:MAG:VCM:09:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": true,
+            "stepped_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "takes_by": false,
+            "tool": {
+              "name": "DEFAULT_ORBIT_RESPONSE_MATRIX",
+              "type": "pyaml.tuning_tools.orbit_response_matrix"
+            },
+            "tool_keys": [
+              "corrector_delta"
+            ],
+            "view_files": []
+          }
+        },
+        "names": {
+          "bpm": "BTS_BPM",
+          "hcor": "BTS_HCM",
+          "vcor": "BTS_VCM"
+        },
+        "path": "data/pyaml/BTS/configuration.yaml",
+        "rf": [],
+        "sha256": "de5d1ced6a958286c76dfa0bd75a129f587e8358b4afcaf7d4edd9e55f8c018f"
+      },
+      "LINE": {
+        "files": {},
+        "instruments": {},
+        "kinds": {
+          "orm": {
+            "corrector_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "description": "orbit response of the corrector setpoints",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "corrector_names": "$names",
+                  "n_avg_meas": "$n_avg_meas",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                },
+                "set_delta": true
+              },
+              "bpm_array": "bpm_array_name",
+              "delta": "corrector_delta",
+              "fit": "magnet-group",
+              "magnets": {
+                "members": [
+                  "hcorrectors",
+                  "vcorrectors"
+                ]
+              },
+              "missing": "kind",
+              "named": true,
+              "result": "matrix",
+              "tool": {
+                "attribute": "orm"
+              },
+              "unipolar": {
+                "factory": "orm",
+                "kwargs": {
+                  "bpm_array": "@bpm_array_name",
+                  "correctors": "$names",
+                  "deltas": "$deltas",
+                  "n_avg_meas": "$n_avg_meas",
+                  "set_wait_time": "$settle"
+                },
+                "per_member": true
+              }
+            },
+            "members": {
+              "bpm": {
+                "addresses": [
+                  "LINE:DIAG:BPM:01:POSITION:X",
+                  "LINE:DIAG:BPM:01:POSITION:Y",
+                  "LINE:DIAG:BPM:02:POSITION:X",
+                  "LINE:DIAG:BPM:02:POSITION:Y",
+                  "LINE:DIAG:BPM:03:POSITION:X",
+                  "LINE:DIAG:BPM:03:POSITION:Y",
+                  "LINE:DIAG:BPM:04:POSITION:X",
+                  "LINE:DIAG:BPM:04:POSITION:Y"
+                ],
+                "requirement": "wired"
+              },
+              "hcor": {
+                "addresses": [
+                  "LINE:MAG:HCM:01:CURRENT:SP",
+                  "LINE:MAG:HCM:02:CURRENT:SP",
+                  "LINE:MAG:HCM:03:CURRENT:SP",
+                  "LINE:MAG:HCM:04:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "vcor": {
+                "addresses": [
+                  "LINE:MAG:VCM:01:CURRENT:SP",
+                  "LINE:MAG:VCM:02:CURRENT:SP",
+                  "LINE:MAG:VCM:03:CURRENT:SP",
+                  "LINE:MAG:VCM:04:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": true,
+            "stepped_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "takes_by": false,
+            "tool": {
+              "name": "DEFAULT_ORBIT_RESPONSE_MATRIX",
+              "type": "pyaml.tuning_tools.orbit_response_matrix"
+            },
+            "tool_keys": [
+              "corrector_delta"
+            ],
+            "view_files": []
+          }
+        },
+        "names": {
+          "bpm": "LINE_BPM",
+          "hcor": "LINE_HCM",
+          "vcor": "LINE_VCM"
+        },
+        "path": "data/pyaml/LINE/configuration.yaml",
+        "rf": [],
+        "sha256": "3d0b99665178f989d1fc11c18329160b1c73450f1214bc9961b0f723dcad7d96"
+      },
+      "LTB": {
+        "files": {},
+        "instruments": {},
+        "kinds": {
+          "orm": {
+            "corrector_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "description": "orbit response of the corrector setpoints",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "corrector_names": "$names",
+                  "n_avg_meas": "$n_avg_meas",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                },
+                "set_delta": true
+              },
+              "bpm_array": "bpm_array_name",
+              "delta": "corrector_delta",
+              "fit": "magnet-group",
+              "magnets": {
+                "members": [
+                  "hcorrectors",
+                  "vcorrectors"
+                ]
+              },
+              "missing": "kind",
+              "named": true,
+              "result": "matrix",
+              "tool": {
+                "attribute": "orm"
+              },
+              "unipolar": {
+                "factory": "orm",
+                "kwargs": {
+                  "bpm_array": "@bpm_array_name",
+                  "correctors": "$names",
+                  "deltas": "$deltas",
+                  "n_avg_meas": "$n_avg_meas",
+                  "set_wait_time": "$settle"
+                },
+                "per_member": true
+              }
+            },
+            "members": {
+              "bpm": {
+                "addresses": [
+                  "LTB:DIAG:BPM:01:POSITION:X",
+                  "LTB:DIAG:BPM:01:POSITION:Y",
+                  "LTB:DIAG:BPM:02:POSITION:X",
+                  "LTB:DIAG:BPM:02:POSITION:Y",
+                  "LTB:DIAG:BPM:03:POSITION:X",
+                  "LTB:DIAG:BPM:03:POSITION:Y",
+                  "LTB:DIAG:BPM:04:POSITION:X",
+                  "LTB:DIAG:BPM:04:POSITION:Y",
+                  "LTB:DIAG:BPM:05:POSITION:X",
+                  "LTB:DIAG:BPM:05:POSITION:Y",
+                  "LTB:DIAG:BPM:06:POSITION:X",
+                  "LTB:DIAG:BPM:06:POSITION:Y"
+                ],
+                "requirement": "wired"
+              },
+              "hcor": {
+                "addresses": [
+                  "LTB:MAG:HCM:01:CURRENT:SP",
+                  "LTB:MAG:HCM:02:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "vcor": {
+                "addresses": [
+                  "LTB:MAG:VCM:01:CURRENT:SP",
+                  "LTB:MAG:VCM:02:CURRENT:SP",
+                  "LTB:MAG:VCM:03:CURRENT:SP",
+                  "LTB:MAG:VCM:04:CURRENT:SP",
+                  "LTB:MAG:VCM:05:CURRENT:SP",
+                  "LTB:MAG:VCM:06:CURRENT:SP",
+                  "LTB:MAG:VCM:07:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": true,
+            "stepped_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "takes_by": false,
+            "tool": {
+              "name": "DEFAULT_ORBIT_RESPONSE_MATRIX",
+              "type": "pyaml.tuning_tools.orbit_response_matrix"
+            },
+            "tool_keys": [
+              "corrector_delta"
+            ],
+            "view_files": []
+          }
+        },
+        "names": {
+          "bpm": "LTB_BPM",
+          "hcor": "LTB_HCM",
+          "vcor": "LTB_VCM"
+        },
+        "path": "data/pyaml/LTB/configuration.yaml",
+        "rf": [],
+        "sha256": "1b51a7cd38eb53a61e62f7b76d76a53180dc50a5780e6a214730e5d1914e0952"
+      },
+      "SR": {
+        "files": {
+          "crm.json": "9dfd8f364ddc7295b9a9fd1dbc141ea5fe621b43a3d3c1f36f8f1317da461a9b",
+          "lattice.json": "1c1184e570e40787268a53a7b6a36ef83bc99ce29cd8d43adfa0f9502a3f7010",
+          "trm.json": "c687adb2bc9cf7de8c33ff5e41b044a3a996c1ebdd87fe7381161f2d153e18c7"
+        },
+        "instruments": {
+          "rf": "SR:RF:CAVITY:01:FREQUENCY:SP",
+          "tune": "SR:DIAG:TUNE:X"
+        },
+        "kinds": {
+          "chromaticity_monitor": {
+            "corrector_roles": [],
+            "description": "the chromaticity [xi_x, xi_y] (steps the RF)",
+            "matrix": false,
+            "measure_plan": {
+              "fit": "monitor",
+              "kwargs": {},
+              "missing": "kind",
+              "result": "scalar",
+              "scalar": "chromaticity",
+              "tool": {
+                "monitor": "CHROMATICITY_MONITOR"
+              }
+            },
+            "members": {
+              "rf": {
+                "addresses": [
+                  "SR:RF:CAVITY:01:FREQUENCY:SP"
+                ],
+                "requirement": "wired"
+              },
+              "tune": {
+                "addresses": [
+                  "SR:DIAG:TUNE:X"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": false,
+            "stepped_roles": [
+              "rf"
+            ],
+            "takes_by": false,
+            "tool": {
+              "name": "CHROMATICITY_MONITOR",
+              "type": "pyaml.tuning_tools.chromaticity_monitor"
+            },
+            "tool_keys": [
+              "n_step",
+              "n_avg_meas",
+              "fit_order",
+              "sleep_between_step",
+              "sleep_between_meas"
+            ],
+            "view_files": []
+          },
+          "crm": {
+            "corrector_roles": [],
+            "description": "chromaticity response of the sextupoles (steps the RF)",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "n_avg_meas": "$n_avg_meas",
+                  "n_step": 2,
+                  "sextu_delta": "$half_step",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                }
+              },
+              "delta": "sextu_delta",
+              "fit": "magnet-group",
+              "group": {
+                "basis": "chromaticity excursion",
+                "factory": "crm",
+                "kwargs": {
+                  "chromaticity_monitor": "@chromaticity_name",
+                  "delta": "$step",
+                  "groups": "$groups",
+                  "set_wait_time": "$settle"
+                },
+                "matrix_file": "crm.json"
+              },
+              "magnets": {
+                "array": "sextu_array_name"
+              },
+              "missing": "variables",
+              "monitor": "chromaticity_monitor",
+              "named": false,
+              "result": "matrix",
+              "tool": {
+                "attribute": "crm"
+              },
+              "unipolar": {
+                "kwargs": {
+                  "n_avg_meas": "$n_avg_meas",
+                  "n_step": 1,
+                  "sextu_delta": "$negative_step",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                }
+              }
+            },
+            "members": {
+              "rf": {
+                "addresses": [
+                  "SR:RF:CAVITY:01:FREQUENCY:SP"
+                ],
+                "requirement": "wired"
+              },
+              "sext": {
+                "addresses": [
+                  "SR:MAG:SD:01:CURRENT:SP",
+                  "SR:MAG:SF:01:CURRENT:SP",
+                  "SR:MAG:SF:02:CURRENT:SP",
+                  "SR:MAG:SD:02:CURRENT:SP",
+                  "SR:MAG:SD:03:CURRENT:SP",
+                  "SR:MAG:SF:03:CURRENT:SP",
+                  "SR:MAG:SF:04:CURRENT:SP",
+                  "SR:MAG:SD:04:CURRENT:SP",
+                  "SR:MAG:SD:05:CURRENT:SP",
+                  "SR:MAG:SF:05:CURRENT:SP",
+                  "SR:MAG:SF:06:CURRENT:SP",
+                  "SR:MAG:SD:06:CURRENT:SP",
+                  "SR:MAG:SD:07:CURRENT:SP",
+                  "SR:MAG:SF:07:CURRENT:SP",
+                  "SR:MAG:SF:08:CURRENT:SP",
+                  "SR:MAG:SD:08:CURRENT:SP",
+                  "SR:MAG:SD:09:CURRENT:SP",
+                  "SR:MAG:SF:09:CURRENT:SP",
+                  "SR:MAG:SF:10:CURRENT:SP",
+                  "SR:MAG:SD:10:CURRENT:SP",
+                  "SR:MAG:SD:11:CURRENT:SP",
+                  "SR:MAG:SF:11:CURRENT:SP",
+                  "SR:MAG:SF:12:CURRENT:SP",
+                  "SR:MAG:SD:12:CURRENT:SP",
+                  "SR:MAG:SD:13:CURRENT:SP",
+                  "SR:MAG:SF:13:CURRENT:SP",
+                  "SR:MAG:SF:14:CURRENT:SP",
+                  "SR:MAG:SD:14:CURRENT:SP",
+                  "SR:MAG:SD:15:CURRENT:SP",
+                  "SR:MAG:SF:15:CURRENT:SP",
+                  "SR:MAG:SF:16:CURRENT:SP",
+                  "SR:MAG:SD:16:CURRENT:SP",
+                  "SR:MAG:SD:17:CURRENT:SP",
+                  "SR:MAG:SF:17:CURRENT:SP",
+                  "SR:MAG:SF:18:CURRENT:SP",
+                  "SR:MAG:SD:18:CURRENT:SP",
+                  "SR:MAG:SD:19:CURRENT:SP",
+                  "SR:MAG:SF:19:CURRENT:SP",
+                  "SR:MAG:SF:20:CURRENT:SP",
+                  "SR:MAG:SD:20:CURRENT:SP",
+                  "SR:MAG:SD:21:CURRENT:SP",
+                  "SR:MAG:SF:21:CURRENT:SP",
+                  "SR:MAG:SF:22:CURRENT:SP",
+                  "SR:MAG:SD:22:CURRENT:SP",
+                  "SR:MAG:SD:23:CURRENT:SP",
+                  "SR:MAG:SF:23:CURRENT:SP",
+                  "SR:MAG:SF:24:CURRENT:SP",
+                  "SR:MAG:SD:24:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "tune": {
+                "addresses": [
+                  "SR:DIAG:TUNE:X"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": false,
+            "stepped_roles": [
+              "sext",
+              "rf"
+            ],
+            "takes_by": true,
+            "tool": {
+              "name": "DEFAULT_CHROMATICITY_RESPONSE_MATRIX",
+              "type": "pyaml.tuning_tools.chromaticity_response_matrix"
+            },
+            "tool_keys": [
+              "sextu_delta"
+            ],
+            "view_files": [
+              "crm.json"
+            ]
+          },
+          "dispersion": {
+            "corrector_roles": [],
+            "description": "orbit response to the RF frequency",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "set_waiting_time": "$settle"
+                },
+                "set_delta": true
+              },
+              "bpm_array": "bpm_array_name",
+              "delta": "frequency_delta",
+              "fit": "rf",
+              "missing": "kind",
+              "planes": [
+                "frequency_response_x",
+                "frequency_response_y"
+              ],
+              "result": "planes",
+              "rf_plant": "rf_plant_name",
+              "tool": {
+                "attribute": "dispersion"
+              },
+              "unipolar": {
+                "factory": "dispersion",
+                "kwargs": {
+                  "bpm_array": "@bpm_array_name",
+                  "delta": "$step",
+                  "n_avg_meas": "$n_avg_meas",
+                  "rf_plant": "@rf_plant_name",
+                  "set_wait_time": "$settle"
+                }
+              }
+            },
+            "members": {
+              "bpm": {
+                "addresses": [
+                  "SR:DIAG:BPM:01:POSITION:X",
+                  "SR:DIAG:BPM:01:POSITION:Y",
+                  "SR:DIAG:BPM:02:POSITION:X",
+                  "SR:DIAG:BPM:02:POSITION:Y",
+                  "SR:DIAG:BPM:03:POSITION:X",
+                  "SR:DIAG:BPM:03:POSITION:Y",
+                  "SR:DIAG:BPM:04:POSITION:X",
+                  "SR:DIAG:BPM:04:POSITION:Y",
+                  "SR:DIAG:BPM:05:POSITION:X",
+                  "SR:DIAG:BPM:05:POSITION:Y",
+                  "SR:DIAG:BPM:06:POSITION:X",
+                  "SR:DIAG:BPM:06:POSITION:Y",
+                  "SR:DIAG:BPM:07:POSITION:X",
+                  "SR:DIAG:BPM:07:POSITION:Y",
+                  "SR:DIAG:BPM:08:POSITION:X",
+                  "SR:DIAG:BPM:08:POSITION:Y",
+                  "SR:DIAG:BPM:09:POSITION:X",
+                  "SR:DIAG:BPM:09:POSITION:Y",
+                  "SR:DIAG:BPM:10:POSITION:X",
+                  "SR:DIAG:BPM:10:POSITION:Y",
+                  "SR:DIAG:BPM:11:POSITION:X",
+                  "SR:DIAG:BPM:11:POSITION:Y",
+                  "SR:DIAG:BPM:12:POSITION:X",
+                  "SR:DIAG:BPM:12:POSITION:Y",
+                  "SR:DIAG:BPM:13:POSITION:X",
+                  "SR:DIAG:BPM:13:POSITION:Y",
+                  "SR:DIAG:BPM:14:POSITION:X",
+                  "SR:DIAG:BPM:14:POSITION:Y",
+                  "SR:DIAG:BPM:15:POSITION:X",
+                  "SR:DIAG:BPM:15:POSITION:Y",
+                  "SR:DIAG:BPM:16:POSITION:X",
+                  "SR:DIAG:BPM:16:POSITION:Y",
+                  "SR:DIAG:BPM:17:POSITION:X",
+                  "SR:DIAG:BPM:17:POSITION:Y",
+                  "SR:DIAG:BPM:18:POSITION:X",
+                  "SR:DIAG:BPM:18:POSITION:Y",
+                  "SR:DIAG:BPM:19:POSITION:X",
+                  "SR:DIAG:BPM:19:POSITION:Y",
+                  "SR:DIAG:BPM:20:POSITION:X",
+                  "SR:DIAG:BPM:20:POSITION:Y",
+                  "SR:DIAG:BPM:21:POSITION:X",
+                  "SR:DIAG:BPM:21:POSITION:Y",
+                  "SR:DIAG:BPM:22:POSITION:X",
+                  "SR:DIAG:BPM:22:POSITION:Y",
+                  "SR:DIAG:BPM:23:POSITION:X",
+                  "SR:DIAG:BPM:23:POSITION:Y",
+                  "SR:DIAG:BPM:24:POSITION:X",
+                  "SR:DIAG:BPM:24:POSITION:Y",
+                  "SR:DIAG:BPM:25:POSITION:X",
+                  "SR:DIAG:BPM:25:POSITION:Y",
+                  "SR:DIAG:BPM:26:POSITION:X",
+                  "SR:DIAG:BPM:26:POSITION:Y",
+                  "SR:DIAG:BPM:27:POSITION:X",
+                  "SR:DIAG:BPM:27:POSITION:Y",
+                  "SR:DIAG:BPM:28:POSITION:X",
+                  "SR:DIAG:BPM:28:POSITION:Y",
+                  "SR:DIAG:BPM:29:POSITION:X",
+                  "SR:DIAG:BPM:29:POSITION:Y",
+                  "SR:DIAG:BPM:30:POSITION:X",
+                  "SR:DIAG:BPM:30:POSITION:Y",
+                  "SR:DIAG:BPM:31:POSITION:X",
+                  "SR:DIAG:BPM:31:POSITION:Y",
+                  "SR:DIAG:BPM:32:POSITION:X",
+                  "SR:DIAG:BPM:32:POSITION:Y",
+                  "SR:DIAG:BPM:33:POSITION:X",
+                  "SR:DIAG:BPM:33:POSITION:Y",
+                  "SR:DIAG:BPM:34:POSITION:X",
+                  "SR:DIAG:BPM:34:POSITION:Y",
+                  "SR:DIAG:BPM:35:POSITION:X",
+                  "SR:DIAG:BPM:35:POSITION:Y",
+                  "SR:DIAG:BPM:36:POSITION:X",
+                  "SR:DIAG:BPM:36:POSITION:Y",
+                  "SR:DIAG:BPM:37:POSITION:X",
+                  "SR:DIAG:BPM:37:POSITION:Y",
+                  "SR:DIAG:BPM:38:POSITION:X",
+                  "SR:DIAG:BPM:38:POSITION:Y",
+                  "SR:DIAG:BPM:39:POSITION:X",
+                  "SR:DIAG:BPM:39:POSITION:Y",
+                  "SR:DIAG:BPM:40:POSITION:X",
+                  "SR:DIAG:BPM:40:POSITION:Y",
+                  "SR:DIAG:BPM:41:POSITION:X",
+                  "SR:DIAG:BPM:41:POSITION:Y",
+                  "SR:DIAG:BPM:42:POSITION:X",
+                  "SR:DIAG:BPM:42:POSITION:Y",
+                  "SR:DIAG:BPM:43:POSITION:X",
+                  "SR:DIAG:BPM:43:POSITION:Y",
+                  "SR:DIAG:BPM:44:POSITION:X",
+                  "SR:DIAG:BPM:44:POSITION:Y",
+                  "SR:DIAG:BPM:45:POSITION:X",
+                  "SR:DIAG:BPM:45:POSITION:Y",
+                  "SR:DIAG:BPM:46:POSITION:X",
+                  "SR:DIAG:BPM:46:POSITION:Y",
+                  "SR:DIAG:BPM:47:POSITION:X",
+                  "SR:DIAG:BPM:47:POSITION:Y",
+                  "SR:DIAG:BPM:48:POSITION:X",
+                  "SR:DIAG:BPM:48:POSITION:Y",
+                  "SR:DIAG:BPM:49:POSITION:X",
+                  "SR:DIAG:BPM:49:POSITION:Y",
+                  "SR:DIAG:BPM:50:POSITION:X",
+                  "SR:DIAG:BPM:50:POSITION:Y",
+                  "SR:DIAG:BPM:51:POSITION:X",
+                  "SR:DIAG:BPM:51:POSITION:Y",
+                  "SR:DIAG:BPM:52:POSITION:X",
+                  "SR:DIAG:BPM:52:POSITION:Y",
+                  "SR:DIAG:BPM:53:POSITION:X",
+                  "SR:DIAG:BPM:53:POSITION:Y",
+                  "SR:DIAG:BPM:54:POSITION:X",
+                  "SR:DIAG:BPM:54:POSITION:Y",
+                  "SR:DIAG:BPM:55:POSITION:X",
+                  "SR:DIAG:BPM:55:POSITION:Y",
+                  "SR:DIAG:BPM:56:POSITION:X",
+                  "SR:DIAG:BPM:56:POSITION:Y",
+                  "SR:DIAG:BPM:57:POSITION:X",
+                  "SR:DIAG:BPM:57:POSITION:Y",
+                  "SR:DIAG:BPM:58:POSITION:X",
+                  "SR:DIAG:BPM:58:POSITION:Y",
+                  "SR:DIAG:BPM:59:POSITION:X",
+                  "SR:DIAG:BPM:59:POSITION:Y",
+                  "SR:DIAG:BPM:60:POSITION:X",
+                  "SR:DIAG:BPM:60:POSITION:Y",
+                  "SR:DIAG:BPM:61:POSITION:X",
+                  "SR:DIAG:BPM:61:POSITION:Y",
+                  "SR:DIAG:BPM:62:POSITION:X",
+                  "SR:DIAG:BPM:62:POSITION:Y",
+                  "SR:DIAG:BPM:63:POSITION:X",
+                  "SR:DIAG:BPM:63:POSITION:Y",
+                  "SR:DIAG:BPM:64:POSITION:X",
+                  "SR:DIAG:BPM:64:POSITION:Y",
+                  "SR:DIAG:BPM:65:POSITION:X",
+                  "SR:DIAG:BPM:65:POSITION:Y",
+                  "SR:DIAG:BPM:66:POSITION:X",
+                  "SR:DIAG:BPM:66:POSITION:Y",
+                  "SR:DIAG:BPM:67:POSITION:X",
+                  "SR:DIAG:BPM:67:POSITION:Y",
+                  "SR:DIAG:BPM:68:POSITION:X",
+                  "SR:DIAG:BPM:68:POSITION:Y",
+                  "SR:DIAG:BPM:69:POSITION:X",
+                  "SR:DIAG:BPM:69:POSITION:Y",
+                  "SR:DIAG:BPM:70:POSITION:X",
+                  "SR:DIAG:BPM:70:POSITION:Y",
+                  "SR:DIAG:BPM:71:POSITION:X",
+                  "SR:DIAG:BPM:71:POSITION:Y",
+                  "SR:DIAG:BPM:72:POSITION:X",
+                  "SR:DIAG:BPM:72:POSITION:Y"
+                ],
+                "requirement": "wired"
+              },
+              "hcor": {
+                "addresses": [
+                  "SR:MAG:HCM:01:CURRENT:SP",
+                  "SR:MAG:HCM:02:CURRENT:SP",
+                  "SR:MAG:HCM:03:CURRENT:SP",
+                  "SR:MAG:HCM:04:CURRENT:SP",
+                  "SR:MAG:HCM:05:CURRENT:SP",
+                  "SR:MAG:HCM:06:CURRENT:SP",
+                  "SR:MAG:HCM:07:CURRENT:SP",
+                  "SR:MAG:HCM:08:CURRENT:SP",
+                  "SR:MAG:HCM:09:CURRENT:SP",
+                  "SR:MAG:HCM:10:CURRENT:SP",
+                  "SR:MAG:HCM:11:CURRENT:SP",
+                  "SR:MAG:HCM:12:CURRENT:SP",
+                  "SR:MAG:HCM:13:CURRENT:SP",
+                  "SR:MAG:HCM:14:CURRENT:SP",
+                  "SR:MAG:HCM:15:CURRENT:SP",
+                  "SR:MAG:HCM:16:CURRENT:SP",
+                  "SR:MAG:HCM:17:CURRENT:SP",
+                  "SR:MAG:HCM:18:CURRENT:SP",
+                  "SR:MAG:HCM:19:CURRENT:SP",
+                  "SR:MAG:HCM:20:CURRENT:SP",
+                  "SR:MAG:HCM:21:CURRENT:SP",
+                  "SR:MAG:HCM:22:CURRENT:SP",
+                  "SR:MAG:HCM:23:CURRENT:SP",
+                  "SR:MAG:HCM:24:CURRENT:SP",
+                  "SR:MAG:HCM:25:CURRENT:SP",
+                  "SR:MAG:HCM:26:CURRENT:SP",
+                  "SR:MAG:HCM:27:CURRENT:SP",
+                  "SR:MAG:HCM:28:CURRENT:SP",
+                  "SR:MAG:HCM:29:CURRENT:SP",
+                  "SR:MAG:HCM:30:CURRENT:SP",
+                  "SR:MAG:HCM:31:CURRENT:SP",
+                  "SR:MAG:HCM:32:CURRENT:SP",
+                  "SR:MAG:HCM:33:CURRENT:SP",
+                  "SR:MAG:HCM:34:CURRENT:SP",
+                  "SR:MAG:HCM:35:CURRENT:SP",
+                  "SR:MAG:HCM:36:CURRENT:SP",
+                  "SR:MAG:HCM:37:CURRENT:SP",
+                  "SR:MAG:HCM:38:CURRENT:SP",
+                  "SR:MAG:HCM:39:CURRENT:SP",
+                  "SR:MAG:HCM:40:CURRENT:SP",
+                  "SR:MAG:HCM:41:CURRENT:SP",
+                  "SR:MAG:HCM:42:CURRENT:SP",
+                  "SR:MAG:HCM:43:CURRENT:SP",
+                  "SR:MAG:HCM:44:CURRENT:SP",
+                  "SR:MAG:HCM:45:CURRENT:SP",
+                  "SR:MAG:HCM:46:CURRENT:SP",
+                  "SR:MAG:HCM:47:CURRENT:SP",
+                  "SR:MAG:HCM:48:CURRENT:SP",
+                  "SR:MAG:HCM:49:CURRENT:SP",
+                  "SR:MAG:HCM:50:CURRENT:SP",
+                  "SR:MAG:HCM:51:CURRENT:SP",
+                  "SR:MAG:HCM:52:CURRENT:SP",
+                  "SR:MAG:HCM:53:CURRENT:SP",
+                  "SR:MAG:HCM:54:CURRENT:SP",
+                  "SR:MAG:HCM:55:CURRENT:SP",
+                  "SR:MAG:HCM:56:CURRENT:SP",
+                  "SR:MAG:HCM:57:CURRENT:SP",
+                  "SR:MAG:HCM:58:CURRENT:SP",
+                  "SR:MAG:HCM:59:CURRENT:SP",
+                  "SR:MAG:HCM:60:CURRENT:SP",
+                  "SR:MAG:HCM:61:CURRENT:SP",
+                  "SR:MAG:HCM:62:CURRENT:SP",
+                  "SR:MAG:HCM:63:CURRENT:SP",
+                  "SR:MAG:HCM:64:CURRENT:SP",
+                  "SR:MAG:HCM:65:CURRENT:SP",
+                  "SR:MAG:HCM:66:CURRENT:SP",
+                  "SR:MAG:HCM:67:CURRENT:SP",
+                  "SR:MAG:HCM:68:CURRENT:SP",
+                  "SR:MAG:HCM:69:CURRENT:SP",
+                  "SR:MAG:HCM:70:CURRENT:SP",
+                  "SR:MAG:HCM:71:CURRENT:SP",
+                  "SR:MAG:HCM:72:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "rf": {
+                "addresses": [
+                  "SR:RF:CAVITY:01:FREQUENCY:SP"
+                ],
+                "requirement": "wired"
+              },
+              "vcor": {
+                "addresses": [
+                  "SR:MAG:VCM:01:CURRENT:SP",
+                  "SR:MAG:VCM:02:CURRENT:SP",
+                  "SR:MAG:VCM:03:CURRENT:SP",
+                  "SR:MAG:VCM:04:CURRENT:SP",
+                  "SR:MAG:VCM:05:CURRENT:SP",
+                  "SR:MAG:VCM:06:CURRENT:SP",
+                  "SR:MAG:VCM:07:CURRENT:SP",
+                  "SR:MAG:VCM:08:CURRENT:SP",
+                  "SR:MAG:VCM:09:CURRENT:SP",
+                  "SR:MAG:VCM:10:CURRENT:SP",
+                  "SR:MAG:VCM:11:CURRENT:SP",
+                  "SR:MAG:VCM:12:CURRENT:SP",
+                  "SR:MAG:VCM:13:CURRENT:SP",
+                  "SR:MAG:VCM:14:CURRENT:SP",
+                  "SR:MAG:VCM:15:CURRENT:SP",
+                  "SR:MAG:VCM:16:CURRENT:SP",
+                  "SR:MAG:VCM:17:CURRENT:SP",
+                  "SR:MAG:VCM:18:CURRENT:SP",
+                  "SR:MAG:VCM:19:CURRENT:SP",
+                  "SR:MAG:VCM:20:CURRENT:SP",
+                  "SR:MAG:VCM:21:CURRENT:SP",
+                  "SR:MAG:VCM:22:CURRENT:SP",
+                  "SR:MAG:VCM:23:CURRENT:SP",
+                  "SR:MAG:VCM:24:CURRENT:SP",
+                  "SR:MAG:VCM:25:CURRENT:SP",
+                  "SR:MAG:VCM:26:CURRENT:SP",
+                  "SR:MAG:VCM:27:CURRENT:SP",
+                  "SR:MAG:VCM:28:CURRENT:SP",
+                  "SR:MAG:VCM:29:CURRENT:SP",
+                  "SR:MAG:VCM:30:CURRENT:SP",
+                  "SR:MAG:VCM:31:CURRENT:SP",
+                  "SR:MAG:VCM:32:CURRENT:SP",
+                  "SR:MAG:VCM:33:CURRENT:SP",
+                  "SR:MAG:VCM:34:CURRENT:SP",
+                  "SR:MAG:VCM:35:CURRENT:SP",
+                  "SR:MAG:VCM:36:CURRENT:SP",
+                  "SR:MAG:VCM:37:CURRENT:SP",
+                  "SR:MAG:VCM:38:CURRENT:SP",
+                  "SR:MAG:VCM:39:CURRENT:SP",
+                  "SR:MAG:VCM:40:CURRENT:SP",
+                  "SR:MAG:VCM:41:CURRENT:SP",
+                  "SR:MAG:VCM:42:CURRENT:SP",
+                  "SR:MAG:VCM:43:CURRENT:SP",
+                  "SR:MAG:VCM:44:CURRENT:SP",
+                  "SR:MAG:VCM:45:CURRENT:SP",
+                  "SR:MAG:VCM:46:CURRENT:SP",
+                  "SR:MAG:VCM:47:CURRENT:SP",
+                  "SR:MAG:VCM:48:CURRENT:SP",
+                  "SR:MAG:VCM:49:CURRENT:SP",
+                  "SR:MAG:VCM:50:CURRENT:SP",
+                  "SR:MAG:VCM:51:CURRENT:SP",
+                  "SR:MAG:VCM:52:CURRENT:SP",
+                  "SR:MAG:VCM:53:CURRENT:SP",
+                  "SR:MAG:VCM:54:CURRENT:SP",
+                  "SR:MAG:VCM:55:CURRENT:SP",
+                  "SR:MAG:VCM:56:CURRENT:SP",
+                  "SR:MAG:VCM:57:CURRENT:SP",
+                  "SR:MAG:VCM:58:CURRENT:SP",
+                  "SR:MAG:VCM:59:CURRENT:SP",
+                  "SR:MAG:VCM:60:CURRENT:SP",
+                  "SR:MAG:VCM:61:CURRENT:SP",
+                  "SR:MAG:VCM:62:CURRENT:SP",
+                  "SR:MAG:VCM:63:CURRENT:SP",
+                  "SR:MAG:VCM:64:CURRENT:SP",
+                  "SR:MAG:VCM:65:CURRENT:SP",
+                  "SR:MAG:VCM:66:CURRENT:SP",
+                  "SR:MAG:VCM:67:CURRENT:SP",
+                  "SR:MAG:VCM:68:CURRENT:SP",
+                  "SR:MAG:VCM:69:CURRENT:SP",
+                  "SR:MAG:VCM:70:CURRENT:SP",
+                  "SR:MAG:VCM:71:CURRENT:SP",
+                  "SR:MAG:VCM:72:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": false,
+            "stepped_roles": [
+              "rf"
+            ],
+            "takes_by": false,
+            "tool": {
+              "name": "DEFAULT_DISPERSION",
+              "type": "pyaml.tuning_tools.dispersion"
+            },
+            "tool_keys": [
+              "frequency_delta"
+            ],
+            "view_files": []
+          },
+          "orm": {
+            "corrector_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "description": "orbit response of the corrector setpoints",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "corrector_names": "$names",
+                  "n_avg_meas": "$n_avg_meas",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                },
+                "set_delta": true
+              },
+              "bpm_array": "bpm_array_name",
+              "delta": "corrector_delta",
+              "fit": "magnet-group",
+              "magnets": {
+                "members": [
+                  "hcorrectors",
+                  "vcorrectors"
+                ]
+              },
+              "missing": "kind",
+              "named": true,
+              "result": "matrix",
+              "tool": {
+                "attribute": "orm"
+              },
+              "unipolar": {
+                "factory": "orm",
+                "kwargs": {
+                  "bpm_array": "@bpm_array_name",
+                  "correctors": "$names",
+                  "deltas": "$deltas",
+                  "n_avg_meas": "$n_avg_meas",
+                  "set_wait_time": "$settle"
+                },
+                "per_member": true
+              }
+            },
+            "members": {
+              "bpm": {
+                "addresses": [
+                  "SR:DIAG:BPM:01:POSITION:X",
+                  "SR:DIAG:BPM:01:POSITION:Y",
+                  "SR:DIAG:BPM:02:POSITION:X",
+                  "SR:DIAG:BPM:02:POSITION:Y",
+                  "SR:DIAG:BPM:03:POSITION:X",
+                  "SR:DIAG:BPM:03:POSITION:Y",
+                  "SR:DIAG:BPM:04:POSITION:X",
+                  "SR:DIAG:BPM:04:POSITION:Y",
+                  "SR:DIAG:BPM:05:POSITION:X",
+                  "SR:DIAG:BPM:05:POSITION:Y",
+                  "SR:DIAG:BPM:06:POSITION:X",
+                  "SR:DIAG:BPM:06:POSITION:Y",
+                  "SR:DIAG:BPM:07:POSITION:X",
+                  "SR:DIAG:BPM:07:POSITION:Y",
+                  "SR:DIAG:BPM:08:POSITION:X",
+                  "SR:DIAG:BPM:08:POSITION:Y",
+                  "SR:DIAG:BPM:09:POSITION:X",
+                  "SR:DIAG:BPM:09:POSITION:Y",
+                  "SR:DIAG:BPM:10:POSITION:X",
+                  "SR:DIAG:BPM:10:POSITION:Y",
+                  "SR:DIAG:BPM:11:POSITION:X",
+                  "SR:DIAG:BPM:11:POSITION:Y",
+                  "SR:DIAG:BPM:12:POSITION:X",
+                  "SR:DIAG:BPM:12:POSITION:Y",
+                  "SR:DIAG:BPM:13:POSITION:X",
+                  "SR:DIAG:BPM:13:POSITION:Y",
+                  "SR:DIAG:BPM:14:POSITION:X",
+                  "SR:DIAG:BPM:14:POSITION:Y",
+                  "SR:DIAG:BPM:15:POSITION:X",
+                  "SR:DIAG:BPM:15:POSITION:Y",
+                  "SR:DIAG:BPM:16:POSITION:X",
+                  "SR:DIAG:BPM:16:POSITION:Y",
+                  "SR:DIAG:BPM:17:POSITION:X",
+                  "SR:DIAG:BPM:17:POSITION:Y",
+                  "SR:DIAG:BPM:18:POSITION:X",
+                  "SR:DIAG:BPM:18:POSITION:Y",
+                  "SR:DIAG:BPM:19:POSITION:X",
+                  "SR:DIAG:BPM:19:POSITION:Y",
+                  "SR:DIAG:BPM:20:POSITION:X",
+                  "SR:DIAG:BPM:20:POSITION:Y",
+                  "SR:DIAG:BPM:21:POSITION:X",
+                  "SR:DIAG:BPM:21:POSITION:Y",
+                  "SR:DIAG:BPM:22:POSITION:X",
+                  "SR:DIAG:BPM:22:POSITION:Y",
+                  "SR:DIAG:BPM:23:POSITION:X",
+                  "SR:DIAG:BPM:23:POSITION:Y",
+                  "SR:DIAG:BPM:24:POSITION:X",
+                  "SR:DIAG:BPM:24:POSITION:Y",
+                  "SR:DIAG:BPM:25:POSITION:X",
+                  "SR:DIAG:BPM:25:POSITION:Y",
+                  "SR:DIAG:BPM:26:POSITION:X",
+                  "SR:DIAG:BPM:26:POSITION:Y",
+                  "SR:DIAG:BPM:27:POSITION:X",
+                  "SR:DIAG:BPM:27:POSITION:Y",
+                  "SR:DIAG:BPM:28:POSITION:X",
+                  "SR:DIAG:BPM:28:POSITION:Y",
+                  "SR:DIAG:BPM:29:POSITION:X",
+                  "SR:DIAG:BPM:29:POSITION:Y",
+                  "SR:DIAG:BPM:30:POSITION:X",
+                  "SR:DIAG:BPM:30:POSITION:Y",
+                  "SR:DIAG:BPM:31:POSITION:X",
+                  "SR:DIAG:BPM:31:POSITION:Y",
+                  "SR:DIAG:BPM:32:POSITION:X",
+                  "SR:DIAG:BPM:32:POSITION:Y",
+                  "SR:DIAG:BPM:33:POSITION:X",
+                  "SR:DIAG:BPM:33:POSITION:Y",
+                  "SR:DIAG:BPM:34:POSITION:X",
+                  "SR:DIAG:BPM:34:POSITION:Y",
+                  "SR:DIAG:BPM:35:POSITION:X",
+                  "SR:DIAG:BPM:35:POSITION:Y",
+                  "SR:DIAG:BPM:36:POSITION:X",
+                  "SR:DIAG:BPM:36:POSITION:Y",
+                  "SR:DIAG:BPM:37:POSITION:X",
+                  "SR:DIAG:BPM:37:POSITION:Y",
+                  "SR:DIAG:BPM:38:POSITION:X",
+                  "SR:DIAG:BPM:38:POSITION:Y",
+                  "SR:DIAG:BPM:39:POSITION:X",
+                  "SR:DIAG:BPM:39:POSITION:Y",
+                  "SR:DIAG:BPM:40:POSITION:X",
+                  "SR:DIAG:BPM:40:POSITION:Y",
+                  "SR:DIAG:BPM:41:POSITION:X",
+                  "SR:DIAG:BPM:41:POSITION:Y",
+                  "SR:DIAG:BPM:42:POSITION:X",
+                  "SR:DIAG:BPM:42:POSITION:Y",
+                  "SR:DIAG:BPM:43:POSITION:X",
+                  "SR:DIAG:BPM:43:POSITION:Y",
+                  "SR:DIAG:BPM:44:POSITION:X",
+                  "SR:DIAG:BPM:44:POSITION:Y",
+                  "SR:DIAG:BPM:45:POSITION:X",
+                  "SR:DIAG:BPM:45:POSITION:Y",
+                  "SR:DIAG:BPM:46:POSITION:X",
+                  "SR:DIAG:BPM:46:POSITION:Y",
+                  "SR:DIAG:BPM:47:POSITION:X",
+                  "SR:DIAG:BPM:47:POSITION:Y",
+                  "SR:DIAG:BPM:48:POSITION:X",
+                  "SR:DIAG:BPM:48:POSITION:Y",
+                  "SR:DIAG:BPM:49:POSITION:X",
+                  "SR:DIAG:BPM:49:POSITION:Y",
+                  "SR:DIAG:BPM:50:POSITION:X",
+                  "SR:DIAG:BPM:50:POSITION:Y",
+                  "SR:DIAG:BPM:51:POSITION:X",
+                  "SR:DIAG:BPM:51:POSITION:Y",
+                  "SR:DIAG:BPM:52:POSITION:X",
+                  "SR:DIAG:BPM:52:POSITION:Y",
+                  "SR:DIAG:BPM:53:POSITION:X",
+                  "SR:DIAG:BPM:53:POSITION:Y",
+                  "SR:DIAG:BPM:54:POSITION:X",
+                  "SR:DIAG:BPM:54:POSITION:Y",
+                  "SR:DIAG:BPM:55:POSITION:X",
+                  "SR:DIAG:BPM:55:POSITION:Y",
+                  "SR:DIAG:BPM:56:POSITION:X",
+                  "SR:DIAG:BPM:56:POSITION:Y",
+                  "SR:DIAG:BPM:57:POSITION:X",
+                  "SR:DIAG:BPM:57:POSITION:Y",
+                  "SR:DIAG:BPM:58:POSITION:X",
+                  "SR:DIAG:BPM:58:POSITION:Y",
+                  "SR:DIAG:BPM:59:POSITION:X",
+                  "SR:DIAG:BPM:59:POSITION:Y",
+                  "SR:DIAG:BPM:60:POSITION:X",
+                  "SR:DIAG:BPM:60:POSITION:Y",
+                  "SR:DIAG:BPM:61:POSITION:X",
+                  "SR:DIAG:BPM:61:POSITION:Y",
+                  "SR:DIAG:BPM:62:POSITION:X",
+                  "SR:DIAG:BPM:62:POSITION:Y",
+                  "SR:DIAG:BPM:63:POSITION:X",
+                  "SR:DIAG:BPM:63:POSITION:Y",
+                  "SR:DIAG:BPM:64:POSITION:X",
+                  "SR:DIAG:BPM:64:POSITION:Y",
+                  "SR:DIAG:BPM:65:POSITION:X",
+                  "SR:DIAG:BPM:65:POSITION:Y",
+                  "SR:DIAG:BPM:66:POSITION:X",
+                  "SR:DIAG:BPM:66:POSITION:Y",
+                  "SR:DIAG:BPM:67:POSITION:X",
+                  "SR:DIAG:BPM:67:POSITION:Y",
+                  "SR:DIAG:BPM:68:POSITION:X",
+                  "SR:DIAG:BPM:68:POSITION:Y",
+                  "SR:DIAG:BPM:69:POSITION:X",
+                  "SR:DIAG:BPM:69:POSITION:Y",
+                  "SR:DIAG:BPM:70:POSITION:X",
+                  "SR:DIAG:BPM:70:POSITION:Y",
+                  "SR:DIAG:BPM:71:POSITION:X",
+                  "SR:DIAG:BPM:71:POSITION:Y",
+                  "SR:DIAG:BPM:72:POSITION:X",
+                  "SR:DIAG:BPM:72:POSITION:Y"
+                ],
+                "requirement": "wired"
+              },
+              "hcor": {
+                "addresses": [
+                  "SR:MAG:HCM:01:CURRENT:SP",
+                  "SR:MAG:HCM:02:CURRENT:SP",
+                  "SR:MAG:HCM:03:CURRENT:SP",
+                  "SR:MAG:HCM:04:CURRENT:SP",
+                  "SR:MAG:HCM:05:CURRENT:SP",
+                  "SR:MAG:HCM:06:CURRENT:SP",
+                  "SR:MAG:HCM:07:CURRENT:SP",
+                  "SR:MAG:HCM:08:CURRENT:SP",
+                  "SR:MAG:HCM:09:CURRENT:SP",
+                  "SR:MAG:HCM:10:CURRENT:SP",
+                  "SR:MAG:HCM:11:CURRENT:SP",
+                  "SR:MAG:HCM:12:CURRENT:SP",
+                  "SR:MAG:HCM:13:CURRENT:SP",
+                  "SR:MAG:HCM:14:CURRENT:SP",
+                  "SR:MAG:HCM:15:CURRENT:SP",
+                  "SR:MAG:HCM:16:CURRENT:SP",
+                  "SR:MAG:HCM:17:CURRENT:SP",
+                  "SR:MAG:HCM:18:CURRENT:SP",
+                  "SR:MAG:HCM:19:CURRENT:SP",
+                  "SR:MAG:HCM:20:CURRENT:SP",
+                  "SR:MAG:HCM:21:CURRENT:SP",
+                  "SR:MAG:HCM:22:CURRENT:SP",
+                  "SR:MAG:HCM:23:CURRENT:SP",
+                  "SR:MAG:HCM:24:CURRENT:SP",
+                  "SR:MAG:HCM:25:CURRENT:SP",
+                  "SR:MAG:HCM:26:CURRENT:SP",
+                  "SR:MAG:HCM:27:CURRENT:SP",
+                  "SR:MAG:HCM:28:CURRENT:SP",
+                  "SR:MAG:HCM:29:CURRENT:SP",
+                  "SR:MAG:HCM:30:CURRENT:SP",
+                  "SR:MAG:HCM:31:CURRENT:SP",
+                  "SR:MAG:HCM:32:CURRENT:SP",
+                  "SR:MAG:HCM:33:CURRENT:SP",
+                  "SR:MAG:HCM:34:CURRENT:SP",
+                  "SR:MAG:HCM:35:CURRENT:SP",
+                  "SR:MAG:HCM:36:CURRENT:SP",
+                  "SR:MAG:HCM:37:CURRENT:SP",
+                  "SR:MAG:HCM:38:CURRENT:SP",
+                  "SR:MAG:HCM:39:CURRENT:SP",
+                  "SR:MAG:HCM:40:CURRENT:SP",
+                  "SR:MAG:HCM:41:CURRENT:SP",
+                  "SR:MAG:HCM:42:CURRENT:SP",
+                  "SR:MAG:HCM:43:CURRENT:SP",
+                  "SR:MAG:HCM:44:CURRENT:SP",
+                  "SR:MAG:HCM:45:CURRENT:SP",
+                  "SR:MAG:HCM:46:CURRENT:SP",
+                  "SR:MAG:HCM:47:CURRENT:SP",
+                  "SR:MAG:HCM:48:CURRENT:SP",
+                  "SR:MAG:HCM:49:CURRENT:SP",
+                  "SR:MAG:HCM:50:CURRENT:SP",
+                  "SR:MAG:HCM:51:CURRENT:SP",
+                  "SR:MAG:HCM:52:CURRENT:SP",
+                  "SR:MAG:HCM:53:CURRENT:SP",
+                  "SR:MAG:HCM:54:CURRENT:SP",
+                  "SR:MAG:HCM:55:CURRENT:SP",
+                  "SR:MAG:HCM:56:CURRENT:SP",
+                  "SR:MAG:HCM:57:CURRENT:SP",
+                  "SR:MAG:HCM:58:CURRENT:SP",
+                  "SR:MAG:HCM:59:CURRENT:SP",
+                  "SR:MAG:HCM:60:CURRENT:SP",
+                  "SR:MAG:HCM:61:CURRENT:SP",
+                  "SR:MAG:HCM:62:CURRENT:SP",
+                  "SR:MAG:HCM:63:CURRENT:SP",
+                  "SR:MAG:HCM:64:CURRENT:SP",
+                  "SR:MAG:HCM:65:CURRENT:SP",
+                  "SR:MAG:HCM:66:CURRENT:SP",
+                  "SR:MAG:HCM:67:CURRENT:SP",
+                  "SR:MAG:HCM:68:CURRENT:SP",
+                  "SR:MAG:HCM:69:CURRENT:SP",
+                  "SR:MAG:HCM:70:CURRENT:SP",
+                  "SR:MAG:HCM:71:CURRENT:SP",
+                  "SR:MAG:HCM:72:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "vcor": {
+                "addresses": [
+                  "SR:MAG:VCM:01:CURRENT:SP",
+                  "SR:MAG:VCM:02:CURRENT:SP",
+                  "SR:MAG:VCM:03:CURRENT:SP",
+                  "SR:MAG:VCM:04:CURRENT:SP",
+                  "SR:MAG:VCM:05:CURRENT:SP",
+                  "SR:MAG:VCM:06:CURRENT:SP",
+                  "SR:MAG:VCM:07:CURRENT:SP",
+                  "SR:MAG:VCM:08:CURRENT:SP",
+                  "SR:MAG:VCM:09:CURRENT:SP",
+                  "SR:MAG:VCM:10:CURRENT:SP",
+                  "SR:MAG:VCM:11:CURRENT:SP",
+                  "SR:MAG:VCM:12:CURRENT:SP",
+                  "SR:MAG:VCM:13:CURRENT:SP",
+                  "SR:MAG:VCM:14:CURRENT:SP",
+                  "SR:MAG:VCM:15:CURRENT:SP",
+                  "SR:MAG:VCM:16:CURRENT:SP",
+                  "SR:MAG:VCM:17:CURRENT:SP",
+                  "SR:MAG:VCM:18:CURRENT:SP",
+                  "SR:MAG:VCM:19:CURRENT:SP",
+                  "SR:MAG:VCM:20:CURRENT:SP",
+                  "SR:MAG:VCM:21:CURRENT:SP",
+                  "SR:MAG:VCM:22:CURRENT:SP",
+                  "SR:MAG:VCM:23:CURRENT:SP",
+                  "SR:MAG:VCM:24:CURRENT:SP",
+                  "SR:MAG:VCM:25:CURRENT:SP",
+                  "SR:MAG:VCM:26:CURRENT:SP",
+                  "SR:MAG:VCM:27:CURRENT:SP",
+                  "SR:MAG:VCM:28:CURRENT:SP",
+                  "SR:MAG:VCM:29:CURRENT:SP",
+                  "SR:MAG:VCM:30:CURRENT:SP",
+                  "SR:MAG:VCM:31:CURRENT:SP",
+                  "SR:MAG:VCM:32:CURRENT:SP",
+                  "SR:MAG:VCM:33:CURRENT:SP",
+                  "SR:MAG:VCM:34:CURRENT:SP",
+                  "SR:MAG:VCM:35:CURRENT:SP",
+                  "SR:MAG:VCM:36:CURRENT:SP",
+                  "SR:MAG:VCM:37:CURRENT:SP",
+                  "SR:MAG:VCM:38:CURRENT:SP",
+                  "SR:MAG:VCM:39:CURRENT:SP",
+                  "SR:MAG:VCM:40:CURRENT:SP",
+                  "SR:MAG:VCM:41:CURRENT:SP",
+                  "SR:MAG:VCM:42:CURRENT:SP",
+                  "SR:MAG:VCM:43:CURRENT:SP",
+                  "SR:MAG:VCM:44:CURRENT:SP",
+                  "SR:MAG:VCM:45:CURRENT:SP",
+                  "SR:MAG:VCM:46:CURRENT:SP",
+                  "SR:MAG:VCM:47:CURRENT:SP",
+                  "SR:MAG:VCM:48:CURRENT:SP",
+                  "SR:MAG:VCM:49:CURRENT:SP",
+                  "SR:MAG:VCM:50:CURRENT:SP",
+                  "SR:MAG:VCM:51:CURRENT:SP",
+                  "SR:MAG:VCM:52:CURRENT:SP",
+                  "SR:MAG:VCM:53:CURRENT:SP",
+                  "SR:MAG:VCM:54:CURRENT:SP",
+                  "SR:MAG:VCM:55:CURRENT:SP",
+                  "SR:MAG:VCM:56:CURRENT:SP",
+                  "SR:MAG:VCM:57:CURRENT:SP",
+                  "SR:MAG:VCM:58:CURRENT:SP",
+                  "SR:MAG:VCM:59:CURRENT:SP",
+                  "SR:MAG:VCM:60:CURRENT:SP",
+                  "SR:MAG:VCM:61:CURRENT:SP",
+                  "SR:MAG:VCM:62:CURRENT:SP",
+                  "SR:MAG:VCM:63:CURRENT:SP",
+                  "SR:MAG:VCM:64:CURRENT:SP",
+                  "SR:MAG:VCM:65:CURRENT:SP",
+                  "SR:MAG:VCM:66:CURRENT:SP",
+                  "SR:MAG:VCM:67:CURRENT:SP",
+                  "SR:MAG:VCM:68:CURRENT:SP",
+                  "SR:MAG:VCM:69:CURRENT:SP",
+                  "SR:MAG:VCM:70:CURRENT:SP",
+                  "SR:MAG:VCM:71:CURRENT:SP",
+                  "SR:MAG:VCM:72:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": true,
+            "stepped_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "takes_by": false,
+            "tool": {
+              "name": "DEFAULT_ORBIT_RESPONSE_MATRIX",
+              "type": "pyaml.tuning_tools.orbit_response_matrix"
+            },
+            "tool_keys": [
+              "corrector_delta"
+            ],
+            "view_files": []
+          },
+          "trm": {
+            "corrector_roles": [],
+            "description": "tune response of the quadrupoles",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "n_avg_meas": "$n_avg_meas",
+                  "n_step": 2,
+                  "quad_delta": "$half_step",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                }
+              },
+              "delta": "quad_delta",
+              "fit": "magnet-group",
+              "group": {
+                "basis": "tune excursion",
+                "factory": "trm",
+                "kwargs": {
+                  "delta": "$step",
+                  "groups": "$groups",
+                  "n_avg_meas": "$n_avg_meas",
+                  "set_wait_time": "$settle",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "tune_monitor": "@betatron_tune_name"
+                },
+                "matrix_file": "trm.json"
+              },
+              "magnets": {
+                "array": "quad_array_name"
+              },
+              "missing": "variables",
+              "named": false,
+              "result": "matrix",
+              "tool": {
+                "attribute": "trm"
+              },
+              "unipolar": {
+                "kwargs": {
+                  "n_avg_meas": "$n_avg_meas",
+                  "n_step": 1,
+                  "quad_delta": "$negative_step",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                }
+              }
+            },
+            "members": {
+              "quad": {
+                "addresses": [
+                  "SR:MAG:QF:01:CURRENT:SP",
+                  "SR:MAG:QD:01:CURRENT:SP",
+                  "SR:MAG:QD:02:CURRENT:SP",
+                  "SR:MAG:QF:02:CURRENT:SP",
+                  "SR:MAG:QF:03:CURRENT:SP",
+                  "SR:MAG:QD:03:CURRENT:SP",
+                  "SR:MAG:QD:04:CURRENT:SP",
+                  "SR:MAG:QF:04:CURRENT:SP",
+                  "SR:MAG:QF:05:CURRENT:SP",
+                  "SR:MAG:QD:05:CURRENT:SP",
+                  "SR:MAG:QD:06:CURRENT:SP",
+                  "SR:MAG:QF:06:CURRENT:SP",
+                  "SR:MAG:QF:07:CURRENT:SP",
+                  "SR:MAG:QD:07:CURRENT:SP",
+                  "SR:MAG:QD:08:CURRENT:SP",
+                  "SR:MAG:QF:08:CURRENT:SP",
+                  "SR:MAG:QF:09:CURRENT:SP",
+                  "SR:MAG:QD:09:CURRENT:SP",
+                  "SR:MAG:QD:10:CURRENT:SP",
+                  "SR:MAG:QF:10:CURRENT:SP",
+                  "SR:MAG:QF:11:CURRENT:SP",
+                  "SR:MAG:QD:11:CURRENT:SP",
+                  "SR:MAG:QD:12:CURRENT:SP",
+                  "SR:MAG:QF:12:CURRENT:SP",
+                  "SR:MAG:QF:13:CURRENT:SP",
+                  "SR:MAG:QD:13:CURRENT:SP",
+                  "SR:MAG:QD:14:CURRENT:SP",
+                  "SR:MAG:QF:14:CURRENT:SP",
+                  "SR:MAG:QF:15:CURRENT:SP",
+                  "SR:MAG:QD:15:CURRENT:SP",
+                  "SR:MAG:QD:16:CURRENT:SP",
+                  "SR:MAG:QF:16:CURRENT:SP",
+                  "SR:MAG:QF:17:CURRENT:SP",
+                  "SR:MAG:QD:17:CURRENT:SP",
+                  "SR:MAG:QD:18:CURRENT:SP",
+                  "SR:MAG:QF:18:CURRENT:SP",
+                  "SR:MAG:QF:19:CURRENT:SP",
+                  "SR:MAG:QD:19:CURRENT:SP",
+                  "SR:MAG:QD:20:CURRENT:SP",
+                  "SR:MAG:QF:20:CURRENT:SP",
+                  "SR:MAG:QF:21:CURRENT:SP",
+                  "SR:MAG:QD:21:CURRENT:SP",
+                  "SR:MAG:QD:22:CURRENT:SP",
+                  "SR:MAG:QF:22:CURRENT:SP",
+                  "SR:MAG:QF:23:CURRENT:SP",
+                  "SR:MAG:QD:23:CURRENT:SP",
+                  "SR:MAG:QD:24:CURRENT:SP",
+                  "SR:MAG:QF:24:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "tune": {
+                "addresses": [
+                  "SR:DIAG:TUNE:X"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": false,
+            "stepped_roles": [
+              "quad"
+            ],
+            "takes_by": true,
+            "tool": {
+              "name": "DEFAULT_TUNE_RESPONSE_MATRIX",
+              "type": "pyaml.tuning_tools.tune_response_matrix"
+            },
+            "tool_keys": [
+              "quad_delta"
+            ],
+            "view_files": [
+              "trm.json"
+            ]
+          }
+        },
+        "names": {
+          "bpm": "SR_BPM",
+          "hcor": "SR_HCM",
+          "quad": "quad",
+          "rf": "DEFAULT_RF_PLANT",
+          "sext": "sext",
+          "tune": "BETATRON_TUNE",
+          "vcor": "SR_VCM"
+        },
+        "path": "data/pyaml/SR/configuration.yaml",
+        "rf": [
+          "SR:RF:CAVITY:01:FREQUENCY:SP"
+        ],
+        "sha256": "7560f7899cd0928c1370e71a50324be8e281199802f0623e29df8fe9e36a1309"
+      }
+    },
+    "models": [
+      {
+        "engine": "pyat",
+        "name": "BTS",
+        "served": true,
+        "solve": "single_pass"
+      },
+      {
+        "engine": "pyat",
+        "name": "LINE",
+        "served": true,
+        "solve": "single_pass"
+      },
+      {
+        "engine": "pyat",
+        "name": "LTB",
+        "served": true,
+        "solve": "single_pass"
+      },
+      {
+        "engine": "pyat",
+        "name": "SR",
+        "served": true,
+        "solve": "periodic"
+      },
+      {
+        "engine": "texture",
+        "name": "texture",
+        "served": true,
+        "solve": null
+      }
+    ],
+    "place_levels": [
+      "building",
+      "machine",
+      "row",
+      "sector",
+      "girder",
+      "rack"
+    ],
+    "places": [
+      {
+        "devices": {
+          "BeamCurrentMonitor": 1,
+          "BeamPositionMonitor": 8,
+          "Dipole": 9,
+          "Kicker": 1,
+          "Quadrupole": 10,
+          "ScreenDiagnostic": 5,
+          "Septum": 2
+        },
+        "id": "BR",
+        "level": "machine",
+        "names": [
+          "booster ring"
+        ]
+      },
+      {
+        "devices": {
+          "BeamCurrentMonitor": 1,
+          "BeamPositionMonitor": 6,
+          "Dipole": 4,
+          "HCorrector": 9,
+          "Quadrupole": 11,
+          "ScreenDiagnostic": 8,
+          "VCorrector": 9
+        },
+        "id": "BTS",
+        "level": "machine",
+        "names": [
+          "BTS",
+          "booster to storage",
+          "booster-to-storage transfer line",
+          "storage ring injection line"
+        ]
+      },
+      {
+        "devices": {
+          "BeamCurrentMonitor": 1,
+          "BeamPositionMonitor": 2,
+          "BuckingCoil": 2,
+          "ElectronGun": 1,
+          "HCorrector": 4,
+          "ScreenDiagnostic": 2,
+          "Solenoid": 3,
+          "SubHarmonicBuncher": 2,
+          "VCorrector": 4
+        },
+        "id": "GTL",
+        "level": "machine",
+        "names": [
+          "GTL",
+          "electron gun line",
+          "gun to linac",
+          "gun-to-linac line",
+          "injector front end"
+        ]
+      },
+      {
+        "devices": {
+          "ElectronicsChassis": 1,
+          "PowerSupply": 1
+        },
+        "id": "HALL",
+        "level": "building",
+        "names": []
+      },
+      {
+        "devices": {
+          "ElectronicsChassis": 1,
+          "PowerSupply": 1
+        },
+        "id": "HALL/ROW3",
+        "level": "row",
+        "names": []
+      },
+      {
+        "devices": {
+          "PowerSupply": 1
+        },
+        "id": "HALL/ROW3/RK07",
+        "level": "rack",
+        "names": []
+      },
+      {
+        "devices": {
+          "ElectronicsChassis": 1
+        },
+        "id": "HALL/ROW3/RK08",
+        "level": "rack",
+        "names": []
+      },
+      {
+        "devices": {
+          "BeamPositionMonitor": 4,
+          "HCorrector": 4,
+          "Quadrupole": 8,
+          "VCorrector": 4
+        },
+        "id": "LINE",
+        "level": "machine",
+        "names": []
+      },
+      {
+        "devices": {
+          "BeamCurrentMonitor": 1,
+          "BeamPositionMonitor": 2,
+          "BunchingCavity": 1,
+          "HCorrector": 2,
+          "Quadrupole": 2,
+          "RadioFrequency": 2,
+          "ScreenDiagnostic": 2,
+          "Solenoid": 4,
+          "TravellingWaveCavity": 2,
+          "VCorrector": 2
+        },
+        "id": "LN",
+        "level": "machine",
+        "names": [
+          "LN",
+          "injector linac",
+          "linac",
+          "linear accelerator"
+        ]
+      },
+      {
+        "devices": {
+          "BeamCurrentMonitor": 1,
+          "BeamPositionMonitor": 6,
+          "Dipole": 4,
+          "HCorrector": 2,
+          "Quadrupole": 9,
+          "ScreenDiagnostic": 5,
+          "VCorrector": 7
+        },
+        "id": "LTB",
+        "level": "machine",
+        "names": [
+          "LTB",
+          "booster injection line",
+          "linac to booster",
+          "linac-to-booster line"
+        ]
+      },
+      {
+        "devices": {
+          "AcceleratingCavity": 2,
+          "AirHandler": 5,
+          "Aperture": 9,
+          "BeamCurrentMonitor": 1,
+          "BeamLossMonitor": 8,
+          "BeamPositionMonitor": 72,
+          "Dipole": 36,
+          "Gauge": 29,
+          "HCorrector": 72,
+          "HarmonicCavity": 3,
+          "InsertionDevice": 14,
+          "Modulator": 2,
+          "PhotonShutter": 56,
+          "Pump": 72,
+          "Quadrupole": 72,
+          "Septum": 2,
+          "Sextupole": 96,
+          "TemperatureSensor": 190,
+          "VCorrector": 72,
+          "Valve": 24
+        },
+        "id": "SR",
+        "level": "machine",
+        "names": [
+          "storage ring"
+        ]
+      },
+      {
+        "devices": {
+          "AirHandler": 1,
+          "Aperture": 4,
+          "BeamLossMonitor": 2,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 3,
+          "HCorrector": 6,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Septum": 2,
+          "Sextupole": 8,
+          "TemperatureSensor": 1,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT1",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "BeamLossMonitor": 2,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 2,
+          "HCorrector": 6,
+          "InsertionDevice": 1,
+          "PhotonShutter": 3,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 20,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT10",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "AcceleratingCavity": 2,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 3,
+          "HCorrector": 6,
+          "InsertionDevice": 2,
+          "PhotonShutter": 6,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 21,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT11",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "AirHandler": 1,
+          "Aperture": 1,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 2,
+          "HCorrector": 6,
+          "InsertionDevice": 1,
+          "PhotonShutter": 6,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 21,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT12",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "Aperture": 1,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 2,
+          "HCorrector": 6,
+          "HarmonicCavity": 3,
+          "InsertionDevice": 1,
+          "PhotonShutter": 2,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 20,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT2",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "AirHandler": 1,
+          "Aperture": 3,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 3,
+          "HCorrector": 6,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 1,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT3",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {},
+        "id": "SR/SECT3/G2",
+        "level": "girder",
+        "names": []
+      },
+      {
+        "devices": {
+          "AirHandler": 1,
+          "BeamLossMonitor": 2,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 3,
+          "HCorrector": 6,
+          "InsertionDevice": 2,
+          "PhotonShutter": 2,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 2,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT4",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 2,
+          "HCorrector": 6,
+          "InsertionDevice": 1,
+          "PhotonShutter": 11,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 20,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT5",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "AirHandler": 1,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 3,
+          "HCorrector": 6,
+          "InsertionDevice": 2,
+          "PhotonShutter": 6,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 21,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT6",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "BeamLossMonitor": 2,
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 2,
+          "HCorrector": 6,
+          "InsertionDevice": 2,
+          "PhotonShutter": 6,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 21,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT7",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 2,
+          "HCorrector": 6,
+          "InsertionDevice": 1,
+          "PhotonShutter": 10,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 21,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT8",
+        "level": "sector",
+        "names": []
+      },
+      {
+        "devices": {
+          "BeamPositionMonitor": 6,
+          "Dipole": 3,
+          "Gauge": 2,
+          "HCorrector": 6,
+          "InsertionDevice": 1,
+          "PhotonShutter": 4,
+          "Pump": 6,
+          "Quadrupole": 6,
+          "Sextupole": 8,
+          "TemperatureSensor": 21,
+          "VCorrector": 6,
+          "Valve": 2
+        },
+        "id": "SR/SECT9",
+        "level": "sector",
+        "names": []
+      }
+    ],
+    "schema": "osprey.facility.facility_facts/3",
+    "snapshot": null,
+    "unplaced_devices": {
+      "Circuit": 1,
+      "ControlApplication": 1,
+      "ElectronicsChassis": 2,
+      "Host": 1,
+      "NetworkSwitch": 1,
+      "Quadrupole": 1,
+      "TimingChannel": 1,
+      "UtilityLoop": 1
+    },
+    "vocabulary": {
+      "paired_setpoints": 645,
+      "roles": {
+        "readback": 4057,
+        "setpoint": 674
+      },
+      "signals": {
+        "beam_intensity_readback": {
+          "count": 6,
+          "description": "Scalar beam intensity or charge readback (e.g. BPM .VAL).",
+          "roles": {
+            "readback": 6
+          }
+        },
+        "beam_lifetime_readback": {
+          "count": 1,
+          "description": "Measured lifetime readback of the stored beam.",
+          "roles": {
+            "readback": 1
+          }
+        },
+        "blade_position_readback": {
+          "count": 9,
+          "description": "Measured insertion of a scraper blade into the beam aperture.",
+          "roles": {
+            "readback": 9
+          }
+        },
+        "blade_position_setpoint": {
+          "count": 9,
+          "description": "Commanded insertion of a scraper blade into the beam aperture.",
+          "roles": {
+            "setpoint": 9
+          }
+        },
+        "bpm_sum_readback": {
+          "count": 16,
+          "description": "BPM sum-signal readback (intensity proxy from button electrodes).",
+          "roles": {
+            "readback": 16
+          }
+        },
+        "coolant_flow_readback": {
+          "count": 3,
+          "description": "Measured cooling-water flow through a device.",
+          "roles": {
+            "readback": 3
+          }
+        },
+        "current_golden_readback": {
+          "count": 348,
+          "description": "Stored \"golden\" current setpoint reference for a powered device.",
+          "roles": {
+            "readback": 348
+          }
+        },
+        "current_readback": {
+          "count": 535,
+          "description": "Measured current value read back from a powered device.",
+          "roles": {
+            "readback": 535
+          }
+        },
+        "current_setpoint": {
+          "count": 463,
+          "description": "Commanded current value sent to a powered device.",
+          "roles": {
+            "setpoint": 463
+          }
+        },
+        "dose_rate_readback": {
+          "count": 24,
+          "description": "Measured radiation dose rate.",
+          "roles": {
+            "readback": 24
+          }
+        },
+        "fault_status": {
+          "count": 320,
+          "description": "Generic device fault flag readback.",
+          "roles": {
+            "readback": 320
+          }
+        },
+        "frequency_readback": {
+          "count": 2,
+          "description": "Measured frequency.",
+          "roles": {
+            "readback": 2
+          }
+        },
+        "frequency_setpoint": {
+          "count": 2,
+          "description": "Commanded frequency.",
+          "roles": {
+            "setpoint": 2
+          }
+        },
+        "gap_readback": {
+          "count": 14,
+          "description": "Measured magnetic gap of an insertion device.",
+          "roles": {
+            "readback": 14
+          }
+        },
+        "gap_setpoint": {
+          "count": 14,
+          "description": "Commanded magnetic gap of an insertion device.",
+          "roles": {
+            "setpoint": 14
+          }
+        },
+        "gun_voltage_readback": {
+          "count": 1,
+          "description": "High-voltage readback from an electron gun HVPS (measured kV).",
+          "roles": {
+            "readback": 1
+          }
+        },
+        "gun_voltage_setpoint": {
+          "count": 1,
+          "description": "High-voltage setpoint for an electron gun or its HVPS (preset demand, kV).",
+          "roles": {
+            "setpoint": 1
+          }
+        },
+        "interlock_status": {
+          "count": 43,
+          "description": "Generic interlock readback (active / cleared).",
+          "roles": {
+            "readback": 43
+          }
+        },
+        "lamp_status": {
+          "count": 21,
+          "description": "Illumination-lamp on/off state readback.",
+          "roles": {
+            "readback": 21
+          }
+        },
+        "local_mode_status": {
+          "count": 14,
+          "description": "Local-vs-remote control-mode readback.",
+          "roles": {
+            "readback": 14
+          }
+        },
+        "offset_readback": {
+          "count": 7,
+          "description": "Measured longitudinal offset (phase) of an insertion device's magnet rows.",
+          "roles": {
+            "readback": 7
+          }
+        },
+        "offset_setpoint": {
+          "count": 7,
+          "description": "Commanded longitudinal offset (phase) of an insertion device's magnet rows.",
+          "roles": {
+            "setpoint": 7
+          }
+        },
+        "operation_mode_status": {
+          "count": 1,
+          "description": "Current operating mode of the machine (e.g. user operation, machine development, shutdown).",
+          "roles": {
+            "readback": 1
+          }
+        },
+        "over_temperature_status": {
+          "count": 181,
+          "description": "Over-temperature fault flag readback.",
+          "roles": {
+            "readback": 181
+          }
+        },
+        "phase_readback": {
+          "count": 5,
+          "description": "Measured RF phase readback for an RF cavity.",
+          "roles": {
+            "readback": 5
+          }
+        },
+        "phase_setpoint": {
+          "count": 5,
+          "description": "Commanded RF phase setpoint for an RF cavity.",
+          "roles": {
+            "setpoint": 5
+          }
+        },
+        "position_offset": {
+          "count": 144,
+          "description": "Stored offset subtracted from a measured position.",
+          "roles": {
+            "readback": 144
+          }
+        },
+        "position_x_golden_readback": {
+          "count": 72,
+          "description": "Golden-orbit horizontal-position reference readback.",
+          "roles": {
+            "readback": 72
+          }
+        },
+        "position_x_readback": {
+          "count": 100,
+          "description": "Horizontal beam position readback from a beam position monitor.",
+          "roles": {
+            "readback": 100
+          }
+        },
+        "position_y_golden_readback": {
+          "count": 72,
+          "description": "Golden-orbit vertical-position reference readback.",
+          "roles": {
+            "readback": 72
+          }
+        },
+        "position_y_readback": {
+          "count": 100,
+          "description": "Vertical beam position readback from a beam position monitor.",
+          "roles": {
+            "readback": 100
+          }
+        },
+        "power_on_command": {
+          "count": 7,
+          "description": "Commanded power on/off transition for a powered device.",
+          "roles": {
+            "setpoint": 7
+          }
+        },
+        "power_on_status": {
+          "count": 547,
+          "description": "Power-on (energised) state readback of a powered device.",
+          "roles": {
+            "readback": 547
+          }
+        },
+        "power_readback": {
+          "count": 7,
+          "description": "Measured power.",
+          "roles": {
+            "readback": 7
+          }
+        },
+        "pulse_waveform": {
+          "count": 1,
+          "description": "Sampled time trace of one output pulse of a pulsed device (e.g. a septum or kicker current pulse), read as an array of samples rather than a scalar.",
+          "roles": {
+            "readback": 1
+          }
+        },
+        "ramp_gain_readback": {
+          "count": 3,
+          "description": "Readback of the gain applied to a ramped power supply's ramp table.",
+          "roles": {
+            "readback": 3
+          }
+        },
+        "ramp_gain_setpoint": {
+          "count": 3,
+          "description": "Commanded gain that scales the whole energy-ramp table of a ramped power supply.",
+          "roles": {
+            "setpoint": 3
+          }
+        },
+        "ramp_offset_readback": {
+          "count": 3,
+          "description": "Readback of the offset applied to a ramped power supply's ramp table.",
+          "roles": {
+            "readback": 3
+          }
+        },
+        "ramp_offset_setpoint": {
+          "count": 3,
+          "description": "Commanded offset added to the whole energy-ramp table of a ramped power supply.",
+          "roles": {
+            "setpoint": 3
+          }
+        },
+        "ramping_status": {
+          "count": 47,
+          "description": "Ramping-in-progress readback.",
+          "roles": {
+            "readback": 47
+          }
+        },
+        "ready_status": {
+          "count": 410,
+          "description": "Device-ready handshake readback (interlocks satisfied, supplies up).",
+          "roles": {
+            "readback": 410
+          }
+        },
+        "reset_command": {
+          "count": 29,
+          "description": "Latching-fault reset command.",
+          "roles": {
+            "setpoint": 29
+          }
+        },
+        "rf_forward_power_readback": {
+          "count": 2,
+          "description": "RF forward power readback at an accelerating cavity input.",
+          "roles": {
+            "readback": 2
+          }
+        },
+        "rf_hv_readback": {
+          "count": 4,
+          "description": "RF / klystron high-voltage readback.",
+          "roles": {
+            "readback": 4
+          }
+        },
+        "rf_hv_setpoint": {
+          "count": 4,
+          "description": "RF / klystron high-voltage setpoint.",
+          "roles": {
+            "setpoint": 4
+          }
+        },
+        "rf_reflected_power_readback": {
+          "count": 2,
+          "description": "RF reflected power readback from an accelerating cavity.",
+          "roles": {
+            "readback": 2
+          }
+        },
+        "screen_in_command": {
+          "count": 21,
+          "description": "Commanded screen-insert transition.",
+          "roles": {
+            "setpoint": 21
+          }
+        },
+        "screen_in_status": {
+          "count": 21,
+          "description": "Screen-inserted state readback.",
+          "roles": {
+            "readback": 21
+          }
+        },
+        "status": {
+          "count": 298,
+          "description": "Generic device status (on/off/fault/enabled/disabled).",
+          "roles": {
+            "readback": 298
+          }
+        },
+        "temperature_limit_readback": {
+          "count": 181,
+          "description": "Temperature above which a device's over-temperature interlock trips.",
+          "roles": {
+            "readback": 181
+          }
+        },
+        "temperature_readback": {
+          "count": 199,
+          "description": "Measured temperature.",
+          "roles": {
+            "readback": 199
+          }
+        },
+        "temperature_setpoint": {
+          "count": 1,
+          "description": "Commanded temperature of a regulated loop (e.g. a cooling-water heater).",
+          "roles": {
+            "setpoint": 1
+          }
+        },
+        "thermal_status": {
+          "count": 3,
+          "description": "Thermal/over-temperature interlock flag readback.",
+          "roles": {
+            "readback": 3
+          }
+        },
+        "tuner_position_readback": {
+          "count": 5,
+          "description": "Measured tuner position.",
+          "roles": {
+            "readback": 5
+          }
+        },
+        "tuner_position_setpoint": {
+          "count": 5,
+          "description": "Commanded tuner position.",
+          "roles": {
+            "setpoint": 5
+          }
+        },
+        "vacuum_readback": {
+          "count": 101,
+          "description": "Vacuum pressure readback from a vacuum gauge or pump.",
+          "roles": {
+            "readback": 101
+          }
+        },
+        "valve_open_command": {
+          "count": 72,
+          "description": "Commanded valve open/close transition.",
+          "roles": {
+            "readback": 48,
+            "setpoint": 24
+          }
+        },
+        "valve_position_readback": {
+          "count": 5,
+          "description": "Measured opening of a modulating valve, in percent.",
+          "roles": {
+            "readback": 5
+          }
+        },
+        "valve_status": {
+          "count": 48,
+          "description": "Open/closed/fault status readback for a beamline gate valve or fast valve.",
+          "roles": {
+            "readback": 48
+          }
+        },
+        "voltage_golden_readback": {
+          "count": 2,
+          "description": "Stored golden voltage reference.",
+          "roles": {
+            "readback": 2
+          }
+        },
+        "voltage_readback": {
+          "count": 76,
+          "description": "Measured voltage.",
+          "roles": {
+            "readback": 76
+          }
+        },
+        "voltage_setpoint": {
+          "count": 76,
+          "description": "Commanded voltage.",
+          "roles": {
+            "setpoint": 76
+          }
+        }
+      },
+      "unsigned_channels": 5
+    }
+  },
+  "channel_finder_signal_descriptions": {
+    "ac_supply_ok_status": "AC-supply OK readback (120 V auxiliary supply healthy).",
+    "air_pressure_status": "Compressed-air-pressure (pneumatic actuator supply) readback.",
+    "beam_intensity_readback": "Scalar beam intensity or charge readback (e.g. BPM .VAL).",
+    "beam_lifetime_readback": "Measured lifetime readback of the stored beam.",
+    "blade_position_readback": "Measured insertion of a scraper blade into the beam aperture.",
+    "blade_position_setpoint": "Commanded insertion of a scraper blade into the beam aperture.",
+    "bpm_fofb_index": "Fast-orbit-feedback channel-index readback for a BPM.",
+    "bpm_sample_rate": "BPM acquisition sample-rate readback (configuration channel).",
+    "bpm_sum_readback": "BPM sum-signal readback (intensity proxy from button electrodes).",
+    "bulk_supply_command": "Bulk-supply control command (mode/enable).",
+    "bulk_supply_on_status": "Bulk-supply on/off state readback.",
+    "bulk_supply_voltage_readback": "Bulk-supply DC voltage readback.",
+    "computer_status": "Control-computer heartbeat / health readback.",
+    "controlled_power_mode_status": "Controlled-power-mode readback for a main dipole supply.",
+    "coolant_flow_readback": "Measured cooling-water flow through a device.",
+    "current_golden_readback": "Stored \"golden\" current setpoint reference for a powered device.",
+    "current_readback": "Measured current value read back from a powered device.",
+    "current_setpoint": "Commanded current value sent to a powered device.",
+    "current_x_readback": "Power-supply current readback of the coil that acts in the horizontal plane.",
+    "current_x_setpoint": "Power-supply current setpoint of the coil that acts in the horizontal plane, on a device that holds one coil per plane.",
+    "current_y_readback": "Power-supply current readback of the coil that acts in the vertical plane.",
+    "current_y_setpoint": "Power-supply current setpoint of the coil that acts in the vertical plane, on a device that holds one coil per plane.",
+    "dc_supply_ok_status": "DC-supply OK readback (24 V auxiliary supply healthy).",
+    "dose_rate_readback": "Measured radiation dose rate.",
+    "external_interlock_1_status": "External interlock channel 1 readback.",
+    "external_interlock_2_status": "External interlock channel 2 readback.",
+    "external_interlock_3_status": "External interlock channel 3 readback.",
+    "fault_status": "Generic device fault flag readback.",
+    "field_readback": "Measured field readback for a magnetic device.",
+    "field_setpoint": "Commanded field (integrated or peak) for a magnetic device.",
+    "filament_timeout_status": "Filament warm-up / runtime timeout readback.",
+    "firmware_version_readback": "Firmware version a device reports of itself.",
+    "frequency_readback": "Measured frequency.",
+    "frequency_setpoint": "Commanded frequency.",
+    "gap_readback": "Measured magnetic gap of an insertion device.",
+    "gap_setpoint": "Commanded magnetic gap of an insertion device.",
+    "gradient_readback": "Measured accelerating gradient readback for an RF cavity.",
+    "gradient_setpoint": "Commanded accelerating gradient setpoint for an RF cavity.",
+    "gun_current_readback": "Beam current or supply current readback from an electron gun HVPS (mA).",
+    "gun_voltage_readback": "High-voltage readback from an electron gun HVPS (measured kV).",
+    "gun_voltage_setpoint": "High-voltage setpoint for an electron gun or its HVPS (preset demand, kV).",
+    "integrated_count": "Integrated beam-loss count readback from a beam loss monitor (BLM).",
+    "interlock_status": "Generic interlock readback (active / cleared).",
+    "internal_interlock_1_status": "Internal interlock channel 1 readback.",
+    "internal_interlock_2_status": "Internal interlock channel 2 readback.",
+    "internal_interlock_3_status": "Internal interlock channel 3 readback.",
+    "kick_angle_readback": "Deflection angle of a corrector magnet, as read back.",
+    "kick_angle_setpoint": "Commanded deflection angle of a corrector magnet.",
+    "lamp_command": "Commanded lamp on/off transition.",
+    "lamp_status": "Illumination-lamp on/off state readback.",
+    "leakage_current_readback": "Leakage-current readback for a magnet supply.",
+    "local_mode_status": "Local-vs-remote control-mode readback.",
+    "local_phase_readback": "Locally-measured RF-phase readback.",
+    "magnet_voltage_readback": "Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).",
+    "model_readback": "Model name a device reports of itself.",
+    "modulator_state_command": "Modulator state-machine command (StateCmd; MemberOf=Boolean Control).",
+    "normalized_strength_readback": "Normalized strength of a multipole magnet, as read back.",
+    "normalized_strength_setpoint": "Commanded normalized strength of a multipole magnet (K1 in 1/m^2 for a quadrupole, K2 in 1/m^3 for a sextupole), the field over the beam rigidity.",
+    "offset_readback": "Measured longitudinal offset (phase) of an insertion device's magnet rows.",
+    "offset_setpoint": "Commanded longitudinal offset (phase) of an insertion device's magnet rows.",
+    "operation_mode_status": "Current operating mode of the machine (e.g. user operation, machine development, shutdown).",
+    "over_temperature_status": "Over-temperature fault flag readback.",
+    "phase_golden_readback": "Stored golden RF-phase reference.",
+    "phase_readback": "Measured RF phase readback for an RF cavity.",
+    "phase_setpoint": "Commanded RF phase setpoint for an RF cavity.",
+    "plug_interlock_status": "Plug-interlock readback (mating-connector presence).",
+    "position_offset": "Stored offset subtracted from a measured position.",
+    "position_x_error_readback": "Horizontal-position error readback (delta from golden reference).",
+    "position_x_golden_readback": "Golden-orbit horizontal-position reference readback.",
+    "position_x_readback": "Horizontal beam position readback from a beam position monitor.",
+    "position_x_rms_10k_readback": "RMS horizontal position over a 10k-sample window.",
+    "position_x_rms_200_readback": "RMS horizontal position over a 200-sample window.",
+    "position_y_error_readback": "Vertical-position error readback (delta from golden reference).",
+    "position_y_golden_readback": "Golden-orbit vertical-position reference readback.",
+    "position_y_readback": "Vertical beam position readback from a beam position monitor.",
+    "position_y_rms_10k_readback": "RMS vertical position over a 10k-sample window.",
+    "position_y_rms_200_readback": "RMS vertical position over a 200-sample window.",
+    "power_on_command": "Commanded power on/off transition for a powered device.",
+    "power_on_status": "Power-on (energised) state readback of a powered device.",
+    "power_readback": "Measured power.",
+    "profile_readback": "Beam profile readback from a wire scanner or harp.",
+    "pulse_amplitude_setpoint": "Modulator pulse-amplitude setpoint.",
+    "pulse_delay_setpoint": "Modulator pulse-delay setpoint.",
+    "pulse_permit_status": "Pulsing-permit interlock readback.",
+    "pulse_waveform": "Sampled time trace of one output pulse of a pulsed device (e.g. a septum or kicker current pulse), read as an array of samples rather than a scalar.",
+    "pulse_width_setpoint": "Modulator pulse-width setpoint.",
+    "pulsing_command": "Commanded pulsing on/off transition.",
+    "pulsing_on_status": "Pulsing-on state readback.",
+    "pulsing_ready_status": "Pulsing-ready handshake readback.",
+    "ramp_gain_readback": "Readback of the gain applied to a ramped power supply's ramp table.",
+    "ramp_gain_setpoint": "Commanded gain that scales the whole energy-ramp table of a ramped power supply.",
+    "ramp_offset_readback": "Readback of the offset applied to a ramped power supply's ramp table.",
+    "ramp_offset_setpoint": "Commanded offset added to the whole energy-ramp table of a ramped power supply.",
+    "ramp_rate_setpoint": "Commanded ramp-rate setpoint for a powered device's current loop.",
+    "ramping_status": "Ramping-in-progress readback.",
+    "ready_status": "Device-ready handshake readback (interlocks satisfied, supplies up).",
+    "regulator_temperature_readback": "Regulator / power-stage temperature readback.",
+    "remote_phase_readback": "Remotely-reported RF-phase readback.",
+    "reset_command": "Latching-fault reset command.",
+    "rf_drive_amplitude_readback": "RF drive-amplitude readback.",
+    "rf_forward_power_readback": "RF forward power readback at an accelerating cavity input.",
+    "rf_hv_golden_readback": "Stored golden HV reference for an RF cavity.",
+    "rf_hv_readback": "RF / klystron high-voltage readback.",
+    "rf_hv_setpoint": "RF / klystron high-voltage setpoint.",
+    "rf_reflected_power_readback": "RF reflected power readback from an accelerating cavity.",
+    "screen_in_command": "Commanded screen-insert transition.",
+    "screen_in_status": "Screen-inserted state readback.",
+    "screen_out_status": "Screen-extracted state readback.",
+    "serial_number_readback": "Serial number a device reports of itself.",
+    "sf6_pressure_readback": "SF6 insulating-gas pressure readback in an electron gun pressure vessel (PSI).",
+    "shunt_status": "Dipole shunt-circuit state readback.",
+    "status": "Generic device status (on/off/fault/enabled/disabled).",
+    "temperature_hi_limit_readback": "Temperature of the high (minor) alarm limit, as read back.",
+    "temperature_hi_limit_setpoint": "Temperature of the high (minor) alarm limit, as commanded.",
+    "temperature_hihi_limit_readback": "Temperature of the high-high (major) alarm limit, as read back.",
+    "temperature_hihi_limit_setpoint": "Temperature of the high-high (major) alarm limit, as commanded.",
+    "temperature_limit_readback": "Temperature above which a device's over-temperature interlock trips.",
+    "temperature_lo_limit_readback": "Temperature of the low (minor) alarm limit, as read back.",
+    "temperature_lo_limit_setpoint": "Temperature of the low (minor) alarm limit, as commanded.",
+    "temperature_lolo_limit_readback": "Temperature of the low-low (major) alarm limit, as read back.",
+    "temperature_lolo_limit_setpoint": "Temperature of the low-low (major) alarm limit, as commanded.",
+    "temperature_readback": "Measured temperature.",
+    "temperature_setpoint": "Commanded temperature of a regulated loop (e.g. a cooling-water heater).",
+    "thermal_status": "Thermal/over-temperature interlock flag readback.",
+    "tuner_position_readback": "Measured tuner position.",
+    "tuner_position_setpoint": "Commanded tuner position.",
+    "vacuum_readback": "Vacuum pressure readback from a vacuum gauge or pump.",
+    "valve_cathode_status": "Cathode-side interlock / status channel for a vacuum valve.",
+    "valve_downstream_status": "Downstream-side limit-switch state readback for a vacuum valve.",
+    "valve_open_command": "Commanded valve open/close transition.",
+    "valve_position_readback": "Measured opening of a modulating valve, in percent.",
+    "valve_status": "Open/closed/fault status readback for a beamline gate valve or fast valve.",
+    "valve_upstream_status": "Upstream-side limit-switch state readback for a vacuum valve.",
+    "voltage_golden_readback": "Stored golden voltage reference.",
+    "voltage_readback": "Measured voltage.",
+    "voltage_setpoint": "Commanded voltage."
+  }
+}

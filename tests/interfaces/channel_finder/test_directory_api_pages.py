@@ -9,10 +9,8 @@ from __future__ import annotations
 
 import ast
 import fnmatch
-import importlib
 import inspect
 import json
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,7 +26,6 @@ from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
 from osprey.interfaces.channel_finder import directory_pages_api
-from osprey.services.pv_directory import _connectors, service
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import (
     AlarmConfigRecord,
@@ -43,19 +40,6 @@ from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
-_NEW_MODULES = (
-    "osprey_connectors.service_answers",
-    "osprey_connectors.service_targets",
-    "osprey_connectors._service_http",
-    "osprey_connectors.directory",
-    "osprey_connectors.directory._contract",
-    "osprey_connectors.alarm_state",
-    "osprey_connectors.alarm_state._contract",
-    "osprey_connectors.alarm_log",
-    "osprey_connectors.alarm_log._contract",
-    "osprey_connectors.put_log",
-    "osprey_connectors.put_log._contract",
-)
 _NO_SOURCE = "not available for this target"
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -91,7 +75,7 @@ class FakeBackend:
 
 
 class FakeDirectory(FakeBackend):
-    """A directory over fixed records: ``ioc`` and ``status`` exact, ``name`` a glob."""
+    """A directory over fixed records: ``server`` and ``status`` exact, ``name`` a glob."""
 
     records: dict[str, Any] = {}
 
@@ -156,7 +140,7 @@ class FakeAlarmState(FakeBackend):
 
 
 _FAKES = {
-    "pv_directory": FakeDirectory,
+    "channel_directory": FakeDirectory,
     "alarm_log": FakeHistory,
     "alarm_state": FakeAlarmState,
     "put_log": FakeHistory,
@@ -172,7 +156,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> None:
         return create_connector
 
     for kind in _FAKES:
-        spec_kind = "directory" if kind == "pv_directory" else kind
+        spec_kind = "directory" if kind == "channel_directory" else kind
         patch_create_service(monkeypatch, spec_kind, create(kind))
     monkeypatch.setattr(FakeDirectory, "records", {})
 
@@ -225,7 +209,7 @@ def _config(
             "pipelines": {"in_context": {"database": {"path": "/tmp/db.json", "type": "flat"}}},
         },
         "control_system": control_system,
-        "pv_directory": section,
+        "channel_directory": section,
     }
     if control_system == VA_BUILD:
         config["services"] = {"virtual_accelerator": {"port": 5064}}
@@ -275,11 +259,11 @@ def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
 # -- the PV page --------------------------------------------------------------
 
 
-def test_the_pv_page_answers_every_configured_section(start, tmp_path: Path) -> None:
+def test_the_channel_page_answers_every_configured_section(start, tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record_of("SR:BPM1", recordDesc="beam position"))
     section = {**FACILITY, "alarm_log": ALARM_LOG, "put_log": PUT_LOG}
     with start(_config(tmp_path, LIVE_BUILD, section, "SR:BPM1")) as (_app, client):
-        answer = _get(client, "pv", "SR:BPM1")
+        answer = _get(client, "channel", "SR:BPM1")
 
     assert answer["name"] == "SR:BPM1"
     sections = _sections(answer)
@@ -290,10 +274,10 @@ def test_the_pv_page_answers_every_configured_section(start, tmp_path: Path) -> 
     assert sections["put_history"]["outcome"] == "found"
 
 
-def test_an_unconfigured_section_is_absent_from_the_pv_page(start, tmp_path: Path) -> None:
+def test_an_unconfigured_section_is_absent_from_the_channel_page(start, tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record_of("SR:BPM1"))
     with start(_config(tmp_path, LIVE_BUILD, FACILITY)) as (_app, client):
-        sections = _sections(_get(client, "pv", "SR:BPM1"))
+        sections = _sections(_get(client, "channel", "SR:BPM1"))
 
     assert list(sections) == ["directory"]
 
@@ -304,18 +288,18 @@ def test_a_section_with_no_source_on_the_target_says_so(
     record.move("va", 1)
     section = {**FACILITY, "put_log": PUT_LOG}
     with start(_config(tmp_path, VA_BUILD, section)) as (_app, client):
-        sections = _sections(_get(client, "pv", "SR:BPM1"))
+        sections = _sections(_get(client, "channel", "SR:BPM1"))
 
     assert sections["put_history"]["outcome"] == "unavailable"
     assert sections["put_history"]["reason"] == _NO_SOURCE
     assert sections["put_history"]["source"]["target"] == "va"
 
 
-def test_the_pv_page_matches_the_shared_fixture(start, tmp_path: Path) -> None:
+def test_the_channel_page_matches_the_shared_fixture(start, tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record_of("SR:BPM1", recordDesc="beam position"))
     section = {**FACILITY, "alarm_log": ALARM_LOG, "put_log": PUT_LOG}
     with start(_config(tmp_path, LIVE_BUILD, section, "SR:BPM1")) as (_app, client):
-        answer = _get(client, "pv", "SR:BPM1")
+        answer = _get(client, "channel", "SR:BPM1")
 
     shared = _routes()["pv/{name}"]
     assert set(answer) == set(shared)
@@ -331,7 +315,7 @@ def test_the_name_is_one_percent_encoded_segment(start, tmp_path: Path) -> None:
     name = "SR:BPM1/X Y"
     FakeDirectory.records = _records(_record_of(name))
     with start(_config(tmp_path, LIVE_BUILD, FACILITY)) as (_app, client):
-        answer = _get(client, "pv", name)
+        answer = _get(client, "channel", name)
 
     assert answer["name"] == name
     assert _sections(answer)["directory"]["outcome"] == "found"
@@ -340,7 +324,7 @@ def test_the_name_is_one_percent_encoded_segment(start, tmp_path: Path) -> None:
 # -- the IOC page -------------------------------------------------------------
 
 
-def _live_ioc_records() -> dict[str, Any]:
+def _live_server_records() -> dict[str, Any]:
     return _records(
         _record_of("SR:BPM1", caPort="5064", pvaPort="5075", Engineer="A. Engineer"),
         _record_of("SR:IOC-A:HEARTBEAT"),
@@ -348,52 +332,52 @@ def _live_ioc_records() -> dict[str, Any]:
     )
 
 
-def test_the_ioc_page_payload(start, tmp_path: Path) -> None:
-    FakeDirectory.records = _live_ioc_records()
+def test_the_server_page_payload(start, tmp_path: Path) -> None:
+    FakeDirectory.records = _live_server_records()
     with start(_config(tmp_path, LIVE_BUILD, FACILITY, "SR:BPM1")) as (_app, client):
-        ioc = _get(client, "ioc", "ioc-a")
+        ioc = _get(client, "server", "ioc-a")
 
-    assert ioc["ioc"] == "ioc-a"
+    assert ioc["server"] == "ioc-a"
     assert ioc["outcome"] == "found"
     assert ioc["host"] == "host-a"
     assert ioc["ports"] == [5064, 5075]
-    assert ioc["pv_count"] == 2
+    assert ioc["channel_count"] == 2
     assert ioc["curated_count"] == 1
     assert ioc["engineer"] == "A. Engineer"
     assert ioc["engineer_source"] == "directory property"
-    assert ioc["health_pvs"] == [{"name": "SR:IOC-A:HEARTBEAT", "role": "heartbeat"}]
-    assert ioc["links"] == {"panel": "/panel/channel-finder/#/ioc/ioc-a"}
+    assert ioc["health_channels"] == [{"name": "SR:IOC-A:HEARTBEAT", "role": "heartbeat"}]
+    assert ioc["links"] == {"panel": "/panel/channel-finder/#/server/ioc-a"}
 
 
-def test_the_ioc_page_matches_the_shared_fixture(start, tmp_path: Path) -> None:
-    FakeDirectory.records = _live_ioc_records()
+def test_the_server_page_matches_the_shared_fixture(start, tmp_path: Path) -> None:
+    FakeDirectory.records = _live_server_records()
     section = {**FACILITY, "alarm_state": KAFKA}
     with start(_config(tmp_path, LIVE_BUILD, section, "SR:BPM1")) as (_app, client):
-        ioc = _get(client, "ioc", "ioc-a")
+        ioc = _get(client, "server", "ioc-a")
 
     shared = _routes()["ioc/{name}"]
     assert set(ioc) == set(shared)
     assert set(ioc["alarms"]) == set(shared["alarms"])
-    assert [row["pv"] for row in ioc["alarms"]["rows"]] == ["SR:BPM1"]
+    assert [row["channel"] for row in ioc["alarms"]["rows"]] == ["SR:BPM1"]
     assert set(ioc["alarms"]["rows"][0]) == set(shared["alarms"]["rows"][0])
 
 
-def test_the_ioc_page_without_an_alarm_feed_carries_no_alarms(start, tmp_path: Path) -> None:
-    FakeDirectory.records = _live_ioc_records()
+def test_the_server_page_without_an_alarm_feed_carries_no_alarms(start, tmp_path: Path) -> None:
+    FakeDirectory.records = _live_server_records()
     with start(_config(tmp_path, LIVE_BUILD, FACILITY, "SR:BPM1")) as (_app, client):
-        ioc = _get(client, "ioc", "ioc-a")
+        ioc = _get(client, "server", "ioc-a")
 
     assert "alarms" not in ioc
 
 
-def test_an_ioc_name_is_one_percent_encoded_segment(start, tmp_path: Path) -> None:
+def test_a_server_name_is_one_percent_encoded_segment(start, tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record_of("SR:BPM1", ioc="ioc-a/1"))
     with start(_config(tmp_path, LIVE_BUILD, FACILITY)) as (_app, client):
-        ioc = _get(client, "ioc", "ioc-a/1")
+        ioc = _get(client, "server", "ioc-a/1")
 
-    assert ioc["ioc"] == "ioc-a/1"
-    assert ioc["pv_count"] == 1
-    assert ioc["links"]["panel"].endswith("#/ioc/ioc-a%2F1")
+    assert ioc["server"] == "ioc-a/1"
+    assert ioc["channel_count"] == 1
+    assert ioc["links"]["panel"].endswith("#/server/ioc-a%2F1")
 
 
 # -- Logbook availability -----------------------------------------------------
@@ -436,29 +420,6 @@ def test_the_logbook_follows_a_target_move(start, tmp_path: Path, record: _Recor
         assert client.get("/api/directory/logbook/availability").json()["available"] is True
         record.move("va", 1)
         assert client.get("/api/directory/logbook/availability").json()["available"] is False
-
-
-@pytest.fixture()
-def floor() -> Iterator[None]:
-    """The shim, the service and this route module re-imported without the new modules."""
-    with pytest.MonkeyPatch.context() as patch:
-        for name in _NEW_MODULES:
-            patch.setitem(sys.modules, name, None)
-        importlib.reload(_connectors)
-        importlib.reload(service)
-        importlib.reload(directory_pages_api)
-        yield
-    importlib.reload(_connectors)
-    importlib.reload(service)
-    importlib.reload(directory_pages_api)
-
-
-@pytest.mark.usefixtures("floor")
-def test_on_the_floor_the_logbook_answers_the_upgrade_reason(start, tmp_path: Path) -> None:
-    with start(_with_ariel(_config(tmp_path, LIVE_BUILD, FACILITY))) as (_app, client):
-        answer = client.get("/api/directory/logbook/availability").json()
-
-    assert answer == {"available": False, "source": None, "reason": _connectors.FLOOR_REASON}
 
 
 def test_no_ariel_client_is_reachable_from_the_module() -> None:

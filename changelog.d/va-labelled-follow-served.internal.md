@@ -1,0 +1,1 @@
+The virtual accelerator e2e lane now puts a value over Channel Access into a command whose status follows it by index, for a two-state command and for a plain-number command into a labelled status, and checks that a put with no matching label is refused and moves neither.

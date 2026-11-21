@@ -356,6 +356,15 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
+  recorder_tail_cadence_sec: 60      # how often a recorded sample is kept for the full span
+  recorder_poll_sec: 30              # how often the recorder re-reads config.yml
+  database: osprey_archiver          # database holding the history
+  collection: pv_history             # collection the samples go to
+  compression: zstd                  # zstd | snappy | zlib | none
+  username: osprey                   # user the agent connects as
+  auth_database: admin               # database that user authenticates against
+  password_env: MONGO_ROOT_PASSWORD  # variable naming that user's password
+  timeout_sec: 5                     # seconds the agent waits to reach the store
   # The build derives `freshness_channel`, the channel `osprey health` watches,
   # from the facility file; a stated line is an override checked against it.
 
@@ -681,14 +690,18 @@ config:
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
 
-  # ── PV directory ───────────────────────────────────────────────────────────
+  # ── channel directory ───────────────────────────────────────────────────────────
   # The All PVs view and the agent's PV record tools. With no `type` they list
   # the simulator's channels and IOC health PVs; `alarm_state.replay_file`
-  # plays a packaged alarm feed. Off: `osprey set config.pv_directory=null`,
-  # or `pv_directory: null` in a profile that extends this one.
-  pv_directory:
+  # plays a packaged alarm feed. Off: `osprey set config.channel_directory=null`,
+  # or `channel_directory: null` in a profile that extends this one.
+  channel_directory:
     alarm_state:
       replay_file: demo:example-alarms
+    # server fleet: the IOCs view and the agent's `server_fleet` tool. 10 s is the
+    # shortest period allowed (twice the 5 s VA read bound). Off: `fleet: null`.
+    fleet:
+      period_s: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
@@ -1427,6 +1440,11 @@ dispatch:
   # The tier a dispatched job runs at. A job has nobody to approve a write, so
   # the workers run read-only; remove the line to run the deployment's own posture.
   tier: readonly
+  worker_port_stride: 1  # port gap between workers, host network only
+  transport: http        # http | bus
+  timeout_sec: 300       # wall-clock ceiling on one run
+  inactivity_sec: 120    # seconds a run may produce nothing before it is cut off
+  max_turns: 25          # agent turns one run may take
 
 # ── Environment variables ────────────────────────────────────────────────────
 # Passwords for the webhook service above. They have no defaults on purpose:
@@ -1471,6 +1489,8 @@ provenance:
 deploy_services: true
 # Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
+# Bundled template rendered as CLAUDE.md, the agent's instructions.
+claude_md_template: CLAUDE.md.j2
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
@@ -1884,7 +1904,7 @@ config:
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
   # Channel records and alarms are the `channel-finder` login's.
-  claude_code.servers.pv-directory.enabled: false
+  claude_code.servers.channel-directory.enabled: false
   # The facility knowledge bundle answers "how is the machine documented"; that
   # is the `knowledge` login's question, not this one's.
   claude_code.servers.osprey_facility_knowledge.enabled: false
@@ -2000,7 +2020,7 @@ config:
   # The logbook is the `logbook` login's.
   claude_code.servers.ariel.enabled: false
   # Channel records and alarms are the `channel-finder` login's.
-  claude_code.servers.pv-directory.enabled: false
+  claude_code.servers.channel-directory.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
   # (the bundle), `channel-finder` and `graph` (the store both read). The event
   # dispatcher renders only with the EVENTS panel, which no shared login carries.

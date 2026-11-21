@@ -10,7 +10,8 @@
  */
 
 import { configEntries } from './alarm-text.js';
-import { NO_TARGET, timeText } from './pv-page-sections.js';
+import { NO_TARGET, timeText } from './channel-page-sections.js';
+import { LABELS, heading } from './labels.js';
 import { formatRoute } from './route.js';
 import { BAND_SEVERITIES, inBand, severityMark, severityOf, worstSeverity } from './severity.js';
 import { esc } from './utils.js';
@@ -19,8 +20,8 @@ import { formatValue } from './value-format.js';
 /** @typedef {import('./directory-api.js').ActiveAlarms} ActiveAlarms */
 /** @typedef {import('./directory-api.js').AlarmRow} AlarmRow */
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
-/** @typedef {import('./directory-api.js').PvFacts} PvFacts */
-/** @typedef {import('./directory-api.js').PvFactsSection} PvFactsSection */
+/** @typedef {import('./directory-api.js').ChannelFacts} ChannelFacts */
+/** @typedef {import('./directory-api.js').ChannelFactsSection} ChannelFactsSection */
 /** @typedef {import('./directory-api.js').DirectoryRecord} DirectoryRecord */
 /** @typedef {import('./directory-api.js').AlarmConfigRecord} AlarmConfigRecord */
 /** @typedef {import('./directory-api.js').AlarmHistoryRow} AlarmHistoryRow */
@@ -55,7 +56,7 @@ const fmt = (n) => n.toLocaleString('en-US');
  */
 function segments(row) {
   const parts = (row.path ?? '').split('/').filter(Boolean);
-  if (parts.at(-1) === row.pv) parts.pop();
+  if (parts.at(-1) === row.channel) parts.pop();
   return parts;
 }
 
@@ -327,7 +328,7 @@ export function feedRows(answer) {
     { label: 'Rehearsal', value: source.rehearsal ? 'yes' : 'no' },
   ];
   if (typeof answer.total === 'number')
-    rows.push({ label: 'PVs in tree', value: fmt(answer.total) });
+    rows.push({ label: `${heading(LABELS.channels)} in tree`, value: fmt(answer.total) });
   const contact = timeText(answer.last_contact);
   if (contact)
     rows.push({ label: answer.feed === 'replay' ? 'Loaded' : 'Last contact', value: contact });
@@ -404,19 +405,19 @@ export function listHtml(rows, { selected, values, stale, cut }) {
       const severity = severityOf(row.severity);
       const classes = [
         `alarms-row--${severity.toLowerCase()}`,
-        row.pv === selected ? 'sel' : '',
+        row.channel === selected ? 'sel' : '',
         stale || row.stale ? 'is-stale' : '',
       ]
         .filter(Boolean)
         .join(' ');
-      const link = formatRoute({ view: 'pv', params: { name: row.pv } });
+      const link = formatRoute({ view: 'channel', params: { name: row.channel } });
       return (
-        `<tr class="${classes}" data-name="${esc(row.pv)}" tabindex="0" aria-selected="${row.pv === selected}">` +
+        `<tr class="${classes}" data-name="${esc(row.channel)}" tabindex="0" aria-selected="${row.channel === selected}">` +
         `<td class="alarms-sevbar"></td>` +
         `<td>${severityMark(severity)}</td>` +
-        `<td class="alarms-pv"><a href="${esc(link)}">${esc(row.pv)}</a></td>` +
+        `<td class="alarms-channel"><a href="${esc(link)}">${esc(row.channel)}</a></td>` +
         `<td class="alarms-status">${esc(row.status)}</td>` +
-        valueCell(values?.get(row.pv), values !== null) +
+        valueCell(values?.get(row.channel), values !== null) +
         `<td class="alarms-for" title="${esc(timeText(row.time))}">${sinceHtml(row.time) || '—'}</td>` +
         `<td class="alarms-flags">${flagsHtml(row)}</td></tr>`
       );
@@ -425,7 +426,7 @@ export function listHtml(rows, { selected, values, stale, cut }) {
   return `
     <table class="alarms-table">
       <thead><tr>
-        <th class="alarms-sevbar"></th><th>Severity</th><th>PV</th><th>Status</th>
+        <th class="alarms-sevbar"></th><th>Severity</th><th>${heading(LABELS.channel)}</th><th>Status</th>
         <th>Value now</th><th>For</th><th>Flags</th>
       </tr></thead>
       <tbody>${body}</tbody>
@@ -441,7 +442,7 @@ export function listHtml(rows, { selected, values, stale, cut }) {
 /**
  * @typedef {{
  *   row: AlarmRow,
- *   facts: PvFacts|null,
+ *   facts: ChannelFacts|null,
  *   factsReason: string,
  *   value: ValueRow|undefined,
  *   plot: boolean,
@@ -451,9 +452,9 @@ export function listHtml(rows, { selected, values, stale, cut }) {
 
 /**
  * A facts section by its id.
- * @param {PvFacts|null} facts
- * @param {PvFactsSection['section']} id
- * @returns {PvFactsSection|undefined}
+ * @param {ChannelFacts|null} facts
+ * @param {ChannelFactsSection['section']} id
+ * @returns {ChannelFactsSection|undefined}
  */
 function section(facts, id) {
   return facts?.sections.find((candidate) => candidate.section === id);
@@ -482,7 +483,7 @@ function entriesHtml(label, value, className) {
 
 /**
  * The transitions from the alarm history section, or why there are none.
- * @param {PvFactsSection|undefined} history
+ * @param {ChannelFactsSection|undefined} history
  * @param {boolean} loaded - whether the facts have answered
  * @returns {string}
  */
@@ -526,18 +527,20 @@ export function inspectorHtml({ row, facts, factsReason, value, plot, send }) {
   const config = /** @type {AlarmConfigRecord|null|undefined} */ (
     section(facts, 'alarm_config')?.record
   );
-  const link = formatRoute({ view: 'pv', params: { name: row.pv } });
+  const link = formatRoute({ view: 'channel', params: { name: row.channel } });
 
   const head =
     `<div class="alarms-insp-head">${severityMark(severity, [severity, row.status].filter(Boolean).join(' · '))}` +
-    `<h2 class="alarms-insp-name">${esc(row.pv)}</h2>` +
+    `<h2 class="alarms-insp-name">${esc(row.channel)}</h2>` +
     (dirRow?.description ? `<p class="alarms-insp-desc">${esc(dirRow.description)}</p>` : '') +
-    (factsReason ? `<p class="alarms-muted">PV facts: ${esc(factsReason)}</p>` : '') +
+    (factsReason
+      ? `<p class="alarms-muted">${esc(heading(LABELS.channel))} facts: ${esc(factsReason)}</p>`
+      : '') +
     '</div>';
 
   const actions =
     '<div class="alarms-insp-actions">' +
-    `<a class="osprey-btn" href="${esc(link)}">Open PV page</a>` +
+    `<a class="osprey-btn" href="${esc(link)}">Open ${esc(LABELS.channel)} page</a>` +
     (plot
       ? '<button type="button" class="osprey-btn primary" data-action="plot">Plot</button>'
       : '') +
@@ -576,9 +579,11 @@ export function inspectorHtml({ row, facts, factsReason, value, plot, send }) {
   const path = row.path || config?.path;
   if (path) pairs.push(['Tree path', path]);
   for (const [label, text] of pairs) factRows.push(`<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`);
-  if (dirRow?.ioc) {
-    const iocLink = formatRoute({ view: 'ioc', params: { name: dirRow.ioc } });
-    factRows.push(`<dt>IOC</dt><dd><a href="${esc(iocLink)}">${esc(dirRow.ioc)}</a></dd>`);
+  if (dirRow?.server) {
+    const serverLink = formatRoute({ view: 'server', params: { name: dirRow.server } });
+    factRows.push(
+      `<dt>${esc(heading(LABELS.server))}</dt><dd><a href="${esc(serverLink)}">${esc(dirRow.server)}</a></dd>`
+    );
   }
   const factsHtml = factRows.length
     ? `<div class="alarms-insp-part"><div class="osprey-section-label">Facts</div><dl class="alarms-facts">${factRows.join('')}</dl></div>`

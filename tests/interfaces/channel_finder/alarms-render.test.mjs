@@ -5,6 +5,7 @@
  *   npx vitest run tests/interfaces/channel_finder/alarms-render.test.mjs
  */
 
+import './epics-words.mjs';
 import { test, expect, describe } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,24 +32,28 @@ const LIVE = { ...ALARMS, feed: 'live' };
 const [MAJOR_ROW, MINOR_ROW] = ALARMS.rows;
 
 /** @param {any[]} rows */
-const pvs = (rows) => rows.map((row) => row.pv);
+const pvs = (rows) => rows.map((row) => row.channel);
 
 describe('filterRows', () => {
   test('no filter keeps every row in the served order', () => {
     expect(pvs(filterRows(ALARMS.rows, { severity: null, node: null }))).toEqual([
-      MAJOR_ROW.pv,
-      MINOR_ROW.pv,
+      MAJOR_ROW.channel,
+      MINOR_ROW.channel,
     ]);
   });
 
   test('a severity, a flag and a tree node each remove rows', () => {
-    expect(pvs(filterRows(ALARMS.rows, { severity: 'MINOR', node: null }))).toEqual([MINOR_ROW.pv]);
-    expect(pvs(filterRows(ALARMS.rows, { severity: 'latched', node: null }))).toEqual([
-      MAJOR_ROW.pv,
+    expect(pvs(filterRows(ALARMS.rows, { severity: 'MINOR', node: null }))).toEqual([
+      MINOR_ROW.channel,
     ]);
-    expect(pvs(filterRows(ALARMS.rows, { severity: 'unack', node: null }))).toEqual([MAJOR_ROW.pv]);
+    expect(pvs(filterRows(ALARMS.rows, { severity: 'latched', node: null }))).toEqual([
+      MAJOR_ROW.channel,
+    ]);
+    expect(pvs(filterRows(ALARMS.rows, { severity: 'unack', node: null }))).toEqual([
+      MAJOR_ROW.channel,
+    ]);
     expect(pvs(filterRows(ALARMS.rows, { severity: null, node: '/Demo/SR/RF' }))).toEqual([
-      MAJOR_ROW.pv,
+      MAJOR_ROW.channel,
     ]);
   });
 
@@ -170,8 +175,8 @@ describe('times and the feed', () => {
 describe('listHtml', () => {
   test('rows keep the given order and their names are text', () => {
     const rows = [
-      { ...MAJOR_ROW, pv: 'B', severity: 'INVALID' },
-      { ...MAJOR_ROW, pv: '<b>A</b>', severity: 'MINOR' },
+      { ...MAJOR_ROW, channel: 'B', severity: 'INVALID' },
+      { ...MAJOR_ROW, channel: '<b>A</b>', severity: 'MINOR' },
     ];
     const host = document.createElement('div');
     host.innerHTML = listHtml(rows, { selected: 'B', values: null, stale: false, cut: null });
@@ -196,8 +201,8 @@ describe('listHtml', () => {
 
   test('the For cell holds the start time to tick, or a dash without one', () => {
     const rows = [
-      { ...MAJOR_ROW, pv: 'A' },
-      { ...MAJOR_ROW, pv: 'B', time: null },
+      { ...MAJOR_ROW, channel: 'A' },
+      { ...MAJOR_ROW, channel: 'B', time: null },
     ];
     const host = document.createElement('div');
     host.innerHTML = listHtml(rows, { selected: null, values: null, stale: false, cut: null });

@@ -7,6 +7,7 @@
  *   npx vitest run tests/interfaces/channel_finder/panel-toolbar.test.mjs
  */
 
+import './epics-words.mjs';
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -191,18 +192,18 @@ describe('the search on a PV or IOC page', () => {
     search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
   }
 
-  test.each(['pv', 'ioc'])('is enabled on %s and Enter searches All PVs', (view) => {
+  test.each(['channel', 'server'])('is enabled on %s and Enter searches All PVs', (view) => {
     initToolbar();
     state.setActiveView(view);
     expect(search().disabled).toBe(false);
     expect(byId('cf-search-field').title).toBe('');
 
     enter(' BPM01 ');
-    expect(location.hash).toBe('#/allpvs?q=BPM01');
+    expect(location.hash).toBe('#/channels?q=BPM01');
     enter('beam current');
-    expect(location.hash).toBe('#/allpvs?q=beam%20current');
+    expect(location.hash).toBe('#/channels?q=beam%20current');
     enter('  ');
-    expect(location.hash).toBe('#/allpvs');
+    expect(location.hash).toBe('#/channels');
   });
 
   test('is disabled on a view outside All PVs, and Enter does nothing', () => {
@@ -215,7 +216,7 @@ describe('the search on a PV or IOC page', () => {
 
   test('while a view holds the field, the toolbar Enter does nothing', () => {
     initToolbar();
-    state.setActiveView('pv');
+    state.setActiveView('channel');
     const release = claimToolbar();
     enter('BPM01');
     expect(location.hash).toBe('');

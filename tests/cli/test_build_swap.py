@@ -284,23 +284,16 @@ class TestServedFilesSurviveABuild:
             )
         }
 
-    def test_the_served_files_are_intact_after_a_build(self, runner, built_lifecycle_repo):
-        served = self._serve(built_lifecycle_repo)
-
-        result = _build(runner, built_lifecycle_repo)
-
-        assert result.exit_code == 0, result.output
-        for path, (content, inode) in served.items():
-            assert path.exists(), f"the build removed {path.relative_to(built_lifecycle_repo)}"
-            assert path.stat().st_ino == inode, "the mounted file was replaced, not carried over"
-            if path.is_file():
-                assert path.read_text(encoding="utf-8") == content
-
-    def test_the_served_files_are_there_while_the_old_render_is_replaced(
+    def test_the_served_files_are_in_place_at_the_last_rename_and_intact_after_the_build(
         self, runner, built_lifecycle_repo, monkeypatch
     ):
-        """Checked at the swap's last rename, where the old tree is about to go."""
-        self._serve(built_lifecycle_repo)
+        """Two claims of one rebuild.
+
+        At the swap's last rename, where the old tree is about to go, the served
+        files are already inside the incoming tree. After the build each one is
+        there, the same inode with the same content: carried over, not replaced.
+        """
+        served = self._serve(built_lifecycle_repo)
         real_replace = os.replace
         seen: list[bool] = []
 
@@ -313,8 +306,15 @@ class TestServedFilesSurviveABuild:
 
         monkeypatch.setattr(build_cmd.os, "replace", replace)
 
-        assert _build(runner, built_lifecycle_repo).exit_code == 0
+        result = _build(runner, built_lifecycle_repo)
+
+        assert result.exit_code == 0, result.output
         assert seen == [True]
+        for path, (content, inode) in served.items():
+            assert path.exists(), f"the build removed {path.relative_to(built_lifecycle_repo)}"
+            assert path.stat().st_ino == inode, "the mounted file was replaced, not carried over"
+            if path.is_file():
+                assert path.read_text(encoding="utf-8") == content
 
     def test_a_first_build_has_nothing_to_carry(self, built_lifecycle_repo):
         assert not (built_lifecycle_repo / "build" / "nginx").exists()

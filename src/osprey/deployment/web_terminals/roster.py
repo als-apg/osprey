@@ -698,21 +698,22 @@ def _add_credential_envs(names: list[str], block: Any, *, where: str) -> None:
             names.append(raw)
 
 
-#: The ``pv_directory`` blocks that reach a service: the directory itself, then its sub-blocks.
-_PV_DIRECTORY_SUB_BLOCKS = ("alarm_log", "alarm_state", "put_log")
+#: The ``channel_directory`` blocks that reach a service: the directory itself, then its sub-blocks.
+_CHANNEL_DIRECTORY_SUB_BLOCKS = ("alarm_log", "alarm_state", "put_log")
 
 
-def pv_directory_connection_blocks(config: Any) -> tuple[tuple[str, dict[str, Any]], ...]:
-    """Each ``pv_directory`` settings block a connector reads, with its dotted key.
+def channel_directory_connection_blocks(config: Any) -> tuple[tuple[str, dict[str, Any]], ...]:
+    """Each ``channel_directory`` settings block a connector reads, with its dotted key.
 
     A block counts only when it names a ``type``: a section without one lists
     the simulator's channels and reaches no service, and a block the connector
     never reads entitles nothing (see :func:`config_archiver_credential_envs`).
     """
-    section = as_dict(as_dict(config).get("pv_directory"))
-    candidates = [("pv_directory", section)]
+    section = as_dict(as_dict(config).get("channel_directory"))
+    candidates = [("channel_directory", section)]
     candidates += [
-        (f"pv_directory.{name}", as_dict(section.get(name))) for name in _PV_DIRECTORY_SUB_BLOCKS
+        (f"channel_directory.{name}", as_dict(section.get(name)))
+        for name in _CHANNEL_DIRECTORY_SUB_BLOCKS
     ]
     return tuple(
         (f"{key}.settings", as_dict(block.get("settings")))
@@ -721,13 +722,13 @@ def pv_directory_connection_blocks(config: Any) -> tuple[tuple[str, dict[str, An
     )
 
 
-def config_pv_directory_credential_envs(config: Any) -> tuple[str, ...]:
-    """The variables ``config``'s PV directory services authenticate with, in order.
+def config_channel_directory_credential_envs(config: Any) -> tuple[str, ...]:
+    """The variables ``config``'s channel directory services authenticate with, in order.
 
     The directory, the alarm log, the alarm feed and the put log each read
     their secret from the variable their own block names under ``auth:``, and
     answer "not set" on every read without it. The consumers are the
-    ``pv-directory`` MCP server and the Channels panel inside the web terminal,
+    ``channel-directory`` MCP server and the Channels panel inside the web terminal,
     so the terminal is handed exactly those names, for the reason
     :func:`config_archiver_credential_envs` gives. An empty tuple is no grant.
 
@@ -735,7 +736,7 @@ def config_pv_directory_credential_envs(config: Any) -> tuple[str, ...]:
         ValueError: As :func:`config_archiver_credential_envs`.
     """
     names: list[str] = []
-    for where, settings in pv_directory_connection_blocks(config):
+    for where, settings in channel_directory_connection_blocks(config):
         _add_credential_envs(names, settings, where=where)
     return tuple(names)
 
@@ -779,14 +780,14 @@ def config_archiver_ca_bundles(config: Any) -> tuple[str, ...]:
     )
 
 
-def config_pv_directory_ca_bundles(config: Any) -> tuple[str, ...]:
-    """The CA files ``config``'s PV directory blocks name, when they are on this host.
+def config_channel_directory_ca_bundles(config: Any) -> tuple[str, ...]:
+    """The CA files ``config``'s channel directory blocks name, when they are on this host.
 
     One path per file, in block order. See :func:`ca_bundle_mounts` for what is
     mounted and why nothing else is.
     """
     paths: list[str] = []
-    for where, settings in pv_directory_connection_blocks(config):
+    for where, settings in channel_directory_connection_blocks(config):
         for path in ca_bundle_mounts(settings, where=where):
             if path not in paths:
                 paths.append(path)
@@ -1192,6 +1193,68 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
     return table
 
 
+def app_panel_grant_missing(card: str, app: str, panel_id: str) -> str:
+    """The refusal for an application panel a roster card shows with no grant holder.
+
+    :param card: The roster card whose render shows the panel.
+    :param app: The application the panel belongs to.
+    :param panel_id: The panel's id.
+    :return: One sentence naming the card, the panel and the application, and
+        the ``app.yml`` line that grants it.
+    """
+    return (
+        f"roster card {card!r} shows panel {panel_id!r} of application {app!r}, but no "
+        f"container holds that panel's roster grant; add `roster_grant: {{}}` under "
+        f"`panel:` in {app!r}'s app.yml"
+    )
+
+
+def app_panels_without_roster_grant(
+    config: Any, project_root: Any, layer_root: Any = None
+) -> list[str]:
+    """Every roster card that shows an application panel no container holds a grant for.
+
+    Invariant: an application panel a roster card shows has a grant holder in
+    :func:`panel_roster_grant_table`. Without one the card's terminal proxies
+    the panel with a secret the panel's container was never handed, and every
+    request it sends is refused. An application panel is a ``web.panels.<id>``
+    block carrying ``app``, read off the card's rendered ``config.yml``; a
+    panel switched off is shown by nobody.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+        layer_root: Where a build in flight has rendered its renders; see
+            :func:`_render_configs`.
+
+    Returns:
+        One :func:`app_panel_grant_missing` message per (card, panel), in
+        roster order and panel-id order; empty on a deployment with no roster.
+
+    Raises:
+        ValueError: A rendered ``services.<k>.roster_grant`` row is malformed
+            (:func:`panel_roster_grant_table`).
+    """
+    if not has_web_terminal_roster(config):
+        return []
+    table = panel_roster_grant_table(config)
+    renders = dict(_render_configs(config, project_root, layer_root))
+    problems: list[str] = []
+    for card, render in _card_renders(config):
+        if render is None:
+            continue
+        panels = as_dict(as_dict(as_dict(renders.get(render)).get("web")).get("panels"))
+        for panel_id in sorted(panels):
+            block = panels[panel_id]
+            if not panel_spec_enabled(block):
+                continue
+            app = as_dict(block).get("app")
+            if isinstance(app, str) and app and panel_id not in table:
+                problems.append(app_panel_grant_missing(card, app, panel_id))
+    return problems
+
+
 def renders_declaring_panel(
     config: Any, project_root: Any, panel_id: str, layer_root: Any = None
 ) -> set[str]:
@@ -1247,6 +1310,26 @@ def _panel_roster_grants(
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
+    card_renders = _card_renders(config)
+    if not card_renders:
+        return []
+    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
+    return [
+        (card, terminal_secret_var(card))
+        for card, render in card_renders
+        if render in entitled_renders
+    ]
+
+
+def _card_renders(config: Any) -> list[tuple[str, str | None]]:
+    """Each roster card and the render its terminal runs, in roster order.
+
+    A shared card runs its own render; a person runs the render their entry or
+    role binds them to, else ``default_tier``.
+
+    :param config: The parsed deploy config.
+    :return: ``(card name, render name or None)`` pairs; empty with no roster.
+    """
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     cards = roster_entries(web_terminals)
     if not cards:
@@ -1264,14 +1347,13 @@ def _panel_roster_grants(
     default_tier = web_terminals.get("default_tier")
     if not isinstance(default_tier, str) or not default_tier:
         default_tier = None
-    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
-
-    grants: list[tuple[str, str]] = []
-    for entry in cards:
-        tier = entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier
-        if tier in entitled_renders:
-            grants.append((entry["name"], terminal_secret_var(entry["name"])))
-    return grants
+    return [
+        (
+            entry["name"],
+            entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier,
+        )
+        for entry in cards
+    ]
 
 
 def has_web_terminal_roster(config: Any) -> bool:
@@ -1607,38 +1689,38 @@ def renders_needing_archiver_ca_bundles(
     return grants
 
 
-def renders_needing_pv_directory_credentials(
+def renders_needing_channel_directory_credentials(
     config: Any, project_root: Any
 ) -> dict[str, tuple[str, ...]]:
-    """Map each catalog render whose PV directory names credentials to the variables it reads.
+    """Map each catalog render whose channel directory names credentials to the variables it reads.
 
-    The PV directory's counterpart of :func:`renders_needing_archiver_credentials`,
+    The channel directory's counterpart of :func:`renders_needing_archiver_credentials`,
     over the same per-render ``config.yml`` files.
 
     :return: ``{render_name: (env_var_name, ...)}`` for the referenced renders
-        whose ``pv_directory`` blocks name a credential variable.
+        whose ``channel_directory`` blocks name a credential variable.
     :raises ValueError: when a render names a variable compose cannot carry
         (see :func:`config_archiver_credential_envs`).
     """
     grants: dict[str, tuple[str, ...]] = {}
     for render_name, render_config in _render_configs(config, project_root):
-        names = config_pv_directory_credential_envs(render_config)
+        names = config_channel_directory_credential_envs(render_config)
         if names:
             grants[render_name] = names
     return grants
 
 
-def renders_needing_pv_directory_ca_bundles(
+def renders_needing_channel_directory_ca_bundles(
     config: Any, project_root: Any
 ) -> dict[str, tuple[str, ...]]:
-    """Map each catalog render whose PV directory names a CA file on this host to those files.
+    """Map each catalog render whose channel directory names a CA file on this host to those files.
 
     :return: ``{render_name: (ca_path, ...)}`` for the referenced renders whose
-        ``pv_directory`` blocks name a CA file on this host.
+        ``channel_directory`` blocks name a CA file on this host.
     """
     grants: dict[str, tuple[str, ...]] = {}
     for render_name, render_config in _render_configs(config, project_root):
-        paths = config_pv_directory_ca_bundles(render_config)
+        paths = config_channel_directory_ca_bundles(render_config)
         if paths:
             grants[render_name] = paths
     return grants

@@ -22,6 +22,7 @@ from osprey.agent_record.config import (
     AgentRecordConfig,
     agent_record_errors,
 )
+from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
@@ -141,8 +142,8 @@ _MISSING = object()
 
 _LOGGER = get_logger("build")
 
-_WARNED_PV_DIRECTORY: set[str] = set()
-"""The ``pv_directory`` warnings already printed: a build validates its profile
+_WARNED_CHANNEL_DIRECTORY: set[str] = set()
+"""The ``channel_directory`` warnings already printed: a build validates its profile
 once per render pass, and one fact about the build is one line."""
 
 _HOST_NETWORK_MODE = "host"
@@ -508,9 +509,9 @@ class BuildProfile:
     build time by :func:`panel_preset_errors`; the retired list-of-ids form is
     refused with the layout to write instead.
     """
-    claude_md_template: str | None = None
-    """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
-    (default: "CLAUDE.md.j2"). Lets a preset pick an alternate render
+    claude_md_template: str = DEFAULT_CLAUDE_MD_TEMPLATE
+    """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md;
+    "CLAUDE.md.j2" when the profile names none. Lets a preset pick an alternate render
     (e.g. "CLAUDE.logbook.md.j2" for the logbook-research bundle). This is the
     one channel for the rendered CLAUDE.md: the project copy is build-owned, so
     the ``project/`` mirror rejects a hand-written one.
@@ -1835,18 +1836,18 @@ class BuildProfile:
         )
         return errors
 
-    def _pv_directory_errors(self) -> list[str]:
-        """The ``pv_directory`` section's refusal, read from this profile's overlay.
+    def _channel_directory_errors(self) -> list[str]:
+        """The ``channel_directory`` section's refusal, read from this profile's overlay.
 
         The overlay is not a rendered config: the section is rebuilt from the
         dotted or nested ``config:`` keys, and the simulator port is filled from
         the ``virtual_accelerator:`` block, where ``simulator.has_simulator`` reads it.
         What a valid section cannot serve is printed once per process.
         """
-        from osprey.services.pv_directory.resolve import SectionError, resolve_section
+        from osprey.services.channel_directory.resolve import SectionError, resolve_section
 
         config = _expand_dotted(self.config)
-        if config.get("pv_directory") is None:
+        if config.get("channel_directory") is None:
             return []
         if self.virtual_accelerator is not None:
             services = config.get("services")
@@ -1865,8 +1866,8 @@ class BuildProfile:
             from . import output
 
             for warning in resolved.warnings:
-                if warning not in _WARNED_PV_DIRECTORY:
-                    _WARNED_PV_DIRECTORY.add(warning)
+                if warning not in _WARNED_CHANNEL_DIRECTORY:
+                    _WARNED_CHANNEL_DIRECTORY.add(warning)
                     output.warn_fact(_LOGGER, warning)
         return []
 
@@ -2531,7 +2532,7 @@ class BuildProfile:
 
         errors.extend(self._watchdog_errors(profile_dir))
 
-        errors.extend(self._pv_directory_errors())
+        errors.extend(self._channel_directory_errors())
 
         # The honesty rule's build-time site: a simulated machine may not be
         # paired with an archiver that invents its history. Checked against the

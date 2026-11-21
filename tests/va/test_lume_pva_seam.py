@@ -76,8 +76,10 @@ if importlib.util.find_spec("aioca") is None:
 
 
 #: The served views, each in a process of its own: the three below, and the
-#: stub view again for a start-up pass that fails.
-SERVERS = ("names", "demo", "stub", "first_pass")
+#: stub view again for a start-up pass that fails. ``stop`` and ``fleet`` are
+#: the servers of ``test_stopped_servers_live.py`` and ``test_server_fleet_live.py``,
+#: which serve through this harness.
+SERVERS = ("names", "demo", "stub", "first_pass", "stop", "fleet")
 
 #: Whether this is the pytest process rather than a server it spawns. A spawned
 #: server re-imports this module and takes its ports from the spec its parent

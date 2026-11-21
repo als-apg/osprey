@@ -1444,6 +1444,20 @@ def test_reset_removes_the_deployment_record(repo):
 
 
 @pytest.mark.usefixtures("no_down")
+def test_reset_removes_the_host_network_ports(repo):
+    """The ports describe the deployment the reset ends, so they go and are not recreated."""
+    from osprey.deployment.host_ports import write_host_network_ports
+
+    path = write_host_network_ports(repo, {"event-dispatcher": [9190]})
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    run_reset(repo, FakeRuntime())
+
+    assert path in plan.paths
+    assert not path.exists()
+
+
+@pytest.mark.usefixtures("no_down")
 def test_a_corrupt_record_does_not_block_a_reset(repo):
     """A damaged record is named, the build's name answers, and the record goes."""
     path = repo / DEPLOYMENT_RECORD_RELPATH

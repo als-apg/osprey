@@ -65,6 +65,7 @@ from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey.facility.pairing import PAIR_RULE, derive_pairs
 from osprey.facility.provenance import Stating, add_defaults, build_provenance
+from osprey.facility.records import DEFAULT_GROUP_KIND
 from osprey.facility.sources import (
     AUTHORED,
     COMPUTED_SLOTS,
@@ -184,8 +185,10 @@ class CombineResult:
 
     Attributes:
         document: The combined records in facility-file shape: ``identity``
-            (when a source states one), ``classes``, ``signals``, ``places``, ``devices``,
-            ``channels``, ``groups``, ``models`` (each with its ``wiring``),
+            (when a source states one), ``classes``, ``signals`` (the effective
+            signal-role table: the vocabulary's roles and the facility's, by name),
+            ``relation_types`` (the vocabulary's relation types, by name), ``places``, ``devices``, ``channels``, ``groups`` (each with its
+            effective ``kind``), ``models`` (each with its ``wiring``),
             ``limits`` (when a source states one), ``scenarios``, and
             ``relations`` and ``documents`` (each when non-empty). Complete
             only when ``errors`` is empty.
@@ -925,6 +928,9 @@ class _Combiner:
             if kind == "channel":
                 _channel_defaults(fields, defaults)
                 _channel_description(fields, defaults, devices)
+            elif kind == "group" and "kind" not in fields:
+                fields["kind"] = DEFAULT_GROUP_KIND
+                defaults.add("kind")
         channels = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "channel"}
         derived = derive_pairs(channels)
         for (kind, rid), (fields, defaults) in merged.items():
@@ -948,9 +954,10 @@ class _Combiner:
         document["classes"] = sorted(
             copy.deepcopy(self.sources.classes), key=lambda row: str(row.get("class"))
         )
-        document["signals"] = sorted(
-            copy.deepcopy(self.sources.signals), key=lambda row: str(row.get("name"))
-        )
+        # the effective signal-role table: a facility may not shadow a vocabulary
+        # role (stage S1 stops it), so the two are disjoint
+        document["signals"] = _by_name("signal_roles", self.sources.signals)
+        document["relation_types"] = _by_name("relations")
         for kind in ("place", "device", "channel", "group"):
             document[_PLURAL[kind]] = [rec for (k, _), rec in emitted.items() if k == kind]
         models = []
@@ -1107,6 +1114,17 @@ class _Combiner:
         self.errors.append(
             FacilityBuildError(kind, fix.id, files, remedy, record_kind=fix.kind, detail=detail)
         )
+
+
+def _by_name(table: str, added: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
+    """The vocabulary's ``table`` rows and ``added``, copied and sorted by name.
+
+    Each row keeps only the fields its source states.
+    """
+    from osprey.facility.validate import vocabulary
+
+    rows = [*vocabulary()[table], *added]
+    return sorted(copy.deepcopy(rows), key=lambda row: str(row.get("name")))
 
 
 def _channel_defaults(fields: dict[str, Any], defaults: set[str]) -> None:

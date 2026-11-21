@@ -19,7 +19,8 @@ __all__ = ["FORMER_HEADER", "HEADER", "LayerSourceInvalid"]
 #: The first line of every file an import seeds, in every format.
 HEADER = "# Seeded once by the facility import; edit this file by hand."
 
-#: The mml import's own header before #2369; a deployment seeded under it still holds it.
+#: The header the facility import seeded files under before HEADER; a file that
+#: opens with it reads as seeded.
 FORMER_HEADER = "# Seeded once by the mml import; edit this file by hand."
 
 

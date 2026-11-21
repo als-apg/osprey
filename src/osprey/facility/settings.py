@@ -18,13 +18,14 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from osprey.facility import DEFAULT_ROLE
+from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.records import FacilityRecords
 from osprey.facility.served import SIMULATION_MODELS_KEY, _served_scope, resolve_served
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.utils.config_paths import resolve_config_relative_path
+from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -137,16 +138,19 @@ class _Inputs:
         return bool(dotted_get(self.profile, block) or dotted_get(self.rendered_config, block))
 
     @cached_property
+    def served(self) -> list[str]:
+        """The models the render serves, the profile's ``simulation.models`` over the render's."""
+        models = self.stated(SIMULATION_MODELS_KEY)
+        if models is None:
+            return resolve_served(self.rendered_config, self.records)
+        return resolve_served({"simulation": {"models": models}}, self.records)
+
+    @cached_property
     def readbacks(self) -> list[Mapping[str, Any]]:
         """The served simulator's readbacks by address; empty, and said once, when it holds none."""
         if not self.serves_simulator and self.va_archiver is None:
             return []
-        models = self.stated(SIMULATION_MODELS_KEY)
-        if models is None:
-            served = resolve_served(self.rendered_config, self.records)
-        else:
-            served = resolve_served({"simulation": {"models": models}}, self.records)
-        readbacks = _readback_channels(_served_scope(self.records, served))
+        readbacks = _readback_channels(_served_scope(self.records, self.served))
         if not readbacks and (self.reported is None or NO_READBACK_WARNING not in self.reported):
             click.echo(NO_READBACK_WARNING, err=True)
             if self.reported is not None:
@@ -227,6 +231,61 @@ def _check_probe(inputs: _Inputs) -> None:
             if readback
             else f"remove `{key}` from the profile",
         )
+    _check_probe_answers(inputs)
+
+
+def _probe_ioc(inputs: _Inputs, address: str) -> str:
+    """The simulated IOC serving ``address``, by the rule the composite stops IOCs by."""
+    models = sorted(inputs.records.of_kind("model"), key=lambda model: str(model["name"]))
+    physics = [
+        str(model["name"])
+        for model in models
+        if str(model["name"]) in inputs.served
+        and str(model["name"]) != TEXTURE
+        and model.get("engine") != TEXTURE
+    ]
+    # A channel's owner is the first model, by name, whose wiring reads or writes it.
+    owner = next(
+        (
+            str(model["name"])
+            for model in models
+            if any(str(wire.get("address")) == address for wire in model.get("wiring", []))
+        ),
+        None,
+    )
+    by_server = server_addresses(physics, {address: owner}, {}, {})
+    return next(ioc for ioc, addresses in by_server.items() if address in addresses)
+
+
+def _check_probe_answers(inputs: _Inputs) -> None:
+    """Refuse a scenario that stops the IOC serving the target's probe channel.
+
+    The probe is how the fleet knows its read path is up: stopping its IOC
+    reads as the read path down, every IOC unknown, not as one IOC stopped.
+    """
+    scenarios = [
+        scenario
+        for scenario in inputs.records.document.get("scenarios", [])
+        if scenario.get("stopped_servers")
+    ]
+    if not scenarios:
+        return
+    probes = [(key, inputs.stated(key)) for key in SERVED_PROBE_KEYS]
+    if probes[0][1] is None:
+        probes[0] = (SERVED_PROBE_KEYS[0], _derive_probe(inputs))
+    for key, address in probes:
+        if address is None:
+            continue
+        ioc = _probe_ioc(inputs, str(address))
+        for scenario in scenarios:
+            if ioc in scenario["stopped_servers"]:
+                raise _refusal(
+                    key,
+                    f"the probe channel `{address}` is served by `{ioc}`, which scenario "
+                    f"`{scenario['name']}` stops: the fleet would read as its read path down",
+                    f"remove `{ioc}` from scenario `{scenario['name']}`'s `stopped_servers`, "
+                    f"or set `{key}` to a readback another simulated IOC serves",
+                )
 
 
 def _derive_probe(inputs: _Inputs) -> Any:

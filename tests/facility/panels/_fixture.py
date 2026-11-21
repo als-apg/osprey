@@ -1,7 +1,10 @@
 """The panels fixture: an invented two-sector ring and its rule tables.
 
 ``fixture/facility/`` is a ``data/facility`` tree built by the framework's own
-build; ``fixture/panels/`` holds the rule tables beside it. Every name, number
+build; ``fixture/facility.json`` is that tree built, checked in, so the panel tests
+read a document without running the build (``tests/facility/rebuild_panel_fixture.py``
+regenerates it, and a root test holds it to the build byte for byte);
+``fixture/panels/`` holds the rule tables beside it. Every name, number
 and document in both is made up for the tests.
 
 The facility: places ``XR`` (machine), sectors ``XR/XR01`` and ``XR/XR02``,
@@ -29,14 +32,23 @@ channel, ``XR09-LOOSE1:Fault-Sts`` (``1`` is bad).
 
 from __future__ import annotations
 
+import functools
+import json
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from osprey.facility.panels.tables import PanelTables
 
 FIXTURE_DIR = Path(__file__).parent / "fixture"
 FACILITY_TREE = FIXTURE_DIR / "facility"
 PANELS_DIR = FIXTURE_DIR / "panels"
+#: The fixture tree built into its facility file, checked in.
+FIXTURE_DOCUMENT = FIXTURE_DIR / "facility.json"
+#: The project name the fixture tree is built under.
+PROJECT_NAME = "xr"
 RING_FRAME = "XR-RING"
 
 
@@ -44,17 +56,35 @@ def build_fixture_document() -> dict[str, Any]:
     """The fixture tree built into its facility document."""
     from osprey.facility.build import build_facility
 
-    return build_facility(FACILITY_TREE, project_name="xr")
+    return build_facility(FACILITY_TREE, project_name=PROJECT_NAME)
+
+
+def load_fixture_document() -> dict[str, Any]:
+    """The checked-in fixture document, read fresh: the caller may change it."""
+    return json.loads(FIXTURE_DOCUMENT.read_text(encoding="utf-8"))
+
+
+@functools.cache
+def fixture_relation_types() -> tuple[Mapping[str, Any], ...]:
+    """The ``relation_types`` rows of the checked-in fixture document."""
+    return tuple(load_fixture_document()["relation_types"])
+
+
+def read_fixture_tables(directory: Path) -> PanelTables:
+    """Read the rule tables in *directory* against the fixture's relation types."""
+    from osprey.facility.panels.tables import read_tables
+
+    return read_tables(directory, relation_types=fixture_relation_types())
 
 
 def write_fixture_facility(
     target: Path, change: Callable[[dict[str, Any]], None] | None = None
 ) -> Path:
-    """Build the fixture and write its facility file at *target*.
+    """Write the checked-in fixture document at *target*.
 
     Args:
         target: The file to write.
-        change: Called with the built document before it is written, for a
+        change: Called with the document before it is written, for a
             test that needs a facility the build would not produce.
 
     Returns:
@@ -62,7 +92,7 @@ def write_fixture_facility(
     """
     from osprey.facility.render import facility_bytes
 
-    document = build_fixture_document()
+    document = load_fixture_document()
     if change is not None:
         change(document)
     target.parent.mkdir(parents=True, exist_ok=True)

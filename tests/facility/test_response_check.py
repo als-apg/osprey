@@ -39,6 +39,7 @@ from osprey.facility.layers.mml.response_check import (
     report,
 )
 from osprey.facility.layers.mml.rows import read_rows
+from tests.facility._limits_render import without_limits_findings
 from tests.facility._mml_built import WIDENED, widen
 from tests.facility.test_mml_layer_seed_once import OUTSIDE
 
@@ -136,6 +137,8 @@ def _validate(repo: Path, monkeypatch: pytest.MonkeyPatch) -> Result:
     from osprey.cli import build_cmd
 
     monkeypatch.setattr(build_cmd, "_render_project", lambda *args, **kwargs: None)
+    # with no render there is no config.yml; the limits findings read it as empty
+    monkeypatch.setattr(build_cmd, "_rendered_config", lambda *args, **kwargs: {})
     return CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
 
 
@@ -220,7 +223,7 @@ def test_a_measured_export_prints_its_wrapped_positions_then_one_line_and_exits_
     result = _validate(spear3, monkeypatch)
 
     assert result.exit_code == 0, result.output
-    assert (result.stdout, result.stderr) == (
+    assert (result.stdout, without_limits_findings(result.stderr)) == (
         "",
         "\n".join((*SPEAR3_WRAPPED_LINES, SPEAR3_LINE)) + "\n",
     )
@@ -236,7 +239,7 @@ def test_a_model_derived_export_prints_one_line_and_exits_0(
     result = _validate(synthetic, monkeypatch)
 
     assert result.exit_code == 0, result.output
-    assert (result.stdout, result.stderr) == ("", SYNTHETIC_LINE + "\n")
+    assert (result.stdout, without_limits_findings(result.stderr)) == ("", SYNTHETIC_LINE + "\n")
     assert _snapshot(synthetic) == before
 
 
@@ -312,7 +315,7 @@ def test_one_judged_block_scaled_by_a_tenth_exits_1(
     result = _validate(repo, monkeypatch)
 
     assert result.exit_code == 1, result.output
-    assert (result.stdout, result.stderr) == (
+    assert (result.stdout, without_limits_findings(result.stderr)) == (
         "",
         "response check SR: model BPMx/HC inside band 0.000 (fail at 0.99)\n",
     )
@@ -831,7 +834,7 @@ def test_a_deck_property_corrector_block_exits_0_and_counts_its_rows_unwired(
     result = _validate(repo, monkeypatch)
 
     assert result.exit_code == 0, result.output
-    assert (result.stdout, result.stderr) == (
+    assert (result.stdout, without_limits_findings(result.stderr)) == (
         "",
         SYNTHETIC_LINE
         + "\n"

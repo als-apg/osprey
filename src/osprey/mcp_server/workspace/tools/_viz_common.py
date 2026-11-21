@@ -1,6 +1,6 @@
 """Shared utilities for visualization tools (static plot, interactive plot, dashboard).
 
-Provides data-loading code generation, artifact collection, and save
+Provides the data reader, artifact collection, and save
 patterns used by all three visualization tools.
 """
 
@@ -36,53 +36,36 @@ def resolve_data_source(data_source: str) -> str:
     return data_source
 
 
-def build_data_loading_code(data_source: str) -> str:
-    """Generate preamble code to load data from an artifact ID or file path.
-
-    Resolution is done server-side (not in the sandbox) so that the generated
-    code always contains an absolute file path.
-    """
-    resolved_path = resolve_data_source(data_source)
-    return f"""\
+#: The data reader injected into the plot tools' sandbox code. Plain source
+#: text, no template placeholders: ``_data_path`` is bound by the sandbox
+#: wrapper from the tool's ``data_path``, and this reader names no path. It
+#: loads the file and performs automatic format detection and unwrapping:
+#:
+#: - CSV/Excel/Parquet → ``data`` is a pandas DataFrame
+#: - ``.npy`` (a channel_read image/waveform artifact) → ``data`` is the raw
+#:   ``numpy.ndarray``, not a DataFrame, so 2-D frames plot directly with
+#:   ``imshow`` and higher-rank stacks keep their shape
+#: - JSON with legacy OSPREY metadata envelope → unwrapped, then converted to DataFrame
+#: - JSON with the archiver ``series`` envelope (``{query: ..., series:
+#:   {channel: {timestamps, values}}}``) → pivoted to a wide DataFrame: one
+#:   column per channel, indexed by the union of all channels' timestamps
+#:   (``NaN`` where a channel has no sample; nothing is forward-filled).
+#: - JSON with the legacy split-orient archiver ``dataframe`` envelope
+#:   (``{query: ..., dataframe: {columns, index, data}}``) → unwrapped, then
+#:   converted to DataFrame.
+#:
+#: After this code runs, **``data`` is always a pandas DataFrame** (for
+#: tabular sources), a ``numpy.ndarray`` (for ``.npy`` sources) or a raw
+#: string (for unrecognized formats).
+#:
+#: The reader runs inside the visualization sandbox, whose import whitelist
+#: excludes ``osprey`` itself, so the ``series`` branch is a self-contained
+#: pivot rather than a call to
+#: :func:`osprey.utils.timeseries.extract_channel_series`.
+DATA_READER_SOURCE = """\
 import os
-_data_path = {resolved_path!r}
 if not os.path.exists(_data_path):
-    raise FileNotFoundError(f"Data file not found: {{_data_path}}")
-"""
-
-
-def build_data_reader(data_source: str) -> str:
-    """Generate code to read data and auto-convert to a pandas DataFrame.
-
-    The generated code loads data from the resolved file path and performs
-    automatic format detection and unwrapping:
-
-    - CSV/Excel/Parquet → ``data`` is a pandas DataFrame
-    - ``.npy`` (a channel_read image/waveform artifact) → ``data`` is the raw
-      ``numpy.ndarray``, not a DataFrame, so 2-D frames plot directly with
-      ``imshow`` and higher-rank stacks keep their shape
-    - JSON with legacy OSPREY metadata envelope → unwrapped, then converted to DataFrame
-    - JSON with the archiver ``series`` envelope (``{query: ..., series:
-      {channel: {timestamps, values}}}``) → pivoted to a wide DataFrame: one
-      column per channel, indexed by the union of all channels' timestamps
-      (``NaN`` where a channel has no sample; nothing is forward-filled).
-    - JSON with the legacy split-orient archiver ``dataframe`` envelope
-      (``{query: ..., dataframe: {columns, index, data}}``) → unwrapped, then
-      converted to DataFrame.
-
-    After this code runs, **``data`` is always a pandas DataFrame** (for
-    tabular sources), a ``numpy.ndarray`` (for ``.npy`` sources) or a raw
-    string (for unrecognized formats).
-
-    Note: the generated code runs inside the visualization sandbox, whose
-    import whitelist excludes ``osprey`` itself, so the ``series`` branch is a
-    self-contained pivot rather than a call to
-    :func:`osprey.utils.timeseries.extract_channel_series`.
-    """
-    loading = build_data_loading_code(data_source)
-    return (
-        loading
-        + """\
+    raise FileNotFoundError(f"Data file not found: {_data_path}")
 if _data_path.endswith('.csv'):
     data = pd.read_csv(_data_path)
 elif _data_path.endswith('.json'):
@@ -158,7 +141,6 @@ if hasattr(data, 'shape'):
     _detail = f"columns: {list(data.columns)}" if hasattr(data, 'columns') else f"dtype: {data.dtype}"
     print(f"data_source loaded: {type(data).__name__} with shape {data.shape}, {_detail}")
 """
-    )
 
 
 def collect_and_register_artifacts(

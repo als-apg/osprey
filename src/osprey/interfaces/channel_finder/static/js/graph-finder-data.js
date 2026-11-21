@@ -13,6 +13,7 @@
  * `fetchJSON` keeps only `detail`.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { messageOf } from './utils.js';
 
 /**
@@ -62,8 +63,6 @@ export async function fetchJson(url, signal) {
   }
 }
 
-/** One request kind's in-flight controller and its generation counter. */
-/** @typedef {{controller: AbortController|null, generation: number}} Flight */
 /** @typedef {'ontology'|'search'|'device'} FlightKind */
 
 /**
@@ -76,23 +75,20 @@ export async function fetchJson(url, signal) {
  * @returns {{abort: (kind: FlightKind) => void, request: (kind: FlightKind, url: string) => Promise<Reply>}}
  */
 export function createFlights(currentPane) {
-  /** @type {Record<FlightKind, Flight>} */
-  const flights = {
-    ontology: { controller: null, generation: 0 },
-    search: { controller: null, generation: 0 },
-    device: { controller: null, generation: 0 },
+  /** @type {Record<FlightKind, ReturnType<typeof createLatestRequest>>} */
+  const latest = {
+    ontology: createLatestRequest(),
+    search: createLatestRequest(),
+    device: createLatestRequest(),
   };
 
   /**
-   * Abort the in-flight request of one kind, if there is one, and retire its
-   * generation so a reply already on its way is discarded.
+   * Abort the in-flight request of one kind, if there is one, and retire it so
+   * a reply already on its way is discarded.
    * @param {FlightKind} kind - Which request to abandon.
    */
   function abort(kind) {
-    const flight = flights[kind];
-    flight.controller?.abort();
-    flight.controller = null;
-    flight.generation += 1;
+    latest[kind].cancel();
   }
 
   /**
@@ -102,20 +98,15 @@ export function createFlights(currentPane) {
    * @returns {Promise<Reply>} The reply, or null when it no longer applies.
    */
   async function request(kind, url) {
-    abort(kind);
-    const flight = flights[kind];
-    const mine = flight.generation;
+    const token = latest[kind].begin();
     const pane = currentPane();
-    const controller = new AbortController();
-    flight.controller = controller;
 
-    const reply = await fetchJson(url, controller.signal);
+    const reply = await fetchJson(url, token.signal);
 
     // A newer request of this kind, or an unmount, happened while this one was
     // in flight.
     const now = currentPane();
-    if (mine !== flight.generation || now === null || now !== pane) return null;
-    flight.controller = null;
+    if (!token.isCurrent() || now === null || now !== pane) return null;
     return reply;
   }
 

@@ -666,6 +666,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_root="services",
             is_directory=True,
         ),
+        BuildArtifact(
+            canonical_name="services/server_fleet",
+            template_path="server_fleet",
+            output_path="services/server_fleet",
+            description="server fleet service compose template (the fleet snapshot refresher)",
+            template_root="services",
+            is_directory=True,
+        ),
     ]
 
 

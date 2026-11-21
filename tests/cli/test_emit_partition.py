@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import shutil
+from pathlib import Path
 
 import pytest
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_profile import _KNOWN_PROFILE_KEYS, BuildProfile, list_presets
 from osprey.cli.build_profile_emit import (
@@ -40,9 +43,15 @@ from osprey.cli.build_profile_load import (
     PORT_BASE_PROFILE_KEY,
 )
 from osprey.cli.build_profile_presets import PRESET_DATA_BUNDLE_KEY
+from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.port_layout import DEFAULT_PORT_BASE, LAYOUT
 
 _FIELDS = frozenset(f.name for f in dataclasses.fields(BuildProfile))
+
+#: A hand-trimmed profile that leaves `claude_md_template` out.
+_EXEMPLAR_PROFILE_DIR = (
+    Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exemplar-profile"
+)
 
 #: Longest run of comment lines that still documents the key below it. Three is
 #: the reader's rule of thumb: further up and the prose belongs to a section
@@ -188,6 +197,37 @@ def test_explicit_members_appear_in_every_emitted_profile(preset: str) -> None:
 
     missing = set(_EXPLICIT_KEYS) - active
     assert not missing, f"{preset}: EXPLICIT keys missing from emission: {sorted(missing)}"
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_every_emitted_profile_names_its_instructions_render(preset: str) -> None:
+    """The emitted profile names the template its CLAUDE.md is rendered from:
+    the preset's own choice, else the default render."""
+    from osprey.cli.build_profile_merge import _resolve_extends
+    from osprey.cli.build_profile_presets import _load_preset_raw
+
+    raw, anchor = _load_preset_raw(preset)
+    resolved = _resolve_extends(dict(raw), anchor)
+    expected = resolved.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE
+
+    assert yaml.safe_load(_emit(preset))["claude_md_template"] == expected
+
+
+def test_a_profile_without_the_key_resolves_like_one_naming_the_default(tmp_path) -> None:
+    """Absence stays valid: a profile that leaves the key out resolves exactly
+    like one that names the default render."""
+    copy = tmp_path / "exemplar-profile"
+    shutil.copytree(_EXEMPLAR_PROFILE_DIR, copy)
+    profile_yml = copy / "profile.yml"
+
+    without, _ = resolve_build_profile(profile_yml, None)
+    with profile_yml.open("a") as fh:
+        fh.write(f"\nclaude_md_template: {DEFAULT_CLAUDE_MD_TEMPLATE}\n")
+    named, _ = resolve_build_profile(profile_yml, None)
+
+    assert without == named
+    assert without.claude_md_template == DEFAULT_CLAUDE_MD_TEMPLATE
+    assert named.claude_md_template == DEFAULT_CLAUDE_MD_TEMPLATE
 
 
 @pytest.mark.parametrize("preset", list_presets())

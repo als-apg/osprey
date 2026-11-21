@@ -14,11 +14,17 @@
  * next case's events.
  */
 
+import { epicsDirectory } from './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 
 const JS = '../../../src/osprey/interfaces/channel_finder/static/js';
 
-const DESCRIPTOR = { label: 'All PVs', configured_services: [], canopy: true, ariel: true };
+const DESCRIPTOR = epicsDirectory({
+  label: 'All PVs',
+  configured_services: [],
+  canopy: true,
+  ariel: true,
+});
 
 const WITH_DIRECTORY = { pipeline_type: 'hierarchical', directory: DESCRIPTOR };
 const WITHOUT_DIRECTORY = { pipeline_type: 'hierarchical' };
@@ -27,11 +33,12 @@ const WITHOUT_DIRECTORY = { pipeline_type: 'hierarchical' };
 const VIEW_MODULES = {
   explore: ['explore.js', 'mountExplore', 'unmountExplore'],
   feedback: ['feedback.js', 'mountFeedback', 'unmountFeedback'],
-  allpvs: ['allpvs.js', 'mountAllPvs', 'unmountAllPvs'],
-  pv: ['pv-page.js', 'mountPvPage', 'unmountPvPage'],
-  ioc: ['ioc-page.js', 'mountIocPage', 'unmountIocPage'],
+  channels: ['channels.js', 'mountChannels', 'unmountChannels'],
+  channel: ['channel-page.js', 'mountChannelPage', 'unmountChannelPage'],
+  server: ['server-page.js', 'mountServerPage', 'unmountServerPage'],
   alarms: ['alarms.js', 'mountAlarms', 'unmountAlarms'],
   archive: ['archive.js', 'mountArchive', 'unmountArchive'],
+  servers: ['servers.js', 'mountServers', 'unmountServers'],
 };
 
 /** @type {EventListener[]} */
@@ -193,9 +200,9 @@ function go(hash) {
   followHash();
 }
 
-const WITH = ['explore:Curated', 'allpvs:All PVs', 'feedback:Feedback'];
+const WITH = ['explore:Curated', 'channels:All PVs', 'feedback:Feedback'];
 const WITHOUT = ['explore:Explore', 'feedback:Feedback'];
-const GRAPH_WITH = ['explore:Curated', 'allpvs:All PVs'];
+const GRAPH_WITH = ['explore:Curated', 'channels:All PVs'];
 const GRAPH_WITHOUT = ['explore:Explore'];
 
 describe('with the directory descriptor', () => {
@@ -207,10 +214,10 @@ describe('with the directory descriptor', () => {
 
   test('a button routes when clicked, and the pressed state follows', async () => {
     const { views } = await boot(WITH_DIRECTORY);
-    click('allpvs');
-    expect(location.hash).toBe('#/allpvs');
-    expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
-    expect(pressed()).toEqual(['allpvs']);
+    click('channels');
+    expect(location.hash).toBe('#/channels');
+    expect(views.channels.mount).toHaveBeenCalledTimes(1);
+    expect(pressed()).toEqual(['channels']);
     click('feedback');
     expect(views.feedback.mount).toHaveBeenCalledTimes(1);
     expect(pressed()).toEqual(['feedback']);
@@ -225,9 +232,9 @@ describe('with the directory descriptor', () => {
     }
   );
 
-  test.each(['#/pv/SR01%3AX', '#/ioc/ioc-sr01'])('%s presses All PVs', async (hash) => {
+  test.each(['#/channel/SR01%3AX', '#/server/ioc-sr01'])('%s presses All PVs', async (hash) => {
     await boot(WITH_DIRECTORY, hash);
-    expect(pressed()).toEqual(['allpvs']);
+    expect(pressed()).toEqual(['channels']);
   });
 });
 
@@ -264,10 +271,10 @@ describe('without the directory descriptor', () => {
 
   test('a directory route or an unknown name falls back to Explore', async () => {
     const { views } = await boot(WITHOUT_DIRECTORY, '#feedback');
-    for (const hash of ['#allpvs', '#/pv/A', '#constructor']) {
+    for (const hash of ['#channels', '#/channel/A', '#constructor']) {
       go(hash);
-      expect(views.allpvs.mount).not.toHaveBeenCalled();
-      expect(views.pv.mount).not.toHaveBeenCalled();
+      expect(views.channels.mount).not.toHaveBeenCalled();
+      expect(views.channel.mount).not.toHaveBeenCalled();
       expect(pressed()).toEqual(['explore']);
     }
   });
@@ -289,19 +296,19 @@ describe('the All PVs label (D20)', () => {
 
   test('comes from the descriptor', async () => {
     await boot(NAMED);
-    expect(names()[1]).toBe('allpvs:Channel Finder');
+    expect(names()[1]).toBe('channels:Channel Finder');
   });
 
   test('follows a directoryLabel event', async () => {
     const { state } = await boot(NAMED);
     state.emit('directoryLabel', 'Archiver Appliance');
-    expect(names()[1]).toBe('allpvs:Archiver Appliance');
+    expect(names()[1]).toBe('channels:Archiver Appliance');
   });
 
   test('the button stays pressed when the label changes on its own page', async () => {
-    const { state } = await boot(NAMED, '#allpvs');
+    const { state } = await boot(NAMED, '#channels');
     state.emit('directoryLabel', 'Archiver Appliance');
-    expect(pressed()).toEqual(['allpvs']);
+    expect(pressed()).toEqual(['channels']);
   });
 
   test('an event keeps the buttons in place', async () => {
@@ -316,10 +323,10 @@ describe('the All PVs label (D20)', () => {
   test('is text, never markup', async () => {
     const label = '<img src=x onerror=alert(1)>';
     const { state } = await boot({ ...WITH_DIRECTORY, directory: { ...DESCRIPTOR, label } });
-    expect(names()[1]).toBe(`allpvs:${label}`);
+    expect(names()[1]).toBe(`channels:${label}`);
     expect(document.querySelector('#cf-views img')).toBeNull();
     state.emit('directoryLabel', '<b>x</b>');
-    expect(names()[1]).toBe('allpvs:<b>x</b>');
+    expect(names()[1]).toBe('channels:<b>x</b>');
     expect(document.querySelector('#cf-views b')).toBeNull();
   });
 });
@@ -373,29 +380,29 @@ describe('a pipeline switch re-reads the descriptor', () => {
     });
     await switchTo('graph');
     await vi.waitFor(() => expect(names()).toEqual(GRAPH_WITH));
-    click('allpvs');
-    expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
-    expect(pressed()).toEqual(['allpvs']);
+    click('channels');
+    expect(views.channels.mount).toHaveBeenCalledTimes(1);
+    expect(pressed()).toEqual(['channels']);
   });
 });
 
 describe('state.scopeQuery across a tab switch', () => {
   test('All PVs to Curated and back', async () => {
-    const { state, views } = await boot(WITH_DIRECTORY, '#allpvs');
+    const { state, views } = await boot(WITH_DIRECTORY, '#channels');
     /** @type {string[]} */
     const seenByCurated = [];
     views.explore.mount.mockImplementation(() => seenByCurated.push(state.scopeQuery));
     /** @type {string[]} */
-    const seenByAllPvs = [];
-    views.allpvs.mount.mockImplementation(() => seenByAllPvs.push(state.scopeQuery));
+    const seenByChannels = [];
+    views.channels.mount.mockImplementation(() => seenByChannels.push(state.scopeQuery));
 
     state.scopeQuery = 'beam current';
     click('explore');
     expect(seenByCurated).toEqual(['beam current']);
 
     state.scopeQuery = 'orbit';
-    click('allpvs');
-    expect(seenByAllPvs).toEqual(['orbit']);
+    click('channels');
+    expect(seenByChannels).toEqual(['orbit']);
     expect(state.scopeQuery).toBe('orbit');
   });
 });
@@ -405,7 +412,7 @@ describe('the tile bar', () => {
     ['with', WITH_DIRECTORY],
     ['without', WITHOUT_DIRECTORY],
   ])('receives no nav contribution %s the descriptor', async (_, info) => {
-    const { state, contributions } = await boot(info, '#allpvs');
+    const { state, contributions } = await boot(info, '#channels');
     state.emit('directoryLabel', 'Channel Finder');
     click('feedback');
     expect(contributions.flat().filter((item) => item?.kind === 'nav')).toEqual([]);
@@ -417,7 +424,7 @@ describe('the Alarms tab', () => {
     ...WITH_DIRECTORY,
     directory: { ...DESCRIPTOR, configured_services: ['alarm_state'] },
   };
-  const WITH_ALARMS = ['explore:Curated', 'allpvs:All PVs', 'alarms:Alarms', 'feedback:Feedback'];
+  const WITH_ALARMS = ['explore:Curated', 'channels:All PVs', 'alarms:Alarms', 'feedback:Feedback'];
   const SOURCE = { target: 'va', service: 'alarm_replay', label: 'alarm_replay', rehearsal: false };
 
   /**
@@ -494,7 +501,7 @@ describe('the Alarms tab', () => {
     await vi.waitFor(() => expect(pill()?.textContent).toBe('1'));
     state.emit('directoryLabel', 'Channel Finder');
     expect(pill()?.textContent).toBe('1');
-    expect(names()[1]).toBe('allpvs:Channel Finder');
+    expect(names()[1]).toBe('channels:Channel Finder');
   });
 
   test('the counts are not read alone while the Alarms view reads the list', async () => {
@@ -581,7 +588,7 @@ describe('the Archive tab', () => {
     await boot(BOTH);
     expect(names()).toEqual([
       'explore:Curated',
-      'allpvs:All PVs',
+      'channels:All PVs',
       'alarms:Alarms',
       'archive:Archive',
       'feedback:Feedback',
@@ -602,7 +609,7 @@ describe('the Archive tab', () => {
     });
     expect(names()).toEqual([
       'explore:Curated',
-      'allpvs:All PVs',
+      'channels:All PVs',
       'archive:Archive',
       'feedback:Feedback',
     ]);
@@ -615,7 +622,7 @@ describe('the Archive tab', () => {
     });
     expect(names()).toEqual([
       'explore:Curated',
-      'allpvs:All PVs',
+      'channels:All PVs',
       'alarms:Alarms',
       'archive:Archive',
       'feedback:Feedback',
@@ -628,5 +635,58 @@ describe('the Archive tab', () => {
     expect(pressed()).toEqual(['archive']);
     click('feedback');
     expect(views.archive.unmount).toHaveBeenCalled();
+  });
+});
+
+describe('the IOCs tab', () => {
+  const FLEET = {
+    ...WITH_DIRECTORY,
+    directory: { ...DESCRIPTOR, configured_services: ['fleet'] },
+  };
+
+  test('with the fleet service the IOCs tab sits beside All PVs', async () => {
+    await boot(FLEET);
+    expect(names()).toEqual([
+      'explore:Curated',
+      'channels:All PVs',
+      'servers:IOCs',
+      'feedback:Feedback',
+    ]);
+  });
+
+  test('the order is fixed beside every other service', async () => {
+    await boot({
+      ...WITH_DIRECTORY,
+      directory: { ...DESCRIPTOR, configured_services: ['archive', 'fleet', 'alarm_state'] },
+    });
+    expect(names()).toEqual([
+      'explore:Curated',
+      'channels:All PVs',
+      'servers:IOCs',
+      'alarms:Alarms',
+      'archive:Archive',
+      'feedback:Feedback',
+    ]);
+  });
+
+  test('without the fleet service there is no tab, and #/iocs falls back to Curated', async () => {
+    const { views } = await boot(WITH_DIRECTORY, '#/servers');
+    expect(names()).toEqual(WITH);
+    expect(views.servers.mount).not.toHaveBeenCalled();
+    expect(pressed()).toEqual(['explore']);
+  });
+
+  test('without the directory descriptor there is no tab', async () => {
+    const { views } = await boot(WITHOUT_DIRECTORY, '#/servers');
+    expect(names()).toEqual(WITHOUT);
+    expect(views.servers.mount).not.toHaveBeenCalled();
+  });
+
+  test('#/iocs mounts the view and presses the tab', async () => {
+    const { views } = await boot(FLEET, '#/servers');
+    expect(views.servers.mount).toHaveBeenCalledTimes(1);
+    expect(pressed()).toEqual(['servers']);
+    click('feedback');
+    expect(views.servers.unmount).toHaveBeenCalled();
   });
 });

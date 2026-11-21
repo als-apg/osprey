@@ -356,8 +356,8 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "path carries diff bytes only.",
     ),
     "cli/facility_cmd.py": (
-        6,
-        "Four classes, all already blessed elsewhere. One is the --print-exporter "
+        7,
+        "Five classes, all already blessed elsewhere. One is the --print-exporter "
         "byte render: `osprey facility import mml --print-exporter` prints the "
         "layer's mml_export.m for a caller redirecting it into a file, the same "
         "class as users_cmd's byte render. The second is the import's one step, "
@@ -374,7 +374,10 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "stops beside it. The fourth is `osprey facility validate`'s closing "
         "`relations: N claims ...` summary, one bare line on stderr beside the "
         "`response check <model>:` lines the build prints there, read by a "
-        "caller that greps stderr for the claim counts.",
+        "caller that greps stderr for the claim counts. The fifth is the same "
+        "verb's `limits:` findings, a count line and one indented address per "
+        "line on stderr in that same bare shape, read by a caller that greps "
+        "stderr for the open setpoints.",
     ),
 }
 

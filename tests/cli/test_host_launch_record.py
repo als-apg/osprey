@@ -499,6 +499,71 @@ def test_web_stop_leaves_a_record_another_session_still_holds(runner, lifecycle_
             mine.unlink()
 
 
+#: A stand-in server that starts the record stand-in as its own child, in a
+#: session of its own, holds a lease, and prints the record's pid.
+_HOLDER_WITH_RECORD = """
+import signal, subprocess, sys, time
+from pathlib import Path
+from osprey.agent_record import host as hr
+record = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True
+)
+lease = hr._write_lease(Path(sys.argv[1]))
+def _bye(*_):
+    lease.unlink()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, _bye)
+print(record.pid, flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+
+def test_web_stop_never_counts_the_held_record_as_a_survivor(runner, lifecycle_repo, monkeypatch):
+    config = _config(lifecycle_repo)
+    repo = _deploy(lifecycle_repo, config, credentials=False)
+    monkeypatch.chdir(repo)
+    state_dir = hr.host_state_dir(repo, config)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    server = subprocess.Popen(
+        [sys.executable, "-c", _HOLDER_WITH_RECORD, str(state_dir / hr.LEASE_DIR_NAME)],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    record_pid = None
+    mine = None
+    try:
+        assert server.stdout is not None
+        record_pid = int(server.stdout.readline().strip())
+        start = None
+        for _ in range(100):
+            start = hr._process_start(record_pid)
+            if start:
+                break
+            time.sleep(0.02)
+        assert start
+        hr._write_identity(state_dir / hr.PROCESS_FILE_NAME, record_pid, start)
+        path = repo / PID_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(server.pid))
+        mine = hr._write_lease(state_dir / hr.LEASE_DIR_NAME)  # an `osprey chat` still open
+
+        result = runner.invoke(web, ["stop"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert "Stopped" in result.output
+        assert hr.running_record_pid(state_dir) == record_pid
+    finally:
+        if mine is not None:
+            mine.unlink(missing_ok=True)
+        for pgid in (server.pid, record_pid):
+            if pgid is not None:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(pgid, signal.SIGKILL)
+        server.wait()
+
+
 # ---------------------------------------------------------------------------
 # The supervisor
 # ---------------------------------------------------------------------------

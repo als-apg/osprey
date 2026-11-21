@@ -62,7 +62,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import TEXTURE
+from osprey.facility import TEXTURE, wiring_addresses
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
 from osprey.facility.pairing import simulated_pairs
 from osprey.facility.provenance import add_defaults, set_place_from
@@ -262,13 +262,13 @@ def _model_conflicts(run: _Run) -> None:
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
-    from osprey.facility.views.simulator import ioc_health_addresses, status_address
+    from osprey.facility.views.simulator import server_health_addresses, status_address
 
     code = run.document["identity"]["code"]
     physics = [model["name"] for model in models if str(model["name"]).casefold() != TEXTURE]
     served = {status_address(code, name): (name, "status") for name in physics}
     for name in (*physics, TEXTURE):
-        for address in ioc_health_addresses(code, name):
+        for address in server_health_addresses(code, name):
             served[address] = (name, "IOC health")
     for channel in run.document.get("channels", []):
         owner = served.get(channel["id"])
@@ -285,20 +285,41 @@ def _model_conflicts(run: _Run) -> None:
 
 
 def _addresses_wired_twice(run: _Run) -> set[str]:
-    """Stop on each address more than one wiring record names; return those addresses."""
+    """Stop on each address wiring records name more than once; return those addresses.
+
+    A record names its ``address`` and each of its ``also``.
+    """
     wired: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    further: set[str] = set()
     for model in run.document.get("models", []):
         for record in model.get("wiring", []):
-            wired[record["address"]].append(record)
+            names = wiring_addresses(record)
+            further.update(names[1:])
+            for address in names:
+                wired[address].append(record)
     for address, records in sorted(wired.items()):
         if len(records) < 2:
+            continue
+        files = sorted({f for record in records for f in stating_files(record, None, _MODELS_FILE)})
+        if address in further:
+            ids = sorted({str(record["id"]) for record in records})
+            run.stop(
+                "wiring-conflict",
+                "channel",
+                address,
+                files,
+                f"wiring records {', '.join(ids)} each name the address"
+                if len(ids) > 1
+                else f"wiring record {ids[0]} names the address more than once",
+                "name the address in one wiring record, once, as its `address` or under `also`",
+            )
             continue
         names = sorted(str(record["id"]).partition("/")[0] for record in records)
         run.stop(
             "wiring-conflict",
             "channel",
             address,
-            sorted({f for record in records for f in stating_files(record, None, _MODELS_FILE)}),
+            files,
             f"models {', '.join(names)} each wire the address",
             "wire the address in one model",
         )

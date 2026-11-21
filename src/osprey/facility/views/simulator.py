@@ -4,7 +4,7 @@ Written into ``<render>/data/simulator/``::
 
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...],
-                          ioc_health: [...]}
+                          server_health: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/4, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
@@ -30,8 +30,8 @@ when the model declares one, so a model without inputs is written as under
 value_type, options?, shape?, unit, description, writable, value_range,
 owner, on}``: ``role`` defaults to ``readback`` and ``value_type`` to ``float``
 as in the facility file; ``pair`` is a setpoint's readback (itself when it names none) and
-null on any other role; ``owner`` is the model wiring the address, else
-``texture``; ``on`` is the node the facility record puts the channel on,
+null on any other role; ``owner`` is the model wiring the address, as a record's
+``address`` or under its ``also``, else ``texture``; ``on`` is the node the facility record puts the channel on,
 ``{device: id}`` or ``{place: id}``, or null. ``writable`` and ``value_range`` come from the channel's limits
 record (``value_range`` = ``[min_value, max_value]`` when it states both, else
 null); a setpoint without a record is writable only when the simulated
@@ -43,14 +43,23 @@ is not writable.
 a seed of ``follows`` alone is not listed.
 ``follows.json`` says for each pair, a setpoint whose ``pair`` names another
 channel, whether the simulation follows it: ``pairs`` lists ``{setpoint,
-readback, follow, why}`` sorted by readback, then setpoint, where ``follow`` is
-``default``, ``seed`` (the readback's seed ``follows`` names the setpoint) or
-``not followed``; ``totals`` counts each word. The runtime does not read it; a
+readback, follow, why, copy?, labels?}`` sorted by readback, then setpoint,
+where ``follow`` is ``default``, ``seed`` (the readback's seed ``follows`` names
+the setpoint) or ``not followed``; a followed pair states ``copy``, ``value`` or
+``index``, and one copied by index lists ``labels``, ``[setpoint state, readback
+label]`` per index; ``totals`` counts each word. The runtime does not read it; a
 setpoint's ``pair`` in ``variables.json`` is the readback it follows, so the two
 agree.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
-states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
+states carried verbatim, but that a key of ``overrides``, ``couple``, ``noise``,
+``channel_faults`` or a model's fault writes, and an entry of ``still``, that
+names a served model's wiring record under ``also`` is written as the record's ``address``;
+``faults`` maps each faulted model to ``{writes}``,
 plus ``inactive: model not served`` when the render does not serve it;
+``stopped_servers`` keeps only the IOCs this render serves, and each named IOC of
+a model the render does not serve moves to ``inactive_servers``, mapped to
+``model not served``, and stops nothing; such a name is refused only when its
+scenario is one of the render's ``simulation.default_scenarios``;
 ``still`` is the sorted list of float addresses its ``all``, addresses and
 selections resolve to; a scenario named ``still`` that stills every float
 reading is listed when no file defines one. Each
@@ -59,7 +68,8 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
 
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
-its element (or slices), engine block and calibration, plus the slots the build
+the further addresses it states under ``also``, its element (or slices), engine
+block and calibration, plus the slots the build
 filled from the channel, its limits record and the model's engine (direction,
 unit, default, value_range, engine_role, plane, refresh, marks) and, for a waveform
 channel, its ``value_type`` and ``shape``.
@@ -73,10 +83,11 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
+from osprey_connectors.simulation.servers import served_servers
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
@@ -90,18 +101,12 @@ from osprey_connectors.simulation.view import (
     SEEDS_SCHEMA,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    SERVER_HEALTH_SIGNALS,
     SETPOINT,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
     SimulatorView,
 )
-
-try:
-    from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS
-except ImportError:  # a connectors release whose view names no IOC health signals
-    from osprey_connectors.simulation.view import ADDRESSES_FILE as _FLOOR_STAND_IN  # noqa: F401
-
-    IOC_HEALTH_SIGNALS = ()  # type: ignore[assignment]
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -119,11 +124,12 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
-    "ioc_health_addresses",
     "resolved_still",
     "served_deck_path",
+    "server_health_addresses",
     "simulator_wiring",
     "status_address",
+    "unlisted_setpoints_writable",
     "withdraw_scenarios",
     "write_simulator_view",
 ]
@@ -150,7 +156,11 @@ _SCENARIO_BLOCKS = (
     "couple",
     "noise",
     "channel_faults",
+    "stopped_servers",
 )
+
+#: The scenario blocks keyed by channel address.
+_ADDRESS_KEYED_BLOCKS = ("overrides", "couple", "noise", "channel_faults")
 
 #: The scenario ``scenarios.json`` lists when no file defines ``still``.
 _BUILT_IN_STILL = {
@@ -164,6 +174,7 @@ _BUILT_IN_STILL = {
 _WIRING_ENTRY_KEYS = (
     "id",
     "address",
+    "also",
     "element",
     "slices",
     "engine",
@@ -265,7 +276,7 @@ def status_address(code: str, model: str) -> str:
     return f"{code}:SIM:{model}:STATUS"
 
 
-def ioc_health_addresses(code: str, model: str) -> list[str]:
+def server_health_addresses(code: str, model: str) -> list[str]:
     """The IOC health addresses the simulator serves for one model, texture included.
 
     Args:
@@ -274,12 +285,12 @@ def ioc_health_addresses(code: str, model: str) -> list[str]:
 
     Returns:
         ``<code>:SIM:<model>:<signal>`` for each signal of the view's
-        ``IOC_HEALTH_SIGNALS``; none with a connectors release that names none.
+        ``SERVER_HEALTH_SIGNALS``.
     """
-    return [f"{code}:SIM:{model}:{signal}" for signal in IOC_HEALTH_SIGNALS]
+    return [f"{code}:SIM:{model}:{signal}" for signal in SERVER_HEALTH_SIGNALS]
 
 
-def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
+def unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     """Whether a setpoint without a limits record is writable on the simulated target."""
     from osprey_connectors.types import (
         LIMITS_MODE_OPTIONAL,
@@ -300,9 +311,10 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     owners: dict[str, str] = {}
     for model in models:
         for record in model.get("wiring", []):
-            owners.setdefault(str(record["address"]), str(model["name"]))
+            for address in wiring_addresses(record):
+                owners.setdefault(address, str(model["name"]))
     limits = limits_document(inputs.records)
-    unlisted_writable = _unlisted_setpoints_writable(inputs.rendered_config)
+    unlisted_writable = unlisted_setpoints_writable(inputs.rendered_config)
 
     from osprey.facility.pairing import simulated_pairs
 
@@ -384,7 +396,10 @@ def _follows_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "schema": FOLLOWS_SCHEMA,
         "totals": follow_totals(follows),
-        "pairs": [follow._asdict() for follow in follows],
+        "pairs": [
+            {key: value for key, value in follow._asdict().items() if value is not None}
+            for follow in follows
+        ],
     }
 
 
@@ -454,22 +469,107 @@ def resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> lis
     return sorted(resolved)
 
 
+def _split_stopped_servers(
+    inputs: ViewInputs, scenario: Mapping[str, Any]
+) -> tuple[list[str], dict[str, str]]:
+    """A scenario's ``stopped_servers``: the names this render stops, and the inactive rest.
+
+    The validator refuses a name that is no simulated IOC of the facility;
+    only the render knows which models it serves. A name of an unserved model
+    stops nothing, so it follows the rule for a fault on an unserved model: it
+    is marked ``model not served`` and left out of the stop. It is refused only
+    when the scenario is one of the render's default scenarios, which would
+    otherwise come up stopping nothing.
+
+    Raises:
+        FacilityBuildError: ``value-invalid``: a default scenario names an IOC
+            this render does not serve.
+    """
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.simulation.apply import resolve_default_scenarios
+
+    name = str(scenario["name"])
+    physics = [
+        str(model["name"])
+        for model in inputs.records.document.get("models", [])
+        if model["name"] in inputs.served
+        and model["name"] != TEXTURE
+        and model.get("engine") != TEXTURE
+    ]
+    known = served_servers(physics)
+    stopped = [str(ioc) for ioc in scenario["stopped_servers"] if ioc in known]
+    unserved = [str(ioc) for ioc in scenario["stopped_servers"] if ioc not in known]
+    if unserved and name in resolve_default_scenarios(inputs.rendered_config):
+        raise FacilityBuildError(
+            "value-invalid",
+            name,
+            [f"{SCENARIOS_DIR}/{name}.yaml"],
+            f"serve the model in this render, remove `{unserved[0]}` from `stopped_servers`, "
+            f"or drop `{name}` from `simulation.default_scenarios`; "
+            f"this render serves {', '.join(f'`{ioc}`' for ioc in sorted(known))}",
+            record_kind="scenario",
+            detail=f"default scenario `{name}`'s `stopped_servers` names `{unserved[0]}`, "
+            "which this render does not serve",
+        )
+    return stopped, dict.fromkeys(unserved, INACTIVE_UNSERVED)
+
+
+def _record_addresses(document: Mapping[str, Any], served: Iterable[str]) -> dict[str, str]:
+    """Each address a served model's wiring record names under ``also``, mapped to its ``address``.
+
+    A model the render does not serve leaves every address of its wiring to
+    the texture model, each a channel of its own.
+    """
+    served = set(served)
+    return {
+        further: address
+        for model in document.get("models", [])
+        if model.get("name") in served
+        for record in model.get("wiring", [])
+        for address, *also in [wiring_addresses(record)]
+        for further in also
+    }
+
+
+def _by_record_address(block: Any, record_of: Mapping[str, str]) -> Any:
+    """A copy of a scenario block keyed by address, each key the address of its wiring record.
+
+    A key naming a record under ``also`` becomes the record's ``address``; an
+    entry keyed by that ``address`` itself stands over it.
+    """
+    if not isinstance(block, Mapping) or not any(str(key) in record_of for key in block):
+        return copy.deepcopy(block)
+    keyed = {record_of[str(key)]: value for key, value in block.items() if str(key) in record_of}
+    keyed.update({key: value for key, value in block.items() if str(key) not in record_of})
+    return copy.deepcopy(keyed)
+
+
 def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
+    record_of = _record_addresses(inputs.records.document, inputs.served)
     scenarios: list[dict[str, Any]] = []
     for scenario in sorted(
         inputs.records.document.get("scenarios", []), key=lambda s: str(s["name"])
     ):
         entry: dict[str, Any] = {"name": scenario["name"]}
         for block in _SCENARIO_BLOCKS:
-            if scenario.get(block) is not None:
+            if scenario.get(block) is None:
+                continue
+            if block in _ADDRESS_KEYED_BLOCKS:
+                entry[block] = _by_record_address(scenario[block], record_of)
+            else:
                 entry[block] = copy.deepcopy(scenario[block])
+        if scenario.get("stopped_servers"):
+            entry["stopped_servers"], inactive = _split_stopped_servers(inputs, scenario)
+            if inactive:
+                entry["inactive_servers"] = inactive
         if scenario.get("still") is not None:
-            entry["still"] = resolved_still(inputs.records, scenario)
+            still = resolved_still(inputs.records, scenario)
+            entry["still"] = sorted({record_of.get(address, address) for address in still})
         faults = scenario.get("faults")
         if faults is not None:
             entry["faults"] = {}
             for model, writes in faults.items():
-                fault: dict[str, Any] = {"writes": copy.deepcopy(writes)}
+                fault: dict[str, Any] = {"writes": _by_record_address(writes, record_of)}
                 if model not in inputs.served:
                     fault["inactive"] = INACTIVE_UNSERVED
                 entry["faults"][model] = fault
@@ -525,8 +625,8 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
             "schema": ADDRESSES_SCHEMA,
             "channels": sorted(str(channel["id"]) for channel in doc.get("channels", [])),
             "status": [status_address(code, name) for name in physics],
-            "ioc_health": [
-                address for name in inputs.served for address in ioc_health_addresses(code, name)
+            "server_health": [
+                address for name in inputs.served for address in server_health_addresses(code, name)
             ],
         },
         VARIABLES_FILE: _variables_document(inputs),

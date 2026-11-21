@@ -44,7 +44,7 @@ What gets served
 The served list is the simulator view's ``addresses.json``: its ``channels``,
 every channel address the facility declares, then one
 ``<code>:SIM:<model>:STATUS`` address for each served physics model, then the
-view's ``ioc_health`` list: read-only ``<code>:SIM:<model>:HEARTBEAT``,
+view's ``server_health`` list: read-only ``<code>:SIM:<model>:HEARTBEAT``,
 ``UPTIME`` and ``ENGINEER`` addresses for every served model, texture
 included. Which models are served is the view's ``served_models.json``, with
 the texture model always last. A physics model is one child of the composite,
@@ -67,6 +67,12 @@ into the facility file:
   the fast period, ``simulation.fast_tick_s`` (default ``0.1`` seconds); or
   ``event``, one that changes with each event the engine raises, such as a
   shot.
+
+A wiring record that states further addresses under ``also`` is still one
+record and one engine variable, named by its ``address``. The served composite
+answers a read, a write or a readout group under a further address as it
+answers the record's address, so every address of a record shows one value at
+one instant; no engine sees a further address.
 
 Each channel also names the node it is ``on``.
 

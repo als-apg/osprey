@@ -99,8 +99,8 @@ async def test_write_access_gateway_used_when_the_verdict_allows(monkeypatch, re
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"
     assert os.environ["EPICS_CA_SERVER_PORT"] == "5084"
-    assert connector._selected_role == "write_access"
-    assert connector._write_gateway_configured is True
+    assert connector.selected_gateway_role == "write_access"
+    assert connector.write_gateway_configured is True
 
 
 async def test_read_only_gateway_used_while_the_switch_is_off(monkeypatch, record_root):
@@ -111,7 +111,7 @@ async def test_read_only_gateway_used_while_the_switch_is_off(monkeypatch, recor
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
     assert os.environ["EPICS_CA_SERVER_PORT"] == "5064"
-    assert connector._selected_role == "read_only"
+    assert connector.selected_gateway_role == "read_only"
 
 
 async def test_a_tier_that_never_writes_stays_on_read_only(monkeypatch, record_root):
@@ -182,8 +182,8 @@ async def test_warns_when_the_verdict_allows_but_no_write_gateway(monkeypatch, r
     await connector.connect({"gateways": {"read_only": dict(READ)}})
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
-    assert connector._selected_role == "read_only"
-    assert connector._write_gateway_configured is False
+    assert connector.selected_gateway_role == "read_only"
+    assert connector.write_gateway_configured is False
     assert any(f"{WRITES_KEY}: allowed" in w for w in warnings), warnings
 
 
@@ -201,7 +201,7 @@ async def test_a_write_gateway_only_machine_reads_through_it_while_off(
     result = await connector.write_channel(SP, 2.0)
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"
-    assert connector._selected_role == "write_access"
+    assert connector.selected_gateway_role == "write_access"
     assert reading.value == 1.0
     assert result.outcome is WriteOutcome.REFUSED
     assert refusal_phrase("switch_off", "simulator") in result.error_message
@@ -229,7 +229,7 @@ async def test_a_readonly_run_on_a_write_gateway_only_machine_refuses_to_connect
     # Refused before Channel Access was pointed anywhere: no ambient-network fallback.
     assert loop.pointed_at == []
     assert "EPICS_CA_ADDR_LIST" not in os.environ
-    assert connector._selected_role is None
+    assert connector.selected_gateway_role is None
 
 
 async def test_a_readonly_run_with_no_gateways_still_connects(monkeypatch, record_root):
@@ -240,8 +240,8 @@ async def test_a_readonly_run_with_no_gateways_still_connects(monkeypatch, recor
     connector = EPICSConnector()
     await connector.connect({"timeout_s": 5.0})
 
-    assert connector._selected_role is None
-    assert connector._write_gateway_configured is False
+    assert connector.selected_gateway_role is None
+    assert connector.write_gateway_configured is False
 
 
 async def test_a_write_gateway_only_machine_writes_once_on(monkeypatch, record_root, aioca):
@@ -296,7 +296,7 @@ async def test_reconnecting_after_the_turn_on_selects_the_write_gateway(
     await connector.connect({"gateways": _both_gateways()})
     result = await connector.write_channel(SP, 2.0, confirm=False)
 
-    assert connector._selected_role == "write_access"
+    assert connector.selected_gateway_role == "write_access"
     assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"
     assert result.outcome is not WriteOutcome.REFUSED, result.error_message
     assert aioca.puts == [(SP, 2.0, False)]
@@ -342,3 +342,31 @@ async def test_a_batch_on_a_lagging_connector_refuses_every_operation(
     assert [r.outcome for r in results] == [WriteOutcome.REFUSED, WriteOutcome.REFUSED]
     assert all(refusal_phrase("switching", "simulator") in r.error_message for r in results)
     assert aioca.puts == []
+
+
+@pytest.mark.parametrize(
+    ("block", "on", "expected"),
+    [
+        (None, True, (None, False)),
+        ({"gateways": _both_gateways()}, True, ("write_access", True)),
+        ({"gateways": _both_gateways()}, False, ("read_only", True)),
+        ({"gateways": {"read_only": dict(READ)}}, True, ("read_only", False)),
+        ({"timeout_s": 5.0}, True, (None, False)),
+    ],
+    ids=["never-connected", "on-both", "off-both", "read-only-only", "no-gateways"],
+)
+async def test_the_public_properties_report_the_selection(
+    monkeypatch, record_root, block, on, expected
+):
+    _armed(monkeypatch, record_root, on=on)
+    connector = EPICSConnector()
+    if block is not None:
+        await connector.connect(block)
+
+    assert (connector.selected_gateway_role, connector.write_gateway_configured) == expected
+    assert connector.selected_gateway_role == connector._selected_role
+    assert connector.write_gateway_configured is connector._write_gateway_configured
+    with pytest.raises(AttributeError):
+        connector.selected_gateway_role = "write_access"
+    with pytest.raises(AttributeError):
+        connector.write_gateway_configured = True

@@ -355,7 +355,7 @@ class TestReads:
 
     async def test_a_channel_that_hangs_is_no_answer_within_the_cap(self, served, monkeypatch):
         _task, client = served
-        monkeypatch.setattr(child_module, "PV_READ_BOUND_S", 0.05)
+        monkeypatch.setattr(child_module, "CHANNEL_READ_BOUND_S", 0.05)
         started = time.monotonic()
         rows = await client.read(["A", "HANGS"])
         assert time.monotonic() - started < 2.0
@@ -365,7 +365,7 @@ class TestReads:
         assert "no answer" in rows[1].reason
 
     def test_the_per_channel_cap_is_one_second(self):
-        assert child_module.PV_READ_BOUND_S == 1.0
+        assert child_module.CHANNEL_READ_BOUND_S == 1.0
 
     async def test_a_channel_that_is_down_is_no_answer_and_the_rest_read(self, served):
         _task, client = served
@@ -474,7 +474,7 @@ class TestAudit:
         assert body["actor"] == "test-operator"
         assert body["subject"] == child_module.READ_SUBJECT
         assert body["decision"] == "allowed"
-        assert body["detail"] == "target=va pv_count=3"
+        assert body["detail"] == "target=va channel_count=3"
 
     async def test_two_batches_are_two_records(self, served, monkeypatch):
         bodies = capture_audit_bodies(monkeypatch, "channels")
@@ -641,7 +641,7 @@ class TestArmedBlockRefusesPvaccessPuts:
             assert answers[f"p4p.client.{kind}.Context.get"] == "read"
         assert answers["pvaccess.Channel.get"] == "read"
 
-    def test_the_real_p4p_client_refuses_a_put_and_still_reads(self, tmp_path):
+    def test_the_real_p4p_client_refuses_a_put_and_still_reads(self, tmp_path, reserve_port):
         pytest.importorskip("p4p.client.thread")
         probe = tmp_path / "probe.py"
         probe.write_text(
@@ -665,7 +665,14 @@ class TestArmedBlockRefusesPvaccessPuts:
             ),
             encoding="utf-8",
         )
-        env = {**os.environ, "EPICS_PVA_ADDR_LIST": "127.0.0.1", "EPICS_PVA_AUTO_ADDR_LIST": "NO"}
+        # The probe's client listens for beacons on a port of its own, so a PVA
+        # port another process on the host holds cannot fail its start.
+        env = {
+            **os.environ,
+            "EPICS_PVA_ADDR_LIST": "127.0.0.1",
+            "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+            "EPICS_PVA_BROADCAST_PORT": str(reserve_port()),
+        }
         completed = subprocess.run(
             [sys.executable, str(probe)],
             env=env,
@@ -820,7 +827,7 @@ def dead_aioca(session_env, monkeypatch) -> FakeAioca:
     monkeypatch.setattr(epics_connector_module, "STALE_SILENT_S", 0.05)
     # Far below the connector's own default, as the real 1 s is: a child that only
     # cancels at this bound never lets the connector see its connect fail.
-    monkeypatch.setattr(child_module, "PV_READ_BOUND_S", 0.1)
+    monkeypatch.setattr(child_module, "CHANNEL_READ_BOUND_S", 0.1)
     return fake
 
 
@@ -855,7 +862,7 @@ class TestStaleOnTheEpicsConnector:
         reader, writer = await asyncio.open_unix_connection(listener.getsockname())
         try:
             await _Client(reader, writer).read([])
-            assert opened[0]._connector._timeout == child_module.PV_READ_BOUND_S
+            assert opened[0]._connector._timeout == child_module.CHANNEL_READ_BOUND_S
         finally:
             writer.close()
             task.cancel()

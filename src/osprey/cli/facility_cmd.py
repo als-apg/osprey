@@ -85,7 +85,8 @@ tree) as Screen-IR files under ``--out`` with an ``index.json``, and
 generates now and exits 1 on any failing problem. Both read the drawing settings
 from ``draw.json`` beside the rule tables, or ``--draw FILE``; see
 :mod:`osprey.facility.panels.emit`. Neither verb builds, and ``check`` writes
-nothing.
+nothing. ``osprey facility panels classes`` prints the screen classes such an
+index records (:mod:`osprey.facility.panels.classes`).
 
 Note: the facility package and the build's render are imported inside the
 command body, so ``osprey --help`` does not load them.
@@ -123,8 +124,13 @@ def facility() -> None:
 
 @facility.command("validate")
 @repo_option
+@click.option(
+    "--all-limits",
+    is_flag=True,
+    help="List every address of the limits findings, not the first ten.",
+)
 @click.pass_context
-def validate(ctx: click.Context, repo: Path | None) -> None:
+def validate(ctx: click.Context, repo: Path | None, all_limits: bool) -> None:
     """Check data/facility/ and render every facility view in memory; writes nothing.
 
     A profile that states machine: validates that machine root, with the
@@ -143,13 +149,27 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     not change the exit code. A scenario that moves a readback beyond its
     setpoint's tolerance, and a lane whose float setpoints declare no
     tolerance, print the build's settle-tolerance warning on stderr; it does
-    not change the exit code. When the facility file holds relation claims,
+    not change the exit code. Two limits findings follow on stderr, each a
+    ``limits:`` count line and one line per address (the first ten and a
+    count of the rest, unless --all-limits): the setpoints with no
+    limits record (served writable with no range when the target's limits
+    mode is ``optional``, refused otherwise) and the limits records that state
+    one edge (served not writable); they report and change nothing, the exit
+    code included. When the facility file holds relation claims,
     one summary line closes stderr:
     ``relations: N claims (S stated, I inferred); A accepted, C contested``,
     with ``, X superseded`` appended when any claim is superseded; a facility
     without claims prints no such line.
     """
-    built = _build_in_memory(ctx, repo)
+    from osprey.facility.records import FacilityRecords
+    from osprey.facility.views.limits import limits_findings
+    from osprey.facility.views.simulator import unlisted_setpoints_writable
+
+    built = _build_in_memory(ctx, repo, read_config=True)
+    records = FacilityRecords(built.document)
+    writable = unlisted_setpoints_writable(built.rendered_config)
+    for finding in limits_findings(records, writable, every=all_limits):
+        click.echo(finding, err=True)
     line = _relation_summary(built.document)
     if line is not None:
         click.echo(line, err=True)
@@ -828,8 +848,8 @@ def _replace_or_refuse(
     """Make the facility tree ready for a format; every format under the group calls it first.
 
     Refuses only on overlap: hand-written records of the kinds this verb writes
-    exit 1 with nothing changed, and files seeded under the former header are
-    named apart with the line that fixes them. A tree that already holds an
+    exit 1 with nothing changed; files seeded under the retired header are read
+    as seeded and named in one warning with the line that updates them. A tree that already holds an
     imported layer is past the first: records written by hand beside a layer
     are the facility's own additions, which the build combines with the layers,
     and no later import refuses them. Otherwise bundled files are replaced, and the
@@ -841,7 +861,6 @@ def _replace_or_refuse(
     are classified together; each bundled file is removed under its own root,
     and the knowledge indexes settled are the content root's.
     """
-    from osprey.facility.bundled import under_former_header
     from osprey.facility.layers import HEADER
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
 
@@ -850,38 +869,35 @@ def _replace_or_refuse(
     facility_dir = roots.machine
     writes = _writes()[verb]
     kinds = _classify(roots, Path(TemplateManager().template_root))
+    lines = []
+    if kinds.retired_header:
+        lines += [
+            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
+            "the retired header, read as seeded:",
+            *(_shown(facility_dir / path, repo_root) for path in kinds.retired_header),
+            f"set line 1 of each to: {HEADER}",
+        ]
     overlap = [
         (path, kind)
         for path in kinds.authored
         for entry, kind in writes
         if path == entry or path.startswith(f"{entry}/")
     ]
-    if overlap:
-        former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
-        written = [(path, kind) for path, kind in overlap if path not in former]
-        if _holds_a_layer(facility_dir):
-            written = []
-        lines = []
-        if written:
-            found = {kind for _path, kind in written}
-            named = _named_together([kind for _entry, kind in writes if kind in found])
-            lines += [
-                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
-                "records, which this import writes:",
-                *(_shown(facility_dir / path, repo_root) for path, _kind in written),
-                "move corrections into fixes.yaml and remove the record sources, "
-                "or start a new repo: osprey init <name> --preset demo",
-            ]
-        if former:
-            lines += [
-                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
-                "the old header, which this import writes:",
-                *(_shown(facility_dir / path, repo_root) for path in former),
-                f"set line 1 of each to: {HEADER}",
-            ]
-        if lines:
-            click.echo("\n".join(lines), err=True)
-            ctx.exit(1)
+    refused = bool(overlap) and not _holds_a_layer(facility_dir)
+    if refused:
+        found = {kind for _path, kind in overlap}
+        named = _named_together([kind for _entry, kind in writes if kind in found])
+        lines += [
+            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
+            "records, which this import writes:",
+            *(_shown(facility_dir / path, repo_root) for path, _kind in overlap),
+            "move corrections into fixes.yaml and remove the record sources, "
+            "or start a new repo: osprey init <name> --preset demo",
+        ]
+    if lines:
+        click.echo("\n".join(lines), err=True)
+    if refused:
+        ctx.exit(1)
     if kinds.bundled:
         _remove_bundled(roots, kinds.bundled)
         click.echo(
@@ -1160,8 +1176,7 @@ def _panel_graph(
 ):
     """The panel graph of the built facility; exits 1 with the cause when it cannot load."""
     from osprey.facility import FACILITY_FILE
-    from osprey.facility.panels import PanelTableError, load_graph
-    from osprey.utils.facility import FacilityFileError
+    from osprey.facility.panels import FacilityDocumentError, PanelTableError, load_graph
 
     try:
         if facility_file is None or tables is None:
@@ -1189,7 +1204,7 @@ def _panel_graph(
         return graph, tables
     except FileNotFoundError as error:
         fail("The facility cannot be read.", str(error), "Run osprey build, or name --facility.")
-    except (FacilityFileError, PanelTableError, OSError) as error:
+    except (FacilityDocumentError, PanelTableError, OSError) as error:
         fail("The facility cannot be read.", str(error))
     raise click.exceptions.Exit(1)
 
@@ -1303,6 +1318,7 @@ def panels_write(
     from collections import Counter
 
     from osprey.facility.panels import emit
+    from osprey.facility.panels.classes import summary, summary_line
 
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
     draw = _panel_draw(tables_dir, draw_file)
@@ -1334,6 +1350,7 @@ def panels_write(
     for entry in screens:
         sizes[entry["kind"]] += entry["bytes"]
     report(f"{len(screens)} screens, {_megabytes(index['total_bytes'])}, in {out}")
+    report(f"  classes: {summary_line(summary(index['classes']))}")
     for kind in _PANEL_VIEWS:
         if count[kind]:
             report(f"  {kind}: {count[kind]} screens, {_megabytes(sizes[kind])}")
@@ -1497,8 +1514,94 @@ def panels_check(
             report(f"  {problem.file}: {problem.detail}")
         if count[kind] > len(shown):
             report(f"  ... and {count[kind] - len(shown)} more")
+    table = _index_classes(out)
+    if table is not None:
+        from osprey.facility.panels.classes import summary, summary_line
+
+        report(f"classes: {summary_line(summary(table))}")
     failing = [p for p in problems if p.failing or strict]
     if failing:
         fail(f"{len(failing)} problems in the written screens.")
         ctx.exit(1)
     report("The written screens match the model.")
+
+
+def _index_classes(out: Path) -> dict[str, Any] | None:
+    """The class table of the index under *out*, or ``None`` when there is none to read."""
+    import json
+
+    from osprey.facility.panels import emit
+
+    try:
+        index = json.loads((out / emit.INDEX).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    classes = index.get("classes") if isinstance(index, dict) else None
+    return classes if isinstance(classes, dict) else None
+
+
+@panels_group.command("classes")
+@click.option(
+    "--out",
+    required=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Output directory a write filled.",
+)
+@click.option("--limit", default=30, show_default=True, help="Classes listed; 0 lists all.")
+@click.option(
+    "--differs", "show_differs", is_flag=True, help="List each screen off its standard and how."
+)
+@click.pass_context
+def panels_classes(ctx: click.Context, out: Path, limit: int, show_differs: bool) -> None:
+    """Print the screen classes the index under OUT records; reads nothing else.
+
+    One row per class, by member count: members, screens off the standard,
+    screens with a label cut, the class and its standard's file. Then per view
+    kind its screens, classes, classes of one screen, screens off their standard
+    and screens with a label cut. The last line is the summary a gate reads.
+    With --differs, every screen off its standard, and how.
+    """
+    import json
+    from collections import Counter
+
+    from osprey.facility.panels import emit
+    from osprey.facility.panels.classes import summary, summary_line
+
+    classes = _index_classes(out)
+    if classes is None:
+        fail("No class table.", f"{out / emit.INDEX} is missing or holds none; write again.")
+        ctx.exit(1)
+    rows = sorted(classes.items(), key=lambda kv: (-kv[1].get("members", 0), kv[0]))
+    shown = rows if limit <= 0 else rows[:limit]
+    report(f"{'members':>8} {'off':>5} {'cut':>5}  class  (standard)")
+    for name, row in shown:
+        report(
+            f"{row.get('members', 0):>8} {row.get('off_standard', 0):>5} {row.get('cut', 0):>5}"
+            f"  {name}  ({row.get('standard', '')})"
+        )
+    if len(rows) > len(shown):
+        report(f"  ... and {len(rows) - len(shown)} more")
+    per_view: dict[str, Counter[str]] = {}
+    for row in classes.values():
+        view = str(row.get("key", {}).get("view", ""))
+        tally = per_view.setdefault(view, Counter())
+        tally["screens"] += row.get("members", 0)
+        tally["classes"] += 1
+        tally["single"] += row.get("members", 0) == 1
+        tally["off"] += row.get("off_standard", 0)
+        tally["cut"] += row.get("cut", 0)
+    report(f"{'view':<12} {'screens':>8} {'classes':>8} {'single':>7} {'off':>6} {'cut':>6}")
+    for view in sorted(per_view, key=lambda v: -per_view[v]["screens"]):
+        t = per_view[view]
+        report(
+            f"{view:<12} {t['screens']:>8} {t['classes']:>8} {t['single']:>7}"
+            f" {t['off']:>6} {t['cut']:>6}"
+        )
+    if show_differs:
+        index = json.loads((out / emit.INDEX).read_text(encoding="utf-8"))
+        for entry in index.get("screens", ()):
+            if entry.get("differs"):
+                report(f"{entry['file']} ({entry.get('class')}):")
+                for words in entry["differs"]:
+                    report(f"  {words}")
+    report(f"classes: {summary_line(summary(classes))}")

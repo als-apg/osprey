@@ -160,7 +160,7 @@ def test_the_default_schedule_is_d8() -> None:
 
 
 def test_the_client_waits_past_the_row_bound() -> None:
-    assert supervision.READ_WAIT_S > child.PV_READ_BOUND_S + child.ROW_MARGIN_S
+    assert supervision.READ_WAIT_S > child.CHANNEL_READ_BOUND_S + child.ROW_MARGIN_S
 
 
 @pytest.mark.parametrize("status", [75, 76])
@@ -407,7 +407,7 @@ def test_the_lifespan_supervises_only_with_the_section(monkeypatch, config_file)
         assert getattr(client.app.state, "directory_values", None) is None
     assert events == []
 
-    monkeypatch.setattr(seam, lambda: {**base, "pv_directory": {}})
+    monkeypatch.setattr(seam, lambda: {**base, "channel_directory": {}})
     with TestClient(create_app(project_cwd="/tmp/test-project")) as client:
         assert isinstance(client.app.state.directory_values, Recording)
         assert events == ["init config.yml", "start"]

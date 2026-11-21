@@ -669,14 +669,28 @@ its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``.
 ``follows: <setpoint>`` makes the copy where the default does not, and
 ``follows: none`` stops it where the default makes it. A followed readback
 starts at its setpoint's value and takes each write at once, with its own noise
-and drift on top. The build stops with ``seed-invalid`` when ``follows`` sits
-on a channel no setpoint names, on a readback several setpoints name, names a
-setpoint whose ``pair`` is another channel, or names a setpoint of another
-type. It stops too when a followed readback's seed gives it a value of its own
-(``topoff``, ``topoff_lifetime``, ``linear`` or ``pulse``): a write to the
-setpoint would replace that value, so state ``follows: none`` on it. The simulator view's ``follows.json`` lists every pair with whether the
-simulation follows it (``default``, ``seed`` or ``not followed``) and why, and
-counts each.
+and drift on top.
+
+A labelled readback (``bool`` or ``enum``) may follow a setpoint of another
+type through ``follows: <setpoint>``, and then takes the state of the same
+index. From a labelled setpoint of as many labels, ``Clear / Set`` into
+``Off / On`` copies ``Set`` as ``On``. From a setpoint that holds a number,
+``1`` (or ``1.0``) holds the readback's second label, and a fraction or a number
+past its labels is refused and holds nothing. The default never copies by
+index: only a seed asks for it.
+
+The build stops with ``seed-invalid`` when ``follows`` sits on a channel no
+setpoint names, on a readback several setpoints name, names a setpoint whose
+``pair`` is another channel, or names a setpoint it cannot copy: one of another
+type into an unlabelled readback, one with a different number of labels, or one
+that holds neither labels nor a number. It stops when a number setpoint's start
+value is no index of the readback's labels. It stops too when a followed
+readback's seed gives it a value of its own (``topoff``, ``topoff_lifetime``,
+``linear`` or ``pulse``): a write to the setpoint would replace that value, so
+state ``follows: none`` on it. The simulator view's ``follows.json`` lists every
+pair with whether the simulation follows it (``default``, ``seed`` or
+``not followed``), why, and for a followed pair how it copies (``value`` or
+``index``, with the label of each index), and counts each.
 
 .. code-block:: yaml
 
@@ -729,9 +743,129 @@ record binds that a scenario may still misalign or give a multipole error; see
 
 A wiring record's ``calibration`` converts between the channel's hardware
 value and the engine's physics value, as a ``linear`` gain and offset or a
-``table``. Channels no served model wires are served by the texture model from
+``table``.
+
+A readback record reads the setpoint record that names the same element (or
+slices), engine ``attribute`` and ``index``. A readback that states the
+setpoint's calibration, or none, reads the setpoint's value on the setpoint's
+way back. A readback that states another calibration reads the same physics
+value through its own: the setpoint's ``curve`` gives the physics value, and
+the readback's ``inverse`` (or, with none, the inverse of its ``linear``
+curve) gives the reading. So one quantity can be read in a second unit. The
+voltage of the quadrupole's circuit, 0.1 V per ampere, is a channel of its own:
+
+.. code-block:: yaml
+
+   - id: SR:MAG:QF:01:VOLTAGE:RB
+     unit: V
+     label: focusing quadrupole circuit voltage
+
+and a third record on the element the current setpoint and its readback are
+wired to, with the strength a volt stands for as its curve:
+
+.. code-block:: yaml
+
+   - address: SR:MAG:QF:01:VOLTAGE:RB
+     element: QF01
+     engine:
+       attribute: PolynomB
+       index: 1
+     calibration:
+       curve:
+         linear: {gain: 0.06006155556990854, offset: 0.0}
+       energy_scaling: brho
+
+The readback's ``curve`` runs the way every curve does, from its own unit to
+the physics value; a ``table`` needs an ``inverse``. State the setpoint's
+``energy_scaling`` on it unless its unit does not move with the beam energy
+as the setpoint's does. Its computed ``default`` is the value it is served
+with at start, and its seed's noise and drift act in its own unit.
+
+A setpoint may drive a property of the whole deck: a record that names no
+element and the engine ``attribute: energy`` is the deck's energy, set through
+the curve from its unit to electron-volts. The deck is at its own energy while
+that setpoint holds its ``default``, and moves from there as the curve's value
+does. A readback record with the same engine block reads that setpoint, and it
+too may state its own calibration. The current of a string of bending magnets
+and the string's voltage, 0.5 V per ampere, are two channels:
+
+.. code-block:: yaml
+
+   - id: SR:MAG:BEND:CURRENT:SP
+     role: setpoint
+     unit: A
+     label: bending magnet string current
+   - id: SR:MAG:BEND:VOLTAGE:RB
+     unit: V
+     label: bending magnet string voltage
+
+and two records that name no element:
+
+.. code-block:: yaml
+
+   - address: SR:MAG:BEND:CURRENT:SP
+     engine:
+       attribute: energy
+     calibration:
+       curve:
+         linear: {gain: 4.0e+6, offset: 0.0}
+       energy_scaling: none
+   - address: SR:MAG:BEND:VOLTAGE:RB
+     engine:
+       attribute: energy
+     calibration:
+       curve:
+         linear: {gain: 8.0e+6, offset: 0.0}
+       energy_scaling: none
+
+The voltage reads the value of the setpoint's curve at the current the
+setpoint holds, through its own way back: 250 V at 500 A here. Both curves end
+in the same unit, the one the setpoint's curve states, so write the readback's
+curve against the setpoint's curve and not against the deck, whose energy may
+differ from the curve's by a constant factor. Such a readback states
+``energy_scaling: none``, as the value of the setpoint's curve does not move
+with the beam rigidity; the build stops on any other with ``engine-invalid``.
+
+The model computes a wired readback from the setpoint record on its element,
+so it reads that setpoint whether or not the channels ``pair`` the two, where
+several setpoints name it, and where its seed states ``follows: none``; its
+``default`` is the value it is served with in each case.
+
+Channels no served model wires are served by the texture model from
 their seeds. Which models a deployment serves, and what a failed one looks like, is
 in :ref:`architecture-simulation-models`.
+
+A value served under more than one address has one wiring record. Each
+further address is a channel of its own:
+
+.. code-block:: yaml
+
+   - id: LINE:RACK:03:UNIT:01:X
+     label: BPM 01 horizontal position, as the rack unit names it
+
+and the record lists it under ``also``:
+
+.. code-block:: yaml
+
+   - address: LINE:DIAG:BPM:01:POSITION:X
+     also: [LINE:RACK:03:UNIT:01:X]
+     element: BPM01
+     engine:
+       axis: x
+
+Each address under ``also`` is a channel of ``records/channels.yaml`` with the
+``role``, ``value_type``, ``options`` and ``shape`` of the record's ``address``,
+and the same ``unit`` when both state one. It reads what ``address`` reads at
+the same instant, with the same calibration, motion and readout noise, and a
+write to it is a write to ``address``. It carries no seed of its own, and a
+limit is still stated per address. A pair is stated between
+records' ``address`` names: the build stops when an address under ``also``
+states a ``pair``, and when a setpoint's ``pair`` names an address under
+``also``. A fault variable is named by ``address``
+only (``LINE:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
+(``overrides``, ``noise``, ``couple``, ``channel_faults``, ``still``) may name
+either. An address belongs to one wiring record: the build stops when two
+records name it, and when two records read the same axis of one monitor.
 
 Measurement
 ===========

@@ -35,6 +35,7 @@ from osprey.deployment.compose_generator import (
     labels_override_path,
     prepare_compose_files,
     project_label_values,
+    rendered_checkout,
     repo_identity,
 )
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
@@ -152,6 +153,37 @@ def test_every_rendered_service_gets_the_four_generated_labels(
     assert list(services) == ["postgresql", "site-probe", "agent-record"]
     for entry in services.values():
         assert entry == {"labels": _expected_labels(tmp_path)}
+
+
+def test_the_override_reads_back_the_checkout_it_was_rendered_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _render(tmp_path, monkeypatch)
+
+    stated = rendered_checkout(tmp_path)
+
+    assert stated is not None
+    assert stated.repo_ids == {repo_identity(tmp_path)}
+    assert stated.project_root == str(tmp_path)
+
+
+def test_no_override_states_no_checkout(tmp_path: Path) -> None:
+    assert rendered_checkout(tmp_path) is None
+
+
+@pytest.mark.parametrize("spelled", ["'012345678901'", "012345678901"])
+def test_an_all_digit_repo_id_reads_back_as_a_string(tmp_path: Path, spelled: str) -> None:
+    override = labels_override_path(tmp_path)
+    override.parent.mkdir(parents=True)
+    override.write_text(
+        f"services:\n  probe:\n    labels:\n      {REPO_ID_LABEL}: {spelled}\n",
+        encoding="utf-8",
+    )
+
+    stated = rendered_checkout(tmp_path)
+
+    assert stated is not None
+    assert stated.repo_ids == {"012345678901"}
 
 
 def test_a_template_that_spells_no_labels_is_named_too(

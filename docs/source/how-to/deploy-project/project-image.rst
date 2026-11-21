@@ -127,7 +127,9 @@ Build Arguments
 
 - the top-level ``offline`` key
 - the ``images.site_ca`` / ``images.pip_no_proxy`` / ``images.pip_index_url``
-  / ``images.pip_extra_index_url`` / ``images.base_registry`` block
+  / ``images.pip_extra_index_url`` / ``images.base_registry`` /
+  ``images.playwright_download_host`` block
+- ``images.skip_browser``
 
 It resolves them once and hands them to every image it builds: the project
 image, each web-terminal image, the login sidecar and each service image. Set
@@ -169,6 +171,16 @@ shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
        ``${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim``. The mirror must keep Docker
        Hub's paths; pull-through caches such as a Harbor proxy project, an
        Artifactory remote and a Nexus docker proxy do.
+   * - ``PLAYWRIGHT_DOWNLOAD_HOST``
+     - ``""``
+     - Host the headless browser is downloaded from, for a site that mirrors
+       ``cdn.playwright.dev``. The mirror must keep its paths. It is
+       Playwright's own environment name; left empty, Playwright downloads
+       from its CDN.
+   * - ``OSPREY_SKIP_BROWSER``
+     - ``""``
+     - ``"1"`` builds without the headless browser; artifact-to-image export
+       and CANOPY screenshots then report it missing.
    * - ``OSPREY_OFFLINE``
      - ``"0"``
      - ``"1"`` vendors web assets (JS/CSS/fonts) into the image via

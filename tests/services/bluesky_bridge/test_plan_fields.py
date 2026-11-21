@@ -49,6 +49,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     declared_channels,
     resolve_column,
     scan_metadata,
+    validate_field_value,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -645,3 +646,25 @@ def test_importing_plan_fields_stays_import_clean() -> None:
         "importing osprey.services.bluesky_bridge.plan_fields leaked a top-level "
         f"import of a bridge-only module (child exit {result.returncode}):\n{result.stderr}"
     )
+
+
+# ---------------------------------------------------------------------------
+# validate_field_value: one judge for "is this value allowed for this field"
+# ---------------------------------------------------------------------------
+
+
+class _Bounded(BaseModel):
+    count: int = Field(default=5, ge=5)
+    monitors: ReadableChannels = Field(default_factory=list)
+
+
+def test_validate_field_value_applies_the_field_constraints() -> None:
+    assert validate_field_value(_Bounded, "count", "6") == 6
+    assert validate_field_value(_Bounded, "monitors", ("BPM:1",)) == ["BPM:1"]
+    with pytest.raises(ValidationError):
+        validate_field_value(_Bounded, "count", 1)
+
+
+def test_validate_field_value_refuses_an_unknown_field() -> None:
+    with pytest.raises(KeyError):
+        validate_field_value(_Bounded, "nope", 1)

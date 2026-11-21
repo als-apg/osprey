@@ -1424,9 +1424,9 @@ class TestPhysicsUnits:
         assert families["HC"]["fields"]["Setpoint"]["by_model"] == {"TL": None}
 
     def test_the_vocabulary_titles_strength_and_kick(self) -> None:
-        from osprey.facility.validate import signal_titles
+        from osprey.facility.validate import vocabulary
 
-        titles = signal_titles()
+        titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
         assert {n: titles[n] for n in (
             "normalized_strength_setpoint", "normalized_strength_readback",
             "kick_angle_setpoint", "kick_angle_readback",

@@ -309,7 +309,8 @@ class TextureModel(LUMEModel):
                 continue
             for record in model.get("wiring") or []:
                 if "default" in record:
-                    defaults.setdefault(str(record["address"]), record["default"])
+                    for address in (record["address"], *(record.get("also") or ())):
+                        defaults.setdefault(str(address), record["default"])
         return defaults
 
     def _echoed(

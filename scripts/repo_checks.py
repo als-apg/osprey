@@ -71,9 +71,16 @@ class UnitSelection:
 
 #: The tests that pin this declaration and the repository-wide rules, and
 #: every test that reads the whole tests tree: a change anywhere in the tree
-#: can break them, so no change selection may leave them out.
+#: can break them, so no change selection may leave them out. Two rules read
+#: the repository by other means than a glob or a walk, which the tree-reader
+#: scan sees, and are listed by hand: the guard that only the view reader and
+#: writer open a view file (a ``git grep`` of the sources and the tests), and
+#: the docs snippet ratchet (it reads every docs page and the tests its ledger
+#: names).
 INVARIANT_TESTS = (
     "tests/docs/test_shipped_identity_literals.py",
+    "tests/docs/test_snippet_coverage.py",
+    "tests/connectors/test_view_reader_only.py",
     "tests/scripts/test_ruff_file_selection.py",
     "tests/scripts/test_check.py",
     "tests/scripts/test_changelog_fragments.py",
@@ -82,6 +89,7 @@ INVARIANT_TESTS = (
     "tests/interfaces/test_js_module_tests.py",
     "tests/interfaces/test_page_ready_guard.py",
     "tests/interfaces/test_page_ready_pages.py",
+    "tests/facility/test_package_boundary.py",
     "tests/deployment/test_ci_workflow_wiring.py",
     "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",
@@ -337,7 +345,7 @@ _MACOS_RUNS = (
     "tests/cli/test_agent_record_cmd.py::test_export_on_a_no_stack_project_runs_catch_up_and_leaves_no_process",
     "tests/cli/test_agent_record_cmd.py::test_health_on_a_no_stack_project_answers_from_the_record_and_leaves_no_process",
     "tests/cli/test_build_lifecycle_drain.py",
-    "tests/cli/test_build_swap.py::TestServedFilesSurviveABuild::test_the_served_files_are_intact_after_a_build",
+    "tests/cli/test_build_swap.py::TestServedFilesSurviveABuild::test_the_served_files_are_in_place_at_the_last_rename_and_intact_after_the_build",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_leftover_that_cannot_even_be_moved_names_the_path_and_the_reason",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_present_build_wins_over_leftovers",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_an_incoming_render_is_adopted_when_build_is_gone",
@@ -634,6 +642,8 @@ UNIT_SELECTION = UnitSelection(
         ("tests/va/test_timed_passes_live.py", "live-ca"),
         ("tests/va/test_injection_live.py", "live-ca"),
         ("tests/va/test_turn_by_turn_live.py", "live-ca"),
+        ("tests/va/test_stopped_servers_live.py", "live-ca"),
+        ("tests/va/test_server_fleet_live.py", "live-ca"),
         ("tests/integration/test_build_boot.py", "build-boot-smoke"),
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
@@ -1984,6 +1994,8 @@ CHECKS: tuple[Check, ...] = (
             "tests/va/test_timed_passes_live.py",
             "tests/va/test_injection_live.py",
             "tests/va/test_turn_by_turn_live.py",
+            "tests/va/test_stopped_servers_live.py",
+            "tests/va/test_server_fleet_live.py",
             "scripts/va/live_ca/**",
             "src/osprey/services/virtual_accelerator/**",
         ),
@@ -2214,6 +2226,7 @@ LANES: tuple[Lane, ...] = (
                 "web_terminals/test_skills_overlay_discovery.py",
                 "web_terminals/test_loopback_chokepoint.py",
                 "web_terminals/test_session_restart_e2e.py",
+                "web_terminals/test_web_stop_e2e.py",
                 "web_terminals/test_terminal_auth_e2e.py",
                 "web_terminals/test_render_permissions_scripted.py",
                 "claude_code/test_chat_approval_gates_scripted.py",
@@ -2352,6 +2365,7 @@ LANES: tuple[Lane, ...] = (
         "test_scenario_reload.py",
         "test_sim_apply_va.py",
         "test_va_put_surface.py",
+        "test_va_labelled_follow.py",
         "test_planted_journal.py",
         "test_substrate_parity.py",
         "test_chain_boot.py",
@@ -2388,7 +2402,7 @@ OFF_CI = "off-ci"
 E2E_OFF_CI: dict[str, str] = {
     "tests/e2e/test_watchdog_live.py": "spends a direct-route key per call; run by hand",
     "tests/e2e/tier2/test_chart_value_reading.py": "deploys a full stack; benchmark board only",
-    "tests/e2e/tier2/test_pv_directory_agentic.py": "deploys a full stack; benchmark board only",
+    "tests/e2e/tier2/test_channel_directory_agentic.py": "deploys a full stack; benchmark board only",
 }
 
 

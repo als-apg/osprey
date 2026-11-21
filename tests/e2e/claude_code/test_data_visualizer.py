@@ -59,7 +59,7 @@ class TestDataVisualizerAgent:
 
         Reproduces a real failure where the agent passed a file path but wrote
         code assuming the raw dict structure — KeyError because
-        build_data_reader() auto-unwraps the JSON envelope before the agent's
+        the data reader auto-unwraps the JSON envelope before the agent's
         code runs.
 
         The agent should pass data_source (artifact ID or file path) and have

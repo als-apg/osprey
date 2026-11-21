@@ -1,0 +1,352 @@
+/**
+ * OSPREY Channel Finder — All PVs view
+ *
+ * The filters fill the shared panel sidebar (primitives.css
+ * .osprey-panel-sidebar); right of it, the head row, the rows, the pager and,
+ * floating over the rows while something is selected, the selection bar. The
+ * rows scroll inside their own area, both ways; the description gives way
+ * first, so every column stays reachable in a narrow panel.
+ */
+
+/* Edge to edge under the toolbar, like the graph finder. */
+.view-container:has(> .channels) {
+  height: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+.channels {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.channels-facets {
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.channels-facet-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.channels-facet[aria-pressed='true'] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.channels-facet-n {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.channels-facets-reason {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.channels-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.channels-head,
+.channels-pager {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.channels-head {
+  flex-wrap: wrap;
+}
+
+.channels-searched {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channels-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.channels-chips:empty,
+.channels-partial:empty,
+.channels-csv-status:empty {
+  display: none;
+}
+
+.channels-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 22px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--surface-selected);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.channels-chip button {
+  padding: 0 var(--space-1);
+  color: var(--text-muted);
+  line-height: var(--leading-none);
+}
+
+.channels-chip button:hover {
+  color: var(--text-primary);
+}
+
+.channels-grow {
+  flex: 1;
+}
+
+.channels-link {
+  color: var(--color-accent);
+  font-size: var(--text-base);
+}
+
+.channels-link:hover {
+  text-decoration: underline;
+}
+
+.channels-request {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.channels-request[hidden] {
+  display: none;
+}
+
+.channels-request code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  user-select: all;
+}
+
+/* The table area scrolls both ways inside itself; the panel never does. */
+.channels-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.channels-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+}
+
+.channels-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.channels-table th.col-select {
+  width: var(--space-6);
+}
+
+.channels-table th.col-mark {
+  width: var(--space-5);
+}
+
+.channels-table td {
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--surface-hairline);
+  white-space: nowrap;
+}
+
+.channels-table tbody tr {
+  cursor: default;
+}
+
+.channels-table tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+.channels-table tbody tr.sel td {
+  background: var(--surface-selected);
+}
+
+.channels-table tbody tr.inactive td.name {
+  color: var(--text-muted);
+}
+
+.channels-inactive {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.channels-table td.name {
+  font-family: var(--font-mono);
+}
+
+.channels-table td a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.channels-table td a:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* The description takes what the other columns leave, wraps, and is the first
+   to give way, down to its minimum; below that the table area scrolls. */
+.channels-table th.col-desc,
+.channels-table td.desc {
+  width: 100%;
+  min-width: 12rem;
+}
+
+.channels-table td.desc {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.channels-table td.desc.dim {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.channels-table td.dim,
+.channels-table td.channels-value {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.channels-table th.col-value,
+.channels-table td.channels-value {
+  text-align: right;
+}
+
+.channels-table td.channels-value {
+  color: var(--text-primary);
+}
+
+.channels-table td.channels-value.dim,
+.channels-table td.channels-value.no-answer,
+.channels-table td.channels-alarm.dim,
+.channels-table td.channels-archived.dim,
+.channels-unit {
+  color: var(--text-muted);
+}
+
+/* The archive mark: filled archived, outlined not archived, a dot unknown. */
+.channels-table th.col-arch,
+.channels-table td.channels-archived {
+  text-align: center;
+}
+
+.channels-arch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-xs);
+  background: var(--chart-series-1);
+}
+
+.channels-arch.no {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--border-default);
+}
+
+.channels-facet .channels-arch,
+.channels-facet .channels-arch-unknown {
+  margin-right: var(--space-2);
+}
+
+.channels-table .mark {
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+}
+
+.channels-table .mark.cs {
+  color: var(--text-secondary);
+}
+
+.channels-pager {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--text-muted);
+}
+
+.channels-pager:empty {
+  display: none;
+}
+
+/* Floats at the bottom centre of the rows' column, only while something is selected. */
+.channels-selection-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-6);
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  width: max-content;
+  max-width: calc(100% - 2 * var(--space-4));
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-dialog);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.channels-selection-bar strong {
+  color: var(--text-primary);
+}

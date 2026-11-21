@@ -93,6 +93,7 @@ from .build_injectors import (
     _inject_optimizer,
     _inject_optimizer_web,
     _inject_profile_services,
+    _inject_server_fleet,
     _inject_slack_bridge,
     _inject_teams_bridge,
     _inject_va,
@@ -608,6 +609,29 @@ def _prune_runtime_state_from_stage(zones: _RenderZones, *, renders: Sequence[Pa
         state = render / STATE_DIR_NAME
         if state.is_dir() and not any(state.iterdir()):
             state.rmdir()
+
+
+def _report_panels_not_served(stage: Path, renders: Sequence[Path]) -> None:
+    """Print one warning per panel in a staged render the web terminal will not serve.
+
+    Run after the lifecycle phases, because a ``post_build`` step is what writes
+    ``panels/`` into a render, and before the swap, on the tree the server will
+    scan. Advisory: the build does not stop for it.
+
+    Args:
+        stage: The staged deployment render, shown as ``build/``.
+        renders: The staged login renders, each a directory of ``stage``.
+    """
+    from osprey.deployment.web_terminals.lint import panels_not_served
+
+    from . import output
+
+    shown = [(stage, BUILD_DIR_NAME)] + [
+        (render, f"{BUILD_DIR_NAME}/{render.name}") for render in renders
+    ]
+    for render, shown_as in shown:
+        for finding in panels_not_served(render, shown_as=shown_as):
+            output.note(f"⚠ [{finding.code}] {finding.message}")
 
 
 def _backup_outgoing_claude_artifacts(zones: _RenderZones) -> Path | None:
@@ -1284,10 +1308,20 @@ def _render_compose_files(
         # the service directories the config names — is spelled relative to the
         # staged tree, which is what the render itself was rooted at.
         network_errors = _network_check_errors(config, compose_files)
+        from osprey.deployment import run_once
+        from osprey.deployment.container_lifecycle import merged_compose_services
+
+        run_once_errors = run_once.declaration_errors(
+            merged_compose_services([Path(path) for path in compose_files])
+        )
     finally:
         os.chdir(previous)
     if network_errors:
         raise click.UsageError("Network axis check failed:\n  - " + "\n  - ".join(network_errors))
+    if run_once_errors:
+        raise click.UsageError(
+            "Run-once declarations are refused:\n  - " + "\n  - ".join(run_once_errors)
+        )
     # Not reported here: the render phase's `compose files` step fires the
     # moment this returns and says the same thing.
     logger.debug("Rendered %d compose file(s)", len(compose_files))
@@ -4552,6 +4586,8 @@ def _build_repo(
                 stream=stream,
             )
 
+        _report_panels_not_served(zones.stage, renders)
+
         backup_dir = _backup_outgoing_claude_artifacts(zones)
         # After the backup (which reads the outgoing build/ against the staged
         # tree) and before the swap, so build/ is never published carrying
@@ -5342,6 +5378,9 @@ def _inject_services(
     if build_profile.va_archiver is not None:
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
+    # Follows the config rather than a profile block: channel_directory.fleet.
+    if _inject_server_fleet(project_path):
+        injected.append("server fleet")
 
     _declare_bundled_host_bindings(
         project_path, profile_dir, {**(build_profile.services or {}), **app_services}

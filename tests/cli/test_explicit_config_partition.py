@@ -25,6 +25,12 @@ preset admits), the keys of the frozen root render are partitioned into:
     ``services.graphdb.ttl_path`` for a preset that spells a graph store block
     and names no corpus: :func:`~osprey.cli.build_injectors.graphdb_corpus_fill`
     supplies the graph view the build writes.
+``Fleet``
+    ``services.server_fleet.path`` and ``services.server_fleet.port`` for a preset
+    whose ``config:`` states a ``channel_directory.fleet`` block:
+    :func:`~osprey.cli.build_injectors._inject_server_fleet` writes the server fleet
+    service's block from that sub-block, the port being the layout's
+    ``server_fleet`` slot.
 ``W``
     Keys the build writes that no preset states: the MCP health address a
     render serving web terminals pins, the bundled record archive's compose
@@ -69,7 +75,7 @@ import pytest
 import yaml
 
 from osprey.apps.loader import load
-from osprey.cli.build_injectors import graphdb_corpus_fill
+from osprey.cli.build_injectors import SERVER_FLEET_SERVICE, graphdb_corpus_fill
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_health import MCP_URL_KEY
@@ -258,6 +264,20 @@ def _block_derived_prefixes(document: Mapping[str, Any]) -> dict[str, str]:
     return prefixes
 
 
+def _fleet_service_keys(config: Mapping[str, Any]) -> set[str]:
+    """The ``services.server_fleet`` leaves the server fleet injector writes for *config*.
+
+    The injector follows ``channel_directory.fleet`` rather than a profile section:
+    with the sub-block stated it writes the service's ``path`` and ``port``.
+    """
+    if not any(
+        key == "channel_directory.fleet" or key.startswith("channel_directory.fleet.")
+        for key in config
+    ):
+        return set()
+    return {f"services.{SERVER_FLEET_SERVICE}.path", f"services.{SERVER_FLEET_SERVICE}.port"}
+
+
 def _under(key: str, prefixes: Mapping[str, str]) -> bool:
     return any(key == prefix or key.startswith(prefix + ".") for prefix in prefixes)
 
@@ -330,6 +350,7 @@ def _partition(
     block_prefixes = _block_derived_prefixes(document)
     panel_switches = _panel_switches(document)
     corpus = set(graphdb_corpus_fill(dict(document.get("config") or {})))
+    fleet = _fleet_service_keys(config)
     sets: dict[str, set[str]] = {
         "D": set(),
         "P": set(),
@@ -337,6 +358,7 @@ def _partition(
         "B": set(),
         "Ports": set(),
         "Corpus": set(),
+        "Fleet": set(),
         "Fill": set(),
         "W": set(),
         "C": set(),
@@ -357,6 +379,8 @@ def _partition(
             sets["Ports"].add(key)
         elif key in corpus:
             sets["Corpus"].add(key)
+        elif key in fleet and key not in config:
+            sets["Fleet"].add(key)
         elif key in _FACT_KEYS and key not in config:
             sets["Fill"].add(key)
         elif _WRITTEN_BY_BUILD_PATTERN.match(key) and key not in config:
@@ -397,7 +421,7 @@ def test_root_render_is_partitioned_between_its_sources(
     assert not missing, f"{directory}: preset keys absent from the render: {sorted(missing)}"
 
     # A preset must spell nothing the build renders on its own.
-    for name in ("D", "P", "Panels", "B", "Ports", "Corpus"):
+    for name in ("D", "P", "Panels", "B", "Ports", "Corpus", "Fleet"):
         assert not {key for key in config if key in sets[name]}, name
     assert not {key for key in config if is_derived_key(key)}
     assert not {key for key in config if _PORT_LEAF.match(key)}

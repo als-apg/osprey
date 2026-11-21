@@ -642,10 +642,10 @@ def test_a_labelled_blank_node_is_one_node_across_bounded_requests(
 
 #: The heap the small-heap store is pinned to: half the shipped default of 1G.
 SMALL_HEAP = "512m"
-#: Devices in the generated corpus. With two channels each this is about 50 MB
-#: of Turtle: half of a corpus that could not be seeded at the default heap,
+#: Devices in the generated corpus. With two channels each this is about 25 MB
+#: of Turtle: a quarter of a corpus that could not be seeded at the default heap,
 #: against half that heap.
-LARGE_CORPUS_DEVICES = 95_000
+LARGE_CORPUS_DEVICES = 47_500
 #: Triples one generated device states: eight of its own, three per channel.
 _TRIPLES_PER_DEVICE = 14
 
@@ -694,12 +694,13 @@ def test_a_corpus_too_large_for_one_request_seeds_and_is_wiped_in_a_small_heap(
     The defect this pins: the whole corpus went to the store as one request, so
     the heap had to hold all of it. A corpus of about 110 MB failed at the
     shipped 1G heap and at 2G, and the deploy that failed ended as a success.
-    Here both sides are halved to keep the test short: about 50 MB against
-    512m, where the one-request import dies of ``Java heap space`` just the
-    same.
+    Here the corpus is quartered and the heap halved, to keep the test short:
+    about 25 MB against 512m, where the one-request import dies of
+    ``Java heap space`` just the same, and a bounded request keeps room to
+    spare.
 
     The second half is the wipe that starts every re-seed. The store this
-    leaves holds two class nodes with hundreds of thousands of relationships
+    leaves holds two class nodes with tens of thousands of relationships
     each; deleting them one bounded batch at a time is what lets the next
     ``osprey up`` replace this corpus in the same heap.
 
@@ -709,7 +710,7 @@ def test_a_corpus_too_large_for_one_request_seeds_and_is_wiped_in_a_small_heap(
     from osprey.services.graph_store import seeder as graph_seeder
 
     corpus = _large_corpus(LARGE_CORPUS_DEVICES)
-    assert len(corpus) > 10 * graph_seeder.IMPORT_CHUNK_CHARS
+    assert len(corpus) > 5 * graph_seeder.IMPORT_CHUNK_CHARS
 
     label = f"graphdb (neo4j + n10s) with a {SMALL_HEAP} heap"
     with (

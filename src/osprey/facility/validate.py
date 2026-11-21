@@ -34,14 +34,14 @@ import numbers
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
-from functools import cache
+from functools import cache, cached_property
 from importlib import resources
 from pathlib import Path
 from typing import IO, Any
 
 import click
 
-from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import (
     FacilityBuildError,
@@ -50,8 +50,11 @@ from osprey.facility.errors import (
     quoted_slots,
 )
 from osprey.facility.pairing import (
+    COPY_INDEX,
     FOLLOWS_NONE,
     NOT_FOLLOWED,
+    index_copy,
+    labels_of,
     must_agree,
     pair_follows,
     same_type,
@@ -63,6 +66,7 @@ from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_error
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
+from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
 from osprey_connectors.simulation.values import is_waveform
 
 __all__ = [
@@ -107,7 +111,7 @@ STAGES: tuple[str, ...] = (
 )
 
 #: The header of the combined facility file.
-FACILITY_HEADER = "osprey.facility.facility/3"
+FACILITY_HEADER = "osprey.facility.facility/4"
 
 #: The order errors print in: one entry per row of the error table.
 _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
@@ -147,6 +151,14 @@ _MAX_LABEL = 25
 #: than 17 significant digits.
 _MAX_PRECISION = 17
 
+#: The channel slots every address of one wiring record states alike, each with
+#: the value a channel stating none has.
+_SAME_VARIABLE_SLOTS: dict[str, Any] = {
+    "role": DEFAULT_ROLE,
+    "value_type": "float",
+    "options": None,
+    "shape": None,
+}
 _LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
 #: The value types a limits record bounds; every other type carries no bounds.
 _NUMERIC_TYPES = ("float", "int")
@@ -399,47 +411,6 @@ def signal_roles(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
     names = {str(role["name"]) for role in vocabulary()["signal_roles"]}
     names.update(str(row["name"]) for row in signals if isinstance(row.get("name"), str))
     return frozenset(names)
-
-
-def nameplate_signals(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
-    """The signal roles marked ``nameplate``: a signal that names the unit it is read
-    from (its model, serial number, firmware version) rather than its state.
-
-    Args:
-        signals: ``signals.yaml``'s records (the facility document's ``signals``).
-
-    Returns:
-        The vocabulary's marked signal roles joined with the facility's.
-    """
-    names = {str(role["name"]) for role in vocabulary()["signal_roles"] if role.get("nameplate")}
-    names.update(
-        str(row["name"])
-        for row in signals
-        if isinstance(row.get("name"), str) and row.get("nameplate") is True
-    )
-    return frozenset(names)
-
-
-def signal_titles(signals: Iterable[Mapping[str, Any]] = ()) -> dict[str, str]:
-    """The short words screens name signal roles by: each role's stated ``title``.
-
-    Args:
-        signals: ``signals.yaml``'s records (the facility document's ``signals``).
-
-    Returns:
-        The vocabulary's titled signal roles joined with the facility's, by name.
-    """
-    titles = {
-        str(role["name"]): str(role["title"])
-        for role in vocabulary()["signal_roles"]
-        if role.get("title")
-    }
-    titles.update(
-        (str(row["name"]), row["title"])
-        for row in signals
-        if isinstance(row.get("name"), str) and isinstance(row.get("title"), str) and row["title"]
-    )
-    return titles
 
 
 def relation_types() -> dict[str, dict[str, Any]]:
@@ -823,8 +794,7 @@ class _Index:
             for entry in model.get("wiring") or []:
                 if isinstance(entry, dict):
                     self.wiring.append((name, entry))
-                    address = entry.get("address")
-                    if isinstance(address, str):
+                    for address in wiring_addresses(entry):
                         self.wired.setdefault(address, set()).add(name)
         limits = document.get("limits")
         records = limits.get("records") if isinstance(limits, dict) else None
@@ -1056,6 +1026,10 @@ class _References:
             yield from self._missing(
                 "wiring", wid, stating_files(entry, "address"), "address", "channel", address
             )
+            for name in wiring_addresses(entry)[1:] if isinstance(address, str) else ():
+                yield from self._missing(
+                    "wiring", wid, stating_files(entry, "also"), "also", "channel", name
+                )
             channel = self.index.channels.get(str(address), {})
             on = channel.get("on")
             own = on.get("device") if isinstance(on, dict) else None
@@ -1967,17 +1941,17 @@ class _Records:
             pair = str(channel.get("pair", address))
             if pair != address:
                 named.setdefault(pair, []).append(address)
-        followed = {
-            follow.readback: follow.setpoint
-            for follow in pair_follows(self.index.channels)
-            if follow.follow != NOT_FOLLOWED
-        }
+        follows = pair_follows(self.index.channels)
+        followed = {f.readback: f.setpoint for f in follows if f.follow != NOT_FOLLOWED}
+        by_index = {f.readback for f in follows if f.copy == COPY_INDEX}
         for pair, setpoints in sorted(named.items()):
             for address in setpoints:
                 channel = self.index.channels[address]
                 yield from self._pair(address, channel, pair, simulated=pair in followed)
         yield from self._follows(named)
         yield from self._followed_own_values(followed)
+        for readback in sorted(by_index):
+            yield from self._index_start(followed[readback], readback)
 
     def _followed_own_values(self, followed: Mapping[str, str]) -> Iterator[FacilityBuildError]:
         """A readback the simulation follows takes its setpoint's value, so its seed
@@ -2022,11 +1996,9 @@ class _Records:
                 problem = f"`follows` names {follows}, whose `pair` is not {address}"
                 remedy = f"name {setpoints[0]}, whose `pair` is {address}, or `none`"
             elif not same_type(self.index.channels[follows], channel):
-                problem = (
-                    f"`follows` names {follows}, which holds values of another type; "
-                    "the simulation copies the setpoint's value"
+                problem, remedy = _follows_across_types(
+                    follows, self.index.channels[follows], address, channel
                 )
-                remedy = f"give {follows} and {address} one type, or remove `follows`"
             if problem is not None and remedy is not None:
                 yield self._error(
                     "seed-invalid", "channel", address, self._seed_files(channel), problem, remedy
@@ -2130,6 +2102,48 @@ class _Records:
                 self._seed_files(self.index.channels[readback]),
                 derived=_derived_pair(self.index.channels[setpoint]),
             )
+
+    def _start_value(self, address: str) -> tuple[Any, bool]:
+        """A channel's start value from its seed, else its type's zero; and whether it was read."""
+        seed = self.index.channels[address].get("simulation")
+        if isinstance(seed, dict) and "nominal" in seed:
+            value, refused = self._coerce(address, seed["nominal"])
+            return value, refused is None
+        from osprey_connectors.simulation.values import zero
+
+        channel = self.index.channels[address]
+        return zero(self._type(address), channel.get("options"), channel.get("shape")), True
+
+    def _index_start(self, setpoint: str, readback: str) -> Iterator[FacilityBuildError]:
+        """A readback copied by index starts at the state its setpoint's start value names."""
+        if setpoint in self.index.wired or readback in self.index.wired:
+            return
+        if setpoint in self.broken or readback in self.broken:
+            return
+        theirs, read = self._start_value(setpoint)
+        if not read:
+            return
+        labels = labels_of(self.index.channels[readback]) or []
+        mine = labels_of(self.index.channels[setpoint])
+        index = mine.index(str(theirs)) if mine is not None else _as_index(theirs, len(labels))
+        files = self._seed_files(self.index.channels[readback])
+        if index is None:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                readback,
+                files,
+                f"the start value {theirs} of {setpoint} is no index of {readback}'s "
+                f"{len(labels)} labels",
+                f"start {setpoint} at an integer from 0 to {len(labels) - 1}",
+            )
+            return
+        seed = self.index.channels[readback].get("simulation")
+        if not isinstance(seed, dict) or "nominal" not in seed:
+            return
+        own, refused = self._coerce(readback, seed["nominal"])
+        if refused is None and own != labels[index]:
+            yield paired_nominal_error(readback, seed["nominal"], setpoint, labels[index], files)
 
     # --- tolerance -----------------------------------------------------------------
 
@@ -2255,6 +2269,7 @@ class _Records:
                     "drop `curve` from the first slice; it converts through `calibration.curve`",
                 )
                 continue
+            yield from self._also(wid, entry)
             channel = self.index.channels.get(str(entry.get("address")), {})
             endpoints = channel.get("endpoint_of") or []
             # A record naming no element drives a property of the whole deck,
@@ -2271,6 +2286,114 @@ class _Records:
                         f"`endpoint_of` device {', '.join(unnamed)} is named by no slice",
                         "name each `endpoint_of` device in a slice, or remove it from `endpoint_of`",
                     )
+
+    def _also(self, wid: str, entry: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
+        """Each `also` name is a channel like the record's own, with no motion of its own."""
+        address, *further = wiring_addresses(entry)
+        channel = self.index.channels[address]
+        files = stating_files(entry, "also")
+        for name in further:
+            if name == address:
+                # Named twice by one record: the compute stage's wiring-conflict.
+                continue
+            other = self.index.channels[name]
+            differing = [
+                slot
+                for slot, default in _SAME_VARIABLE_SLOTS.items()
+                if channel.get(slot, default) != other.get(slot, default)
+            ]
+            unit, theirs = channel.get("unit"), other.get("unit")
+            if unit and theirs and unit != theirs:
+                differing.append("unit")
+            if differing:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    files,
+                    f"`also` names {name}, which differs from {address} in "
+                    f"{quoted_slots(differing)}",
+                    f"give {address} and {name} the same {quoted_slots(differing)}, or remove "
+                    f"{name} from `also`",
+                )
+            elif other.get("simulation") is not None:
+                yield self._error(
+                    "seed-invalid",
+                    "wiring",
+                    wid,
+                    sorted({*files, *self._seed_files(other)}),
+                    f"`also` names {name}, which carries a seed",
+                    f"remove the seed of {name}; it serves the value of {address}, motion included",
+                )
+            else:
+                yield from self._also_pair(wid, files, address, channel, name, other)
+
+    @cached_property
+    def _named_as_pair(self) -> dict[str, list[str]]:
+        """The channels naming each address as their ``pair``, sorted, less the
+        further addresses of wiring records, whose own stop names their ``pair``."""
+        further = {name for _, entry in self.index.wiring for name in wiring_addresses(entry)[1:]}
+        named: dict[str, list[str]] = {}
+        for address, fields in sorted(self.index.channels.items()):
+            pair = fields.get("pair")
+            if isinstance(pair, str) and pair != address and address not in further:
+                named.setdefault(pair, []).append(address)
+        return named
+
+    def _also_pair(
+        self,
+        wid: str,
+        files: list[str],
+        address: str,
+        channel: Mapping[str, Any],
+        name: str,
+        other: Mapping[str, Any],
+    ) -> Iterator[FacilityBuildError]:
+        """A record's pair is stated on its ``address`` and names a record's ``address``.
+
+        The build pairs channels by the names they state, so a pair stated on a
+        further address, or naming one, would leave the record unpaired.
+        """
+        pair = channel.get("pair", address)
+        theirs = other.get("pair", name)
+        if theirs != name:
+            pair_files = sorted({*files, *stating_files(other, "pair")})
+            if theirs == pair:
+                # Several setpoints may name one readback, which the simulation
+                # then follows from none; two addresses of one record are one setpoint.
+                detail = (
+                    f"`also` names {name}, whose `pair` is {pair} as {address}'s is, so {pair} "
+                    "would count as shared by two setpoints and follow neither"
+                )
+                remedy = (
+                    f"remove `pair` from {name}; {pair} follows the record under each of its "
+                    "addresses"
+                )
+            elif pair == address:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address} states none"
+                )
+                remedy = f"state `pair: {theirs}` on {address} and remove `pair` from {name}"
+            else:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address}'s is {pair}"
+                )
+                remedy = f"remove `pair` from {name}; the record's pair is the one {address} states"
+            if _derived_pair(other):
+                remedy = (
+                    f"state `pair: {name}` on {name}; the record's pair is the one {address} states"
+                )
+            yield self._error("pair-invalid", "wiring", wid, pair_files, detail, remedy)
+        for setpoint in self._named_as_pair.get(name, ()):
+            fields = self.index.channels[setpoint]
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                setpoint,
+                sorted({*stating_files(fields, "pair"), *files}),
+                f"`pair` names {name}, which wiring record {wid} states under `also`",
+                _pair_remedy(setpoint, fields, f"name {address} as the pair"),
+            )
 
     # --- limits --------------------------------------------------------------------
 
@@ -2347,6 +2470,7 @@ class _Records:
                 yield from self._scenario_noise(name, files, str(address), entry)
             yield from self._still(name, files, scenario)
             yield from self._channel_faults(name, files, scenario.get("channel_faults"))
+            yield from self._stopped_servers(name, files, scenario.get("stopped_servers"))
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
@@ -2497,6 +2621,42 @@ class _Records:
                     files,
                     f"`{slot}` is `{word}` on a {role} channel",
                     "`stuck` faults a setpoint, `frozen` a reading, `disconnected` any channel",
+                )
+
+    def _stopped_servers(
+        self, name: str, files: list[str], block: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``stopped_servers``: each the name of a simulated IOC the facility can serve.
+
+        Which models a render serves is the render's to know, so a name of a
+        model it leaves unserved is refused there (``views/simulator.py``).
+        """
+        if block is None:
+            return
+        if not isinstance(block, list) or not all(isinstance(ioc, str) for ioc in block):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`stopped_servers` is {block!r}, not a list of simulated IOC names",
+                f"write `stopped_servers: [sim-<model>, ...]` or `[{TEXTURE_SERVER}]`",
+            )
+            return
+        known = served_servers(
+            model_name
+            for model_name, model in self.index.models.items()
+            if model.get("engine") not in (None, "texture")
+        )
+        for ioc in block:
+            if ioc not in known:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`stopped_servers` names `{ioc}`, which no simulated IOC is",
+                    "write one of " + ", ".join(f"`{served}`" for served in sorted(known)),
                 )
 
     def _scenario_noise(
@@ -3031,6 +3191,44 @@ def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildE
         remedy,
         record_kind="measurement",
         detail=detail,
+    )
+
+
+def _as_index(value: Any, count: int) -> int | None:
+    """``value`` as an index of ``count`` labels: an integral, finite number in range."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not math.isfinite(value) or not float(value).is_integer():
+        return None
+    index = int(value)
+    return index if 0 <= index < count else None
+
+
+def _follows_across_types(
+    setpoint: str, mine: Mapping[str, Any], readback: str, theirs: Mapping[str, Any]
+) -> tuple[str | None, str | None]:
+    """The refusal of ``follows`` across types, or ``(None, None)`` when the state copies by index."""
+    labels, _why = index_copy(mine, theirs)
+    if labels is not None:
+        return None, None
+    own = labels_of(theirs)
+    if own is None:
+        return (
+            f"`follows` names {setpoint}, which holds values of another type; "
+            "the simulation copies the setpoint's value",
+            f"give {setpoint} and {readback} one type, or remove `follows`",
+        )
+    other = labels_of(mine)
+    if other is not None:
+        return (
+            f"`follows` names {setpoint}, which holds {len(other)} labels to {readback}'s "
+            f"{len(own)}; the state is copied by index",
+            f"give {setpoint} and {readback} as many labels, or remove `follows`",
+        )
+    return (
+        f"`follows` names {setpoint}, which holds neither labels nor a number; the state "
+        "is copied by index",
+        f"give {setpoint} labels or a number type, or remove `follows`",
     )
 
 

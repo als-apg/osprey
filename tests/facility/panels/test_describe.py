@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import load_graph
+from osprey.facility.panels import FacilityDocument, load_graph
 from osprey.facility.panels.describe import (
     HOME,
     HOME_LINK,
@@ -50,7 +50,7 @@ from osprey.facility.panels.view import (
     ValueRow,
     View,
 )
-from osprey.facility.records import FacilityRecords
+from osprey.facility.validate import FACILITY_HEADER
 from tests.facility.panels._fixture import (
     PANELS_DIR,
     RING_FRAME,
@@ -444,7 +444,9 @@ def test_targets_name_each_screen_with_view_kind_thing_kind_and_id(panel_graph):
 
 def test_a_set_needs_members_that_share_one_class(tmp_path):
     def mixed(document: dict[str, Any]) -> None:
-        document["groups"].append({"id": "XR01-MIX", "members": ["XR01:QF1", "XR01:IP1"]})
+        document["groups"].append(
+            {"id": "XR01-MIX", "kind": "family", "members": ["XR01:QF1", "XR01:IP1"]}
+        )
 
     found = targets(_graph(tmp_path, mixed))
     assert Target("card", "group", "XR01-MIX") in found
@@ -528,8 +530,12 @@ def test_the_primary_pair_is_keyed_on_the_stated_signal_never_the_name(panel_gra
 
 def test_a_set_member_with_no_place_is_in_a_last_row(tmp_path):
     def loose(document: dict[str, Any]) -> None:
-        document["groups"].append({"id": "XR-MISC", "members": ["XR09:LOOSE1", "XR02:SHIELD1"]})
-        document["groups"].append({"id": "XR01-MAG", "members": ["XR01:QD1", "XR01:QF1"]})
+        document["groups"].append(
+            {"id": "XR-MISC", "kind": "family", "members": ["XR09:LOOSE1", "XR02:SHIELD1"]}
+        )
+        document["groups"].append(
+            {"id": "XR01-MAG", "kind": "family", "members": ["XR01:QD1", "XR01:QF1"]}
+        )
 
     graph = _graph(tmp_path, loose)
     (grid,) = _section(set_overview(graph, "XR-MISC"), "members").items
@@ -868,10 +874,15 @@ def _big_graph(devices: int) -> PanelGraph:
     sectors = 500
     places = [{"id": "R"}] + [{"id": f"R/S{n}"} for n in range(sectors)]
     document: dict[str, Any] = {
+        "schema": FACILITY_HEADER,
+        "signals": [],
+        "relation_types": [
+            {"name": "cabled_to", "subject": ["device", "place"], "object": ["device", "place"]}
+        ],
         "places": places,
         "devices": [],
         "channels": [],
-        "groups": [{"id": f"G{n}", "members": []} for n in range(90)],
+        "groups": [{"id": f"G{n}", "kind": "family", "members": []} for n in range(90)],
         "relations": [],
     }
     poses, types, health = [], [], []
@@ -921,7 +932,7 @@ def _big_graph(devices: int) -> PanelGraph:
             )
         )
     tables = PanelTables(tuple(poses), tuple(types), tuple(health), (), ())
-    return PanelGraph(FacilityRecords(document), tables)
+    return PanelGraph(FacilityDocument(document), tables)
 
 
 def test_targets_and_views_scale_near_linearly():

@@ -103,6 +103,8 @@ _KEY_PATTERN = re.compile(r"^(?:" + "|".join(_SECTIONS) + r")\.[a-z0-9_.-]+$")
 _EXEMPTIONS: dict[str, str] = {
     "api.js": "a file of the ARIEL frontend, named in the contract's module table",
     "facility.json": "a file name on the channel-finder contract page, not a key",
+    "facility.schema.json": "a file name on the facility.json contract page, not a key",
+    "provenance.defaults": "a field of a facility.json group, not a config.yml key",
     "ariel.database.uri": (
         "recorded as deleted so no preset renders it live, but an explicit uri "
         "is still read and wins (services/ariel_search/config.py); the "
@@ -301,24 +303,24 @@ def test_the_sweep_reads_ariel_keys(tmp_path: Path) -> None:
     )
 
 
-def test_the_sweep_reads_pv_directory_keys(tmp_path: Path) -> None:
-    """A ``pv_directory.*`` literal is a checked key, not prose.
+def test_the_sweep_reads_channel_directory_keys(tmp_path: Path) -> None:
+    """A ``channel_directory.*`` literal is a checked key, not prose.
 
-    Pins the ``pv_directory`` entry in :data:`_SECTIONS`: a nested key the page
+    Pins the ``channel_directory`` entry in :data:`_SECTIONS`: a nested key the page
     documents must resolve, and a misspelled one is flagged.
     """
     fake_root = tmp_path / "repo"
     _write_page(
         fake_root,
-        "pv_directory.rst",
-        "PV directory\n============\n\n"
-        "Set ``pv_directory.display.filter_cap`` to bound a filter.\n"
-        "Set ``pv_directory.not_a_real_key`` to do nothing.\n",
+        "channel_directory.rst",
+        "channel directory\n============\n\n"
+        "Set ``channel_directory.display.filter_cap`` to bound a filter.\n"
+        "Set ``channel_directory.not_a_real_key`` to do nothing.\n",
     )
 
     assert [hit[2] for hit in _undeclared_hits(docs_root=fake_root)] == [
-        "pv_directory.not_a_real_key"
-    ], "the sweep should flag the bogus pv_directory key and pass the declared one"
+        "channel_directory.not_a_real_key"
+    ], "the sweep should flag the bogus channel_directory key and pass the declared one"
 
 
 def test_a_declared_key_is_not_flagged(tmp_path: Path) -> None:

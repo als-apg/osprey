@@ -77,6 +77,7 @@ built on one is refused at construction.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lume.actions import ReadOnlyActionMixin, WritableActionMixin
@@ -155,6 +156,39 @@ def _energy_scaling(record: Any) -> EnergyScaling:
     if word == "none":
         return "none"
     raise ValueError(f"wiring {_record_id(record)}: energy_scaling is {word!r}; use brho or none")
+
+
+@dataclass(frozen=True)
+class ReadbackCalibration:
+    """The calibration of a readback that states another than its setpoint's.
+
+    Attributes:
+        curve: The readback's unit to physics, as the record states it at the
+            deck energy.
+        inverse: Physics back to the readback's unit, the record's
+            ``calibration.inverse``; ``None`` where the record states none,
+            and the way back is then the algebraic inverse of a linear
+            ``curve``.
+        energy_scaling: ``"brho"`` where the physics value the curve states
+            moves with the beam rigidity, else ``"none"``. Always ``"none"``
+            on a readback of a deck property.
+    """
+
+    curve: Calibration
+    inverse: Calibration | None = None
+    energy_scaling: EnergyScaling = "none"
+
+    @classmethod
+    def from_wiring(cls, record: Any) -> ReadbackCalibration | None:
+        """A record's calibration; ``None`` for a record stating none.
+
+        Raises:
+            ValueError: the record states an unknown ``energy_scaling``.
+        """
+        curve, inverse = _curves(record)
+        if curve is None:
+            return None
+        return cls(curve=curve, inverse=inverse, energy_scaling=_energy_scaling(record))
 
 
 def _slice_curves(record: Any) -> tuple[Calibration | None, ...]:
@@ -407,6 +441,35 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
         if self.inverse is None:
             return float(value)
         return self._hardware(to_physics(self.calibration, value))
+
+    def readback_through(
+        self, simulator: PyATSimulator, value: float, own: ReadbackCalibration
+    ) -> float:
+        """What a readback stating its own calibration reads once ``value`` is written.
+
+        ``value`` goes forward through this setpoint's curve to the physics
+        value, and back through the readback's own way to the readback's unit:
+        :meth:`readback` with the readback's reverse path in place of the
+        setpoint's. Where the two scale with the rigidity alike the factors
+        cancel, as they do there; where only one does, the physics value is
+        carried from the one's energy to the other's at the energy the lattice
+        is at.
+
+        Args:
+            simulator: the simulator, read for the lattice's present energy
+                only when the two calibrations scale differently.
+            value: the hardware value written to this setpoint.
+            own: the readback's calibration.
+
+        Returns:
+            The value to serve on the readback address, in the readback's unit.
+        """
+        physics = to_physics(self.calibration, value)
+        if own.energy_scaling != self.energy_scaling:
+            energy_gev = float(simulator.lattice.energy) / EV_PER_GEV
+            factor = energy_factor(energy_gev, self.deck_energy_gev)
+            physics = physics * factor if self.energy_scaling == "brho" else physics / factor
+        return to_hardware(own.curve, own.inverse, physics)
 
     def rescale(self, elements: Mapping[str, Any], factor: float) -> None:
         """Multiply every bound field by ``factor``, at unchanged hardware value.
@@ -743,6 +806,27 @@ class EnergyVariable(PyATLatticeScalarVariable):
         elements = {element.FamName: element for element in lattice}
         for variable in self._scaled:
             variable.rescale(elements, factor)
+
+    def readback_through(self, value: float, own: ReadbackCalibration) -> float:
+        """What a readback stating its own calibration reads once ``value`` is written.
+
+        ``value`` goes forward through this knob's curve, and that curve value
+        goes back through the readback's own way to the readback's unit. It is
+        the curve's own value, not the energy the lattice is put at: the two
+        differ by the constant ``E_deck / curve(I_nom)`` wherever the curve's
+        absolute scale and the deck disagree, and a facility states the
+        readback's curve against the setpoint's curve, which it knows, not
+        against the deck. So the reading follows the setpoint as the two
+        curves say, whatever the deck's energy is, and no rigidity enters.
+
+        Args:
+            value: the hardware value written to this knob.
+            own: the readback's calibration.
+
+        Returns:
+            The value to serve on the readback address, in the readback's unit.
+        """
+        return to_hardware(own.curve, own.inverse, to_physics(self.calibration, value))
 
     def _energy_gev(self, value: float) -> float:
         """The beam energy ``value`` on the bend implies, in GeV."""
@@ -1259,6 +1343,7 @@ __all__ = [
     "RFSwitchVariable",
     "RFVariable",
     "RF_SWITCH_SIGNAL",
+    "ReadbackCalibration",
     "StrengthVariable",
     "TurnArrayVariable",
     "TurnSetpointVariable",

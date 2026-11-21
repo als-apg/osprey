@@ -39,6 +39,7 @@ from osprey.simulation.engines.pyat_variables import (
     EnergyVariable,
     KickVariable,
     MonitorVariable,
+    ReadbackCalibration,
     RFVariable,
     StrengthVariable,
     variable_from_wiring,
@@ -611,6 +612,93 @@ class TestReadback:
         assert build(sextupole_record()).readback(SEXT_CURRENT) == SEXT_CURRENT
 
 
+#: A second readback of the quadrupole, in volts: the same strength through a
+#: line of its own.
+VOLT_GAIN, VOLT_OFFSET = 0.004, 0.1
+
+
+def _own(energy_scaling: str, **curves: Any) -> ReadbackCalibration:
+    record = {
+        "address": "MAG:QUADRUPOLE:VOLTAGE",
+        "calibration": {
+            "curve": _linear(VOLT_GAIN, VOLT_OFFSET),
+            "energy_scaling": energy_scaling,
+            **curves,
+        },
+    }
+    own = ReadbackCalibration.from_wiring(record)
+    assert own is not None
+    return own
+
+
+class TestReadbackThroughItsOwnCalibration:
+    """The setpoint's physics value, read in the unit of a readback's own calibration."""
+
+    STRENGTH = QUAD_GAIN * QUAD_CURRENT
+
+    def test_a_record_stating_no_calibration_has_none(self) -> None:
+        assert ReadbackCalibration.from_wiring({"address": "MAG:QUADRUPOLE:VOLTAGE"}) is None
+
+    def test_reads_the_physics_value_back_along_its_own_line(self, simulator) -> None:
+        variable = build(quadrupole_record())
+
+        read = variable.readback_through(simulator, QUAD_CURRENT, _own("brho"))
+
+        assert read == pytest.approx((self.STRENGTH - VOLT_OFFSET) / VOLT_GAIN, rel=1e-12)
+
+    def test_its_stated_inverse_wins_over_the_algebraic_one(self, simulator) -> None:
+        variable = build(quadrupole_record())
+        own = _own("brho", inverse=_linear(240.0, 3.0))
+
+        read = variable.readback_through(simulator, QUAD_CURRENT, own)
+
+        assert read == pytest.approx(240.0 * self.STRENGTH + 3.0, rel=1e-12)
+
+    def test_the_setpoints_own_inverse_plays_no_part(self, simulator) -> None:
+        calibration = {
+            "curve": _linear(QUAD_GAIN),
+            "inverse": _linear(510.0),
+            "energy_scaling": "brho",
+        }
+        variable = build(quadrupole_record(calibration=calibration))
+
+        read = variable.readback_through(simulator, QUAD_CURRENT, _own("brho"))
+
+        assert read == pytest.approx((self.STRENGTH - VOLT_OFFSET) / VOLT_GAIN, rel=1e-12)
+
+    def test_the_same_scaling_reads_the_same_at_every_energy(self, simulator) -> None:
+        variable = build(quadrupole_record())
+        at_deck = variable.readback_through(simulator, QUAD_CURRENT, _own("brho"))
+        simulator.lattice.energy = RAISED_ENERGY_GEV * EV_PER_GEV
+
+        assert variable.readback_through(simulator, QUAD_CURRENT, _own("brho")) == at_deck
+
+    def test_an_unscaled_readback_of_a_scaled_setpoint_reads_what_the_lattice_holds(
+        self, simulator
+    ) -> None:
+        variable = build(quadrupole_record())
+        simulator.lattice.energy = RAISED_ENERGY_GEV * EV_PER_GEV
+        variable._set(simulator, QUAD_CURRENT)
+        held = float(element(simulator.lattice, QUADRUPOLE).PolynomB[1])
+
+        read = variable.readback_through(simulator, QUAD_CURRENT, _own("none"))
+
+        assert held == pytest.approx(self.STRENGTH * rigidity_factor(RAISED_ENERGY_GEV))
+        assert read == pytest.approx((held - VOLT_OFFSET) / VOLT_GAIN, rel=1e-12)
+
+    def test_a_scaled_readback_of_an_unscaled_setpoint_takes_the_factor_off(
+        self, simulator
+    ) -> None:
+        variable = build(sextupole_record())
+        simulator.lattice.energy = RAISED_ENERGY_GEV * EV_PER_GEV
+        physics = SEXT_GAIN * SEXT_CURRENT + SEXT_OFFSET
+
+        read = variable.readback_through(simulator, SEXT_CURRENT, _own("brho"))
+
+        expected = (physics / rigidity_factor(RAISED_ENERGY_GEV) - VOLT_OFFSET) / VOLT_GAIN
+        assert read == pytest.approx(expected, rel=1e-12)
+
+
 class TestRigidityScaling:
     def test_a_scaled_write_takes_the_factor_for_the_present_energy(self, simulator) -> None:
         simulator.lattice.energy = RAISED_ENERGY_GEV * EV_PER_GEV
@@ -765,6 +853,35 @@ class TestMonitorStartValues:
         record = monitor_record(calibration=calibration)
         values = pyat.start_values(deck, [record], {}, readbacks={"DIAG:MONITOR:X": None})
         assert values == {"DIAG:MONITOR:X": 0.0}
+
+
+class TestEnergyReadbackThroughItsOwnCalibration:
+    """The energy knob's curve value, read in the unit of a readback's own calibration."""
+
+    def test_reads_the_curve_value_back_along_its_own_line(self) -> None:
+        knob = build(energy_record())
+
+        read = knob.readback_through(BEND_RAISED, _own("none"))
+
+        curve_value = cal.to_physics(knob.calibration, BEND_RAISED)
+        assert read == pytest.approx((curve_value - VOLT_OFFSET) / VOLT_GAIN, rel=1e-12)
+
+    def test_its_stated_inverse_wins_over_the_algebraic_one(self) -> None:
+        knob = build(energy_record())
+
+        read = knob.readback_through(BEND_RAISED, _own("none", inverse=_linear(240.0, 3.0)))
+
+        curve_value = cal.to_physics(knob.calibration, BEND_RAISED)
+        assert read == pytest.approx(240.0 * curve_value + 3.0, rel=1e-12)
+
+    def test_a_deck_the_curve_disagrees_with_plays_no_part(self) -> None:
+        """The reading is the curve's own value, not the energy the lattice is put at."""
+        agreeing = build(energy_record())
+        disagreeing = build(energy_record(), deck_energy_gev=0.9 * DECK_ENERGY_GEV)
+
+        assert disagreeing.readback_through(BEND_RAISED, _own("none")) == (
+            agreeing.readback_through(BEND_RAISED, _own("none"))
+        )
 
 
 class TestEnergyVariable:

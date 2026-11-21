@@ -184,6 +184,9 @@ SHARED_WATCHDOG_BUILD_RECORD = "built-ca-watchdog-on.pickle"
 #: Under xdist, the same for the build with orbit bump turned on.
 SHARED_ORBIT_BUMP_BUILD_RECORD = "built-ca-orbit-bump.pickle"
 
+#: Under xdist, the same for the build in the hierarchical channel-finder mode.
+SHARED_HIERARCHICAL_BUILD_RECORD = "built-ca-hierarchical.pickle"
+
 
 @contextmanager
 def _exclusive(lock_path: Path) -> Iterator[None]:
@@ -262,12 +265,17 @@ class Restorable:
     more from it than the path itself (the manifests' digests of the files
     that name it, the compose ``com.osprey.repo-id`` label). So every user
     shares the one path, and the trees they are handed are what a build
-    there makes. That is also why it is for function-scoped users only: two
-    holders alive at once would be handed the one directory.
+    there makes. That is also why a holder must not keep a path into the
+    tree past its own use: the next :meth:`restore` wipes it, and two holders
+    alive at once would be handed the one directory. A function-scoped user
+    holds the path for its test; a wider-scoped one reads what it needs
+    straight away and keeps only that, never the path.
 
-    The first call runs *make* inside the first user's test, with that test's
-    fixtures in force, as each user's own build ran before the tree was
-    shared.
+    The first call runs *make* inside the first user's setup, with that
+    user's fixtures in force, as each user's own build ran before the tree
+    was shared. For a function-scoped user that is its test's fixtures; for a
+    module-scoped one, only the session and module ones, since its setup comes
+    before any test's function-scoped fixtures.
 
     Attributes:
         made: What *make* returned besides the tree, once made: a
@@ -371,6 +379,22 @@ def built_demo_orbit_bump(tmp_path_factory: pytest.TempPathFactory) -> BuiltProj
     return built
 
 
+@pytest.fixture(scope="session")
+def built_demo_hierarchical(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
+    """The demo preset with ``channel_finder_mode=hierarchical`` set at init, built once per run.
+
+    The preset ships the graph paradigm; this is the build its tests of a
+    database-backed paradigm read. Tests read it and never write to it.
+    """
+    built: BuiltProject = _built_once(
+        tmp_path_factory,
+        "built-ca-hierarchical",
+        SHARED_HIERARCHICAL_BUILD_RECORD,
+        lambda parent: build_demo(parent, "channel_finder_mode=hierarchical"),
+    )
+    return built
+
+
 #: The preset's one watchdog, as ``osprey init`` writes it into ``profile.yml``: off.
 WATCHDOG_OFF = "  guard-circumvention:\n    engine: decision\n    enabled: false\n"
 
@@ -421,6 +445,13 @@ def built_demo_watchdog_on(
 
 #: What a real ``osprey build`` runs under so its install reads uv's cache alone.
 OFFLINE_BUILD_ENV = {"UV_OFFLINE": "1"}
+
+#: Any request a subprocess makes goes to a port nothing listens on.
+NO_ROUTE = dict.fromkeys(
+    ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"),
+    "http://127.0.0.1:9",
+)
+NO_ROUTE["NO_PROXY"] = NO_ROUTE["no_proxy"] = ""
 
 #: Under xdist, the file in the run's shared base temp directory that says uv's
 #: cache was shown to hold what a build installs.
@@ -483,22 +514,32 @@ def fill_uv_cache(parent: Path) -> None:
 
     A cache that already can is left alone and nothing is fetched. One that
     cannot is filled by one install with the network on, then shown to serve.
+    Served means installed under :data:`OFFLINE_BUILD_ENV` with no route to an
+    index (:data:`NO_ROUTE`), into a venv that then imports osprey.
     """
-    offline = {**os.environ, **OFFLINE_BUILD_ENV}
+    offline = {**os.environ, **OFFLINE_BUILD_ENV, **NO_ROUTE}
     # The venv only proves the install, so it goes with the fill.
     with tempfile.TemporaryDirectory(prefix="uv-fill-", dir=parent) as scratch:
         venv = Path(scratch) / "venv"
-        if install_osprey_into(venv, offline).returncode == 0:
-            return
-        filled = install_osprey_into(venv, os.environ)
-        assert filled.returncode == 0, (
-            "uv's cache does not hold what an osprey build installs, and it could not be "
-            f"fetched:\n{filled.stdout}{filled.stderr}"
+        if install_osprey_into(venv, offline).returncode != 0:
+            filled = install_osprey_into(venv, os.environ)
+            assert filled.returncode == 0, (
+                "uv's cache does not hold what an osprey build installs, and it could not be "
+                f"fetched:\n{filled.stdout}{filled.stderr}"
+            )
+            served = install_osprey_into(venv, offline)
+            assert served.returncode == 0, (
+                "uv's cache was filled and still does not serve an osprey build's install:\n"
+                f"{served.stdout}{served.stderr}"
+            )
+        probe = subprocess.run(
+            [str(venv / "bin" / "python"), "-c", "import osprey"],
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
-        served = install_osprey_into(venv, offline)
-        assert served.returncode == 0, (
-            "uv's cache was filled and still does not serve an osprey build's install:\n"
-            f"{served.stdout}{served.stderr}"
+        assert probe.returncode == 0, (
+            f"osprey installed from uv's cache alone and does not import:\n{probe.stderr}"
         )
 
 

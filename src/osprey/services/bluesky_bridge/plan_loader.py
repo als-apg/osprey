@@ -70,12 +70,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from osprey.utils.module_loading import load_by_path
 
 from .figure import REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, Figure, RowWindow
-from .plan_fields import MOVABLE_ROLE, channel_roles
+from .plan_fields import MOVABLE_ROLE, channel_roles, validate_field_value
 from .plan_metadata import parse_plan_metadata
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body
@@ -427,7 +427,11 @@ def _load_plan_file(
     (declared movable fields with ``writes: false``) is deliberately NOT gated:
     that direction fails safe, and a plan may legitimately take a channel name
     it only reads back. Plans are stored with their introspected roles on
-    `PlanSpec.roles`, so no request-time consumer re-walks the schema.
+    `PlanSpec.roles`, so no request-time consumer re-walks the schema. The
+    same gate holds every default of ``PARAMS`` -- written or made by a
+    factory -- to its field's own rule, like a typed value
+    (`_check_defaults`): a plan whose own default breaks its own bounds is
+    refused here rather than run with a value no operator could have typed.
 
     An optional module-level ``render`` is resolved onto the spec by
     `_resolve_render`, which is total: no ``render`` attribute, an unusable
@@ -468,6 +472,7 @@ def _load_plan_file(
                 f"field in PARAMS — a plan that changes machine state must declare "
                 f"which channels it moves"
             )
+        _check_defaults(path, params_schema)
         spec = PlanSpec(
             name=meta.name,
             plan=build_plan,
@@ -482,6 +487,32 @@ def _load_plan_file(
         logger.warning("plan_loader: quarantining %s (%s): %s", path, provenance, exc)
         return
     _register_plan(registry, meta.name, provenance, str(path), spec)
+
+
+def _check_defaults(path: Path, params_schema: type[BaseModel]) -> None:
+    """Refuse *params_schema* if any top-level default fails its own field.
+
+    Every non-required field's default -- a written one, or the value its
+    zero-argument factory makes -- passes `plan_fields.validate_field_value`,
+    the same judge a typed value passes. A factory that takes the validated
+    data has no value of its own to judge and is skipped. A factory that
+    raises is the same refusal, carrying the exception text.
+    """
+    for name, info in params_schema.model_fields.items():
+        if info.is_required() or info.default_factory_takes_validated_data:
+            continue
+        try:
+            default = info.get_default(call_default_factory=True)
+            validate_field_value(params_schema, name, default)
+        except ValidationError as exc:
+            reason = exc.errors()[0]["msg"]
+        except Exception as exc:
+            reason = str(exc) or type(exc).__name__
+        else:
+            continue
+        raise PlanLoaderError(
+            f"{path}: default of PARAMS field {name!r} fails the field's own validation: {reason}"
+        )
 
 
 def load_facility_plans(module_path: str | None = None) -> FacilityPlans:

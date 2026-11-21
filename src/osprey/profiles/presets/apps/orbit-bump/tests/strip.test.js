@@ -12,7 +12,7 @@ import { panelOf, setSelection, showState } from '../panel/panel.js';
  */
 
 const MARKUP = `
-  <span data-field="plane"><button data-plane="x"></button><button data-plane="y"></button></span>
+  <span data-field="plane"><button data-value="x"></button><button data-value="y"></button></span>
   <select data-field="model" hidden></select>
   <span data-field="orm"><i></i><span data-field="orm-text"></span><button data-field="recompute"></button></span>
   <span data-field="no-model" hidden>no closed-orbit model</span>

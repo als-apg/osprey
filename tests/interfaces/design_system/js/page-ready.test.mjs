@@ -4,8 +4,8 @@
  *   npx vitest run tests/interfaces/design_system/js/page-ready.test.mjs
  *
  * A plain page is marked after its DOMContentLoaded handlers have run; a page
- * whose markup says `pending` is not, until it calls markPageReady() itself;
- * a second call changes nothing.
+ * whose markup says `pending` is not, until it calls markPageReady() itself,
+ * or until it throws, which marks it failed; an end state stands.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -61,6 +61,68 @@ describe('markPageReady', () => {
     markPageReady(doc);
     expect(doc.documentElement.getAttribute('data-page-ready')).toBe('true');
     expect(root().hasAttribute('data-page-ready')).toBe(false);
+  });
+});
+
+describe('a pending page that throws', () => {
+  const uncaughtError = () => window.dispatchEvent(new ErrorEvent('error', { message: 'boom' }));
+  const unhandledRejection = () => window.dispatchEvent(new Event('unhandledrejection'));
+
+  test('an uncaught error marks a pending page failed', () => {
+    root().setAttribute('data-page-ready', 'pending');
+    uncaughtError();
+    expect(root().getAttribute('data-page-ready')).toBe('failed');
+  });
+
+  test('an unhandled rejection marks a pending page failed', () => {
+    root().setAttribute('data-page-ready', 'pending');
+    unhandledRejection();
+    expect(root().getAttribute('data-page-ready')).toBe('failed');
+  });
+
+  test('a page that is not pending is left alone', () => {
+    for (const fire of [uncaughtError, unhandledRejection]) {
+      root().removeAttribute('data-page-ready');
+      fire();
+      expect(root().hasAttribute('data-page-ready')).toBe(false);
+
+      root().setAttribute('data-page-ready', 'true');
+      fire();
+      expect(root().getAttribute('data-page-ready')).toBe('true');
+    }
+  });
+
+  test('failed stands: a later markPageReady() changes nothing', () => {
+    root().setAttribute('data-page-ready', 'pending');
+    uncaughtError();
+    markPageReady();
+    expect(root().getAttribute('data-page-ready')).toBe('failed');
+  });
+
+  test('ready stands: an error after markPageReady() changes nothing', () => {
+    root().setAttribute('data-page-ready', 'pending');
+    markPageReady();
+    uncaughtError();
+    unhandledRejection();
+    expect(root().getAttribute('data-page-ready')).toBe('true');
+  });
+
+  test('a resource that fails to load does not fail the page', () => {
+    root().setAttribute('data-page-ready', 'pending');
+    const img = document.createElement('img');
+    document.body.append(img);
+    img.dispatchEvent(new Event('error'));
+    img.remove();
+    expect(root().getAttribute('data-page-ready')).toBe('pending');
+  });
+
+  test('a script that fails to load does not fail the page', () => {
+    root().setAttribute('data-page-ready', 'pending');
+    const script = document.createElement('script');
+    document.body.append(script);
+    script.dispatchEvent(new Event('error'));
+    script.remove();
+    expect(root().getAttribute('data-page-ready')).toBe('pending');
   });
 });
 

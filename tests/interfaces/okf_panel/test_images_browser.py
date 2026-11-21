@@ -4,7 +4,8 @@ What no unit test can show runs here, in a real browser against a live panel:
 
   1. the example bundle's figure is displayed (a non-zero natural size), with the
      panel served on its own and with the panel opened in the web terminal the way
-     a chat citation opens it;
+     a chat citation opens it, and when the concept is asked for while the panel's
+     start-up overview is still loading;
   2. a PNG in each of the three image syntaxes, and an SVG, are displayed;
   3. a concept holding remote references of every kind the reader's sanitiser
      must neutralise makes no request to any of the hosts it names, and shows each
@@ -27,13 +28,14 @@ Run:
 from __future__ import annotations
 
 import io
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 import pytest
 from PIL import Image
-from playwright.sync_api import Browser, BrowserContext, Frame, Page, expect
+from playwright.sync_api import Browser, BrowserContext, Frame, Page, Route, expect
 
 import osprey
 from osprey.interfaces._serving import run_app_server
@@ -301,6 +303,14 @@ def _open_standalone(context: BrowserContext, panel_url: str, concept_id: str) -
     return page
 
 
+def _wait_until(page: Page, condition, timeout_s: float = _LOAD_TIMEOUT_MS / 1000) -> None:
+    """Let *page*'s event handlers run until *condition* holds; fail past *timeout_s*."""
+    deadline = time.monotonic() + timeout_s
+    while not condition():
+        assert time.monotonic() < deadline, "condition not met in time"
+        page.wait_for_timeout(20)
+
+
 def _wait_concept(target: Page | Frame, concept_id: str) -> None:
     reader = target.locator(f'#reader-content[data-concept-id="{concept_id}"]')
     expect(reader).to_have_count(1, timeout=_LOAD_TIMEOUT_MS)
@@ -416,6 +426,39 @@ def test_example_figure_is_displayed_from_a_chat_citation(tmp_path, chromium_bro
         facts = assert_image_displayed(frame, EXAMPLE_FIGURE_ALT_START)
         assert facts["src"].startswith("/panel/okf/api/asset?"), facts
         page.close()
+
+
+def test_a_concept_opened_during_start_up_outlives_the_late_overview(
+    chromium_browser, tmp_path, monkeypatch
+):
+    """A concept asked for while the start-up overview loads stays when the overview answers.
+
+    The overview's answer is held until the concept has rendered, the order a
+    citation's fragment navigation meets a panel still starting up.
+    """
+    from osprey.interfaces.okf_panel.app import create_app
+
+    monkeypatch.chdir(tmp_path)
+    with run_app_server(create_app(bundle_path=str(EXAMPLE_BUNDLE))) as url:
+        context = chromium_browser.new_context()
+        held: list[Route] = []
+        context.route("**/api/structure", lambda route: held.append(route))
+        page = context.new_page()
+        page.goto(f"{url}/", wait_until="domcontentloaded")  # page-ready: the subject is start-up
+        _wait_until(page, lambda: len(held) == 1)
+
+        page.evaluate("location.hash = '#devices/bpm'")
+        _wait_concept(page, "devices/bpm")
+        assert_image_displayed(page, EXAMPLE_FIGURE_ALT_START)
+        # The concept aborted the overview's request, so start-up is over while
+        # the overview's answer is still held.
+        wait_for_page_ready(page)
+
+        held[0].continue_()
+        expect(page.locator('#reader-content[data-concept-id="devices/bpm"]')).to_have_count(1)
+        assert page.evaluate("history.state") == {"id": "devices/bpm"}
+        assert_image_displayed(page, EXAMPLE_FIGURE_ALT_START)
+        context.close()
 
 
 # ---------------------------------------------------------------------------

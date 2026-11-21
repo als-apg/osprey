@@ -1,5 +1,6 @@
 """Operator screens generated from a built facility and its rule tables.
 
+:mod:`~osprey.facility.panels.document` reads and checks the facility file;
 :mod:`~osprey.facility.panels.tables` reads and checks the rule tables;
 :mod:`~osprey.facility.panels.model` joins them with the facility file into
 the :class:`PanelGraph` every later step reads through;
@@ -10,7 +11,8 @@ say what each screen contains, without layout;
 :mod:`~osprey.facility.panels.layout` draws a view as a Screen-IR document with
 the symbols and theme roles of :mod:`~osprey.facility.panels.symbols`;
 :mod:`~osprey.facility.panels.emit` writes the screens to disk and checks a
-written set against the model.
+written set against the model; :mod:`~osprey.facility.panels.classes` groups the
+written screens into classes, each judged by one standard screen.
 """
 
 from osprey.facility.panels.describe import (
@@ -24,6 +26,7 @@ from osprey.facility.panels.describe import (
     set_overview,
     targets,
 )
+from osprey.facility.panels.document import FacilityDocument, FacilityDocumentError
 from osprey.facility.panels.health import (
     State,
     channel_state,
@@ -56,6 +59,8 @@ __all__ = [
     "Channel",
     "Citation",
     "Edge",
+    "FacilityDocument",
+    "FacilityDocumentError",
     "HealthRule",
     "Pair",
     "PanelGraph",

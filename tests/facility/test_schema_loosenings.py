@@ -38,6 +38,7 @@ FACILITY_SLOTS = [
     "identity",
     "classes",
     "signals",
+    "relation_types",
     "places",
     "devices",
     "channels",
@@ -186,6 +187,7 @@ def test_scenario_record_shape(core: dict) -> None:
         "overrides",
         "faults",
         "channel_faults",
+        "stopped_servers",
         "archiver",
         "logbook",
         "sessions",
@@ -204,6 +206,8 @@ def test_scenario_record_shape(core: dict) -> None:
     assert channel_faults["range"] == "Any" and not channel_faults.get("multivalued")
     for word in ("stuck", "frozen", "disconnected"):
         assert f"`{word}`" in channel_faults["description"]
+    stopped_servers = scenario["stopped_servers"]
+    assert stopped_servers["range"] == "string" and stopped_servers.get("multivalued")
 
 
 def test_measurement_block(core: dict) -> None:

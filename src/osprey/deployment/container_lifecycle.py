@@ -30,6 +30,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment import run_once
 from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -43,6 +44,7 @@ from osprey.deployment.compose_generator import (
     compose_provider_env,
     configured_ariel_mirror_path,
     prepare_compose_files,
+    rendered_checkout,
     repo_identity,
     resolve_image_defaults,
     resolve_image_platform,
@@ -51,7 +53,14 @@ from osprey.deployment.compose_generator import (
     resolve_site_build_args,
     resolve_site_image_axes,
 )
-from osprey.deployment.compose_watch import watched_compose_up
+from osprey.deployment.compose_watch import ContainerState, watched_compose_up
+from osprey.deployment.container_ownership import (
+    COMPOSE_PROJECT_LABEL,
+    COMPOSE_SERVICE_LABEL,
+    claims_row,
+    container_label,
+    first_container_name,
+)
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.deployment_record import (
     DeploymentRecord,
@@ -66,11 +75,13 @@ from osprey.deployment.dotenv import (
 )
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
+    BuildRenderedElsewhereError,
     ComposeInterpolationError,
     DeploymentRecordError,
     DeployStepFailedError,
     DevModeUnavailableError,
     NoRenderedBuildError,
+    ServicesNotRunningError,
 )
 from osprey.deployment.graphdb_service import (
     GRAPHDB_REBUILD_HINT,
@@ -81,7 +92,10 @@ from osprey.deployment.host_binding import HostBinding, host_binding_of
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
+    host_network_ports,
     parse_host_port_bindings,
+    read_host_network_ports,
+    write_host_network_ports,
 )
 from osprey.deployment.qmd_service import preflight_qmd_corpora, preflight_qmd_models_dir
 from osprey.deployment.runtime_helper import (
@@ -109,12 +123,14 @@ from osprey.deployment.service_tokens import (
 )
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.web_terminals.artifacts import web_compose_file
 from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
     preflight_web_terminals,
+    web_stack_service_names,
 )
 from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
 from osprey.deployment.web_terminals.render_images import (
@@ -2420,7 +2436,7 @@ def _resolve_prebuilt_images(config: dict) -> bool:
 #: (``${OSPREY_WORKER_IMAGE:-<services.<name>.image | default(osprey_images.worker)>}``).
 #: None has a ``build:`` block, so :func:`_build_project_image` is the only thing
 #: that produces the image they run.
-_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
+_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive", "server_fleet")
 
 
 def _deployed_project_image_services(
@@ -4648,7 +4664,8 @@ def _preflight_host_ports(config, compose_files):
     every web-terminal roster index, for intra-deploy duplicates and external
     listeners (see :mod:`osprey.deployment.host_ports`). On any conflict the report is printed
     in the CLI's one failure shape and a :class:`RuntimeError` is raised so the
-    caller aborts before running a single container-touching command.
+    caller aborts before running a single container-touching command. A pass
+    records the host-network ports this start binds, for the next start's check.
 
     :param config: Loaded configuration dictionary
     :type config: dict
@@ -4656,9 +4673,16 @@ def _preflight_host_ports(config, compose_files):
     :type compose_files: list[str]
     :raises RuntimeError: If any host-port conflict is found
     """
+    root = Path(resolve_repo_root(config))
     bindings = parse_host_port_bindings(compose_files)
-    conflicts = find_port_conflicts(bindings, resolve_project_name(config), config)
+    conflicts = find_port_conflicts(
+        bindings,
+        resolve_project_name(config),
+        config,
+        last_host_ports=read_host_network_ports(root),
+    )
     if not conflicts:
+        write_host_network_ports(root, host_network_ports(config))
         return
     _report_port_conflicts(conflicts)
     raise RuntimeError(
@@ -6618,11 +6642,15 @@ def _start_stack(
 
     # Written before the first step that touches this project's containers: a start
     # refused earlier leaves the previous record, and any start that gets this far —
-    # attached or detached, refused later or not — has recorded the runtime and
-    # project it acts on.
+    # attached or detached, refused later or not — has recorded the runtime, the
+    # project and the compose services it acts on.
     write_deployment_record(
         Path(repo_root),
-        DeploymentRecord(get_runtime_command(config)[0], resolve_project_name(config)),
+        DeploymentRecord(
+            get_runtime_command(config)[0],
+            resolve_project_name(config),
+            compose_services=_driven_service_names(config, compose_files, Path(repo_root)),
+        ),
     )
 
     # Reconcile the web slice's orphans FIRST: a terminal whose user was renamed
@@ -7461,6 +7489,8 @@ def up_as_built(
 
     Raises:
         NoRenderedBuildError: When ``build/`` holds no rendered config to start.
+        BuildRenderedElsewhereError: When ``build/`` was rendered for another
+            checkout.
         RuntimeError: From the preflights, including the ``--dev`` one.
     """
     repo_root = Path(repo_root)
@@ -7529,6 +7559,29 @@ def _sidecar_dev_flavor(compose_files: list[str], repo_root: Path) -> tuple[list
     return pinned, dev
 
 
+def _refuse_build_rendered_elsewhere(repo_root: Path) -> None:
+    """Refuse a build whose labels name a checkout other than *repo_root*.
+
+    A build that states no checkout contradicts none and passes. The directory
+    the build names is printed only when its own identity is the one the build
+    states, so a hand-edited label never prints a wrong cause.
+
+    Raises:
+        BuildRenderedElsewhereError: When the stated identity is not this
+            checkout's.
+    """
+    stated = rendered_checkout(repo_root)
+    if stated is None:
+        return
+    if stated.repo_ids == {repo_identity(repo_root)}:
+        return
+    if stated.project_root and stated.repo_ids == {repo_identity(stated.project_root)}:
+        reason = f"this build was rendered in {stated.project_root}"
+    else:
+        reason = f"this build was rendered in a different directory than {repo_root}"
+    raise BuildRenderedElsewhereError(reason=reason, remedy="run `osprey build` here")
+
+
 def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, list[str], bool]:
     """Read what a start would run, and refuse before anything is touched.
 
@@ -7551,6 +7604,8 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
     Raises:
         NoRenderedBuildError: When ``build/`` holds no rendered config, or none
             of the services it declares was rendered.
+        BuildRenderedElsewhereError: When the labels override names another
+            checkout than this one.
         DevModeUnavailableError: When ``--dev`` was asked of a render that holds
             pinned (non-dev) sidecar image builds — `up` never re-renders, so
             honoring it is impossible without a dev build.
@@ -7562,6 +7617,11 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
             reason=f"No build found at {config_path.parent}.",
             remedy="Render one:\n    osprey build",
         )
+
+    # The identity the build states and the one this directory has are one
+    # fact: a build that contradicts its directory is refused before any
+    # container is touched.
+    _refuse_build_rendered_elsewhere(repo_root)
 
     if dev_mode:
         # The same fail-before-any-work check the rendering path gets from
@@ -7677,6 +7737,10 @@ def _start_as_built(
             keep_archiver_base=keep_archiver_base,
             reuse_stores=reuse_stores,
         )
+        # An attached start replaces this process and never gets here, so a start
+        # that returns has started its services in the background: each of them
+        # has a running container, or the start failed.
+        _refuse_services_not_running(config, compose_files, repo_root)
 
 
 def _warn_on_timezone_drift(config: dict) -> None:
@@ -7715,8 +7779,80 @@ def _repo_label_filter(repo_root: Path) -> str:
     return f"label={REPO_ID_LABEL}={repo_identity(repo_root)}"
 
 
+def _project_containers(runtime: str, project: str) -> list[dict[str, Any]]:
+    """Every container compose labelled as one of *project*'s, running or not.
+
+    Read through ``ps --format json`` and the health probe's parser, so Docker's
+    NDJSON and podman's array are one answer. Nothing is filtered by checkout:
+    a caller that acts on the rows applies :func:`claims_row` itself.
+
+    :param runtime: The container runtime to ask, ``docker`` or ``podman``.
+    :param project: The compose project whose containers are listed.
+    :return: The decoded ``ps`` rows.
+    :raises RuntimeError: ``ps`` exited non-zero.
+    :raises subprocess.SubprocessError: ``ps`` did not answer in time.
+    """
+    from osprey.health.probes.container import _parse_ps_json
+
+    listing = subprocess.run(
+        [
+            runtime,
+            "ps",
+            "-a",
+            "--filter",
+            f"label={COMPOSE_PROJECT_LABEL}={project}",
+            "--format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    if listing.returncode != 0:
+        stderr = (listing.stderr or "").strip()
+        raise RuntimeError(
+            f"`{runtime} ps` exited {listing.returncode}" + (f": {stderr}" if stderr else "")
+        )
+    return _parse_ps_json(listing.stdout or "")
+
+
+def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Every container of this deployment, running or not, as the runtime lists it.
+
+    The containers of the compose project the deployment record names, minus
+    those another checkout created: :func:`claims_row` decides, so a row whose
+    repo id names another checkout is dropped and a row with no repo id is
+    ours. A second project on the host is never listed. Read through ``ps --format json`` and the health probe's
+    parser, so Docker's NDJSON and podman's array are one answer. Asked through
+    the runtime the deployment record names, the one the last start drove.
+
+    :param repo_root: The deployment repo whose containers are listed.
+    :return: ``(runtime, rows)``: the runtime asked and its decoded ``ps`` rows.
+    :raises RuntimeError: There is no deployment record, or ``ps`` exited non-zero.
+    :raises DeploymentRecordError: The deployment record cannot be read.
+    """
+    record = read_deployment_record(repo_root)
+    if record is None:
+        raise RuntimeError(f"no deployment record in {repo_root}")
+    runtime = record.runtime
+    project = record.compose_project
+    repo_id = repo_identity(repo_root)
+    rows = [
+        row
+        for row in _project_containers(runtime, project)
+        if claims_row(
+            row_repo_id=container_label(row, REPO_ID_LABEL),
+            row_project=project,
+            project=project,
+            repo_id=repo_id,
+        )
+    ]
+    return runtime, rows
+
+
 def unhealthy_containers(repo_root: Path | str) -> list[str]:
-    """This checkout's containers whose healthcheck reports ``unhealthy``, by name.
+    """This deployment's containers whose healthcheck reports ``unhealthy``, by name.
 
     What the closing line of a detached start reads before it says everything
     is running. ``compose up -d`` returns once every ``depends_on`` edge is
@@ -7724,13 +7860,8 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     healthcheck after that — the verb has already succeeded, and a card that
     says everything is running is then describing a stack that is not.
 
-    Selected by the repo label the render bakes into every container, the same
-    filter :func:`_down_by_label` stops by, so a second project on the host is
-    never reported here. Read through ``ps --format json`` and the health
-    probe's parsers, so Docker's NDJSON and podman's array are one answer.
-
-    Asked through the runtime the deployment record names, the one the last
-    start drove.
+    Read from this deployment's containers, as :func:`_checkout_containers`
+    claims them, so a second project on the host is never reported here.
 
     Advisory by contract: no deployment record, a record that cannot be read, a
     runtime that will not answer, or a listing that will not parse all yield
@@ -7741,26 +7872,12 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     :return: Container names as the runtime reports them, sorted; empty when
         nothing is unhealthy or nothing could be asked.
     """
-    from osprey.health.probes.container import _extract_health, _parse_ps_json
+    from osprey.health.probes.container import _extract_health
 
-    root = Path(repo_root)
     try:
-        record = read_deployment_record(root)
-        if record is None:
-            return []
-        runtime = record.runtime
-        listing = subprocess.run(
-            [runtime, "ps", "-a", "--filter", _repo_label_filter(root), "--format", "json"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=15,
-        )
-        if listing.returncode != 0:
-            logger.debug("Container health skipped: `%s ps` exited %s", runtime, listing.returncode)
-            return []
+        _runtime, rows = _checkout_containers(Path(repo_root))
         names: list[str] = []
-        for container in _parse_ps_json(listing.stdout or ""):
+        for container in rows:
             if _extract_health(container) != "unhealthy":
                 continue
             raw = container.get("Names", "")
@@ -7771,6 +7888,170 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
         logger.debug("Container health skipped: %s", exc)
         return []
     return sorted(names)
+
+
+def _row_is_running(row: Mapping[str, Any]) -> bool:
+    """Whether a ``ps`` row is a running container, in either runtime's spelling."""
+    state = str(row.get("State") or "").lower()
+    if state:
+        return state == "running"
+    return str(row.get("Status") or "").lower().startswith("up")
+
+
+def _row_state(row: Mapping[str, Any]) -> str:
+    """A ``ps`` row's state as :class:`ContainerState` words it: ``exited (1)``, ``created``, ..."""
+    status = str(row.get("Status") or row.get("State") or "")
+    state = ContainerState("", status).state
+    exit_code = row.get("ExitCode")
+    if state == "exited" and isinstance(exit_code, int) and not isinstance(exit_code, bool):
+        state = f"exited ({exit_code})"
+    return state or str(row.get("State") or "unknown").lower()
+
+
+class StartCheck(NamedTuple):
+    """What a start that returned left behind, service by service.
+
+    Attributes:
+        missing: Service name to what was seen (``no container``, or the states
+            of its containers), for each service the start did not leave
+            running or done; in the order of the services.
+        allowed: Service name to exit code, for each ``may-fail`` run-once
+            service that exited non-zero (:mod:`~osprey.deployment.run_once`).
+    """
+
+    missing: dict[str, str]
+    allowed: dict[str, int]
+
+
+def check_started_services(repo_root: Path, services: Mapping[str, Any]) -> StartCheck:
+    """Which of *services* a start that returned has not left running or done.
+
+    A start that returns has handed every service to compose to run in the
+    background, so each one has a running container afterwards. A service
+    declared run-once (:mod:`~osprey.deployment.run_once`) has exited instead:
+    a ``must-succeed`` one is done when a container of it exited 0, a
+    ``may-fail`` one when a container of it exited at all. A service that
+    declares nothing is never taken for run-once. A ``restarting`` container is
+    not running.
+
+    This deployment's containers, as :func:`_checkout_containers` claims them,
+    are matched to their service by the label compose stamps on every container
+    it creates.
+
+    :param repo_root: The deployment repo that was started.
+    :param services: The ``services`` mappings the start handed to compose, merged.
+    :return: The services not left running or done, and the ``may-fail`` ones
+        that exited non-zero.
+    :raises RuntimeError: The containers could not be listed.
+    :raises DeploymentRecordError: The deployment record cannot be read.
+    """
+    _runtime, rows = _checkout_containers(repo_root)
+    declared = run_once.declarations(services)
+    by_service: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        service = container_label(row, COMPOSE_SERVICE_LABEL)
+        if service is not None:
+            by_service.setdefault(service, []).append(row)
+
+    missing: dict[str, str] = {}
+    allowed: dict[str, int] = {}
+    for name in services:
+        service = str(name)
+        seen = by_service.get(service, [])
+        if any(_row_is_running(row) for row in seen):
+            continue
+        codes = [code for code in map(run_once.exit_code, seen) if code is not None]
+        if service in declared and 0 in codes:
+            continue
+        if declared.get(service) == run_once.MAY_FAIL and codes:
+            allowed[service] = min(codes)
+            continue
+        states = [_row_state(row) for row in seen]
+        missing[service] = ", ".join(sorted(set(states))) if states else "no container"
+    return StartCheck(missing, allowed)
+
+
+def _started_services(
+    config: dict, compose_files: Sequence[str | Path], repo_root: Path
+) -> dict[str, Any]:
+    """Every service a start hands to compose: the rendered files' and the web stack's.
+
+    Relative entries of *compose_files* are resolved against *repo_root*, as the
+    compose invocation resolves them. A service several files define is merged
+    key by key, the later file winning, as compose merges its ``-f`` list; its
+    ``labels`` are merged label by label, as compose merges them, so the labels
+    the build adds do not drop the ones the service's own template sets.
+    """
+    files = [
+        repo_root / path if not Path(path).is_absolute() else Path(path) for path in compose_files
+    ]
+    if _web_terminals_enabled(config):
+        files.append(web_compose_file(repo_root))
+    return merged_compose_services(files)
+
+
+def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
+    """The ``services`` of rendered compose *files*, merged as compose merges its ``-f`` list.
+
+    A service several files define is merged key by key, the later file
+    winning; its ``labels`` are merged label by label. A file that cannot be
+    read adds nothing.
+    """
+    started: dict[str, Any] = {}
+    for file in files:
+        for name, spec in (rendered_compose_services(file) or {}).items():
+            earlier = started.get(name)
+            if isinstance(earlier, Mapping) and isinstance(spec, Mapping):
+                labels = {**run_once.service_labels(earlier), **run_once.service_labels(spec)}
+                spec = {**earlier, **spec, **({"labels": labels} if labels else {})}
+            started[name] = spec
+    return started
+
+
+def _driven_service_names(
+    config: dict, compose_files: Sequence[str | Path], repo_root: Path
+) -> tuple[str, ...]:
+    """The compose service keys a start drives: its files' and the web stack's.
+
+    Relative entries of *compose_files* are resolved against *repo_root*, as
+    :func:`_started_services` resolves them. The web stack's keys come from the
+    roster and the auth method, not from its compose file, which the start
+    renders only after this is asked.
+    """
+    names: set[str] = set()
+    for path in compose_files:
+        file = repo_root / path if not Path(path).is_absolute() else Path(path)
+        names.update(rendered_compose_services(file) or {})
+    if _web_terminals_enabled(config):
+        names.update(web_stack_service_names(config))
+    return tuple(sorted(names))
+
+
+def _refuse_services_not_running(
+    config: dict, compose_files: Sequence[str | Path], repo_root: Path
+) -> None:
+    """Fail a start that returned unless every service it started is running or done.
+
+    Done is a run-once service's end (:func:`check_started_services`); a
+    ``may-fail`` one that exited non-zero is reported and does not fail it.
+
+    :raises ServicesNotRunningError: Some service is neither running nor done.
+    :raises RuntimeError: The containers could not be listed, so nothing is verified.
+    """
+    services = _started_services(config, compose_files, repo_root)
+    try:
+        found = check_started_services(repo_root, services)
+    except (RuntimeError, DeploymentRecordError, OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"could not verify the start: {exc}") from exc
+    for service, code in found.allowed.items():
+        _warn_fact(
+            f"run-once service {service} exited {code}",
+            f"it is declared {run_once.RUN_ONCE_LABEL}={run_once.MAY_FAIL}, so the start goes on",
+            f"run `osprey logs {service}` to see why",
+        )
+    if found.missing:
+        raise ServicesNotRunningError(found.missing)
+    _report_step("every service is running or done")
 
 
 #: Why a ``down`` sweeps by label when ``build/`` holds no compose files.
@@ -7863,11 +8144,25 @@ def _down_by_label(
         "network are kept)"
     )
 
-    # stop, then rm: the same two steps, in the same order, that `compose down`
-    # performs — so containers get their shutdown grace period rather than the
-    # SIGKILL a bare `rm -f` would deliver.
+    _stop_and_remove(runtime, container_ids)
+
+    # The recovery path reports what it did for the same reason the compose path
+    # does: without it, a `down` that fell back to labels closes its phase with a
+    # bare ✓ and never says that anything was found, let alone how much.
+    _report_step(f"removed {len(container_ids)} labelled container(s)")
+
+
+def _stop_and_remove(runtime: str, targets: Sequence[str]) -> None:
+    """Stop, then remove, *targets* — the two steps ``compose down`` performs.
+
+    In that order, so containers get their shutdown grace period rather than
+    the SIGKILL a bare ``rm -f`` would deliver.
+
+    Raises:
+        RuntimeError: When the runtime cannot stop or remove them.
+    """
     for verb in ("stop", "rm"):
-        cmd = [runtime, verb, *container_ids]
+        cmd = [runtime, verb, *targets]
         logger.debug(f"Running command:\n    {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
@@ -7877,10 +8172,74 @@ def _down_by_label(
                 f"{(result.stderr or '').strip()}"
             )
 
-    # The recovery path reports what it did for the same reason the compose path
-    # does: without it, a `down` that fell back to labels closes its phase with a
-    # bare ✓ and never says that anything was found, let alone how much.
-    _report_step(f"removed {len(container_ids)} labelled container(s)")
+
+def _down_recorded_services(
+    repo_root: Path, runtime: str, project: str, services: Sequence[str]
+) -> None:
+    """Stop the services the last start recorded, when ``build/`` cannot say which.
+
+    The selection is the containers compose labelled as one of *services* in
+    *project*, minus those another checkout created (:func:`claims_row`
+    decides), so a container that carries no repo id is stopped when its
+    service is recorded. A container of the project whose service the record
+    does not name is never stopped, nor is one of another project. Volumes and
+    the compose network are kept, as a ``compose down`` keeps them.
+
+    Args:
+        repo_root: The deployment repo whose containers are to be stopped.
+        runtime: The runtime the last start recorded.
+        project: The compose project the last start recorded.
+        services: The compose services the last start recorded.
+
+    Raises:
+        RuntimeError: When the runtime cannot list, stop or remove them.
+    """
+    try:
+        rows = _project_containers(runtime, project)
+    except (RuntimeError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"Could not list this deployment's containers: {exc}") from exc
+
+    recorded = set(services)
+    repo_id = repo_identity(repo_root)
+    targets: list[str] = []
+    foreign = unrecorded = 0
+    for row in rows:
+        if not claims_row(
+            row_repo_id=container_label(row, REPO_ID_LABEL),
+            row_project=project,
+            project=project,
+            repo_id=repo_id,
+        ):
+            foreign += 1
+        elif container_label(row, COMPOSE_SERVICE_LABEL) in recorded:
+            targets.append(first_container_name(row))
+        else:
+            unrecorded += 1
+
+    if foreign:
+        _report_fact(
+            f"left {foreign} container(s) of compose project {project} "
+            "that another checkout created"
+        )
+    if unrecorded:
+        _report_fact(
+            f"left {unrecorded} container(s) of compose project {project} "
+            "that the last start did not record"
+        )
+    if not targets:
+        _report_fact(
+            f"nothing to stop: no {_NO_COMPOSE_FILES} and no container of a service "
+            "the last start recorded"
+        )
+        return
+
+    _report_fact(
+        f"no {_NO_COMPOSE_FILES}; stopping the {len(targets)} container(s) of the "
+        "services the last start recorded instead (volumes and the compose network "
+        "are kept)"
+    )
+    _stop_and_remove(runtime, targets)
+    _report_step(f"removed {len(targets)} container(s)")
 
 
 def down_deployment(
@@ -7920,6 +8279,11 @@ def down_deployment(
     label sweep runs. A caller that already holds the pair — a reset stopping
     the project its plan printed — passes both, and the record is not read.
 
+    With no compose files, a record that names its services selects those
+    services' containers in the recorded project
+    (:func:`_down_recorded_services`); a record that names none, and a caller
+    that passes the pair, get the repo-label sweep (:func:`_down_by_label`).
+
     Args:
         repo_root: The deployment repo — the directory holding ``profile.yml``.
         runtime: The runtime to stop with, given together with ``project``.
@@ -7949,6 +8313,9 @@ def down_deployment(
             _hand_record_back_to_host(config, repo_root)
             return
         runtime, project = record.runtime, record.compose_project
+        recorded_services = record.compose_services
+    else:
+        recorded_services = None
 
     is_running, error_msg = verify_runtime_is_running(config, runtime=runtime)
     if not is_running:
@@ -7982,7 +8349,10 @@ def down_deployment(
             )
 
     if not compose_files:
-        _down_by_label(config, repo_root, runtime=runtime)
+        if recorded_services is not None:
+            _down_recorded_services(repo_root, runtime, project, recorded_services)
+        else:
+            _down_by_label(config, repo_root, runtime=runtime)
         _hand_record_back_to_host(config, repo_root)
         return
 
@@ -8067,6 +8437,8 @@ def restart_deployment(
     Raises:
         NoRenderedBuildError: When ``build/`` holds nothing to start. Nothing is
             stopped.
+        BuildRenderedElsewhereError: When ``build/`` was rendered for another
+            checkout. Nothing is stopped.
         ForeignCheckoutError: When another copy of this repo's containers hold
             the project name. Nothing is stopped.
         RuntimeError: From the preflights or from the stop itself.

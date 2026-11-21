@@ -1,0 +1,1 @@
+`osprey up` and `osprey restart` refuse a `build/` rendered in another directory and name that directory, instead of starting it and reporting every service as having no container; run `osprey build` in the new directory.

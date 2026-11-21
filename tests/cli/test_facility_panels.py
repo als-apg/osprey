@@ -144,6 +144,37 @@ def test_a_missing_facility_file_says_so(tmp_path):
     assert "cannot be read" in result.output
 
 
+def _assert_refused(result: Result) -> None:
+    """Refused as an unreadable facility: the reason and the rebuild hint, exit 1, no traceback."""
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert "The facility cannot be read." in result.output
+    assert "rebuild with osprey build" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_facility_3_document_is_refused_with_the_rebuild_hint(tmp_path):
+    def older(document) -> None:
+        document["schema"] = "osprey.facility.facility/3"
+
+    facility = write_fixture_facility(tmp_path / "facility.json", older)
+    for verb in ("check", "write"):
+        result = _run(facility, verb, "--out", str(tmp_path / f"out-{verb}"))
+        _assert_refused(result)
+        assert "osprey.facility.facility/3" in result.output
+    assert not (tmp_path / "out-write" / "index.json").exists()
+
+
+def test_a_facility_4_document_without_relation_types_is_refused(tmp_path):
+    def without(document) -> None:
+        document.pop("relation_types", None)
+
+    facility = write_fixture_facility(tmp_path / "facility.json", without)
+    result = _run(facility, "check", "--out", str(tmp_path / "out"))
+    _assert_refused(result)
+    assert "relation_types" in result.output
+
+
 def test_a_corrupt_index_stops_write_and_check(facility_file, tmp_path):
     out = tmp_path / "out"
     assert _run(facility_file, "write", "--out", str(out)).exit_code == 0
@@ -341,3 +372,52 @@ def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_
     without = str(tmp_path / "without")
     assert run("write", "--out", without).exit_code == 0
     assert screens(without) != screens(out)
+
+
+def test_classes_prints_the_table_and_the_summary_a_gate_reads(facility_file, tmp_path):
+    from osprey.facility.panels.classes import summary, summary_line
+
+    out = tmp_path / "out"
+    written = _run(facility_file, "write", "--out", str(out))
+    assert written.exit_code == 0, written.output
+    index = json.loads((out / "index.json").read_text())
+    table = index["classes"]
+    assert index["class_summary"] == summary(table)
+    line = f"classes: {summary_line(summary(table))}"
+    assert line in written.output
+    checked = _run(facility_file, "check", "--out", str(out))
+    assert line in checked.output
+    result = CliRunner().invoke(
+        cli, ["facility", "panels", "classes", "--out", str(out), "--limit", "2", "--differs"]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.rstrip().endswith(line)
+    biggest = min(table, key=lambda name: (-table[name]["members"], name))  # the first row
+    assert biggest in result.output
+    assert f"... and {len(table) - 2} more" in result.output
+    # the table per view kind
+    assert re.search(r"^card +\d+ +\d+ +\d+ +\d+ +\d+$", result.output, re.MULTILINE)
+
+
+def test_classes_differs_lists_each_screen_off_its_standard(facility_file, tmp_path):
+    out = tmp_path / "out"
+    assert _run(facility_file, "write", "--out", str(out)).exit_code == 0
+    # the fixture's members differ only in blocks, which split classes; the verb
+    # prints what the index says, so one entry is made off standard here
+    path = out / "index.json"
+    index = json.loads(path.read_text())
+    off = index["screens"][0]
+    off["differs"] = ["a calibration section, which the standard has not"]
+    path.write_text(json.dumps(index))
+    result = CliRunner().invoke(
+        cli, ["facility", "panels", "classes", "--out", str(out), "--differs"]
+    )
+    assert result.exit_code == 0, result.output
+    assert f"{off['file']} ({off['class']}):" in result.output
+    assert "a calibration section, which the standard has not" in result.output
+
+
+def test_classes_without_an_index_fails(tmp_path):
+    result = CliRunner().invoke(cli, ["facility", "panels", "classes", "--out", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "No class table" in result.output

@@ -23,6 +23,7 @@ from osprey.deployment.subprocess_capture import _KILL_WAIT_S, StopOutcome, grou
 from tests._by_path import load_module
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly, pid_alive
+from tests.scripts._check_script import check
 
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
 # registered in sys.modules: nothing in it resolves its own module name, and an
@@ -332,6 +333,33 @@ def test_pva_mode_runs_the_seam_timed_passes_injection_and_turn_suites_in_that_o
         "tests/va/test_timed_passes_live.py",
         "tests/va/test_injection_live.py",
         "tests/va/test_turn_by_turn_live.py",
+        "tests/va/test_stopped_servers_live.py",
+        "tests/va/test_server_fleet_live.py",
     )
     root = _MODULE_PATH.parents[3]
     assert all((root / suite).is_file() for suite in (*gate.LIVE_SUITES, *gate.PVA_SUITES))
+
+
+#: Every suite the gate runs, in --pva mode the whole of what CI's live step runs.
+_GATED_SUITES = (*gate.LIVE_SUITES, *gate.PVA_SUITES)
+
+
+def test_the_sweep_leaves_to_live_ca_exactly_the_suites_the_gate_runs() -> None:
+    """The gate is a gated suite's only home: in the parallel sweep a neighbour's
+    load reads into its timing bounds, and libca is process-global. Both ways: a
+    gated suite the sweep keeps runs twice, and a suite the sweep leaves to
+    live-ca that the gate does not run runs nowhere.
+
+    That every ignore sits inside its host's scope, so that a change to a
+    gated suite selects live-ca, is ``unhosted`` in ``tests/scripts/test_check.py``.
+    """
+    hosts = dict(check.FRAMEWORK.UNIT_SELECTION.ignores)
+    left_to_live_ca = {suite for suite, host in hosts.items() if host == "live-ca"}
+    swept = {suite: hosts.get(suite) for suite in sorted(set(_GATED_SUITES) - left_to_live_ca)}
+    assert swept == {}, f"gated suites the sweep does not leave to live-ca (suite: host): {swept}"
+    ungated = sorted(left_to_live_ca - set(_GATED_SUITES))
+    assert ungated == [], f"suites the sweep leaves to live-ca that the gate never runs: {ungated}"
+    for shard in check.FRAMEWORK.UNIT_SELECTION.shards:
+        argv = check.FRAMEWORK.unit_argv("full", [], shard=shard)
+        kept = [suite for suite in _GATED_SUITES if f"--ignore={suite}" not in argv]
+        assert kept == [], f"the {shard} shard sweeps gated suites: {kept}"
