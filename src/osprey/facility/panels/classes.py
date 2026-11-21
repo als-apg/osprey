@@ -247,6 +247,8 @@ class Sample:
         key: The class key in parts, as written to the index.
         measure: Its view's structure and sizes (:func:`measure`).
         cuts: The labels the layout cut to fit, before the cut.
+        others: What the screen shows of other things on purpose
+            (:func:`~osprey.facility.panels.describe.others`).
     """
 
     file: str
@@ -255,6 +257,7 @@ class Sample:
     key: Mapping[str, Any]
     measure: Measure
     cuts: tuple[str, ...] = ()
+    others: tuple[Mapping[str, Any], ...] = ()
 
     @property
     def structure(self) -> str:
@@ -633,8 +636,9 @@ def classify(
         entry carries, each only when it has something to say: ``differs``
         (off standard, in words), ``varies`` (sizes, gaps, flags and drawing
         variants other than the standard's, in words), ``cuts`` (labels cut to
-        fit), ``sizes``, ``gaps`` and ``flags``; and always ``label``, the
-        longest label in characters.
+        fit), ``others`` (what it shows of other things on purpose), ``sizes``,
+        ``gaps`` and ``flags``; and always ``label``, the longest label in
+        characters.
     """
     by_class: dict[str, list[Sample]] = {}
     for sample in samples:
@@ -657,6 +661,7 @@ def classify(
                     entry["differs"] = _differs(m, std.measure)
                 entry["varies"] = _varies(m, std.measure)
             entry["cuts"] = _capped(list(member.cuts))
+            entry["others"] = [dict(o) for o in member.others]
             entries[member.file] = {"label": m.label, **{k: v for k, v in entry.items() if v}}
         classes[cls] = {
             "key": dict(std.key),
