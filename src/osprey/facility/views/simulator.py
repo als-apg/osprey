@@ -129,6 +129,7 @@ __all__ = [
     "server_health_addresses",
     "simulator_wiring",
     "status_address",
+    "unlisted_setpoints_writable",
     "withdraw_scenarios",
     "write_simulator_view",
 ]
@@ -289,7 +290,7 @@ def server_health_addresses(code: str, model: str) -> list[str]:
     return [f"{code}:SIM:{model}:{signal}" for signal in SERVER_HEALTH_SIGNALS]
 
 
-def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
+def unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     """Whether a setpoint without a limits record is writable on the simulated target."""
     from osprey_connectors.types import (
         LIMITS_MODE_OPTIONAL,
@@ -313,7 +314,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
             for address in wiring_addresses(record):
                 owners.setdefault(address, str(model["name"]))
     limits = limits_document(inputs.records)
-    unlisted_writable = _unlisted_setpoints_writable(inputs.rendered_config)
+    unlisted_writable = unlisted_setpoints_writable(inputs.rendered_config)
 
     from osprey.facility.pairing import simulated_pairs
 

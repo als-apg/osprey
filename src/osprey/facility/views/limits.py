@@ -28,7 +28,13 @@ from typing import Any
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
 
-__all__ = ["LIMITS_FILE", "LIMITS_VERSION", "limits_document", "write_limits_view"]
+__all__ = [
+    "LIMITS_FILE",
+    "LIMITS_VERSION",
+    "limits_document",
+    "limits_findings",
+    "write_limits_view",
+]
 
 LIMITS_FILE = "channel_limits.json"
 LIMITS_VERSION = "4.0"
@@ -62,6 +68,74 @@ def limits_document(records: FacilityRecords) -> dict[str, Any]:
         channel = records.record("channel", address) or {}
         document[address] = _entry(row, str(channel.get("role")))
     return document
+
+
+#: How many addresses a finding lists unless every one is asked for.
+FINDING_ADDRESSES = 10
+
+
+def limits_findings(
+    records: FacilityRecords, unlisted_writable: bool, *, every: bool = False
+) -> list[str]:
+    """What a reader of the limits should know, as report lines; it changes nothing.
+
+    Two findings, each a count line followed by one line per address, sorted,
+    the first :data:`FINDING_ADDRESSES` of them and a count of the rest unless
+    *every*:
+    the setpoints with no limits record, which the target serves writable with
+    no range when *unlisted_writable* (its limits mode is ``optional``) and
+    refuses otherwise; and the limits records that state one edge of
+    ``min_value`` and ``max_value``, which are served not writable until they
+    state both. A finding with no address is left out.
+
+    Args:
+        records: The facility file's records.
+        unlisted_writable: Whether the target writes a setpoint with no record.
+        every: List every address, not the first few.
+
+    Returns:
+        The lines, the open setpoints' first.
+    """
+    document = records.document
+    rows = {str(row["address"]): row for row in (document.get("limits") or {}).get("records") or []}
+    open_setpoints = sorted(
+        str(channel["id"])
+        for channel in document.get("channels") or []
+        if channel.get("role") == "setpoint" and str(channel["id"]) not in rows
+    )
+    one_edged = sorted(
+        (address, row)
+        for address, row in rows.items()
+        if (row.get("min_value") is None) != (row.get("max_value") is None)
+    )
+    lines: list[str] = []
+    if open_setpoints:
+        served = (
+            "the target serves them writable with no range"
+            if unlisted_writable
+            else "the target refuses writes to them"
+        )
+        lines.append(f"limits: {len(open_setpoints)} setpoints have no limits record; {served}")
+        lines.extend(_listed([f"  {address}" for address in open_setpoints], every))
+    if one_edged:
+        lines.append(
+            f"limits: {len(one_edged)} limits records state one edge; each is served not "
+            "writable until it states both"
+        )
+        listed = []
+        for address, row in one_edged:
+            stated = "min_value" if row.get("min_value") is not None else "max_value"
+            missing = "max_value" if stated == "min_value" else "min_value"
+            listed.append(f"  {address}: {stated} {row[stated]}, no {missing}")
+        lines.extend(_listed(listed, every))
+    return lines
+
+
+def _listed(lines: list[str], every: bool) -> list[str]:
+    if every or len(lines) <= FINDING_ADDRESSES:
+        return lines
+    more = len(lines) - FINDING_ADDRESSES
+    return [*lines[:FINDING_ADDRESSES], f"  and {more} more; --all-limits lists every one"]
 
 
 def write_limits_view(root: Path, inputs: ViewInputs) -> list[Path]:
