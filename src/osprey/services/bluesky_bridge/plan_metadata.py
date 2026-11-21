@@ -16,10 +16,12 @@ Kept pydantic-only (no bluesky/ophyd/tiled imports) so it can be imported from
 from __future__ import annotations
 
 import ast
+import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 
 class PlanMetadataError(ValueError):
@@ -35,14 +37,17 @@ class PlanMetadataError(ValueError):
 class PlanMetadata(BaseModel):
     """Authoring-declared metadata for one plan, surfaced via `GET /plans`.
 
-    Exactly three fields, all required: a plan lacking one is an authoring
-    error to be rejected at load time, not a gap to paper over with a default.
-    Unknown keys are rejected too (``extra="forbid"``) -- a plan that declares
-    anything outside this contract, including keys from an earlier shape, is
-    quarantined loudly rather than parsed clean with the surplus dropped.
-    Which channels a plan touches is *not* declared here: it is read off the
-    role-typed fields of the plan's parameter model. JSON-serializable via
-    `model_dump()` for direct inclusion in `PlanSpec.to_dict()`.
+    Three required fields -- ``name``, ``description``, ``writes`` -- and
+    optional presentation fields that shape the operator's form. A plan
+    lacking a required field is an authoring error to be rejected at load
+    time, not a gap to paper over with a default; an optional field a plan
+    does not state is ``None``. Unknown keys are rejected too
+    (``extra="forbid"``) -- a plan that declares anything outside this
+    contract, including keys from an earlier shape, is quarantined loudly
+    rather than parsed clean with the surplus dropped. Which channels a plan
+    touches is *not* declared here: it is read off the role-typed fields of
+    the plan's parameter model. JSON-serializable via `model_dump()` for
+    direct inclusion in `PlanSpec.to_dict()`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -57,6 +62,50 @@ class PlanMetadata(BaseModel):
     against the plan's role-typed fields, so a mismatch is caught at load
     time rather than at execution.
     """
+
+    layout: list[list[str]] | None = None
+    """Rows of parameter names: the fields of one row share a row of the form.
+
+    Parameters the layout does not name follow its rows in schema order. Every
+    name appears once, in a non-empty row; whether each name is a parameter of
+    the plan is checked by the loader, which has the plan's ``PARAMS``.
+    """
+
+    @field_validator("layout")
+    @classmethod
+    def _layout_names_each_field_once(cls, rows: list[list[str]] | None) -> list[list[str]] | None:
+        if rows is None:
+            return None
+        seen: set[str] = set()
+        for row in rows:
+            if not row:
+                raise ValueError("a layout row is empty")
+            for name in row:
+                if not name:
+                    raise ValueError("a layout name is empty")
+                if name in seen:
+                    raise ValueError(f"layout names {name!r} more than once")
+                seen.add(name)
+        return rows
+
+    summary: list[str] | None = None
+    """The one-line readout above the form's footer, as a list of parts.
+
+    Each part is text with ``{parameter}`` placeholders; ``{{`` and ``}}`` are
+    literal braces. The panel joins the parts it shows with " · ", shows a
+    part only once every parameter it names has a value, and fills a list
+    parameter in as its count. A placeholder is a bare parameter name: no
+    conversion, format spec, index or attribute.
+    """
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_parts_name_bare_parameters(cls, parts: list[str] | None) -> list[str] | None:
+        if parts is None:
+            return None
+        for part in parts:
+            _placeholders(part)
+        return parts
 
 
 def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadata:
@@ -76,14 +125,82 @@ def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadat
         unknown: list[str] = []
         for error in exc.errors():
             field = ".".join(str(part) for part in error["loc"])
-            bucket = unknown if error["type"] == "extra_forbidden" else invalid
-            bucket.append(field)
+            if error["type"] == "extra_forbidden":
+                unknown.append(field)
+            elif error["type"] == "value_error":
+                reason = str(error["ctx"]["error"]) if "ctx" in error else error["msg"]
+                invalid.append(f"{field} ({reason})")
+            else:
+                invalid.append(field)
         message = f"{source}: PLAN_METADATA is invalid"
         if invalid:
             message += f" for field(s): {', '.join(invalid)}"
         if unknown:
             message += f"; unknown key(s): {', '.join(unknown)}"
         raise PlanMetadataError(message) from exc
+
+
+_SUMMARY_TOKEN = re.compile(r"\{\{|\}\}|\{([^{}]*)\}")
+"""One summary token: a doubled brace, or a placeholder and the text inside it.
+
+The same grammar as the panel's ``SUMMARY_TOKEN`` in ``plan-presentation.js``,
+so a part the loader accepts is a part the panel fills.
+"""
+
+
+def _placeholders(part: str) -> list[str]:
+    """The parameter names one summary part's placeholders use, in order.
+
+    Raises:
+        ValueError: the part is empty, a brace is left unpaired, or a
+            placeholder is anything but a bare parameter name.
+    """
+    if not part:
+        raise ValueError("a summary part is empty")
+    names: list[str] = []
+    for match in _SUMMARY_TOKEN.finditer(part):
+        name = match.group(1)
+        if name is None:
+            continue
+        if not name.isidentifier():
+            raise ValueError(
+                f"summary part {part!r} has a placeholder that is not a bare parameter name"
+            )
+        names.append(name)
+    rest = _SUMMARY_TOKEN.sub("", part)
+    if "{" in rest or "}" in rest:
+        raise ValueError(f"summary part {part!r} has an unpaired brace")
+    return names
+
+
+def summary_parameters(meta: PlanMetadata) -> set[str]:
+    """Every parameter name the summary's placeholders use; empty without a summary."""
+    return {name for part in meta.summary or () for name in _placeholders(part)}
+
+
+def check_presentation_names(
+    meta: PlanMetadata, field_names: Iterable[str], *, source: str
+) -> None:
+    """Refuse ``meta`` when its presentation keys name a parameter the plan lacks.
+
+    ``field_names`` are the plan's ``PARAMS`` fields. The check lives apart
+    from the model because only a caller that has imported the plan knows
+    them; the source-only reader validates the block without them.
+
+    Raises:
+        PlanMetadataError: naming the key and every unknown name, sorted.
+    """
+    known = set(field_names)
+    named = {
+        "layout": {name for row in meta.layout or () for name in row},
+        "summary": summary_parameters(meta),
+    }
+    for key, names in named.items():
+        unknown = sorted(names - known)
+        if unknown:
+            raise PlanMetadataError(
+                f"{source}: PLAN_METADATA {key} names unknown parameter(s): {', '.join(unknown)}"
+            )
 
 
 def parse_plan_metadata(module: Any, *, source: str | None = None) -> PlanMetadata:

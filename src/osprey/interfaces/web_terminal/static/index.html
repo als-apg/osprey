@@ -53,6 +53,7 @@
        identity map. See app.py's compute_url_prefix(). -->
   <script>window.__OSPREY_PREFIX__ = "{{ url_prefix }}";</script>
   <script type="importmap">{{ import_map() }}</script>
+  <script type="module" src="{{ prefixed('/design-system/js/page-ready.js') }}"></script>
 
   <!-- The loading shell's watch (before any module): starts the two reads
        start-up opens with, and keeps the loading veil honest: slow notice,
@@ -538,9 +539,10 @@
     </div>
   </osprey-drawer>
 
-  <!-- The chrome's glyphs and key hints: a four-file graph, run as soon as it
-       arrives (async), long before the application's own. -->
-  <script type="module" async src="{{ prefixed('/static/js/shell-dress.js') }}"></script>
+  <!-- The chrome's glyphs and key hints: a four-file graph that runs ahead of
+       the application's own, after the page-ready writer like every module of
+       a pending page. -->
+  <script type="module" src="{{ prefixed('/static/js/shell-dress.js') }}"></script>
 
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>

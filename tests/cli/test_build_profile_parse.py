@@ -9,8 +9,9 @@ an ``mcp_servers:`` entry that is not a mapping, an ``mcp_servers:`` entry that
 declares neither transport (``command`` nor ``url``), both halves of the
 ``services:`` loop (the non-mapping raise and the ``ServiceDef`` it builds from
 a valid mapping), the non-mapping guards on the optional ``bluesky:`` and
-``virtual_accelerator:`` blocks, and the ``virtual_accelerator:`` block's closed
-key set and ``live_standin`` typing.
+``virtual_accelerator:`` blocks, the ``virtual_accelerator:`` block's closed
+key set and ``live_standin`` typing, and the ``claude_md_template:`` key, which
+names one bundled CLAUDE.md render or is left out for the default.
 
 Also pins the reading of a collection key that is present but empty. YAML gives
 ``web_panels:`` with nothing under it the value ``None``, where its author means
@@ -30,6 +31,10 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_runner.build_artifacts.catalog import (
+    DEFAULT_CLAUDE_MD_TEMPLATE,
+    bundled_claude_md_templates,
+)
 from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
@@ -407,3 +412,49 @@ def test_a_connector_block_that_still_spells_timeout_is_refused(config) -> None:
     """The connector call bound is ``timeout_s``; the build refuses the old key."""
     with pytest.raises(BuildProfileError, match=r"timeout is renamed to timeout_s"):
         _parse_profile({"name": "x", "data": "data", "config": config})
+
+
+# ── claude_md_template: ──────────────────────────────────────────────────────
+
+
+def _with_template(value: object) -> dict:
+    return {"name": "x", "data": "data", "claude_md_template": value}
+
+
+@pytest.mark.parametrize("value", ["", None], ids=["empty", "null"])
+def test_an_empty_claude_md_template_is_refused(value) -> None:
+    """A key written with no template is refused; leaving it out gives the default."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(_with_template(value))
+    message = str(excinfo.value)
+    assert "claude_md_template" in message
+    assert "CLAUDE.logbook.md.j2" in message
+
+
+def test_an_unknown_claude_md_template_is_refused_naming_the_bundled_renders() -> None:
+    """An unknown name is refused at load, naming itself and every bundled render."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(_with_template("CLAUDE.nope.md.j2"))
+    message = str(excinfo.value)
+    assert "CLAUDE.nope.md.j2" in message
+    for template in bundled_claude_md_templates():
+        assert template in message
+
+
+@pytest.mark.parametrize("value", [3, ["CLAUDE.md.j2"]], ids=["int", "list"])
+def test_a_non_string_claude_md_template_is_refused(value) -> None:
+    """A value that is not a template name is refused, never coerced."""
+    with pytest.raises(BuildProfileError, match="claude_md_template"):
+        _parse_profile(_with_template(value))
+
+
+def test_an_absent_claude_md_template_is_the_default() -> None:
+    """A profile that names no render builds the default one."""
+    profile = _parse_profile({"name": "x", "data": "data"})
+    assert profile.claude_md_template == DEFAULT_CLAUDE_MD_TEMPLATE
+
+
+def test_a_bundled_claude_md_template_is_kept() -> None:
+    """A bundled render named by the profile is the one it builds."""
+    profile = _parse_profile(_with_template("CLAUDE.logbook.md.j2"))
+    assert profile.claude_md_template == "CLAUDE.logbook.md.j2"

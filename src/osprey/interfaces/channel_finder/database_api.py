@@ -1028,8 +1028,8 @@ async def explore_options(request: Request, level: str, selections: str | None =
         options = db.get_options_at_level(level, parsed_selections or {})
         return {"level": level, "options": options, "total": len(options)}
 
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to get explore options")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1052,8 +1052,8 @@ async def explore_build(request: Request, selections: str):
     try:
         return db.build_existing_channels(json.loads(selections))
 
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to build channels")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

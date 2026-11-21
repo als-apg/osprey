@@ -117,6 +117,7 @@ def _csp_policies(resp) -> list[str]:
 
 _ATTR_RE = re.compile(r"""\b(?:src|href)\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 _IMPORT_RE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"']+)["']""")
+_STATIC_IMPORT_RE = re.compile(r"""(?:\bfrom\s*|\bimport\s*)["']([^"']+)["']""")
 _CSS_URL_RE = re.compile(r"""url\(\s*["']?([^)"']+)""")
 _DATA_JS_RE = re.compile(r"data:text/javascript;base64,([A-Za-z0-9+/=]+)")
 _DATA_CSS_RE = re.compile(r"data:text/css;base64,([A-Za-z0-9+/=]+)")
@@ -146,6 +147,33 @@ def _server_references(page: str) -> list[str]:
         refs += [s for s in _IMPORT_RE.findall(source) if not s.startswith("data:")]
         modules += _decoded(_DATA_JS_RE, source)
     return refs
+
+
+def _surviving_specifiers(url_path: str) -> list[str]:
+    """Static import specifiers still naming a server path (``/``, ``./``,
+    ``../``) anywhere in the recursively decoded inlined module."""
+    url = inline_assets.module_data_url(url_path)
+    modules = _decoded(_DATA_JS_RE, url)
+    survivors: list[str] = []
+    seen: set[str] = set()
+    while modules:
+        source = modules.pop()
+        if source in seen:
+            continue
+        seen.add(source)
+        survivors += [
+            s for s in _STATIC_IMPORT_RE.findall(source) if s.startswith(("/", "./", "../"))
+        ]
+        modules += _decoded(_DATA_JS_RE, source)
+    return survivors
+
+
+_FIRST_PARTY_MODULES = sorted(
+    prefix + path.relative_to(root).as_posix()
+    for prefix, root in inline_assets._MODULE_ROOTS
+    for path in root.rglob("*.js")
+    if "vendor" not in path.relative_to(root).parts
+)
 
 
 def _credentialed(refs: list[str]) -> list[str]:
@@ -419,12 +447,19 @@ class TestInliner:
         specs = _IMPORT_RE.findall(source)
         assert specs and all(s.startswith("data:text/javascript;base64,") for s in specs)
 
-    @pytest.mark.parametrize(
-        "module",
-        sorted(p.name for p in (inline_assets.DESIGN_SYSTEM_STATIC / "js/components").glob("*.js")),
-    )
-    def test_every_component_module_inlines(self, module):
-        inline_assets.module_data_url(f"/design-system/js/components/{module}")
+    @pytest.mark.parametrize("module", _FIRST_PARTY_MODULES)
+    def test_every_first_party_module_inlines_whole(self, module):
+        assert _surviving_specifiers(module) == []
+
+    def test_the_module_set_spans_both_roots(self):
+        for prefix, _root in inline_assets._MODULE_ROOTS:
+            assert any(m.startswith(prefix) for m in _FIRST_PARTY_MODULES), prefix
+
+    def test_a_specifier_hidden_by_a_regex_literal_is_caught(self, tmp_path, monkeypatch):
+        (tmp_path / "b.js").write_text("export const b = 1;\n")
+        (tmp_path / "a.js").write_text('const q = /"/; import "./b.js";\n')
+        monkeypatch.setattr(inline_assets, "_MODULE_ROOTS", (("/static/", tmp_path.resolve()),))
+        assert _surviving_specifiers("/static/a.js") == ["./b.js"]
 
     def test_a_commented_out_import_is_left_untouched(self):
         line_comment = '// import "/design-system/js/no-such.js";'
@@ -438,6 +473,13 @@ class TestInliner:
         out = inline_assets.self_contained(snippet)
         assert line_comment in out and block_comment in out
         assert 'import "data:text/javascript;base64,' in out
+
+    def test_a_design_system_module_tag_becomes_an_inline_module(self):
+        snippet = '<script type="module" src="/design-system/js/page-ready.js"></script>'
+        out = inline_assets.self_contained(snippet)
+        assert "/design-system/" not in out
+        assert out.startswith('<script type="module">')
+        assert "export function markPageReady" in out
 
     def test_comment_markers_inside_strings_do_not_hide_an_import(self):
         snippet = (

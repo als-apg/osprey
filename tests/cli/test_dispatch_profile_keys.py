@@ -243,7 +243,8 @@ def _emitted_dispatch_example() -> dict[str, Any]:
     """Parse the commented ``dispatch:`` example ``osprey init`` emits."""
     from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
 
-    lines = _COMMENTED_TEMPLATES["dispatch"].splitlines()
+    _header, example = _COMMENTED_TEMPLATES["dispatch"]
+    lines = example.splitlines()
     start = lines.index("# dispatch:")
     body = "\n".join(line.removeprefix("#").removeprefix(" ") for line in lines[start:])
     return yaml.safe_load(body)
@@ -268,7 +269,8 @@ def test_the_emitted_example_states_the_run_limits() -> None:
 
 def test_the_emitted_example_calls_facility_name_an_override() -> None:
     """The example names no config or profile key for the dashboard's name."""
-    from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
+    from osprey.cli.build_profile_emit import _commented_template
 
-    assert "facility.name" not in _COMMENTED_TEMPLATES["dispatch"]
-    assert "facility_name" not in _COMMENTED_TEMPLATES["dispatch"]
+    template = _commented_template("dispatch")
+    assert "facility.name" not in template
+    assert "facility_name" not in template

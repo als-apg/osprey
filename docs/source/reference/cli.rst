@@ -508,9 +508,11 @@ Stop this deployment, keeping all data. It renders nothing; destroying data is
 If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
 compose files from ``profile.yml`` — those describe what would be started now,
 not what is running. Instead it stops the services the last start recorded, in
-the compose project it recorded, and leaves any container another checkout
-created. That is the recovery path for a ``build/`` deleted while the stack was
-up.
+the compose project it recorded. That is the recovery path for a ``build/``
+deleted while the stack was up.
+
+While another checkout of this repository holds the project name, ``down``
+refuses, names that copy, and stops nothing.
 
 A deployment whose record names no services, or a repository with no record, is
 stopped by the label this repository put on its containers. Containers are
@@ -1185,12 +1187,13 @@ is :doc:`/how-to/apps/index`.
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
    ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` passes the panel validator's page rules
-   (the three design-system sheets, the theme boot script, the font sheet, no raw
-   hex colour, the page-ready mark) and every class the panel sets has a CSS
-   rule, ESLint over ``panel/`` when it holds JS, and Vitest over
-   ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
-   with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
+   packages, that ``panel/index.html`` passes the panel validator's rules (the
+   three design-system sheets, the theme boot script, the font sheet, no raw hex
+   colour, the page-ready mark), ESLint over ``panel/`` when it holds JS, and
+   Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every
+   violation with its application, field and rule, and exits 1. A panel rule that
+   only reports (a class with no CSS rule) is printed as
+   ``[undefined_class: report]`` and does not fail the check. An ``apps/<name>/`` the block
    does not name is reported and not checked. An application an installed package
    ships is checked too; its violations name the
    distribution (``<dist>:<module path>/<file>``). The JS checks execute the

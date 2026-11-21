@@ -197,7 +197,7 @@ def test_prepare_compose_files_no_services_renders_nothing(
     An attached project (``deploy_services: false``) scaffolds no ``services/``
     templates, so the root render must be skipped too — every consumer is
     guarded on non-empty ``deployed_services`` before invoking compose
-    (deploy_up's early return; the web branch's services sub-invocation).
+    (_start_stack's early return; the web branch's services sub-invocation).
     """
     config_path = _write_config(tmp_path, deployed_services=[])
 

@@ -219,7 +219,8 @@ too, each because the real thing makes a test slow or flaky:
   after a navigation. Every page OSPREY serves sets `data-page-ready="true"` on
   its `<html>` once it can be driven (`design-system/js/page-ready.js`); the
   helper waits for it on a page, frame or frame locator. It fails at once on
-  `data-page-ready="failed"`, the writer's mark for a pending page that threw.
+  `data-page-ready="failed"`, the writer's mark for a pending page that threw or
+  could not load one of its own scripts.
   `open_hub_page`, `open_panel_host`, `PanelHost.goto` and `PanelHost.reload`
   wait through it.
   `tests/interfaces/test_page_ready_guard.py` fails a test whose next use of a

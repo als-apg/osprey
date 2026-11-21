@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import functools
 import glob
 import importlib.util
 import os
@@ -702,6 +703,36 @@ def _guard() -> ModuleType | None:
     return module
 
 
+#: Owns which folders hold release notes: each tree's changelog and fragments.
+CHANGELOG_MODULE = "changelog_fragments.py"
+
+
+@functools.cache
+def _changelog_fragments() -> ModuleType:
+    """The changelog tool, loaded by path from beside this module."""
+    # The tool is this checkout's code, as this module is.
+    spec = importlib.util.spec_from_file_location(
+        "_repo_checks_changelog_fragments", Path(__file__).resolve().parent / CHANGELOG_MODULE
+    )
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load scripts/{CHANGELOG_MODULE}")
+    module = importlib.util.module_from_spec(spec)
+    # Registered before exec: its dataclasses resolve their annotations through
+    # their module's entry in sys.modules.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _changelog_paths() -> tuple[tuple[str, ...], frozenset[str]]:
+    """Every tree's fragment directory, as a path prefix, and every tree's changelog."""
+    tool = _changelog_fragments()
+    return (
+        tuple(f"{tree.prefix}{tool.FRAGMENT_DIR}/" for tree in tool.TREES),
+        frozenset(f"{tree.prefix}{tool.CHANGELOG}" for tree in tool.TREES),
+    )
+
+
 def _hosted_outside_sweep(path: str) -> bool:
     """Whether the parallel sweep leaves *path* to another check or to a lane."""
     for ignored, _host in UNIT_SELECTION.ignores:
@@ -962,10 +993,14 @@ def _select_pytest(
 ) -> Selection:
     chosen: list[str] = []
     sources: dict[str, tuple[str, set[str] | None]] = {}
+    fragment_dirs, changelogs = _changelog_paths()
     for path in paths:
         name = path.rsplit("/", 1)[-1]
         suffix = PurePosixPath(path).suffix
         if _hosted_outside_sweep(path):
+            continue
+        # The changelog tool owns which folders hold release notes; no test reads them.
+        if path.startswith(fragment_dirs) or path in changelogs:
             continue
         if suffix == ".py":
             root = _sweep_root(path)
@@ -1119,8 +1154,9 @@ def _pytest_command(
 WALLCLOCK_FILES_MODULE = "tests/_wallclock_files.py"
 
 
-def wallclock_unit_files() -> list[str]:
-    """The files the image-free wall-clock budgets live in, read off the tree."""
+@functools.cache
+def _wallclock_files() -> ModuleType:
+    """The scan module, which states where each wall-clock budget is timed."""
     # The scanner is this checkout's code; the tree it reads is the root's.
     spec = importlib.util.spec_from_file_location(
         "wallclock_files", Path(__file__).resolve().parents[1] / WALLCLOCK_FILES_MODULE
@@ -1129,7 +1165,12 @@ def wallclock_unit_files() -> list[str]:
         raise Refused(f"cannot load {WALLCLOCK_FILES_MODULE}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.marked_files(kit.ROOT, UNIT_SELECTION.roots)
+    return module
+
+
+def wallclock_unit_files() -> list[str]:
+    """The files the image-free wall-clock budgets live in, read off the tree."""
+    return _wallclock_files().marked_files(kit.ROOT, UNIT_SELECTION.roots)
 
 
 def _wallclock_unit_command(
@@ -1142,8 +1183,8 @@ def _wallclock_unit_command(
     """Only the marked files, selected by the marker: collecting the whole tree
     to pick a handful of tests cost about a minute. No file found falls back
     to the tree, where the marker selects nothing and the run says so."""
-    files = wallclock_unit_files() or ["tests/", "--ignore=tests/e2e", "--ignore=tests/integration"]
-    argv = [*check.argv, *files, "-m", "wallclock", *flags, *written]
+    files = wallclock_unit_files() or [*UNIT_SELECTION.roots]
+    argv = [*check.argv, *files, "-m", _wallclock_files().IMAGE_FREE, *flags, *written]
     return [kit.bounded(check.bound_s, argv)]
 
 
@@ -1730,8 +1771,15 @@ VENUES = {
 # ---------------------------------------------------------------------------
 # The checks
 
-#: The wall-clock suite; its leading paths are what its Docker hook reads.
-WALLCLOCK_ARGV = (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock")
+#: The wall-clock budgets that need the sidecar image; its leading paths are
+#: what its Docker hook reads.
+WALLCLOCK_ARGV = (
+    *UV_RUN,
+    "pytest",
+    _wallclock_files().IMAGE_ROOT,
+    "-m",
+    _wallclock_files().IMAGE_BOUND,
+)
 
 CHECKS: tuple[Check, ...] = (
     Check("lockfile", "invariant", BOTH, ("uv", "lock", "--check"), needs=("uv",)),
@@ -1920,13 +1968,14 @@ CHECKS: tuple[Check, ...] = (
         exec_flags=True,
     ),
     # A wall-clock budget timed beside loaded workers measures the workers, so
-    # the sweep deselects the marker and this suite runs alone.
+    # the sweep deselects the marker and the budgets run alone; these are the
+    # ones that need the sidecar image, timed in the job that builds it.
     Check(
         "pytest-wallclock",
         "tests",
         FULL,
         WALLCLOCK_ARGV,
-        scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
+        scope=(f"{_wallclock_files().IMAGE_ROOT}/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("free-space", "uv", "install-current"),
         selected_needs=_docker_group_needs(lambda _context: _pytest_paths(WALLCLOCK_ARGV)),
         bound_s=900,
@@ -1935,8 +1984,8 @@ CHECKS: tuple[Check, ...] = (
         exec_flags=True,
     ),
     # The image-free budgets: every wallclock test under the sweep's roots
-    # outside tests/integration, whose budgets need the sidecar image and are
-    # timed by pytest-wallclock.
+    # that does not carry the image marker; the ones that do are timed by
+    # pytest-wallclock, in the job that builds the image.
     # The files are found by a scan of the tree when the check runs, so a budget
     # added anywhere is timed alone with no new wiring, and the run collects
     # those files rather than the whole tree.

@@ -40,7 +40,7 @@ reasoning over results delegated to the OSPREY agent layer.
 
    - **Python 3.11+** with a virtual environment
    - **Osprey installed:** see :doc:`/getting-started/installation`
-   - **Container runtime:** `Docker Desktop 4.0+ <https://docs.docker.com/get-docker/>`_ or `Podman 4.0+ <https://podman.io/getting-started/installation>`_ (for PostgreSQL)
+   - **Container runtime:** `Docker Engine 20.10 or newer <https://docs.docker.com/get-docker/>`_ (Docker Desktop 4.0 or newer on macOS and Windows) or `Podman 4.1 or newer <https://podman.io/getting-started/installation>`_ (for PostgreSQL)
    - **LLM API access:** An API key for your configured provider (e.g., ``ANTHROPIC_API_KEY``)
    - **(Recommended) Ollama** --- for local text embeddings powering semantic search:
 

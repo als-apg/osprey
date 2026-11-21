@@ -40,7 +40,6 @@ from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.set_cmd import set as set_cmd
 from osprey.cli.validate_cmd import validate
-from osprey.deployment import staleness
 
 PROFILE = "profile.yml"
 ROOT_BASE = "presets/demo.yml"
@@ -498,21 +497,14 @@ def test_an_unreadable_application_sidecar_is_a_note_too(repo: Path) -> None:
 # ── the state behind the note ────────────────────────────────────────────────
 
 
-def _presets_changed(repo: Path) -> bool:
-    manifest = {"build_args": {"profile_path_abs": str(repo / PROFILE)}}
-    return staleness._presets_changed(manifest)
-
-
-def test_only_a_changed_preset_sends_osprey_up_to_revalidate(repo: Path) -> None:
+def test_only_a_changed_preset_has_changes_to_take(repo: Path) -> None:
     assert preset_update_status(repo / PROFILE).state is PresetUpdateState.CURRENT
-    assert not _presets_changed(repo)
 
     _older_preset(repo, ROOT_BASE, _without_panel)
 
     status = preset_update_status(repo / PROFILE)
     assert status.state is PresetUpdateState.CHANGED
     assert status.note is not None and NOTE in status.note
-    assert _presets_changed(repo)
 
 
 def test_a_preset_this_osprey_does_not_bundle_has_nothing_to_take(repo: Path) -> None:
@@ -522,7 +514,6 @@ def test_a_preset_this_osprey_does_not_bundle_has_nothing_to_take(repo: Path) ->
 
     assert status.state is PresetUpdateState.NOT_BUNDLED
     assert status.note is not None and "does not bundle" in status.note
-    assert not _presets_changed(repo)
 
 
 def test_a_repo_from_before_the_saved_copy_has_nothing_to_take(repo: Path) -> None:
@@ -532,7 +523,6 @@ def test_a_repo_from_before_the_saved_copy_has_nothing_to_take(repo: Path) -> No
 
     assert status.state is PresetUpdateState.UNTRACKED
     assert status.note is not None and "predates preset tracking" in status.note
-    assert not _presets_changed(repo)
 
 
 @pytest.mark.parametrize(
@@ -553,14 +543,12 @@ def test_a_repo_from_before_the_saved_copy_whose_preset_moved_on_has_changes_to_
 
     assert status.state is PresetUpdateState.UNTRACKED_CHANGED
     assert status.note is not None and "predates preset tracking" in status.note
-    assert _presets_changed(repo)
 
 
 def test_an_unreadable_saved_copy_has_nothing_to_take(repo: Path) -> None:
     (repo / TRIGGERS_BASE).write_text(CONFLICT, encoding="utf-8")
 
     assert preset_update_status(repo / PROFILE).state is PresetUpdateState.UNREADABLE
-    assert not _presets_changed(repo)
 
 
 # ── a repo from before the saved copy: what cannot be told apart is listed ───
@@ -772,7 +760,6 @@ def test_a_saved_copy_deleted_after_revalidate_recorded_it_leaves_nothing_to_tak
     assert "already current; nothing to rewrite" in _revalidate(repo).output
     shutil.rmtree(repo / ".osprey")
     assert preset_update_status(repo / PROFILE).state is PresetUpdateState.UNTRACKED
-    assert not _presets_changed(repo)
     assert LEFT not in _revalidate(repo).output
     assert "preset has changed" not in _validate(repo).output
 

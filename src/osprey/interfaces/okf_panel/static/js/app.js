@@ -763,8 +763,13 @@ function requireEl(id) {
   const treeLoaded = loadTree();
   loadBundleHealth();
   // Ready once the contents list and the first reader content are drawn, or
-  // failed to be (index.html declares the mark pending until then).
-  void Promise.allSettled([treeLoaded, bootFromParams()]).then(() => markPageReady());
+  // drew their error state (index.html declares the mark pending until then).
+  // A start-up that throws instead keeps its rejection: nothing handles it, so
+  // the page-ready writer marks the page failed.
+  const booted = Promise.resolve(bootFromParams());
+  void Promise.allSettled([treeLoaded, booted])
+    .then(() => booted)
+    .then(() => markPageReady());
   // Embedded: the tile bar's subtitle (on a page) and its ⋯ entry.
   contributeHeader([{ kind: 'menu', ...PANEL_MENU }]);
 })();

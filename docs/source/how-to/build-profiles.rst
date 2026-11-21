@@ -647,11 +647,15 @@ its home, and so are ``extends:`` and ``exclude:``. A login never subtracts.
 - ``lists: add`` (the default) adds them by name, and its ``config:`` keys win.
   ``readonly`` holds chiefly ``control_system.writes: never``; ``admin`` the
   privileges the profile deliberately withholds.
-- ``lists: own`` takes the lists, ``name``, ``default_panel``,
+- ``lists: own`` takes ``name``, the ``hooks``, ``rules``, ``skills``,
+  ``agents``, ``output_styles`` and ``web_panels`` lists, ``default_panel``,
   ``claude_md_template`` and ``channel_finder_mode`` from the file alone;
-  nothing the deployment selects is inherited. Its ``mcp_servers`` are added
-  to the deployment's, but none of the deployment's server switches reach it,
-  so the file switches off each server it does without. The guards still reach
+  nothing the deployment selects is inherited. A key the file leaves out is
+  not inherited either: a login without ``claude_md_template`` renders the
+  bundled ``CLAUDE.md.j2``, not the deployment's template. Its
+  ``mcp_servers`` are added to the deployment's, but none of the deployment's
+  server switches reach it, so the file switches off each server it does
+  without. The guards still reach
   it (see :ref:`profile-custom-hooks`). The bundled ``logbook``, ``knowledge``
   and ``channel-finder`` logins are written this way.
 

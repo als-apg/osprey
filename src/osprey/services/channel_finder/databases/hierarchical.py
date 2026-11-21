@@ -16,9 +16,9 @@ remains available directly on this class.
 from ..core.base_database import BaseDatabase
 from ._hierarchical_loading import _HierarchicalLoadingMixin
 from ._hierarchical_preview import _HierarchicalPreviewMixin
-from ._hierarchical_query import _HierarchicalQueryMixin
+from ._hierarchical_query import UnselectedLevelError, _HierarchicalQueryMixin
 
-__all__ = ["HierarchicalChannelDatabase"]
+__all__ = ["HierarchicalChannelDatabase", "UnselectedLevelError"]
 
 
 class HierarchicalChannelDatabase(

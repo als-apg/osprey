@@ -317,7 +317,7 @@ def _create_sandbox_wrapper(
         secret_roots=secret_roots,
     )
 
-    return f'''\
+    return f"""\
 import sys
 import json
 import os
@@ -351,7 +351,7 @@ _OSPREY_FS_PERMITTED = _OSPREY_FS_PERMITTED + (
 # ---------------------------------------------------------------------------
 # Execution directory setup
 # ---------------------------------------------------------------------------
-_execution_dir = Path(r"{exec_folder_str}")
+_execution_dir = Path({exec_folder_str!r})
 _execution_dir.mkdir(parents=True, exist_ok=True)
 {data_path_binding}
 {SAVE_ARTIFACT_SOURCE}
@@ -410,7 +410,7 @@ finally:
 
     # Restore every filesystem entry point the guard rebound
     _restore_patched_targets()
-'''
+"""
 
 
 def _indent_code(code: str, spaces: int = 4) -> str:

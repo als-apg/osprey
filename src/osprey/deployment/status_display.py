@@ -66,6 +66,21 @@ logger = get_logger("deployment.status")
 #: it stays one line — ``osprey logs`` has the untruncated text.
 PREFLIGHT_REASON_MAX_CHARS = 60
 
+#: The fixed opening of the pre-flight annotation in a state cell. It carries
+#: no leading space, so a cell wrapped at its edge still contains it whole.
+PREFLIGHT_ANNOTATION_PREFIX = "(preflight:"
+
+
+def preflight_annotation(reason):
+    """The text a state label appends for a pre-flight refusal *reason*.
+
+    :param reason: The refusal reason, already cut to fit the cell
+    :type reason: str
+    :return: The annotation, with the space that separates it from the label
+    :rtype: str
+    """
+    return f" {PREFLIGHT_ANNOTATION_PREFIX} {reason})"
+
 
 def _format_state(state, preflight_reason=None):
     """Format a container ``State`` value as a colored status label.
@@ -100,7 +115,7 @@ def _format_state(state, preflight_reason=None):
     else:
         label = Text(f"● {state}", style=Styles.DIM)
     if preflight_reason:
-        label.append(f" (preflight: {preflight_reason})", style=Styles.ERROR)
+        label.append(preflight_annotation(preflight_reason), style=Styles.ERROR)
     return label
 
 

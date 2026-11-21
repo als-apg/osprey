@@ -11,8 +11,14 @@ from __future__ import annotations
 import json
 import re
 
-from osprey.interfaces.design_system.panels.validator import PanelRule, assert_valid_panel
+from osprey.interfaces.design_system.panels.page_ready import DESIGN_SYSTEM_STATIC
+from osprey.interfaces.design_system.panels.validator import (
+    PanelRule,
+    assert_valid_panel,
+    validate_panel,
+)
 from tests.docs.test_environment_variable_page import _REPO_ROOT
+from tests.interfaces.test_embedded_identity_contract import FRAMED_ONLY_RULE
 
 _SKILLS = _REPO_ROOT / "plugins" / "osprey" / "skills"
 _RELEASE_SKILL = (_SKILLS / "release" / "SKILL.md").read_text(encoding="utf-8")
@@ -47,14 +53,52 @@ def test_the_quoted_e2e_invocation_is_the_one_ci_runs() -> None:
     )
 
 
-def test_the_panel_head_passes_the_validator_it_is_checked_with(tmp_path) -> None:
-    (tmp_path / "index.html").write_text(_fenced(_PANEL_SKILL, "html")[0], encoding="utf-8")
+def test_every_panel_skill_page_and_sheet_passes_the_validator(tmp_path) -> None:
+    pages = _fenced(_PANEL_SKILL, "html")
+    sheets = _fenced(_PANEL_SKILL, "css")
+    assert pages, "the panel skill no longer fences its head as an html block"
     manifest = next(block for block in _fenced(_PANEL_SKILL, "json") if '"entry"' in block)
-    (tmp_path / "manifest.json").write_text(manifest, encoding="utf-8")
     assert json.loads(manifest)["entry"] == "index.html"
-    assert_valid_panel(tmp_path)
+    for block in [*pages, *sheets]:
+        assert FRAMED_ONLY_RULE not in block, "the tile bar is a panel's one header"
+    for number, page in enumerate(pages):
+        panel = tmp_path / f"page-{number}"
+        panel.mkdir()
+        (panel / "index.html").write_text(page, encoding="utf-8")
+        (panel / "manifest.json").write_text(manifest, encoding="utf-8")
+        assert_valid_panel(panel)
+        assert validate_panel(panel) == []
+    for number, sheet in enumerate(sheets):
+        panel = tmp_path / f"sheet-{number}"
+        panel.mkdir()
+        (panel / "index.html").write_text(pages[0], encoding="utf-8")
+        (panel / "manifest.json").write_text(manifest, encoding="utf-8")
+        (panel / "panel.css").write_text(sheet, encoding="utf-8")
+        assert_valid_panel(panel)
+        assert validate_panel(panel) == []
+
+
+def test_every_page_ready_wait_names_the_writers_two_end_values() -> None:
+    writer = (DESIGN_SYSTEM_STATIC / "js" / "page-ready.js").read_text(encoding="utf-8")
+    ready = re.search(r"setAttribute\(PAGE_READY_ATTRIBUTE, '([^']+)'\)", writer)
+    failed = re.search(r"const FAILED = '([^']+)';", writer)
+    assert ready and failed, "page-ready.js no longer spells its two end values"
+    for skill in ("panel", "build-app"):
+        text = (_SKILLS / skill / "SKILL.md").read_text(encoding="utf-8")
+        assert f"`{ready.group(1)}` or `{failed.group(1)}`" in text, skill
+    page = (
+        _REPO_ROOT / "docs" / "source" / "how-to" / "apps" / "build-your-own-app.rst"
+    ).read_text(encoding="utf-8")
+    assert f"``{ready.group(1)}`` or ``{failed.group(1)}``" in page
 
 
 def test_the_panel_rule_table_lists_every_rule() -> None:
     listed = set(re.findall(r"^\| `([A-Z_]+)` \|", _PANEL_SKILL, re.M))
     assert listed == {rule.name for rule in PanelRule}
+
+
+def test_the_panel_rule_table_states_each_rules_consequence() -> None:
+    rows = re.findall(r"^\| `([A-Z_]+)` \| ([a-z]+) \|", _PANEL_SKILL, re.M)
+    assert {name for name, _ in rows} == {rule.name for rule in PanelRule}
+    for name, consequence in rows:
+        assert consequence == PanelRule[name].consequence.value, name

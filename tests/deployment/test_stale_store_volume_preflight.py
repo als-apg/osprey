@@ -65,18 +65,11 @@ def _completed(cmd, stdout: str, returncode: int = 0) -> subprocess.CompletedPro
 
 
 @pytest.fixture
-def deploy(monkeypatch, tmp_path):
+def deploy(stubbed_start, monkeypatch, tmp_path):
     """A one-store project whose runtime answers are set per test."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MONGO_ROOT_PASSWORD", raising=False)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (
-            {"deployed_services": ["mongodb"], "project_name": PROJECT},
-            ["docker-compose.yml"],
-        ),
-    )
+    stubbed_start.config = {"deployed_services": ["mongodb"], "project_name": PROJECT}
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     # Every start builds the project image agent-record runs on; no build here.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
@@ -86,9 +79,7 @@ def deploy(monkeypatch, tmp_path):
 
     def _run(fake: FakeRuntime):
         monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
-        return lambda **kw: container_lifecycle.deploy_up(
-            str(tmp_path / "config.yml"), detached=True, **kw
-        )
+        return lambda **kw: stubbed_start.start(detached=True, **kw)
 
     return _run
 
@@ -384,18 +375,11 @@ class TestBothPostgresIdentities:
     """
 
     @pytest.fixture
-    def deploy_postgres(self, monkeypatch, tmp_path):
+    def deploy_postgres(self, stubbed_start, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
         for var in ("ARIEL_DB_PASSWORD", "ARIEL_DB_READONLY_PASSWORD"):
             monkeypatch.delenv(var, raising=False)
-        monkeypatch.setattr(
-            container_lifecycle,
-            "prepare_compose_files",
-            lambda *a, **k: (
-                {"deployed_services": ["postgresql"], "project_name": PROJECT},
-                ["docker-compose.yml"],
-            ),
-        )
+        stubbed_start.config = {"deployed_services": ["postgresql"], "project_name": PROJECT}
         monkeypatch.setattr(
             container_lifecycle, "verify_runtime_is_running", lambda config: (True, "")
         )
@@ -407,9 +391,7 @@ class TestBothPostgresIdentities:
 
         def _run(fake: FakeRuntime):
             monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
-            return lambda **kw: container_lifecycle.deploy_up(
-                str(tmp_path / "config.yml"), detached=True, **kw
-            )
+            return lambda **kw: stubbed_start.start(detached=True, **kw)
 
         return _run
 

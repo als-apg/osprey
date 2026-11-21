@@ -634,7 +634,7 @@ def test_a_deploy_listing_graphdb_without_a_block_is_refused_before_anything_sta
 
 
 def test_a_detached_start_ends_on_the_failed_step_after_the_stack_is_up(
-    stub_deploy_up, monkeypatch, tmp_path
+    stub_start_stack, monkeypatch
 ):
     """The two halves of the guarantee together: the rest of the stack is
     started exactly as if the graph had seeded, and the start then raises the
@@ -644,7 +644,7 @@ def test_a_detached_start_ends_on_the_failed_step_after_the_stack_is_up(
     monkeypatch.delenv("GRAPHDB_PASSWORD", raising=False)
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_stage_graphdb_store", lambda *a, **k: failure)
-    captured = stub_deploy_up(
+    stack = stub_start_stack(
         {
             "deployed_services": ["graphdb"],
             "services": {"graphdb": {"port_host": 7687, "http_port_host": 7474}},
@@ -654,8 +654,8 @@ def test_a_detached_start_ends_on_the_failed_step_after_the_stack_is_up(
 
     # Act
     with pytest.raises(DeployStepFailedError) as excinfo:
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+        stack.start(detached=True, dev_mode=False)
 
     # Assert
     assert excinfo.value is failure
-    assert captured["cmd"][-3:] == ["up", "--remove-orphans", "-d"]
+    assert stack.cmd[-3:] == ["up", "--remove-orphans", "-d"]

@@ -2971,8 +2971,7 @@ def _render_project(
     }
     if build_profile.channel_finder_mode is not None:
         manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
-    if build_profile.claude_md_template:
-        manifest_context["claude_md_template"] = build_profile.claude_md_template
+    manifest_context["claude_md_template"] = build_profile.claude_md_template
     manager.generate_manifest(
         project_dir=render_dir,
         project_name=project_name,
@@ -3703,16 +3702,14 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
       The two are rewritten to DIFFERENT files, on purpose.
       ``profile_path`` keeps naming the file this render came from — the
       layer for a render image — because that is its job: provenance.
-      ``profile_path_abs`` is not provenance; it is the input
-      :func:`~osprey.deployment.staleness.staleness_reasons` hashes and compares
-      against ``creation.preset_hash``, so it must name the same file the stamp
-      below is computed from — the repo's own ``profile.yml``. Pointed at the
-      delta it would hash the delta against a root-profile stamp and every
-      render container would print "profile has changed" on an untouched build:
-      a false drift report from the advisory while
-      :func:`~osprey.deployment.staleness.check_drift`, which reads the profile
-      off the repo root, correctly says CLEAN. Advisory and gate now agree by
-      construction, because they hash the same file.
+      ``profile_path_abs`` is not provenance; it is the profile the
+      container's own tools resolve the project's profile from —
+      :func:`~osprey.cli.templates.manifest.manifest_profile_path` and
+      :func:`~osprey.cli.scaffold_cmd._project_profile_root` — and the input
+      :func:`~osprey.cli.templates.manifest.generate_manifest` hashes into
+      ``creation.preset_hash``, so it must name the same file the stamp below
+      is computed from — the repo's own ``profile.yml``. Pointed at the delta,
+      those readers would resolve a layer where the stamp names the root.
     * ``creation.preset_hash`` — the fingerprint
       :func:`osprey.deployment.staleness.check_drift` holds ``build/`` against.
       For the deployment's own image this is already right (same profile, same
@@ -3742,9 +3739,8 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
         if "profile_path" in build_args:
             build_args["profile_path"] = container_profile
         # Set unconditionally rather than only when already present: this is the
-        # file the container's staleness advisory hashes, and leaving it absent
-        # would fall the advisory back to `profile_path` (the delta) or to
-        # `preset`, neither of which is what the stamp below is computed from.
+        # file `manifest_profile_path` and `_project_profile_root` resolve the
+        # container's profile from, and absent it they would find none.
         build_args["profile_path_abs"] = f"{runtime_root}/{PROFILE_FILENAME}"
 
     fingerprint = staleness.profile_fingerprint(image_root / PROFILE_FILENAME)
@@ -5146,8 +5142,7 @@ def _repo_render_context(
         context["default_panel"] = build_profile.default_panel
     if build_profile.panel_presets:
         context["panel_presets"] = build_profile.panel_presets
-    if build_profile.claude_md_template:
-        context["claude_md_template"] = build_profile.claude_md_template
+    context["claude_md_template"] = build_profile.claude_md_template
     context["ariel_server_on"] = _ariel_server_enabled(build_profile)
 
     python_env = build_profile.python_env or "project"

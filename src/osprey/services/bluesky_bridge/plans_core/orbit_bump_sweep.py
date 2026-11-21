@@ -98,6 +98,16 @@ PLAN_METADATA = {
         "corrector is returned to its pre-scan working point."
     ),
     "writes": True,
+    "layout": [
+        ["correctors"],
+        ["targets"],
+        ["closure_readbacks", "readbacks"],
+        ["mode", "sweep", "num"],
+        ["tolerance", "probe_amplitude", "settle_s"],
+        ["beam_current_readback", "min_beam_current"],
+        ["best_effort", "max_trim_iterations", "baseline_reads"],
+        ["monitors"],
+    ],
 }
 
 

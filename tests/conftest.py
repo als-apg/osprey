@@ -1105,13 +1105,16 @@ def pytest_collection_modifyitems_wallclock_guard(items):
     """Hold the wall-clock scan to pytest's marks.
 
     This runs before `-m` deselects anything, so the sweep, which deselects the
-    `wallclock` marker, still sees every marked test it collects; one in a file
-    tests/_wallclock_files.py does not find would be timed by nothing, and the
-    run stops with its name. A hook of its own, so the resource auto-skip below
-    keeps the narrow item contract its tests drive it with.
+    `wallclock` marker, still sees every marked test it collects, and whether
+    pytest marks it `dockerbuild` too. One whose file tests/_wallclock_files.py
+    places in the wrong timing check, or in none, would be timed by nothing, and
+    the run stops with its name. A hook of its own, so the resource auto-skip
+    below keeps the narrow item contract its tests drive it with.
     """
     strays = _wallclock_files.unscanned(
-        item.path for item in items if item.get_closest_marker(_wallclock_files.MARKER)
+        (item.path, item.get_closest_marker(_wallclock_files.IMAGE_MARKER) is not None)
+        for item in items
+        if item.get_closest_marker(_wallclock_files.MARKER)
     )
     if strays:
         # Written out as well as raised: an xdist worker's UsageError reaches

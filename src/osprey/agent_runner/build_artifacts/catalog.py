@@ -85,6 +85,17 @@ INSTRUCTIONS_OUTPUT = "CLAUDE.md"
 DEFAULT_CLAUDE_MD_TEMPLATE = "CLAUDE.md.j2"
 
 
+def bundled_claude_md_templates() -> tuple[str, ...]:
+    """Return the template of every bundled CLAUDE.md render, sorted."""
+    return tuple(
+        sorted(
+            a.template_path
+            for a in _get_default_artifacts()
+            if a.output_path == INSTRUCTIONS_OUTPUT
+        )
+    )
+
+
 def _get_default_artifacts() -> list[BuildArtifact]:
     """Return the declarative list of all known build artifacts."""
     return [

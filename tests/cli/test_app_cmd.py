@@ -13,8 +13,10 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+import osprey
 from osprey.cli.app_cmd import app
-from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT
+from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT, WRITER_TAG
+from osprey.interfaces.design_system.panels.validator import refusing, validate_entry
 from tests.apps import _installed
 from tests.apps._installed import DIST, MODULE, NAME, entry_point
 from tests.cli._lifecycle_build import invoke_build
@@ -293,11 +295,14 @@ def _page(
     html: str = PENDING,
     head: str = INLINE_MARK,
     fonts: bool = True,
+    writer: bool = True,
 ) -> str:
     links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
     font = FONT_LINK if fonts else ""
+    first = f"{WRITER_TAG}\n" if writer else ""
     return (
-        f"{html}\n<head>\n{BOOT_SCRIPT}{links}{font}{head}</head>\n<body>{body}</body>\n</html>\n"
+        f"{html}\n<head>\n{BOOT_SCRIPT}{first}{links}{font}{head}</head>\n"
+        f"<body>{body}</body>\n</html>\n"
     )
 
 
@@ -347,7 +352,7 @@ def test_an_app_panel_without_the_font_sheet_is_refused(
     assert "apps/knob/panel/index.html" in line
 
 
-def test_a_class_with_no_rule_fails_naming_it_and_its_file(
+def test_a_class_with_no_rule_is_reported_naming_it_and_its_file(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
     styled = ("tokens.css", "base.css", "primitives.css")
@@ -355,9 +360,69 @@ def test_a_class_with_no_rule_fails_naming_it_and_its_file(
 
     result = _check(runner, lifecycle_repo)
 
+    assert result.exit_code == 0, result.output
+    [line] = [line for line in result.output.splitlines() if "undefined_class" in line]
+    assert "apps/knob/panel/index.html: " in line
+    assert line.endswith("class knob-dial [undefined_class: report]")
+    assert "✓ 1 application(s) pass." in result.output
+    assert "violation(s)" not in result.output
+
+
+def test_a_refusing_finding_beside_a_reported_one_fails_and_counts_only_the_refusing_one(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    page = _page(
+        "tokens.css", "base.css", "primitives.css", fonts=False, body='<p class="knob-dial"></p>'
+    )
+    _panel(lifecycle_repo, page)
+
+    result = _check(runner, lifecycle_repo)
+
     assert result.exit_code == 1
-    assert "apps/knob/panel/index.html: " in result.output
-    assert "class knob-dial [undefined_class]" in result.output
+    lines = result.output.splitlines()
+    assert any(line.endswith("[missing_font_link]") for line in lines)
+    assert any(line.endswith("[undefined_class: report]") for line in lines)
+    assert lines[-1].endswith(" 1 violation(s).")
+
+
+def test_app_check_holds_no_class_rule_of_its_own() -> None:
+    import inspect
+
+    from osprey.cli import app_cmd
+
+    for name in (
+        "_defined_classes",
+        "_used_classes",
+        "_stylesheet_links",
+        "_CSS_CLASS",
+        "_JS_CLASS",
+    ):
+        assert not hasattr(app_cmd, name), name
+    assert "undefined_class" not in inspect.getsource(app_cmd)
+
+
+_VERDICT_PANELS = {
+    "reference": Path(osprey.__file__).parent / "interfaces/design_system/panels/reference",
+    "scaffold-app": Path(osprey.__file__).parent / "apps/scaffold-app/panel",
+    "orbit-bump": Path(osprey.__file__).parent / "profiles/presets/apps/orbit-bump/panel",
+}
+
+
+@pytest.mark.usefixtures("js")
+@pytest.mark.parametrize("source", list(_VERDICT_PANELS.values()), ids=list(_VERDICT_PANELS))
+def test_app_check_and_the_panel_validator_give_one_verdict(
+    runner: CliRunner, lifecycle_repo: Path, source: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    panel_dir = app_dir / "panel"
+    shutil.copytree(source, panel_dir)
+    findings = validate_entry(panel_dir / "index.html", panel_dir)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert (result.exit_code == 1) == bool(refusing(findings)), result.output
+    for finding in findings:
+        assert finding.message in result.output
 
 
 def test_a_class_a_style_block_of_the_page_defines_passes(
@@ -422,10 +487,10 @@ def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
 
     result = _check(runner, lifecycle_repo)
 
-    assert result.exit_code == 1
+    assert result.exit_code == 0, result.output
     assert (
         "apps/knob/panel/main.js: no rule in the panel's or the linked design-system "
-        "stylesheets for class knob-on, knob-row, knob-unit [undefined_class]"
+        "stylesheets for class knob-on, knob-row, knob-unit [undefined_class: report]"
     ) in result.output
 
 
@@ -475,6 +540,18 @@ def test_a_panel_whose_scripts_never_mark_it_ready_is_refused_with_the_line_to_a
     assert "apps/knob/panel/index.html: " in result.output
     assert READY_IMPORT.strip() in result.output
     assert result.output.count("[page_ready]") == 1
+
+
+def test_a_panel_that_does_not_load_the_writer_first_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", writer=False))
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[page_ready]")]
+    assert "page-ready.js" in line
 
 
 def test_a_panel_with_no_script_is_refused(runner: CliRunner, lifecycle_repo: Path) -> None:

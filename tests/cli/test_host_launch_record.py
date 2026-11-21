@@ -564,6 +564,91 @@ def test_web_stop_never_counts_the_held_record_as_a_survivor(runner, lifecycle_r
         server.wait()
 
 
+#: :data:`_HOLDER_WITH_RECORD` that also starts a process in a session of its
+#: own which ignores SIGTERM, and prints its pid on a second line.
+_HOLDER_WITH_RECORD_AND_A_CHILD = """
+import signal, subprocess, sys, time
+from pathlib import Path
+from osprey.agent_record import host as hr
+record = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True
+)
+child = subprocess.Popen(
+    [sys.executable, "-c",
+     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(120)"],
+    start_new_session=True,
+)
+lease = hr._write_lease(Path(sys.argv[1]))
+def _bye(*_):
+    lease.unlink()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, _bye)
+print(record.pid, flush=True)
+print(child.pid, flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+
+def test_web_stop_ends_a_survivor_and_never_the_held_record(runner, lifecycle_repo, monkeypatch):
+    from osprey.cli import web_cmd
+
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    config = _config(lifecycle_repo)
+    repo = _deploy(lifecycle_repo, config, credentials=False)
+    monkeypatch.chdir(repo)
+    state_dir = hr.host_state_dir(repo, config)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    server = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            _HOLDER_WITH_RECORD_AND_A_CHILD,
+            str(state_dir / hr.LEASE_DIR_NAME),
+            *web_cmd._SERVER_ARGV,
+            "--repo",
+            str(repo.resolve()),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    record_pid = None
+    child_pid = None
+    mine = None
+    try:
+        assert server.stdout is not None
+        record_pid = int(server.stdout.readline().strip())
+        child_pid = int(server.stdout.readline().strip())
+        start = None
+        for _ in range(100):
+            start = hr._process_start(record_pid)
+            if start:
+                break
+            time.sleep(0.02)
+        assert start
+        hr._write_identity(state_dir / hr.PROCESS_FILE_NAME, record_pid, start)
+        path = repo / PID_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(server.pid))
+        mine = hr._write_lease(state_dir / hr.LEASE_DIR_NAME)  # an `osprey chat` still open
+
+        result = runner.invoke(web, ["stop"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert "Stopped" in result.output
+        assert not web_cmd._server_alive(child_pid)
+        assert hr.running_record_pid(state_dir) == record_pid
+    finally:
+        if mine is not None:
+            mine.unlink(missing_ok=True)
+        for pgid in (server.pid, record_pid, child_pid):
+            if pgid is not None:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(pgid, signal.SIGKILL)
+        server.wait()
+
+
 # ---------------------------------------------------------------------------
 # The supervisor
 # ---------------------------------------------------------------------------

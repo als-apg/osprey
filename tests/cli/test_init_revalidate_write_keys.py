@@ -54,6 +54,26 @@ def _render_section(path: Path, scratch: Path) -> dict:
     return section if isinstance(section, dict) else {}
 
 
+def _render_retired_section(path: Path, scratch: Path) -> dict:
+    """:func:`_render_section` for a retired layer, which the rewrite reads unchanged.
+
+    A retired layer may name a CLAUDE.md render no longer bundled, which today's
+    loader refuses; the key has no part in the ``control_system`` section, so it
+    is left out for the render and the file is restored byte for byte after.
+    """
+    original = path.read_text(encoding="utf-8")
+    kept = [
+        line
+        for line in original.splitlines(keepends=True)
+        if not line.startswith("claude_md_template:")
+    ]
+    path.write_text("".join(kept), encoding="utf-8")
+    try:
+        return _render_section(path, scratch)
+    finally:
+        path.write_text(original, encoding="utf-8")
+
+
 # ── The gate ────────────────────────────────────────────────────────────────
 
 
@@ -110,7 +130,7 @@ _SUCCESSORS = {
 def test_each_old_tier_and_its_successor_resolve_alike(tmp_path: Path, name: str) -> None:
     """The shipped tier key and the same configured targets after the rewrite."""
     root = _previous_release_repo(tmp_path / "als-exemplar")
-    old = _render_section(root / RETIRED_LAYER_DIRNAME / f"{name}.yml", tmp_path)
+    old = _render_retired_section(root / RETIRED_LAYER_DIRNAME / f"{name}.yml", tmp_path)
 
     assert _revalidate(root).exit_code == 0
     kind, before, after = _SUCCESSORS[name]

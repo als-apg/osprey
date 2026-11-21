@@ -21,8 +21,9 @@ import pytest
 
 from osprey.deployment import runtime_helper
 from osprey.deployment.runtime_helper import (
-    PODMAN_COMPOSE_MIN_VERSION,
+    RUNTIME_FLOORS,
     ComposeProvider,
+    RuntimeProduct,
     UnsupportedComposeProviderError,
     detect_compose_provider,
     get_ps_command,
@@ -174,6 +175,21 @@ class TestGetRuntimeCommandDetection:
 
         with pytest.raises(RuntimeError, match="No container runtime found"):
             get_runtime_command()
+
+    def test_no_runtime_message_names_every_floor(self, monkeypatch):
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: None)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            get_runtime_command()
+
+        message = str(excinfo.value)
+        for product in (
+            RuntimeProduct.DOCKER_ENGINE,
+            RuntimeProduct.DOCKER_DESKTOP,
+            RuntimeProduct.PODMAN,
+        ):
+            floor = ".".join(str(part) for part in RUNTIME_FLOORS[product])
+            assert f"{product} {floor} or newer" in message
 
     def test_installed_but_not_running_raises_with_start_hint(self, monkeypatch):
         # docker is on PATH but its compose probe fails → treated as not running.
@@ -413,10 +429,12 @@ class TestDetectComposeProvider:
         message = str(excinfo.value)
         # Names both the version found and the floor it fell short of.
         assert "1.0.3" in message
-        assert ".".join(str(part) for part in PODMAN_COMPOSE_MIN_VERSION) in message
+        assert (
+            ".".join(str(part) for part in RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE]) in message
+        )
 
     def test_podman_compose_at_floor_is_accepted(self, monkeypatch):
-        floor = ".".join(str(part) for part in PODMAN_COMPOSE_MIN_VERSION)
+        floor = ".".join(str(part) for part in RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE])
         monkeypatch.setattr(
             runtime_helper.subprocess,
             "run",
@@ -426,7 +444,7 @@ class TestDetectComposeProvider:
         info = detect_compose_provider(["podman", "compose"])
 
         assert info.provider is ComposeProvider.PODMAN_COMPOSE
-        assert info.version == PODMAN_COMPOSE_MIN_VERSION
+        assert info.version == RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE]
 
     def test_unrecognized_banner_fails_closed_citing_supported_providers(self, monkeypatch):
         monkeypatch.setattr(
