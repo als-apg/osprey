@@ -61,7 +61,6 @@ from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
-from osprey.facility.views.limits import NUMERIC_TYPES, record_writable
 from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 from osprey_connectors.simulation.values import is_waveform
@@ -81,6 +80,7 @@ __all__ = [
     "need",
     "ordered_slots",
     "paired_nominal_error",
+    "record_writable",
     "relation_types",
     "report",
     "report_warnings",
@@ -148,6 +148,8 @@ _MAX_LABEL = 25
 _MAX_PRECISION = 17
 
 _LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
+#: The value types a limits record bounds; every other type carries no bounds.
+_NUMERIC_TYPES = ("float", "int")
 _MOTION = ("noise", "drift")
 #: The two terms a ``noise`` record states exactly one of.
 _NOISE_TERMS = ("absolute", "relative")
@@ -2291,7 +2293,7 @@ class _Records:
             if (
                 record.get("writable") is True
                 and channel.get("role") == "setpoint"
-                and value_type in NUMERIC_TYPES
+                and value_type in _NUMERIC_TYPES
                 and (record.get("min_value") is None or record.get("max_value") is None)
             ):
                 yield self._error(
@@ -2303,7 +2305,7 @@ class _Records:
                     "`max_value`",
                     "state `min_value` and `max_value`",
                 )
-            if bounds and value_type not in NUMERIC_TYPES:
+            if bounds and value_type not in _NUMERIC_TYPES:
                 yield self._error(
                     "value-invalid",
                     "limit",
@@ -2597,7 +2599,7 @@ class _Records:
         record: Mapping[str, Any] | None,
     ) -> Iterator[FacilityBuildError]:
         """Hold a scenario value on a setpoint to its limits record's band."""
-        if record is None or self._type(address) not in NUMERIC_TYPES:
+        if record is None or self._type(address) not in _NUMERIC_TYPES:
             return
         if self.index.channels[address].get("role") != "setpoint":
             return
@@ -3223,6 +3225,27 @@ def tolerance_warnings(
             f"floor {floor:g}{listed}" + (f"\nand {more} more" if more > 0 else "")
         )
     return lines
+
+
+def record_writable(record: Mapping[str, Any], role: str, value_type: str) -> bool:
+    """Whether a channel's limits record leaves it writable.
+
+    Args:
+        record: The channel's limits record.
+        role: The channel's role; only a setpoint is ever writable.
+        value_type: The channel's value type.
+
+    Returns:
+        False for any role but setpoint and for ``writable: false``; on a
+        numeric channel, whether the record carries both ``min_value`` and
+        ``max_value``; on any other, whether it says ``writable: true``.
+    """
+    writable = record.get("writable")
+    if role != "setpoint" or writable is False:
+        return False
+    if value_type in _NUMERIC_TYPES:
+        return record.get("min_value") is not None and record.get("max_value") is not None
+    return writable is True
 
 
 def tolerance_bound(channel: Mapping[str, Any]) -> float | None:
