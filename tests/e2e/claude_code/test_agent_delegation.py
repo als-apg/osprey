@@ -43,6 +43,7 @@ from tests.e2e.sdk_helpers import (
     print_run_summary,
     run_sdk_query,
 )
+from tests.e2e.tool_errors import assert_no_tool_errors
 
 # ---------------------------------------------------------------------------
 # Service availability helpers (evaluated at collection time)
@@ -97,24 +98,6 @@ def delegation_project(tmp_path_factory):
 def sub_agent_traces(result):
     """Return tool traces that belong to a sub-agent (have parent_tool_use_id)."""
     return [t for t in result.tool_traces if t.parent_tool_use_id is not None]
-
-
-def assert_no_tool_errors(result, exclude_patterns=None, exempt=None):
-    """Assert no tool traces have is_error=True, optionally excluding patterns.
-
-    ``exempt`` is a predicate over one trace; a trace it accepts is not counted.
-    """
-    exclude_patterns = exclude_patterns or []
-    errors = [
-        t
-        for t in result.tool_traces
-        if t.is_error
-        and not any(pat in t.name for pat in exclude_patterns)
-        and not (exempt is not None and exempt(t))
-    ]
-    assert len(errors) == 0, f"{len(errors)} tool error(s): " + "; ".join(
-        f"{t.name}: {t.result[:200] if t.result else 'N/A'}" for t in errors
-    )
 
 
 # ---------------------------------------------------------------------------
