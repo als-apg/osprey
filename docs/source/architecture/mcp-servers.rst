@@ -229,7 +229,7 @@ tools into several functional areas.
 - ``artifact_delete`` -- Delete an artifact from the gallery.
 - ``artifact_delete_all`` -- Delete one form, or everything, of this session's artifacts
   in a single call. The ``scope`` argument is required.
-- ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
+- ``artifact_export`` -- Save an HTML artifact (a Plotly plot, say) as a PNG or JPEG image.
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
 
 **Visualization:**
