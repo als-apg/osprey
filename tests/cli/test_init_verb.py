@@ -51,6 +51,7 @@ from osprey.cli.init_cmd import (
     WRITE_ONCE_DIRS,
     WRITE_ONCE_FILES,
     _source_zone_prose,
+    _surviving_project_resources,
     init,
 )
 from osprey.cli.main import cli
@@ -1596,6 +1597,10 @@ class TestResetFlag:
                 return []
 
         monkeypatch.setattr(reset_mod, "RuntimeProbe", _Probe)
+        # The sweep itself is under test; the host it lists is the probe above.
+        monkeypatch.setattr(
+            "osprey.cli.init_cmd._surviving_project_resources", _surviving_project_resources
+        )
 
         result = init_exemplar(runner, exemplar_repo, "--reset")
 
