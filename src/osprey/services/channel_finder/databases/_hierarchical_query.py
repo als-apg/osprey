@@ -11,6 +11,23 @@ from typing import Any
 from ._hierarchical_base import _HierarchicalBase
 
 
+class UnselectedLevelError(ValueError):
+    """An options request whose selections leave out a required level above it.
+
+    Attributes:
+        level: The required level the selections name no value for.
+        requested: The level whose options were asked for.
+    """
+
+    def __init__(self, level: str, requested: str) -> None:
+        self.level = level
+        self.requested = requested
+        super().__init__(
+            f"selections name no {level!r}; "
+            f"get the {level!r} options before the {requested!r} options"
+        )
+
+
 class _HierarchicalQueryMixin(_HierarchicalBase):
     """Level-option enumeration, tree navigation, and channel lookup."""
 
@@ -32,9 +49,10 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
             List of options with name and description
 
         Raises:
+            UnselectedLevelError: ``previous_selections`` omit a required tree
+                level above ``level``.
             ValueError: ``level`` is no hierarchy level; a key of
-                ``previous_selections`` is no hierarchy level; ``previous_selections``
-                omit a required tree level above ``level``; or a value selected at
+                ``previous_selections`` is no hierarchy level; or a value selected at
                 a tree level above ``level`` names no node under the selections
                 above it. Options are offered only below a selection of every
                 required tree level above ``level``; instance levels and tree
@@ -85,9 +103,10 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
         Every request is refused when ``target_level`` or a key of ``selections``
         is no hierarchy level. An options request (``target_level`` given) is
         also refused when a required tree level above ``target_level`` has no
-        selection, or when a value selected at a tree level above it reaches no
-        node from the nodes the levels above reach. Instance levels are walked
-        the way navigation walks them; their selections are not checked.
+        selection (an :class:`UnselectedLevelError`), or when a value selected
+        at a tree level above it reaches no node from the nodes the levels above
+        reach. Instance levels are walked the way navigation walks them; their
+        selections are not checked.
         """
         levels = self.hierarchy_levels
         defined = ", ".join(levels)
@@ -110,10 +129,7 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
             values = [value for value in self._ensure_list(selections.get(prev_level)) if value]
             if not values:
                 if prev_level in required:
-                    raise ValueError(
-                        f"selections name no {prev_level!r}; "
-                        f"get the {prev_level!r} options before the {target_level!r} options"
-                    )
+                    raise UnselectedLevelError(level=prev_level, requested=target_level)
                 continue
             reached: dict[int, dict] = {}
             for value in values:
