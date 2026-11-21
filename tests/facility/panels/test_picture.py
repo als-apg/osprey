@@ -15,8 +15,13 @@ import pytest
 from osprey.facility.panels import layout, symbols
 from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.model import load_graph
-from osprey.facility.panels.tables import COLUMNS, PanelTableError, read_tables
-from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_facility
+from osprey.facility.panels.tables import COLUMNS, PanelTableError
+from tests.facility.panels._fixture import (
+    add_part,
+    copy_tables,
+    read_fixture_tables,
+    write_fixture_facility,
+)
 from tests.facility.panels._views import bound, nodes, stub_render, with_symbols
 
 PICTURES = "pictures.csv"
@@ -93,13 +98,13 @@ def test_the_old_eleven_column_file_still_reads(tmp_path) -> None:
     tables = copy_tables(tmp_path / "panels")
     header = "device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator"
     (tables / PICTURES).write_text(f"{header}\nQuadrupole,end,pole 1,pole,1,2,3,d,v,s,l\n")
-    (row,) = read_tables(tables).pictures
+    (row,) = read_fixture_tables(tables).pictures
     assert (row.kind, row.w_mm, row.h_mm, row.angle_deg, row.signal) == ("pole", *[None] * 4)
     assert not row.shape  # a pole with no size: a part at a point, as before
 
 
 def test_the_drawing_columns_read(tmp_path) -> None:
-    rows = read_tables(_tables(tmp_path, _six_poles())).pictures
+    rows = read_fixture_tables(_tables(tmp_path, _six_poles())).pictures
     pole = next(r for r in rows if r.part == "pole 2")
     assert (pole.w_mm, pole.h_mm, pole.angle_deg, pole.shape) == (30, 80, 90, True)
     assert next(r for r in rows if r.kind == "bore").h_mm is None
@@ -115,7 +120,7 @@ def test_the_drawing_columns_read(tmp_path) -> None:
 )
 def test_a_shape_row_states_a_positive_size(tmp_path, row: str, word: str) -> None:
     with pytest.raises(PanelTableError, match=word) as caught:
-        read_tables(_tables(tmp_path, [row]))
+        read_fixture_tables(_tables(tmp_path, [row]))
     assert caught.value.file == PICTURES and caught.value.line == 2
 
 
@@ -411,7 +416,7 @@ def test_a_stated_yoke_sets_the_proportions_however_small_the_bore(
     from osprey.facility.panels.picture import COIL_FROM, COIL_TO, YOKE, body
 
     rows = [_row("yoke", "yoke", "", "", w=420, h=420), *_unsized(poles, first, gap=35)]
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape])
     assert drawn.unit == pytest.approx(210 / YOKE)  # mm per unit from the yoke
     (bore,) = [s for s in drawn.shapes if s.role == "bore"]
@@ -433,10 +438,9 @@ def test_poles_with_an_angle_and_no_size_draw_from_the_bore_and_say_so(
     tmp_path, poles: int, first: float
 ) -> None:
     from osprey.facility.panels.picture import body
-    from osprey.facility.panels.tables import read_tables
 
     rows = _unsized(poles, first, bore="gap" if poles == 2 else "bore")
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape])
     assert not drawn.sized and drawn.beam == (0, 0)
     for k in range(poles):
@@ -496,7 +500,6 @@ def _overlap(p: tuple, q: tuple) -> bool:
 
 def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_path) -> None:
     from osprey.facility.panels.picture import body
-    from osprey.facility.panels.tables import read_tables
 
     hexagon = [
         _row(
@@ -508,7 +511,7 @@ def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_pat
         for k in range(6)
     ]
     rows = [*_unsized(4, 45), *hexagon]
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape], [r for r in pictures if r.kind == "outline"])
     yoke, window = [s for s in drawn.shapes if s.row is not None and s.row.kind == "outline"]
     assert len(yoke.points) == 6 and yoke.role == "yoke" and window.role == "window"
@@ -532,7 +535,7 @@ def test_two_poles_put_each_winding_band_between_its_coil_and_the_gap(tmp_path) 
         _row("trim 1", "corrector_winding", "", "", angle=90),
         _row("trim 2", "corrector_winding", "", "", angle=270),
     ]
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape])
     coils = [s for s in drawn.shapes if s.role == "coil"]
     bands = [s for s in drawn.shapes if s.role == "winding"]
@@ -566,7 +569,7 @@ def test_a_row_may_leave_its_position_empty_and_old_positions_read_unchanged(tmp
         "Quadrupole,end,switch 2,thermal_switch,,,,X,A,s,l,,,,",
         _row("switch 3", "thermal_switch", 50, -40),
     ]
-    yoke, one, two, three = read_tables(_tables(tmp_path, rows)).pictures
+    yoke, one, two, three = read_fixture_tables(_tables(tmp_path, rows)).pictures
     assert (yoke.x_mm, yoke.y_mm, yoke.z_mm) == (None, None, None)
     assert one.placed and not one.positioned  # its coil's angle
     assert not two.placed
@@ -581,7 +584,7 @@ def test_a_yoke_and_a_bore_with_no_position_are_centred(tmp_path) -> None:
         "Quadrupole,end,bore,bore,,,,X,A,s,l,24,,,",
         "Quadrupole,end,pole 1,pole,,,,X,A,s,l,,,45,",
     ]
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape])
     for shape in drawn.shapes:
         if shape.role in ("yoke", "window", "bore"):
@@ -683,7 +686,7 @@ def test_parts_not_placed_stand_above_the_yoke_on_no_side(tmp_path) -> None:
         _row("manifold 1", "manifold", "", ""),
         _row("terminal 1", "terminal", "", ""),
     ]
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape], [], [r for r in pictures if not r.shape])
     top = max(b for s in drawn.shapes if s.role == "yoke" for _a, b in s.points)
     assert not any(b.placed for b in drawn.blocks)  # no water column, no side claimed
@@ -703,7 +706,7 @@ def test_a_terminal_not_placed_is_a_terminal_block_clear_of_the_rows_beside(tmp_
         _row("terminal TB2", "terminal", "", ""),
         _row("thermal switch 1", "thermal_switch", "", ""),
     ]
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape], [], [r for r in pictures if not r.shape])
     (water,) = [b for b in drawn.blocks if b.role == "water"]
     terminals = [b for b in drawn.blocks if b.role == "terminal"]
@@ -732,7 +735,7 @@ def test_a_water_or_terminal_part_with_only_an_angle_stands_on_that_side(tmp_pat
         _row("terminal TB1", "terminal", "", "", angle=180),
         _row("terminal TB2", "terminal", "", ""),
     ]
-    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape], [], [r for r in pictures if not r.shape])
     yoke = max(abs(a) for s in drawn.shapes if s.role == "yoke" for a, _b in s.points)
     by_part = {b.row.part: b for b in drawn.blocks if b.row is not None}

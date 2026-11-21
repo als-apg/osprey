@@ -126,6 +126,13 @@ enums:
       section:
         description: Things that belong together, such as a vacuum section or a zone; never a family.
 
+  relation_end_enum:
+    description: The kinds of thing one end of a claim names.
+    permissible_values:
+      device:
+      place:
+      group:
+
   fix_op_enum:
     permissible_values:
       set:
@@ -153,10 +160,22 @@ classes:
         description: The facility-added device classes, carried verbatim.
       signals:
         range: FacilitySignal
+        required: true
         multivalued: true
         inlined_as_list: true
         list_elements_ordered: true
-        description: The facility-added signal roles, carried verbatim.
+        description: >-
+          The effective signal-role table, one row per role: the vocabulary's
+          roles and the facility-added ones, sorted by name.
+      relation_types:
+        range: FacilityRelationType
+        required: true
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: >-
+          The relation types a claim may have, as the vocabulary states them,
+          sorted by name.
       places:
         range: Place
         multivalued: true
@@ -226,7 +245,9 @@ classes:
       description:
 
   FacilitySignal:
-    description: A signal role a facility adds beside the vocabulary's.
+    description: >-
+      One signal role a channel may carry: a vocabulary role or one the facility
+      adds beside them.
     attributes:
       name:
         identifier: true
@@ -245,6 +266,36 @@ classes:
         description: >-
           The short word a screen names the signal by, on a tile or a value row
           (``Hi`` for a high alarm limit); with none, its name.
+
+  FacilityRelationType:
+    description: One relation type a claim may have.
+    attributes:
+      name:
+        identifier: true
+        required: true
+      description:
+      subject:
+        range: relation_end_enum
+        required: true
+        multivalued: true
+        list_elements_ordered: true
+        description: The kinds of thing the claim's subject may be.
+      object:
+        range: relation_end_enum
+        required: true
+        multivalued: true
+        list_elements_ordered: true
+        description: The kinds of thing the claim's object may be.
+      symmetric:
+        range: boolean
+        required: true
+        description: True when the two ends are interchangeable.
+      single_per:
+        multivalued: true
+        list_elements_ordered: true
+        description: >-
+          The key fields under which at most one claim of the type may stand;
+          empty when any number may.
 
   Provenance:
     description: Which sources, fixes and defaults produced a record.
@@ -666,8 +717,9 @@ classes:
       kind:
         range: group_kind_enum
         description: >-
-          `family` when absent. Only a family describes its members to a
-          view and files as a family there.
+          When a source states none, the build writes `family` and records
+          it in `provenance.defaults`. Only a family describes its members to
+          a view and files as a family there.
       label:
         description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:

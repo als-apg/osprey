@@ -109,7 +109,7 @@ STAGES: tuple[str, ...] = (
 )
 
 #: The header of the combined facility file.
-FACILITY_HEADER = "osprey.facility.facility/3"
+FACILITY_HEADER = "osprey.facility.facility/4"
 
 #: The order errors print in: one entry per row of the error table.
 _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
@@ -408,47 +408,6 @@ def signal_roles(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
     names = {str(role["name"]) for role in vocabulary()["signal_roles"]}
     names.update(str(row["name"]) for row in signals if isinstance(row.get("name"), str))
     return frozenset(names)
-
-
-def nameplate_signals(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
-    """The signal roles marked ``nameplate``: a signal that names the unit it is read
-    from (its model, serial number, firmware version) rather than its state.
-
-    Args:
-        signals: ``signals.yaml``'s records (the facility document's ``signals``).
-
-    Returns:
-        The vocabulary's marked signal roles joined with the facility's.
-    """
-    names = {str(role["name"]) for role in vocabulary()["signal_roles"] if role.get("nameplate")}
-    names.update(
-        str(row["name"])
-        for row in signals
-        if isinstance(row.get("name"), str) and row.get("nameplate") is True
-    )
-    return frozenset(names)
-
-
-def signal_titles(signals: Iterable[Mapping[str, Any]] = ()) -> dict[str, str]:
-    """The short words screens name signal roles by: each role's stated ``title``.
-
-    Args:
-        signals: ``signals.yaml``'s records (the facility document's ``signals``).
-
-    Returns:
-        The vocabulary's titled signal roles joined with the facility's, by name.
-    """
-    titles = {
-        str(role["name"]): str(role["title"])
-        for role in vocabulary()["signal_roles"]
-        if role.get("title")
-    }
-    titles.update(
-        (str(row["name"]), row["title"])
-        for row in signals
-        if isinstance(row.get("name"), str) and isinstance(row.get("title"), str) and row["title"]
-    )
-    return titles
 
 
 def relation_types() -> dict[str, dict[str, Any]]:

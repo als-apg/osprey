@@ -1,5 +1,6 @@
 """Operator screens generated from a built facility and its rule tables.
 
+:mod:`~osprey.facility.panels.document` reads and checks the facility file;
 :mod:`~osprey.facility.panels.tables` reads and checks the rule tables;
 :mod:`~osprey.facility.panels.model` joins them with the facility file into
 the :class:`PanelGraph` every later step reads through;
@@ -25,6 +26,7 @@ from osprey.facility.panels.describe import (
     set_overview,
     targets,
 )
+from osprey.facility.panels.document import FacilityDocument, FacilityDocumentError
 from osprey.facility.panels.health import (
     State,
     channel_state,
@@ -57,6 +59,8 @@ __all__ = [
     "Channel",
     "Citation",
     "Edge",
+    "FacilityDocument",
+    "FacilityDocumentError",
     "HealthRule",
     "Pair",
     "PanelGraph",

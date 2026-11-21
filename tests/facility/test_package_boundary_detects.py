@@ -194,9 +194,6 @@ def test_an_import_of_a_public_description_module_breaks_nothing(shipped: Shippe
             id="S1",
         ),
         pytest.param(
-            "osprey.facility.panels.model", "osprey.facility", "panels-document-only", id="S3"
-        ),
-        pytest.param(
             "osprey.facility.panels.emit",
             "osprey_connectors.safety_file",
             "panels-standalone",
@@ -409,15 +406,11 @@ _RATCHET_SOURCES = {
     "osprey/facility/layers/mml/systems.py": "import click\n",
     "osprey/facility/validate.py": "import click\n",
     "osprey/facility/kinds.py": "import pyaml_cs_osprey\n",
-    "osprey/facility/panels/tables.py": (
-        "from importlib.resources import files\nfiles('osprey.facility.schema._generated')\n"
-    ),
     "osprey/facility/panels/emit.py": (
         "from pathlib import Path\n"
         "THEME = Path(__file__).parents[2] / 'templates' / 'apps' / 'demo'\n"
     ),
     "osprey/templates/apps/demo/__init__.py": "",
-    "osprey/facility/schema/_generated/__init__.py": "",
     "osprey/cli/facility_cmd.py": (
         "from importlib.resources import files\nfiles('osprey.facility.layers.mml')\n"
     ),
@@ -443,8 +436,8 @@ def test_a_tree_with_every_scan_ratchet_edge_leaves_no_entry_stale(tmp_path: Pat
             "osprey/facility/validate.py", "osprey.facility.validate -> click", id="third-party"
         ),
         pytest.param(
-            "osprey/facility/panels/tables.py",
-            "osprey.facility.panels.tables -> osprey.facility.schema._generated [files]",
+            "osprey/cli/facility_cmd.py",
+            "osprey.cli.facility_cmd -> osprey.facility.layers.mml [files]",
             id="dynamic-files",
         ),
         pytest.param(
