@@ -63,7 +63,6 @@ def test_every_app_scoped_identifier_is_the_applications_name() -> None:
     assert manifest.panel.container == APP_NAME
     assert manifest.panel.launch_token
     assert manifest.panel.roster_grant is not None
-    assert manifest.panel.roster_grant.single_user_alias
     assert manifest.tools is not None
     assert manifest.tools.module.split(".")[0] == APP_NAME.replace("-", "_")
     assert manifest.skills == [APP_NAME]

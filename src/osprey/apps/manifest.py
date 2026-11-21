@@ -58,6 +58,13 @@ NO_HOOKS_MESSAGE = (
     "`tools.errors` for the agent's guidance) and OSPREY's hooks act on it"
 )
 
+#: Why ``panel.roster_grant`` takes no ``single_user_alias``, and what replaces it.
+SINGLE_USER_ALIAS_RETIRED = (
+    "single_user_alias is gone: `roster_grant: {}` names the one operator on a "
+    "deployment without a roster, as it names each card's user on one with a "
+    "roster; remove the key"
+)
+
 Slug = Annotated[str, StringConstraints(pattern=APP_NAME_PATTERN)]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
 EnvName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
@@ -198,7 +205,22 @@ class AgentRoute(_Strict):
 
 
 class RosterGrant(_Strict):
-    single_user_alias: StrictBool = False
+    """The panel's container accepts the credentials of the people who see it.
+
+    Presence alone grants them: each entitled roster user's on a deployment
+    with a roster, or the one operator's on a deployment without one.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_single_user_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "single_user_alias" in data:
+            raise PydanticCustomError(
+                "retired_key",
+                SINGLE_USER_ALIAS_RETIRED,
+                {"at": "panel.roster_grant.single_user_alias"},
+            )
+        return data
 
 
 class Panel(_Strict):

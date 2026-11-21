@@ -13,5 +13,4 @@ panel:
   label: Controls admin
   container: controls-admin
   entry: /admin/
-  roster_grant:
-    single_user_alias: true
+  roster_grant: {}
