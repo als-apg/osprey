@@ -1,0 +1,1 @@
+The session-plan writer docstring states that the generated `PLAN_METADATA` block carries the three required fields; the stack tests compare served plan metadata with the fields `PlanMetadata` declares.
