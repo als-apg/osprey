@@ -1883,13 +1883,37 @@ class _Page:
         return len(self.unit_of(channel) or "") > CHANNEL_ACCESS_UNIT_CHARS
 
     def value_span(self, channel: str) -> float:
-        """The width *channel*'s value takes with its unit: one display
-        (:func:`value_width`), or, for a unit Channel Access cuts, the number's
-        display and the whole unit beside it."""
+        """The width *channel*'s value takes with its unit: one display as wide as
+        the widest text the facility states it can show (:meth:`widest_value`), or,
+        for a unit Channel Access cuts, the number's display and the whole unit
+        beside it."""
+        text, word = self.widest_value(channel)
+        if word:
+            return shown_width(text, TEXT_SIZE)
         unit = self.unit_of(channel)
         if not self.cuts_unit(channel):
-            return value_width(unit, TEXT_SIZE)
-        return value_width(None, TEXT_SIZE) + UNIT_GAP + text_width(unit or "", TEXT_SIZE)
+            return shown_width(f"{text} {unit}" if unit else text, TEXT_SIZE)
+        return shown_width(text, TEXT_SIZE) + UNIT_GAP + text_width(unit or "", TEXT_SIZE)
+
+    def widest_value(self, channel: str) -> tuple[str, bool]:
+        """The widest text *channel*'s value display can print, and whether it is a
+        word: its longest state word when the facility or ``state_labels.csv``
+        states words for it; else the longer of its limits as the display prints
+        them (three significant digits) when that is wider than
+        :data:`VALUE_SAMPLE`; else :data:`VALUE_SAMPLE`, the widest number three
+        significant digits print, since nothing stated bounds the value."""
+        try:
+            stated = self.graph.channel(channel)
+        except KeyError:
+            return VALUE_SAMPLE, False
+        words = [*self.graph.state_words(channel).values(), *stated.options]
+        if words:
+            return max(words, key=len), True
+        if stated.limits is not None:
+            bound = max((_significant(v) for v in stated.limits), key=len)
+            if len(bound) > len(VALUE_SAMPLE):
+                return bound, False
+        return VALUE_SAMPLE, False
 
     def number_expression(self, channel: str, kind: str | None, decimals: int | None = None):
         """The formula that prints *channel* as a static label's text: as it is for a
@@ -2544,6 +2568,14 @@ class _Page:
             if unit:
                 self.text(x + w - uw + GAP / 2, y, unit, size=size, h=h)
             return float(x + w)
+        # the widest text it can print, with its unit, at the largest size that fits w
+        widest, word = self.widest_value(channel)
+        printed = (
+            widest if word or not self.unit_of(channel) else f"{widest} {self.unit_of(channel)}"
+        )
+        need = shown_width(printed, size)
+        if need > w and size > SMALL_SIZE:
+            size = max(SMALL_SIZE, math.floor(size * (w - NUMBER_PAD) / (need - NUMBER_PAD)))
         props = {
             "pv": channel,
             "fontSize": size,
@@ -3402,14 +3434,17 @@ class _Page:
             if row.shown_as == "text":
                 need = max(need, text_width(row.text or "", BLOCK_TEXT_SIZE) + WORD_GAP)
             elif row.shown_as == "value" and row.channel is not None:
+                # the widest text the display prints, in its fixed-width face, whole
                 unit = row.unit or self.channel_unit(row.channel)
-                text = text_width(f"{_WIDEST_NUMBER} {unit or ''}", BLOCK_TEXT_SIZE)
-                need = max(need, text + 2 * GAP)
+                widest, word = self.widest_value(row.channel)
+                printed = widest if word or not unit else f"{widest} {unit}"
+                need = max(need, shown_width(printed, BLOCK_TEXT_SIZE) + GAP)
             elif row.channel is not None:  # a word, or a lamp and its word
                 light = LIGHT_SIZE + GAP if row.shown_as == "lamp" else 0
                 said = [w for _value, w in row.words] or [_WIDEST_NUMBER]
-                widest = max(text_width(w, BLOCK_TEXT_SIZE) for w in said)
-                need = max(need, light + widest + GAP)
+                said.append(self.widest_value(row.channel)[0])
+                word_w = max(text_width(w, BLOCK_TEXT_SIZE) for w in said)
+                need = max(need, light + word_w + GAP)
         return need
 
     def channel_unit(self, channel: str) -> str | None:
@@ -3642,17 +3677,19 @@ class _Page:
         x += 2 * BLOCK_LABEL + GAP
         self.small(x, self.y + (ROW - SMALL_LINE) / 2, _NOW, fg=MUTED_TEXT)
         x += text_width(_NOW, SMALL_SIZE) + GAP
-        self.number(x, self.y, VALUE_WIDTH, ROW, control.channel, None, None, TEXT_SIZE)
-        x += VALUE_WIDTH + 2 * GAP
+        now_w = max(VALUE_WIDTH, self.value_span(control.channel))
+        self.number(x, self.y, now_w, ROW, control.channel, None, None, TEXT_SIZE)
+        x += now_w + 2 * GAP
         self.apply_controls(control, x, self.y)
         self.y += ROW + ROW_GAP
 
     def entry_cell(self, control: Control, x: float, y: float, w: float) -> None:
         """One entry of a grid, *w* wide: its name and live value, then the field and
         Apply, then what Apply will write."""
-        name_w = w - VALUE_WIDTH - GAP
+        now_w = min(max(VALUE_WIDTH, self.value_span(control.channel)), w / 2)
+        name_w = w - now_w - GAP
         self.text(x, y, _cut(control.label, name_w, SMALL_SIZE), size=SMALL_SIZE, w=name_w, h=ROW)
-        self.number(x + name_w + GAP, y, VALUE_WIDTH, ROW, control.channel, None, None, TEXT_SIZE)
+        self.number(x + name_w + GAP, y, now_w, ROW, control.channel, None, None, TEXT_SIZE)
         self.apply_controls(control, x, y + ROW + ROW_GAP, (x, y + 2 * (ROW + ROW_GAP)))
 
     def entry_grid(self, group: ControlGroup) -> None:
@@ -6925,6 +6962,20 @@ def precision_expression(value: str, *, compact: bool = False) -> str:
         f"{digits} if {value} == 0 else (-1 if abs({value}) < {_number(FIXED_SMALLEST)} "
         f"else max((0, {digits - 1} - floor(log10(abs({value}))),)))"
     )  # max over one tuple: the formula engine's max is a reduction
+
+
+def shown_width(text: str, size: float) -> float:
+    """The width of a value display that prints *text* at *size*: the characters,
+    in the display's fixed-width face, and its own padding and frame."""
+    return len(text) * CHAR_WIDTH * size + NUMBER_PAD
+
+
+def _significant(value: float) -> str:
+    """*value* as a display prints it to :data:`SIGNIFICANT_DIGITS` significant digits."""
+    if value == 0:
+        return "0"
+    exponent = math.floor(math.log10(abs(value)))
+    return f"{value:.{max(0, SIGNIFICANT_DIGITS - 1 - exponent)}f}"
 
 
 def value_width(unit: str | None, size: float) -> float:
