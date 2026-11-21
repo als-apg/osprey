@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field
 
 from osprey.services.bluesky_bridge import plan_fields
 from osprey.services.bluesky_bridge.app import _BRIDGE_ONLY_MODULES
@@ -668,3 +668,119 @@ def test_validate_field_value_applies_the_field_constraints() -> None:
 def test_validate_field_value_refuses_an_unknown_field() -> None:
     with pytest.raises(KeyError):
         validate_field_value(_Bounded, "nope", 1)
+
+
+# ---------------------------------------------------------------------------
+# resolve_plan_args: the one complete set a run's arguments resolve to
+# ---------------------------------------------------------------------------
+
+
+class _Counter:
+    """A default factory that counts its calls."""
+
+    def __init__(self, value: list[str]) -> None:
+        self.value = value
+        self.calls = 0
+
+    def __call__(self) -> list[str]:
+        self.calls += 1
+        return list(self.value)
+
+
+def _counted_models(counter: _Counter) -> tuple[type[BaseModel], type[BaseModel]]:
+    """A top-level model and a nested one, both defaulting through *counter*."""
+
+    class _Inner(BaseModel):
+        setpoint: MovableChannel
+        monitors: ReadableChannels = Field(default_factory=counter)
+
+    class _Outer(BaseModel):
+        span: float
+        correctors: MovableChannels = Field(default_factory=counter)
+        axes: list[_Inner] = Field(default_factory=list)
+        num: int = 3
+
+    return _Outer, _Inner
+
+
+def test_resolve_plan_args_states_every_field() -> None:
+    outer, _ = _counted_models(_Counter(["COR_DEFAULT"]))
+
+    resolved = plan_fields.resolve_plan_args(outer, {"span": "1.5"})
+
+    assert resolved == {"span": 1.5, "correctors": ["COR_DEFAULT"], "axes": [], "num": 3}
+    assert list(resolved) == list(outer.model_fields)
+
+
+def test_resolve_plan_args_calls_a_factory_once() -> None:
+    counter = _Counter(["COR_DEFAULT"])
+    outer, _ = _counted_models(counter)
+
+    plan_fields.resolve_plan_args(outer, {"span": 1.0})
+
+    assert counter.calls == 1
+
+
+def test_resolve_plan_args_states_nested_defaults() -> None:
+    outer, _ = _counted_models(_Counter(["BPM_DEFAULT"]))
+
+    resolved = plan_fields.resolve_plan_args(
+        outer, {"span": 1.0, "correctors": ["COR1"], "axes": [{"setpoint": "COR2"}]}
+    )
+
+    assert resolved["axes"] == [{"setpoint": "COR2", "monitors": ["BPM_DEFAULT"]}]
+
+
+def test_a_resolved_set_resolves_to_itself_without_calling_a_factory() -> None:
+    counter = _Counter(["COR_DEFAULT"])
+    outer, _ = _counted_models(counter)
+    resolved = plan_fields.resolve_plan_args(outer, {"span": 1.0, "axes": [{"setpoint": "COR2"}]})
+    calls = counter.calls
+
+    again = plan_fields.resolve_plan_args(outer, resolved)
+
+    assert again == resolved
+    assert counter.calls == calls
+
+
+class _Aliased(BaseModel):
+    """Validated by its alias and dumped by its name: a second validation
+    ignores the name and falls back to the default, losing the value."""
+
+    span: float = Field(default=0.0, alias="width")
+
+
+class _Computed(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    span: float
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def double(self) -> float:
+        return self.span * 2
+
+
+@pytest.mark.parametrize(
+    ("model", "args"),
+    [
+        pytest.param(_Aliased, {"width": 1.0}, id="aliased-field"),
+        pytest.param(_Computed, {"span": 1.0}, id="computed-field-under-extra-forbid"),
+    ],
+)
+def test_resolve_plan_args_refuses_a_set_that_does_not_validate_to_itself(
+    model: type[BaseModel], args: dict[str, Any]
+) -> None:
+    """A set that would not survive a second validation is never handed on:
+    the worker would read something other than what was checked."""
+    with pytest.raises(ValueError) as excinfo:
+        plan_fields.resolve_plan_args(model, args)
+
+    assert not isinstance(excinfo.value, ValidationError)
+
+
+def test_resolve_plan_args_passes_a_validation_error_through() -> None:
+    outer, _ = _counted_models(_Counter([]))
+
+    with pytest.raises(ValidationError):
+        plan_fields.resolve_plan_args(outer, {})
