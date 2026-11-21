@@ -44,8 +44,8 @@ from click.testing import CliRunner
 from osprey.cli.query_cmd import query
 from osprey.cli.sim import sim_group
 from osprey.cli.web_cmd import LOG_FILE, PID_FILE, _StartedTree, web
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 from tests.cli._simulator_view import register_stub_engine, write_simulator_view
 
 #: A render that is also simulation-backed: the mock connector serves the

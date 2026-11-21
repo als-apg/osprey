@@ -39,8 +39,8 @@ from osprey.cli.chat_cmd import chat
 from osprey.cli.query_cmd import EXIT_USAGE, query
 from osprey.cli.web_cmd import PID_FILE, web
 from osprey_connectors_tests._harness._ports import reserved_port
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 
 # Imported at collection, before ``tests/cli/conftest.py`` stubs them per test.
 REAL_HOST_RECORD_LAUNCH = provider_env.host_record_launch

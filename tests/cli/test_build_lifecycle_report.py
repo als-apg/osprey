@@ -28,8 +28,8 @@ from osprey.cli import build_lifecycle
 from osprey.cli.build_profile_schema import LifecycleStep
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._reporters import installed
-from tests.cli._scoped_subprocess import patch_subprocess
 
 _JUNIT_XML = """<?xml version="1.0" encoding="utf-8"?>
 <testsuites>

@@ -39,8 +39,8 @@ from osprey.cli.web_cmd import (
 )
 from osprey.port_layout import default_port
 from osprey_connectors_tests._harness._ports import bound_socket, reserved_port
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 
 #: The port ``osprey web`` serves on at the default base — the layout's ``web``
 #: slot, index 0. Named rather than spelled so these calls stay the ones the
@@ -752,8 +752,6 @@ def test_stop_reports_stopped_only_after_the_server_exits(monkeypatch, runner, d
 def test_stop_names_a_server_that_ignores_sigterm_and_keeps_its_files(
     monkeypatch, runner, deployment
 ):
-    from osprey.cli import web_cmd
-
     monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
     monkeypatch.chdir(deployment)
 
@@ -1067,7 +1065,6 @@ class TestPreflightCompanionPortCollision:
         """
         import inspect
 
-        from osprey.cli import web_cmd
         from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS
         from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
