@@ -1767,7 +1767,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    opens: the standard, the smallest, the largest, the one with the longest
    label, the first off standard, and one member on each side of every
    variation that changes the drawing (a part drawn with or without a stated
-   position, a channel list drawn as a grid or a count).
+   position, a channel list drawn as a grid or a count). Each member of the
+   sample is ``{"file", "as"}``: its file and what it stands for, one or more of
+   ``standard``, ``smallest``, ``largest``, ``longest labels`` and ``off
+   standard``, and the drawing sides it is the first to show (``x_mm missing``,
+   ``channel list drawn as ChannelCount``).
    A device's card and channel list also state, under ``others``, what they
    show of other things on purpose: each thing, the kind of item that draws it
    (``strip member``, ``chain block``, ...) and the channels of it the screen

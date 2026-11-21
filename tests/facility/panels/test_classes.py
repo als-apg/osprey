@@ -79,8 +79,10 @@ def test_every_screen_states_a_class_the_table_counts(written):
         members = [e["file"] for e in entries if e["class"] == name]
         assert row["standard"] in members
         assert row["members"] == len(members)
-        assert row["sample"][0] == row["standard"]
-        assert set(row["sample"]) <= set(members)
+        assert row["sample"][0]["file"] == row["standard"]
+        assert "standard" in row["sample"][0]["as"]
+        assert {stop["file"] for stop in row["sample"]} <= set(members)
+        assert all(stop["as"] for stop in row["sample"])  # each says what it stands for
 
 
 def test_differs_means_off_standard_and_nothing_else(written):
@@ -200,7 +202,9 @@ def test_a_section_present_or_missing_puts_a_member_off_standard(written):
     assert off["differs"] == ["a calibration section, which the standard has not"]
     row = written["classes"][off["class"]]
     assert row["off_standard"] == 1
-    assert off["file"] in row["sample"]
+    assert any(
+        stop["file"] == off["file"] and "off standard" in stop["as"] for stop in row["sample"]
+    )
 
 
 def test_a_label_the_layout_cuts_is_stated_apart_from_the_class(written):
@@ -248,11 +252,14 @@ def test_the_sample_spans_sizes_labels_and_each_side_of_a_drawing_variant():
         _sample("h", "s", sizes={"rows": 3}, label=10, variants=grid, gaps={"x_mm": 1}),
     ]
     table, entries = classify(members, stamp="x")
-    picked = table["c"]["sample"]
-    assert picked[:5] == ["a", "c", "d", "e", "g"]  # standard, smallest, largest, label, off
-    assert "f" in picked  # drawn as a count, not a grid
-    assert "h" in picked  # a part drawn without a stated position
-    assert "b" not in picked
+    stops = {stop["file"]: stop["as"] for stop in table["c"]["sample"]}
+    assert list(stops)[:5] == ["a", "c", "d", "e", "g"]
+    assert stops["a"][0] == "standard" and stops["c"] == ["smallest"]
+    assert stops["d"] == ["largest"] and stops["e"] == ["longest labels"]
+    assert stops["g"] == ["off standard"]
+    assert stops["f"] == ["channel list drawn as ChannelCount"]  # a count, not a grid
+    assert stops["h"] == ["x_mm missing"]  # a part drawn without a stated position
+    assert "b" not in stops
     assert entries["f"]["varies"] == [
         "channel list drawn as ChannelCount, the standard as ChannelGrid"
     ]

@@ -9,14 +9,14 @@ when they have the same key:
     set of role words its card shows. A repeated role counts once in the key.
     The driver-internal role is never shown and channels with no role are
     listed only in the grid, so neither is in the key.
-``set``
-    The device types of its members.
 ``calibration``
-    The calibration kind and the device types of the set's members.
-Every other screen
+    The calibration kind and its structure: gains and offsets are different
+    things to judge even where the layout agrees.
+Every other screen, a set among them
     Its view kind, the kind of thing it shows, and its structure: places,
-    racks, roll-ups and the cards of places and groups that are built alike
-    share a class, and only a screen of a truly single structure stays alone.
+    racks, roll-ups, sets and the cards of places and groups that are built
+    alike share a class, and only a screen of a truly single structure stays
+    alone.
 
 Sameness is measured on the screen's view (:mod:`~osprey.facility.panels.view`),
 not on the drawn file. :func:`measure` reduces a view to its *structure*: the
@@ -43,7 +43,8 @@ Each class names a *sample* of up to five members that span its variation (the
 standard, the smallest, the largest, the one of the longest labels, the first off
 standard) and, for every variation that changes what is drawn, one member on each
 side of it, so a reviewer who opens the sample has seen every drawing the class
-makes.
+makes. Each member of the sample is named with what it stands for (``as``): one
+or more of :data:`SAMPLE_STOPS`, and the drawing sides it is the first to show.
 """
 
 from __future__ import annotations
@@ -88,6 +89,8 @@ KEYED_VIEWS = frozenset({"card", "channels", "set", "calibration"})
 MAX_WORDS = 8
 #: The most members a class's sample names before the drawing sides are added.
 SAMPLE_BASE = 5
+#: What the members of a class's sample stand for, before the drawing sides.
+SAMPLE_STOPS = ("standard", "smallest", "largest", "longest labels", "off standard")
 
 #: Typed parts that state what is known about a thing, not what its screen draws.
 #: Each is left out of the structure; where it is missing, or a plain fact stands
@@ -594,29 +597,45 @@ def _drawn_sides(sample: Sample) -> set[tuple[str, str]]:
     return sides
 
 
-def _sample(members: list[Sample], std: Sample, off: list[Sample]) -> list[str]:
-    """Up to :data:`SAMPLE_BASE` members that span the class, then one per drawing side."""
+def _side_name(side: tuple[str, str]) -> str:
+    """What a reviewer calls one side of a drawing variation (:func:`_drawn_sides`)."""
+    variation, value = side
+    kind, name = variation.split(" ", 1)
+    if kind == "variant":
+        return f"{name} drawn as {value}"
+    present = value == "True"
+    if kind == "gap":
+        return f"{name} missing" if present else f"{name} stated"
+    return name if present else f"not {name}"
+
+
+def _sample(members: list[Sample], std: Sample, off: list[Sample]) -> list[dict[str, Any]]:
+    """Up to :data:`SAMPLE_BASE` members that span the class, then one per drawing
+    side; each with the stops it stands for (:data:`SAMPLE_STOPS`, then the drawing
+    sides it is the first to show)."""
     ordered = sorted(members, key=lambda s: s.file)
 
     def total(s: Sample) -> int:
         return sum(s.measure.sizes.values())
 
     picks = [
-        std,
-        min(ordered, key=total),
-        max(ordered, key=total),
-        max(ordered, key=lambda s: s.measure.label),
-        *off[:1],
+        ("standard", std),
+        ("smallest", min(ordered, key=total)),
+        ("largest", max(ordered, key=total)),
+        ("longest labels", max(ordered, key=lambda s: s.measure.label)),
+        *(("off standard", s) for s in off[:1]),
     ]
-    chosen = list(dict.fromkeys(s.file for s in picks))
+    stops: dict[str, list[str]] = {}
+    for stop, member in picks:
+        stops.setdefault(member.file, []).append(stop)
     by_file = {s.file: s for s in ordered}
-    seen = set().union(*(_drawn_sides(by_file[f]) for f in chosen))
+    seen = set().union(*(_drawn_sides(by_file[f]) for f in stops))
     for member in ordered:
-        sides = _drawn_sides(member)
-        if sides - seen:
-            chosen.append(member.file)
+        sides = _drawn_sides(member) - seen
+        if sides:
+            stops.setdefault(member.file, []).extend(_side_name(s) for s in sorted(sides))
             seen |= sides
-    return chosen
+    return [{"file": file, "as": named} for file, named in stops.items()]
 
 
 def classify(
