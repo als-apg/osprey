@@ -321,6 +321,9 @@ dev = [
     # client falls back to httpx, which starlette deprecates.
     "httpx2>=2.13.0",
     "pyaml-test-lattice==0.2.0",  # pyAML's test lattices, loaded by the pyAML view tests
+    # Validates a built facility.json against the published open JSON Schema in
+    # the schema-pin tests; only a transitive dependency otherwise.
+    "jsonschema>=4.26,<5",
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -1445,13 +1448,7 @@ forbidden_modules = [
     "osprey.simulation.engines.calibration",
 ]
 ignore_imports = [
-    # phase 2 — the engine's records, end identity and signal helpers, which
-    # the document carries instead.
-    "osprey.facility.panels.describe -> osprey.facility.pairing",
-    "osprey.facility.panels.model -> osprey.facility",
-    "osprey.facility.panels.model -> osprey.facility.records",
-    "osprey.facility.panels.model -> osprey.facility.relations",
-    "osprey.facility.panels.model -> osprey.facility.validate",
+    # phase 2 — none today.
 ]
 
 [[tool.importlinter.contracts]]

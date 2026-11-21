@@ -99,9 +99,6 @@ THIRD_PARTY_RATCHET: Mapping[str, str] = {
 
 #: Today's A2 edges, ``importer -> target [spelling]``, with row, ruling and removing phase.
 DYNAMIC_RATCHET: Mapping[str, str] = {
-    "osprey.facility.panels.tables -> osprey.facility.schema._generated [files]": (
-        "S3, ruling 1: panels read the vocabulary from facility.json; phase 2"
-    ),
     "osprey.facility.panels.emit -> osprey.templates.apps.demo [__file__]": (
         "S4, ruling 7: the caller passes the theme file in; phase 5"
     ),

@@ -6,8 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels.tables import COLUMNS, PanelTableError, read_tables
-from tests.facility.panels._fixture import PANELS_DIR, copy_tables, graph_with_bpms
+from osprey.facility.panels.tables import COLUMNS, PanelTableError
+from tests.facility.panels._fixture import (
+    PANELS_DIR,
+    copy_tables,
+    graph_with_bpms,
+    read_fixture_tables,
+)
 
 PROBE = "probe_pictures.csv"
 
@@ -30,7 +35,7 @@ def test_the_probe_table_reads() -> None:
         "class,element,shape,label,angle_deg,radius_mm,size_mm,signal,signal_y,min,max,"
         "range_mm,count,document,version,state,locator,under"
     )
-    rows = read_tables(PANELS_DIR).probe_pictures
+    rows = read_fixture_tables(PANELS_DIR).probe_pictures
     anchor = next(r for r in rows if r.element == "A")
     assert (anchor.cls, anchor.shape, anchor.angle_deg, anchor.size_mm) == ("BPM", "anchor", 45, 8)
     marker = next(r for r in rows if r.shape == "marker")
@@ -69,14 +74,14 @@ def test_a_probe_row_that_does_not_hold_is_refused(tmp_path, row, says) -> None:
     lines = (directory / PROBE).read_text().splitlines()
     _edit(directory, [row])
     with pytest.raises(PanelTableError, match=says) as raised:
-        read_tables(directory)
+        read_fixture_tables(directory)
     assert raised.value.file == PROBE and raised.value.line == len(lines) + 1
 
 
 def test_a_place_may_have_its_own_bore(tmp_path) -> None:
     directory = copy_tables(tmp_path / "panels")
     _edit(directory, [_row(element="ring", shape="bore", radius="9", under="XR/XR01")])
-    assert len([r for r in read_tables(directory).probe_pictures if r.shape == "bore"]) == 3
+    assert len([r for r in read_fixture_tables(directory).probe_pictures if r.shape == "bore"]) == 3
 
 
 # -- the graph ---------------------------------------------------------------------

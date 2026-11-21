@@ -35,7 +35,6 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from osprey.facility.pairing import signal_quantity
 from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
 from osprey.facility.panels.model import (
     MODEL_FRAME,
@@ -1273,7 +1272,8 @@ def _plate_word(row: ChannelRole) -> str:
     ``model_readback``)."""
     if row.label or row.title:
         return row.label or row.title or ""
-    return _role_title(signal_quantity(row.role, "readback") or row.role).lower()
+    head, _, word = row.role.rpartition("_")
+    return _role_title(head if head and word in ("readback", "status") else row.role).lower()
 
 
 def _row_word(row: ChannelRole) -> str:
