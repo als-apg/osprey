@@ -580,7 +580,9 @@ _TRAY_TITLE = "in our lists, not placed"
 _NO_DATA = "no data yet"
 _NEEDS_SERVER = "needs a server-side aggregate"
 _A_MEMBER_MISSING = "one of {} has no value"
-_HOLDS_HIGHEST = "highest of {} · {}"
+#: The line under a largest or smallest figure: of how many, then (where the tile
+#: names it) the member that holds it.
+_HOLDS = {"max": "highest of {}", "min": "lowest of {}"}
 _NO_OK_STATED = "no ok state stated"
 _INFERRED_WORD = "inferred"
 _PER_PLACE = "counted per place"
@@ -2480,10 +2482,14 @@ class _Page:
 
     def key_figure(self, x: float, y: float, w: float, tile: KeyTile) -> None:
         """A key tile's figure over every channel of its role: "k of N" true, the
-        largest or the sum, from one formula. A count reads as one: "of N" follows
-        the figure on its baseline. Under the figure is one line: while any member
-        has no value the figure is a dash and the line says so, so no part is shown
-        as whole; with values, the largest's line names the member that holds it."""
+        largest, the smallest or the sum, from one formula. A count reads as one:
+        "of N" follows the figure on its baseline. Under the figure is one slot:
+        while any member has no value the figure is a dash and the slot says so,
+        so no part is shown as whole. With values, the largest's or smallest's
+        slot names the member that holds it, or says "highest of N" past
+        :data:`.describe.HOLDER_MAX` members. A count's slot is a row of small
+        lamps, one per member in order, where they fit; each shows its own
+        no-value mark, so the row needs no note."""
         members = tile.channels
         keys = [f"c{i}" for i in range(len(members))]
         tokens = [f"{{{key}}}" for key in keys]
@@ -2492,8 +2498,8 @@ class _Page:
             figure = " + ".join(f"1 * ({t} != 0)" for t in tokens)
         elif tile.shown_as == "sum":
             figure = " + ".join(tokens)
-        else:
-            figure = f"max(({', '.join(tokens)},))"
+        else:  # max or min: a reduction over one tuple
+            figure = f"{tile.shown_as}(({', '.join(tokens)},))"
         if not counted:
             scaled = f"({figure}) / {_number(tile.scale)}" if tile.scale else figure
             shape = (
@@ -2542,15 +2548,20 @@ class _Page:
         if beside:
             top = on_baseline(y, high, KEY_VALUE_SIZE, SMALL_LINE, SMALL_SIZE)
             self.small(beside_x, top, beside, fg=MUTED_TEXT)
-        # the one line under the figure: a missing member while one has no value
         below = y + high
+        if counted and self.lamp_row(x, below, w, tile):
+            return
+        # the slot's one line: a missing member while one has no value; with values
+        # nothing, or "highest of N" where the tile names no holder
+        held = tile.shown_as in _HOLDS and not tile.names
+        shown = _HOLDS[tile.shown_as].format(len(members)) if held else ""
         self.s._rules += 1
         missing = {
             "id": f"r-{self.s._rules:04d}",
             "name": f"{tile.title} every member reports",
             "targetProperty": "text",
             "pvs": [{"name": pv, "trigger": True}],
-            "conditions": [{"expression": "{0} == {0}", "value": ""}],
+            "conditions": [{"expression": "{0} == {0}", "value": shown}],
             "default": _A_MEMBER_MISSING.format(len(members)),
         }
         note = {
@@ -2564,21 +2575,48 @@ class _Page:
         if tile.names:
             self.holder_lines(x, below, w, tile)
 
-    def holder_lines(self, x: float, y: float, w: float, tile: KeyTile) -> None:
-        """Under a largest figure, the member that holds it: one line per member in
-        the one slot, each empty but while its member is the first that holds the
-        largest value, so one shows at a time, and none while any has no value (the
-        largest is then no number). Left out when the screen's rules do not fit."""
+    def lamp_row(self, x: float, y: float, w: float, tile: KeyTile) -> bool:
+        """A count's slot: one small lamp per member, in order, each with the
+        member's name as its tooltip; whether it was drawn. Not drawn when the
+        lamps do not fit *w* at the mosaic's size, or their rules not the
+        screen's budget."""
         members = tile.channels
-        whole = f"max(({', '.join(f'{{{i}}}' for i in range(len(members)))},))"
+        step = MOSAIC_LIGHT + MOSAIC_GAP
+        if len(members) * step - MOSAIC_GAP > w:
+            return False
+        lights = [describe_light(self.graph, channel) for channel in members]
+        stated = [meaning_stated(self.graph, channel) for channel in members]
+        rules = [
+            ladder(self.graph, [light]) if ok else None
+            for light, ok in zip(lights, stated, strict=True)
+        ]
+        costs = [light_cost(rule) for rule in rules if isinstance(rule, Ladder)]
+        if not self.budget.take(costs):
+            return False
+        top = y + (SMALL_LINE - MOSAIC_LIGHT) / 2 - (ROW - MOSAIC_LIGHT) / 2
+        names = tile.names or tuple(members)
+        for i, (light, rule) in enumerate(zip(lights, rules, strict=True)):
+            lx = x + i * step
+            if rule is None:  # no stated meaning: the neutral light
+                self.no_rule(lx, top, MOSAIC_LIGHT)
+                continue
+            self.light(lx, top, [light], rule=rule, size=MOSAIC_LIGHT, tile=True, tooltip=names[i])
+        return True
+
+    def holder_lines(self, x: float, y: float, w: float, tile: KeyTile) -> None:
+        """Under a largest or smallest figure, the member that holds it: one line
+        per member in the one slot, each hidden but while its member is the first
+        that holds the extreme (:func:`holder_condition`), so one shows at a time,
+        and none while any has no value (the extreme is then no number). Left out
+        when the screen's rules do not fit."""
+        members = tile.channels
         lines: list[tuple[str, str]] = []
         for k, short in enumerate(tile.names):
-            test = f"{{{k}}} == {whole}"
-            if k:  # the first that holds it: above every one before it
-                test += f" and {{{k}}} > max(({', '.join(f'{{{i}}}' for i in range(k))},))"
+            test = holder_condition(tile.shown_as, k, len(members))
             if len(test) > RULE_EXPRESSION_LIMIT:
                 return
-            lines.append((test, _cut(_HOLDS_HIGHEST.format(len(members), short), w, SMALL_SIZE)))
+            words = _HOLDS[tile.shown_as].format(len(members)) + f" · {short}"
+            lines.append((test, _cut(words, w, SMALL_SIZE)))
         if not self.budget.take([(len(lines), frozenset(members))]):
             return
         pvs = [{"name": m, "trigger": True} for m in members]
@@ -2587,13 +2625,14 @@ class _Page:
             rule = {
                 "id": f"r-{self.s._rules:04d}",
                 "name": f"{tile.title} held by {members[k]}",
-                "targetProperty": "text",
+                "targetProperty": "invisible",
                 "pvs": pvs,
-                "conditions": [{"expression": test, "value": text}],
-                "default": "",
+                "conditions": [{"expression": test, "value": False}],
+                "default": True,
             }
             props = {
-                "text": "",
+                "text": text,
+                "invisible": True,  # shown only while its member holds the extreme
                 "fontSize": SMALL_SIZE,
                 "foregroundColor": MUTED_TEXT,
                 "backgroundColor": TRANSPARENT,
@@ -7206,6 +7245,22 @@ def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
             ends[lane] = left + w
         out.append(lane)
     return out
+
+
+def holder_condition(measure: str, k: int, n: int) -> str:
+    """The condition under which member *k* of *n* is the first that holds the
+    extreme *measure* (``max`` or ``min``) of rule pvs ``{0}`` .. ``{n-1}``: it
+    equals the extreme, and it is strictly beyond every member before it. Of two
+    members *j* < *k* both holding it, *k* would be beyond *j*, which equals the
+    extreme: so at most one condition holds, and none while a member has no value
+    (the formula engine's reduction is then no number)."""
+    beyond = ">" if measure == "max" else "<"
+    every = ", ".join(f"{{{i}}}" for i in range(n))
+    test = f"{{{k}}} == {measure}(({every},))"
+    if k:
+        before = ", ".join(f"{{{i}}}" for i in range(k))
+        test += f" and {{{k}}} {beyond} {measure}(({before},))"
+    return test
 
 
 def _over_all_tooltip(tile: KeyTile) -> str:

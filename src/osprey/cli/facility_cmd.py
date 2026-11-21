@@ -1478,8 +1478,11 @@ def panels_check(
     counted = ", ".join(f"{cls} {n}" for cls, n in loose.items()) or "none"
     report(f"pictures, parts not placed: {counted}")
     from osprey.facility.panels.describe import (
+        HOLDER_MAX,
+        NO_TRUE_WORD,
         card_counts,
         card_rule_counts,
+        figure_notes,
         press_counts,
         tile_less,
     )
@@ -1494,6 +1497,13 @@ def panels_check(
     )
     bare_classes, bare = tile_less(graph, devices)
     report(f"default card without tiles: {bare_classes} classes, {bare} devices")
+    skipped, unnamed = figure_notes(graph, devices)
+    if skipped:
+        named = ", ".join(f"{role} ({n})" for role, n in sorted(skipped.items()))
+        report(f"key figures, no default count ({NO_TRUE_WORD}): {named}")
+    if unnamed:
+        named = ", ".join(f"{tile} ({n})" for tile, n in sorted(unnamed.items()))
+        report(f"key figures, no holder named (over {HOLDER_MAX} members): {named}")
     cardless, ownerless, by_default = card_counts(graph)
     report(
         f"no card: {cardless} devices, {cardless - ownerless} drawn on their owner's card, "

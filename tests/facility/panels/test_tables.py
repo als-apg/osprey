@@ -420,7 +420,7 @@ def test_a_card_key_number_names_its_class_and_shows_a_value_or_a_word(tmp_path)
     path.write_text(base + "card,,1,Pressure,word,pressure,Pump,,,S\n")
     assert [m.measure for m in read_fixture_tables(tables).metrics if m.view == "card"] == ["word"]
     path.write_text(base + "card,,1,Pressure,rms,pressure,Pump,,,S\n")
-    with pytest.raises(PanelTableError, match="one of value, word, count_true, max, sum"):
+    with pytest.raises(PanelTableError, match="one of value, word, count_true, max, min, sum"):
         read_fixture_tables(tables)
     path.write_text(base + "card,,1,Pressure,value,pressure,,,,S\n")
     with pytest.raises(PanelTableError, match="names its class"):

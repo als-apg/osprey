@@ -316,6 +316,8 @@ class Channel:
             ``options``), in value order; empty with none.
         limits: The facility file's limits record for it as ``(min, max)``,
             or ``None`` with none.
+        value_type: The facility file's ``value_type`` (``float`` when it
+            states none).
     """
 
     name: str
@@ -331,6 +333,7 @@ class Channel:
     signal: str | None = None
     options: tuple[str, ...] = ()
     limits: tuple[float, float] | None = None
+    value_type: str = "float"
 
 
 @dataclass(frozen=True)
@@ -866,6 +869,7 @@ class PanelGraph:
                 signal=_text(record.get("signal")),
                 options=tuple(str(o) for o in record.get("options") or () if o is not None),
                 limits=limits.get(name),
+                value_type=_text(record.get("value_type")) or "float",
             )
             self._channel[name] = channel
             if row is not None:

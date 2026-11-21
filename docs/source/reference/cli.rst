@@ -1643,17 +1643,23 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    role whose word is a ``nameplate`` signal, which says what the device is, not how
    it is (a ``channel_roles.csv`` row giving the channel another word overrides
    it); a role that several own channels play is one figure over them all, a
-   count of the true ones for a lamp titled "<role> <true word>" (the word
-   ``state_labels.csv`` states for 1, else "on"), the highest for a value titled
-   "Highest <role>", and no tile for a word; a stated card row for the class
-   wins over this default; a tile's measure is
-   ``value`` or ``word`` of the role's first channel, or over every channel of
-   the role on the device ``count_true``, ``max`` or ``sum``. A count reads "k of
-   N", "of N" on the figure's baseline right after it; the highest's line under
-   the figure names the member that holds it ("highest of N · <name>", the first
-   such member, its name short of the device's id); the figure's tooltip names
-   what it is over, member by member; while any member has no value the figure is
-   a dash and the line says "one of N has no value"), its relations as
+   count of the true ones for a lamp titled "<role> <true word>", the word
+   ``state_labels.csv`` or the channel's ``options`` state for 1 ("on" only for
+   a ``bool`` channel; a role with neither gets no tile, and ``check`` names
+   it), the highest for a value titled "Highest <role>", and no tile for a
+   word; a stated card row for the class wins over this default; a tile's
+   measure is ``value`` or ``word`` of the role's first channel, or over every
+   channel of the role on the device ``count_true``, ``max``, ``min`` or
+   ``sum``. A count reads "k of N", "of N" on the figure's baseline right after
+   it, and under it a row of small lamps, one per member in order, where they
+   fit the tile; the highest's or the lowest's line under the figure names the
+   member that holds it ("highest of N · <name>", the first such member, its
+   name short of the device's id), from one hidden label and one rule per
+   member, up to 32 members, past which it says "highest of N" and ``check``
+   names the tile; the figure's tooltip names what it is over, member by
+   member; while any member has no value the figure is
+   a dash and the line says "one of N has no value", or each lamp shows its
+   no-value mark), its relations as
    a chain of blocks (the device's own block showing only roles one channel of
    it plays: a role played per connector or member is not rows there), its
    drawings (a drawing none of whose parts has a place is a compact row of

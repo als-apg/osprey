@@ -328,33 +328,41 @@ def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_pat
     notes = [
         n for n in _by_type(doc, "text-label") if n["props"]["text"] == "one of 3 has no value"
     ]
-    assert len(notes) == 3
-    for note, figure in zip(notes, figures, strict=True):
+    assert len(notes) == 2  # the count's slot is its row of lamps, which needs no note
+    for note, figure in zip(notes, figures[1:], strict=True):
         (rule,) = note["rules"]
         assert rule["pvs"] == [{"name": figure["rules"][0]["formula"], "trigger": True}]
         assert rule["conditions"][0]["value"] == ""  # cleared once every member reports
 
 
-def _over_all_card(tmp_path, metrics: str = "", words: str = ""):
-    """A supply with three outlets (a lamp each) and three loads (a value each);
-    *metrics* card rows and *words* state-label rows as given."""
+def _over_all_card(
+    tmp_path, metrics: str = "", words: str = "", n: int = 3, two_state: bool = True
+):
+    """A supply with *n* outlets (a lamp each, ``bool`` when *two_state*) and *n*
+    loads (a value each); *metrics* card rows and *words* state-label rows as
+    given."""
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 
     def outlets(document) -> None:
-        for n in (1, 2, 3):
-            for name in ("On-Sts", "Cur-RB"):
-                document["channels"].append(
-                    {"id": f"XR01-PS1:Out{n}{name}", "on": {"device": "XR01:PS1"}}
-                )
+        for i in range(1, n + 1):
+            on = {"id": f"XR01-PS1:Out{i}On-Sts", "on": {"device": "XR01:PS1"}}
+            if two_state:
+                on["value_type"] = "bool"
+            document["channels"].append(on)
+            document["channels"].append(
+                {"id": f"XR01-PS1:Out{i}Cur-RB", "on": {"device": "XR01:PS1"}}
+            )
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER
-        + "PowerSupply,outlet,*:Out[0-9]On-Sts,device,lamp,,,,,stated,S,1,l\n"
-        + "PowerSupply,load,*:Out[0-9]Cur-RB,device,value,A,,,,stated,S,1,l\n"
+        + "PowerSupply,outlet,*:Out*On-Sts,device,lamp,,,,,stated,S,1,l\n"
+        + "PowerSupply,load,*:Out*Cur-RB,device,value,A,,,,stated,S,1,l\n"
     )
-    if metrics:
+    if metrics.startswith("view,"):  # a whole file, its own header
+        (tables / "metrics.csv").write_text(metrics)
+    elif metrics:
         with (tables / "metrics.csv").open("a") as handle:
             handle.write(metrics)
     if words:
@@ -409,7 +417,7 @@ def test_a_stated_card_row_wins_over_the_default_figure(tmp_path):
 def test_a_count_reads_k_of_n_on_the_figure_s_baseline_and_the_line_keeps_a_margin(tmp_path):
     graph, view = _over_all_card(tmp_path)
     doc = stub_render(view, graph)
-    figure, _highest = _figures(doc)
+    figure, highest = _figures(doc)
     g = figure["geometry"]
     (of,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "of 3"]
     o = of["geometry"]
@@ -419,14 +427,15 @@ def test_a_count_reads_k_of_n_on_the_figure_s_baseline_and_the_line_keeps_a_marg
     figure_base = g["y"] + g["height"] / 2 + layout.baseline_drop(layout.KEY_VALUE_SIZE)
     of_base = o["y"] + o["height"] / 2 + layout.baseline_drop(of["props"]["fontSize"])
     assert of_base == pytest.approx(figure_base, abs=0.5)  # one reading, on one baseline
-    # the line under the figure ends a margin above the tile's border
+    # the line under a figure ends a margin above the tile's border
+    h = highest["geometry"]
     (note,) = [
         n for n in _by_type(doc, "text-label")
-        if n["props"]["text"] == "one of 3 has no value" and n["geometry"]["x"] == g["x"]
+        if n["props"]["text"] == "one of 3 has no value" and n["geometry"]["x"] == h["x"]
     ]  # fmt: skip
     tile = next(
         n for n in _by_type(doc, "rectangle")
-        if n["geometry"]["x"] < g["x"] < n["geometry"]["x"] + n["geometry"]["width"]
+        if n["geometry"]["x"] < h["x"] < n["geometry"]["x"] + n["geometry"]["width"]
         and n["geometry"]["height"] == layout.KEY_TILE_HEIGHT
     )  # fmt: skip
     bottom = note["geometry"]["y"] + note["geometry"]["height"]
@@ -435,45 +444,131 @@ def test_a_count_reads_k_of_n_on_the_figure_s_baseline_and_the_line_keeps_a_marg
 
 def _holds(test: str, values: list[float]) -> bool:
     """A rule's condition evaluated as the formula engine would, over *values*: its
-    ``max`` is numpy's, so one missing value (NaN) makes the largest no number."""
+    ``max`` and ``min`` are numpy's, so one missing value (NaN) makes the extreme no
+    number."""
     import numpy as np
 
     expression = test
     for i, v in enumerate(values):
         expression = expression.replace(f"{{{i}}}", repr(v))
     # the expression is one the layout just wrote, evaluated with nothing but max
-    names = {"__builtins__": {}, "max": lambda t: float(np.max(t)), "nan": float("nan")}
+    names = {
+        "__builtins__": {},
+        "max": lambda t: float(np.max(t)),
+        "min": lambda t: float(np.min(t)),
+        "nan": float("nan"),
+    }
     return bool(eval(expression, names))
+
+
+def _slot(doc, figure) -> list[dict]:
+    g = figure["geometry"]
+    return [
+        n for n in _by_type(doc, "text-label")
+        if n["geometry"]["x"] == g["x"] and n["geometry"]["y"] == g["y"] + g["height"]
+    ]  # fmt: skip
+
+
+def _shown(lines: list[dict], values: list[float]) -> list[str]:
+    """The texts of the hidden *lines* whose rule shows them for *values*."""
+    return [
+        line["props"]["text"]
+        for line in lines
+        for rule in line["rules"]
+        if rule["targetProperty"] == "invisible"
+        and _holds(rule["conditions"][0]["expression"], values)
+    ]
 
 
 def test_the_highest_s_line_names_the_first_member_that_holds_it(tmp_path):
     graph, view = _over_all_card(tmp_path)
     doc = stub_render(view, graph)
     _count, highest = _figures(doc)
-    g = highest["geometry"]
-    under = [
-        n for n in _by_type(doc, "text-label")
-        if n["geometry"]["x"] == g["x"] and n["geometry"]["y"] == g["y"] + g["height"]
-    ]  # fmt: skip
-    lines = [n for n in under if n["props"]["text"] == ""]  # empty until values come
-    assert len(lines) == 3  # one per member, in the one slot of the line
-    shown = []
-    for values in ([1.0, 5.0, 2.0], [7.0, 7.0, 2.0], [1.0, float("nan"), 2.0]):
-        texts = [
-            rule["conditions"][0]["value"]
-            for line in lines
-            for rule in line["rules"]
-            if _holds(rule["conditions"][0]["expression"], values)
-        ]
-        shown.append(texts)
-    assert shown == [
-        ["highest of 3 · Out2Cur-RB"],
-        ["highest of 3 · Out1Cur-RB"],  # a tie: the first that holds it, one line only
-        [],  # one member has no value: no name; the missing note says so
-    ]
+    lines = [n for n in _slot(doc, highest) if n["props"].get("invisible")]
+    assert len(lines) == 3  # one per member, in the one slot of the line, all hidden
+    assert _shown(lines, [1.0, 5.0, 2.0]) == ["highest of 3 · Out2Cur-RB"]
+    assert _shown(lines, [7.0, 7.0, 2.0]) == ["highest of 3 · Out1Cur-RB"]  # a tie: the first
+    assert _shown(lines, [1.0, float("nan"), 2.0]) == []  # no value: the note says so
     # what the figure is over is its tooltip, member by member
     tooltip = highest["props"]["tooltip"].splitlines()
     assert tooltip == ["max over 3 channels", "Out1Cur-RB", "Out2Cur-RB", "Out3Cur-RB"]
+
+
+def test_the_lowest_is_drawn_like_the_highest(tmp_path):
+    from osprey.facility.panels.view import KeyTile
+
+    graph, view = _over_all_card(tmp_path, metrics="card,,1,Least load,min,load,PowerSupply,A,,S\n")
+    (tile,) = [t for s in view.sections for t in s.items if isinstance(t, KeyTile)]
+    assert tile.shown_as == "min" and len(tile.names) == 3
+    doc = stub_render(view, graph)
+    (figure,) = _figures(doc)
+    formula = next(f for f in doc["formulas"] if "min((" in f["expression"])
+    assert len(formula["bindings"]) == 3
+    lines = [n for n in _slot(doc, figure) if n["props"].get("invisible")]
+    assert _shown(lines, [4.0, 1.0, 1.0]) == ["lowest of 3 · Out2Cur-RB"]
+
+
+def test_past_the_holder_bound_the_line_says_only_of_how_many(tmp_path):
+    from osprey.facility.panels.describe import HOLDER_MAX, figure_notes
+
+    n = HOLDER_MAX + 1
+    # a stated precision keeps the figure's own formula short enough for this many
+    row = (
+        "view,level,order,title,measure,signal,class,unit,caption,source,precision\n"
+        "card,,1,Load peak,max,load,PowerSupply,A,,S,1\n"
+    )
+    graph, view = _over_all_card(tmp_path, metrics=row, n=n)
+    doc = stub_render(view, graph)
+    (highest,) = _figures(doc)
+    slot = _slot(doc, highest)
+    assert not [line for line in slot if line["props"].get("invisible")]  # no name lines
+    (note,) = slot
+    (rule,) = note["rules"]
+    assert rule["conditions"][0]["value"] == f"highest of {n}"  # with values
+    assert rule["default"] == note["props"]["text"] == f"one of {n} has no value"
+    _skipped, unnamed = figure_notes(graph, ["XR01:PS1"])
+    assert unnamed == {"PowerSupply: Load peak": 1}
+
+
+def test_a_count_s_slot_is_a_row_of_lamps_one_per_member(tmp_path):
+    graph, view = _over_all_card(tmp_path)
+    doc = stub_render(view, graph)
+    count, _highest = _figures(doc)
+    g = count["geometry"]
+    below = g["y"] + g["height"]
+    lamps = [
+        n for n in nodes(doc)
+        if n["geometry"]["y"] >= below - layout.ROW and n["geometry"]["y"] < below + layout.SMALL_LINE
+        and n["geometry"]["width"] == layout.MOSAIC_LIGHT and n["type"] != "text-label"
+        and g["x"] <= n["geometry"]["x"] < g["x"] + 300
+    ]  # fmt: skip
+    assert len(lamps) == 3
+    xs = sorted(n["geometry"]["x"] for n in lamps)
+    assert xs == [g["x"] + i * (layout.MOSAIC_LIGHT + layout.MOSAIC_GAP) for i in range(3)]
+    for lamp in lamps:  # inside the slot, which keeps its margin above the border
+        top = lamp["geometry"]["y"]
+        assert below <= top and top + layout.MOSAIC_LIGHT <= below + layout.SMALL_LINE
+    assert not [n for n in _slot(doc, count) if "has no value" in n["props"]["text"]]
+
+
+def test_a_count_whose_lamps_do_not_fit_keeps_the_note(tmp_path):
+    n = 30  # more lamps than a tile's width holds at the mosaic's size
+    graph, view = _over_all_card(tmp_path, n=n)
+    doc = stub_render(view, graph)
+    count = _figures(doc)[0]
+    (note,) = [x for x in _slot(doc, count) if "has no value" in x["props"]["text"]]
+    assert note["props"]["text"] == f"one of {n} has no value"
+
+
+def test_a_count_of_a_role_not_two_state_with_no_word_gets_no_default_tile(tmp_path):
+    from osprey.facility.panels.describe import figure_notes
+    from osprey.facility.panels.view import KeyTile
+
+    graph, view = _over_all_card(tmp_path, two_state=False)
+    titles = [t.title for s in view.sections for t in s.items if isinstance(t, KeyTile)]
+    assert not any(title.startswith("Outlet") for title in titles)  # no word guessed
+    skipped, _unnamed = figure_notes(graph, ["XR01:PS1"])
+    assert skipped == {"PowerSupply.outlet": 1}
 
 
 def test_a_row_named_by_its_raw_channel_shows_the_last_part_and_the_name_muted(

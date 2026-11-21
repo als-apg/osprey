@@ -402,8 +402,8 @@ MEASURES: tuple[str, ...] = (
     "sum",
 )
 #: What a card's key number may compute: one value or word, or over every channel
-#: of its role on the device a count of the true ones, the largest or the sum.
-CARD_MEASURES: tuple[str, ...] = ("value", "word", "count_true", "max", "sum")
+#: of its role on the device a count of the true ones, the largest, the smallest or the sum.
+CARD_MEASURES: tuple[str, ...] = ("value", "word", "count_true", "max", "min", "sum")
 
 #: How a calibration was found, in the order the screens rank it: a display order
 #: only (which basis to show as further along), not a rule of which value counts.

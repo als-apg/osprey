@@ -68,6 +68,8 @@ def _texts(doc: dict[str, Any]) -> list[tuple[str, str, float, float, float, flo
         props, g = node["props"], node["geometry"]
         if node["type"] != "text-label" or not str(props.get("text", "")).strip():
             continue
+        if props.get("invisible"):  # hidden until a rule shows it: see the layer test
+            continue
         size = props.get("fontSize", layout.TEXT_SIZE)
         w = min(_ink(props["text"], size), g["width"])
         align = props.get("align", "left")
@@ -157,6 +159,66 @@ def test_no_text_lies_under_a_value(screens):
                 ):
                     under.append((name, t_id, text, value["id"]))
     assert under == []
+
+
+def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_graph):
+    """Labels hidden until a rule shows them may share a box only when their rules
+    prove that at most one shows: each is the first-holder condition of its own
+    member over the same members (:func:`layout.holder_condition`), whose form
+    admits no two at once. The static check leaves hidden labels out; this is
+    what lets it."""
+    import re
+
+    from osprey.facility.panels.view import CardHead, KeyTile, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    members = ("XR01-X:T1-RB", "XR01-X:T2-RB", "XR01-X:T3-RB")
+    drawn = {
+        f"extreme-{measure}": stub_render(
+            View(
+                Target("card", "device", "XR01:X"), "XR01:X", (),
+                (Section("head", (CardHead("X · default", None),)),
+                 Section("tiles", (KeyTile("T", members[0], measure, "K", channels=members,
+                                           names=("T1-RB", "T2-RB", "T3-RB")),)),),
+            ),
+            panel_graph,
+        )
+        for measure in ("max", "min")
+    }  # fmt: skip
+    groups: dict[tuple[str, tuple[float, ...]], list[dict[str, Any]]] = {}
+    for name, doc in {**screens, **drawn}.items():
+        for node in _nodes(doc["root"]):
+            if node["type"] != "text-label" or not node["props"].get("invisible"):
+                continue
+            g = node["geometry"]
+            groups.setdefault((name, (g["x"], g["y"], g["width"], g["height"])), []).append(node)
+    shared = [group for group in groups.values() if len(group) > 1]
+    assert len(shared) >= len(drawn)  # the extreme tiles drawn here, and any the set has
+    unproved = []
+    for group in shared:
+        held: tuple[str, ...] | None = None
+        seen = set()
+        for node in group:
+            (rule,) = node["rules"]
+            (condition,) = rule["conditions"]
+            pvs = tuple(pv["name"] for pv in rule["pvs"])
+            test = condition["expression"]
+            match = re.match(r"\{(\d+)\} == (max|min)\(", test)
+            k = int(match.group(1)) if match else -1
+            proved = (
+                match is not None
+                and rule["targetProperty"] == "invisible"
+                and condition["value"] is False
+                and rule["default"] is True
+                and test == layout.holder_condition(match.group(2), k, len(pvs))
+                and (held is None or pvs == held)
+                and k not in seen
+            )
+            held = pvs
+            seen.add(k)
+            if not proved:
+                unproved.append(node["id"])
+    assert unproved == []
 
 
 def test_no_text_lies_over_another(screens):
