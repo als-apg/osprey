@@ -91,6 +91,11 @@ def _grid_scan_args(num_points: int = 3) -> dict[str, Any]:
     }
 
 
+def _queued_grid_scan_args() -> dict[str, Any]:
+    """The complete set that draft is queued with: every field ``grid_scan`` declares."""
+    return {**_grid_scan_args(), "snake_axes": False}
+
+
 def _session_plan_source(name: str) -> str:
     """A minimal session-tier plan file satisfying the load + upload contract."""
     return (
@@ -641,10 +646,10 @@ def test_enqueue_puts_the_pinned_draft_in_the_managers_queue(
     # only the run id (`queue._public_item`).
     (item,) = manager.items
     assert item["name"] == "grid_scan"
-    assert item["kwargs"] == _grid_scan_args()
+    assert item["kwargs"] == _queued_grid_scan_args()
     assert item["meta"] == {
         qb.RUN_ID_META_KEY: body["run_id"],
-        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _grid_scan_args()},
+        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _queued_grid_scan_args()},
     }
 
 
@@ -1955,7 +1960,7 @@ def test_an_owner_claim_is_trusted_on_its_own_and_gates_nothing(
     (item,) = manager.items
     assert item["kwargs"][RESERVED_OWNER_KWARG] == "bob"
     assert item["meta"][qb.OWNER_META_KEY] == "bob"
-    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _grid_scan_args()
+    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _queued_grid_scan_args()
 
 
 def test_an_owner_claim_the_guard_refuses_costs_the_attribution_not_the_add(
@@ -1978,7 +1983,7 @@ def test_an_owner_claim_the_guard_refuses_costs_the_attribution_not_the_add(
 
     assert resp.status_code == 200, resp.text
     (item,) = manager.items
-    assert item["kwargs"] == _grid_scan_args()
+    assert item["kwargs"] == _queued_grid_scan_args()
     assert qb.OWNER_META_KEY not in item["meta"]
 
 
@@ -2009,7 +2014,7 @@ def test_every_queue_read_surface_names_the_owner_and_never_the_reserved_kwarg(
     assert added.json()["item"]["owner"] == "bob"
     (row,) = listed.json()["items"]
     assert row["owner"] == "bob"
-    assert row["kwargs"] == _grid_scan_args()
+    assert row["kwargs"] == _queued_grid_scan_args()
     assert removed.json()["item"]["owner"] == "bob"
     for body in (added.text, listed.text, removed.text):
         assert RESERVED_OWNER_KWARG not in body, body
@@ -2062,7 +2067,7 @@ async def test_the_event_stream_names_the_owner_of_the_items_it_carries(
     _assert_snapshot_frame(hello)
     (streamed,) = hello["items"]
     assert streamed["owner"] == "bob"
-    assert streamed["kwargs"] == _grid_scan_args()
+    assert streamed["kwargs"] == _queued_grid_scan_args()
     assert RESERVED_OWNER_KWARG not in json.dumps(hello)
 
 
@@ -2085,7 +2090,7 @@ def test_an_owner_named_in_the_request_body_is_not_an_owner(
 
     assert resp.status_code == 200, resp.text
     (item,) = manager.items
-    assert item["kwargs"] == _grid_scan_args()
+    assert item["kwargs"] == _queued_grid_scan_args()
     assert qb.OWNER_META_KEY not in item["meta"]
     assert "owner" not in resp.json()["item"]
 
