@@ -1294,8 +1294,9 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
     """The tiles: the ``metrics.csv`` rows of view ``card`` of the device's class
     whose ``level`` is its recipe or empty, by order, each
     the first channel of its role (``signal``) or not served yet; with none, the
-    first :data:`DEFAULT_TILES` roles that one channel plays and that show a value,
-    a word or a lamp, identity roles left out."""
+    first :data:`DEFAULT_TILES` roles that exactly one of the device's own
+    channels plays and that show a value, a word or a lamp, identity roles left
+    out."""
     by_role: dict[str, list[RoleHit]] = {}
     for hit in hits:
         by_role.setdefault(hit.role.role, []).append(hit)
@@ -1349,24 +1350,26 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
     for role, found in by_role.items():
         if len(tiles) == DEFAULT_TILES:
             break
-        first = found[0].role
-        if (
-            role in graph.identity
-            or role == INTERNAL_ROLE
-            or first.shown_as in CONTROLS
-            or len(found) != 1
-        ):
+        # Only the device's own channels of a role count: a neighbour's channel
+        # its roles reach is no figure of this device, and two own channels of
+        # one role are no single figure either.
+        own = [h for h in found if h.owner == thing.id]
+        if len(own) != 1:
             continue
-        unit, scale = _role_unit(graph, found[0])
+        hit = own[0]
+        first = hit.role
+        if role in graph.identity or role == INTERNAL_ROLE or first.shown_as in CONTROLS:
+            continue
+        unit, scale = _role_unit(graph, hit)
         tiles.append(
             KeyTile(
                 _role_word(first),
-                found[0].channel,
+                hit.channel,
                 first.shown_as,
                 unit,
                 scale,
                 None,
-                _words(graph, found[0].channel),
+                _words(graph, hit.channel),
             )
         )
     return tiles
