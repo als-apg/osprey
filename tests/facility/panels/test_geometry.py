@@ -195,3 +195,23 @@ def test_a_cut_text_fits_and_is_counted():
     assert cut.endswith(layout._ELLIPSIS)
     assert layout.text_width(cut, layout.SMALL_SIZE) <= 80
     assert cuts == [text]
+
+
+def test_a_checkout_s_name_columns_take_their_longest_names_and_stay_on_the_page():
+    from osprey.facility.panels.view import CheckRow
+
+    def row(channel: str, thing: str | None) -> CheckRow:
+        return CheckRow(channel, thing, True, True, True, True)
+
+    short = [row("XR01-PS1:On-Sts", "XR01:PS1")]
+    assert layout.check_columns(short) == (layout.NAME_WIDTH, layout.NAME_WIDTH)
+    long_name = "XR01-PS1:" + "VeryLongReadbackName" * 2 + "-RB"
+    channel_w, thing_w = layout.check_columns([*short, row(long_name, "XR01:PS1")])
+    assert channel_w >= layout.text_width(long_name, layout.TEXT_SIZE)  # whole, no cut
+    assert thing_w == layout.NAME_WIDTH
+    room = layout.STRIP_WIDTH - layout.CHECK_FLAGS * layout.CELL_WIDTH
+    assert channel_w + thing_w <= room  # the flag columns still fit the page
+    # both longer than the room: the thing column keeps its least, the channel the rest
+    huge = "X" * 120
+    channel_w, thing_w = layout.check_columns([row(huge, huge)])
+    assert thing_w == layout.NAME_LEAST and channel_w + thing_w == room

@@ -170,7 +170,9 @@ MARK_WIDTH = 16
 LINE_WIDTH = 1
 AXIS_WIDTH = 2
 CELL_WIDTH = 110  # a checkout's column
-NAME_WIDTH = 260  # a checkout's first column
+CHECK_FLAGS = 4  # a checkout's flag columns after its two names
+NAME_WIDTH = 260  # a checkout's channel and thing columns, however short their names
+NAME_LEAST = 160  # a checkout's thing column, when the channel names take the rest
 # a card's calibration table: each column's left edge from the content's, and the
 # basis chip's width
 CAL_COLUMNS = (0, 320, 560, 740, 830, 970)
@@ -689,6 +691,20 @@ def _line_room(g: Mapping[str, float], size: float) -> Mapping[str, float]:
     if g["height"] >= need:
         return g
     return {**g, "y": max(g["y"] - (need - g["height"]) / 2, 0.0), "height": need}
+
+
+def check_columns(rows: Sequence[CheckRow]) -> tuple[float, float]:
+    """A checkout table's channel and thing columns: each as wide as its longest
+    name (at least :data:`NAME_WIDTH`), the :data:`CHECK_FLAGS` flag columns after them on the
+    page. Where both do not fit, the channel names take the room the thing
+    column does not need, down to :data:`NAME_LEAST` for the thing column."""
+    room = STRIP_WIDTH - CHECK_FLAGS * CELL_WIDTH
+    channel = max([NAME_WIDTH, *(text_width(r.channel, TEXT_SIZE) for r in rows)])
+    thing = max([NAME_WIDTH, *(text_width(r.thing or "", TEXT_SIZE) for r in rows)])
+    if channel + thing <= room:
+        return channel, thing
+    thing = max(min(thing, room - channel), NAME_LEAST)
+    return room - thing, thing
 
 
 def _em(text: str) -> int:
@@ -1522,6 +1538,7 @@ class _Page:
         self.on_card = view.id.view == "card" and view.id.kind == "device"
         self.label_w: float = CARD_LABEL_WIDTH  # a signal row's name, in the card's table
         self.label_col: float = LABEL_WIDTH  # a value or fact row's label, in its section
+        self.check_cols: tuple[float, float] = (NAME_WIDTH, NAME_WIDTH)  # channel, thing
         self.value_w: float = VALUE_WIDTH
         self.budget = Budget()  # spent by the strip's symbols, chips and summary rows
         self.colours: Mapping[str, str] = colours  # a symbol's type colour, by symbol name
@@ -4223,8 +4240,10 @@ class _Page:
         self.label_col = min(
             max([LABEL_WIDTH, *(text_width(t, TEXT_SIZE) for t in labels)]), LABEL_MOST
         )
+        self.check_cols = check_columns([i for i in section.items if isinstance(i, CheckRow)])
         self.items(section)
         self.label_col = LABEL_WIDTH
+        self.check_cols = (NAME_WIDTH, NAME_WIDTH)
         self.y += PANEL_PAD - ROW_GAP
         self.s.widget(
             "rectangle",
@@ -4745,15 +4764,17 @@ class _Page:
 
     def check_header(self) -> None:
         tags = (_need("table"),)
-        x = self.text(MARGIN, self.y, "channel", size=SMALL_SIZE, w=NAME_WIDTH, tags=tags)
-        x = self.text(x, self.y, "thing", size=SMALL_SIZE, w=NAME_WIDTH, tags=tags)
+        channel_w, thing_w = self.check_cols
+        x = self.text(MARGIN, self.y, "channel", size=SMALL_SIZE, w=channel_w, tags=tags)
+        x = self.text(x, self.y, "thing", size=SMALL_SIZE, w=thing_w, tags=tags)
         for title in ("on device", "typed", "rule", "source"):
             x = self.text(x, self.y, title, size=SMALL_SIZE, w=CELL_WIDTH, tags=tags)
         self.next_row()
 
     def check_row(self, row: CheckRow) -> None:
-        x = self.text(MARGIN, self.y, row.channel, w=NAME_WIDTH)
-        x = self.text(x, self.y, row.thing or "", w=NAME_WIDTH)
+        channel_w, thing_w = self.check_cols
+        x = self.text(MARGIN, self.y, row.channel, w=channel_w)
+        x = self.text(x, self.y, row.thing or "", w=thing_w)
         for flag in (row.on_device, row.typed, row.has_rule, row.has_source):
             x = self.text(x, self.y, _YES if flag else _NO, w=CELL_WIDTH)
         self.next_row()
