@@ -188,6 +188,8 @@ SET_ROW_HEAD = 64  # a set overview's row heads: the place, short
 SET_BLOCK_GAP = 24  # between two blocks of a set overview's columns
 SET_MEMBERS = 200  # a set overview draws blocks until this many cells are drawn
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
+# a frame beside another: half the frames' width, a gap between the two
+HALF_FRAME = (STRIP_WIDTH + 2 * PANEL_PAD - PANEL_GAP) // 2
 MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 45 px tall
 SYMBOL_UNIT = 20  # one shape unit of a symbol, in px, at scale 1: a bend is 75 px tall
 STRIP_AXIS = 38  # the axis's room each side: half the tallest symbol, a bend
@@ -1271,6 +1273,33 @@ def light_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
 
 
 @dataclass(frozen=True)
+class _Frame:
+    """A frame as drawn: its node and its content's, ``nodes[first:end]``, from *top*
+    to *bottom*."""
+
+    first: int
+    end: int
+    top: float
+    bottom: float
+
+
+#: Rule targets that place a widget: a widget with one cannot be moved by its frame.
+_PLACING = frozenset({"x", "y", "width", "height"})
+
+
+def _half_wide(content: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether a frame's *content* fits a half-wide frame and can be moved: every
+    widget within the left half, none placed by a rule or parked off the page."""
+    right = MARGIN - PANEL_PAD + HALF_FRAME - PANEL_PAD
+    return bool(content) and all(
+        n["geometry"]["x"] >= 0
+        and n["geometry"]["x"] + n["geometry"]["width"] <= right
+        and not any(r["targetProperty"] in _PLACING for r in n.get("rules") or ())
+        for n in content
+    )
+
+
+@dataclass(frozen=True)
 class _Block:
     """A strip symbol's values as drawn: its short name over them, at *cx* the symbol's
     centre, *left* and *w* the block's span, in *lane*."""
@@ -1553,6 +1582,7 @@ class _Page:
         self.dropped = 0  # strip values the budget left out
         self.crowded = 0  # strip values with no room in the lanes under their symbol
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
+        self.last_frame: _Frame | None = None  # the frame drawn last, while it may pair
         self.x0: float = MARGIN  # the left edge of the column drawn in
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
@@ -2379,17 +2409,11 @@ class _Page:
                 self.nav(self.x0, self.y, right - self.x0, SMALL_LINE, link)
             self.y += SMALL_LINE + ROW_GAP
 
-    def framed(self, title: str, draw: Callable[[], None], *, note: str | None = None) -> None:
-        """A section's frame and head around what *draw* draws (as :meth:`section`)."""
-        first = len(self.s.nodes)
-        top = self.y
-        self.y += PANEL_PAD
-        head_y = self.y
-        self.heading(title)
-        if note:
-            x = self.x0 + text_width(title.upper(), HEADING_SIZE) + WORD_GAP
-            self.small(x, head_y, note, fg=MUTED_TEXT)
-        draw()
+    def frame(self, first: int, top: float) -> None:
+        """The frame around what was drawn since node *first*, from *top*: under it,
+        in the margin around it. A frame whose content takes at most half the
+        width goes beside the frame before it when that one does too
+        (:meth:`beside`)."""
         self.y += PANEL_PAD - ROW_GAP
         self.s.widget(
             "rectangle",
@@ -2405,7 +2429,44 @@ class _Page:
             },
         )
         self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
+        self.beside(_Frame(first, len(self.s.nodes), top, self.y))
         self.y += PANEL_GAP
+
+    def beside(self, block: _Frame) -> None:
+        """Width before height: *block*, just framed, goes to the right half beside
+        the frame drawn just before it when both hold content no wider than half a
+        frame and nothing in either is placed by a rule; both frames then take the
+        taller one's height."""
+        before, self.last_frame = self.last_frame, block
+        nodes = self.s.nodes
+        if not _half_wide(nodes[block.first + 1 : block.end]):
+            self.last_frame = None
+            return
+        if before is None or before.end != block.first or before.bottom + PANEL_GAP != block.top:
+            return
+        dx, dy = HALF_FRAME + PANEL_GAP, before.top - block.top
+        for node in nodes[block.first + 1 : block.end]:
+            node["geometry"]["x"] += dx
+            node["geometry"]["y"] += dy
+        height = max(before.bottom - before.top, block.bottom - block.top)
+        left, right = nodes[before.first]["geometry"], nodes[block.first]["geometry"]
+        left.update(width=HALF_FRAME, height=height)
+        right.update(x=left["x"] + dx, y=before.top, width=HALF_FRAME, height=height)
+        self.y = before.top + height
+        self.last_frame = None
+
+    def framed(self, title: str, draw: Callable[[], None], *, note: str | None = None) -> None:
+        """A section's frame and head around what *draw* draws (as :meth:`section`)."""
+        first = len(self.s.nodes)
+        top = self.y
+        self.y += PANEL_PAD
+        head_y = self.y
+        self.heading(title)
+        if note:
+            x = self.x0 + text_width(title.upper(), HEADING_SIZE) + WORD_GAP
+            self.small(x, head_y, note, fg=MUTED_TEXT)
+        draw()
+        self.frame(first, top)
 
     def title_line(self, head: CardHead) -> None:
         """The device's name, large; its class and recipe beside it, muted; the
@@ -4249,22 +4310,7 @@ class _Page:
         self.items(section)
         self.label_col = LABEL_WIDTH
         self.check_cols = (NAME_WIDTH, NAME_WIDTH)
-        self.y += PANEL_PAD - ROW_GAP
-        self.s.widget(
-            "rectangle",
-            MARGIN - PANEL_PAD,
-            top,
-            STRIP_WIDTH + 2 * PANEL_PAD,
-            self.y - top,
-            {
-                "lineColor": BOX_BORDER,
-                "lineWidth": LINE_WIDTH,
-                "fill": True,
-                "fillColor": PANEL_BACKGROUND,
-            },
-        )
-        self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
-        self.y += PANEL_GAP
+        self.frame(first, top)
 
     def items(self, section: Section) -> None:
         tallies = [i for i in section.items if isinstance(i, CalibrationTallies)]

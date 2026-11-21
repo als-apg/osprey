@@ -14,6 +14,7 @@ the layout measures it. Every screen of the fixture facility is checked:
 
 from __future__ import annotations
 
+import itertools
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -338,3 +339,51 @@ def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
     # a name that fits, or one with separators, breaks as before
     assert layout._wrap_label("PowerSupply", 400, layout.SMALL_SIZE, 2) == ["PowerSupply"]
     assert layout._wrap_label("XR01-PS1:On-Sts", 400, layout.SMALL_SIZE, 2) == ["XR01-PS1:On-Sts"]
+
+
+def _frames(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """The section frames of *doc*: the boxes in the margin that sections stand in."""
+    left = layout.MARGIN - layout.PANEL_PAD
+    return [
+        n["geometry"]
+        for n in _nodes(doc["root"])
+        if n["type"] == "rectangle"
+        and n["props"].get("fillColor") == layout.PANEL_BACKGROUND
+        and n["props"].get("lineColor") == layout.BOX_BORDER
+        and n["geometry"]["x"] in (left, left + layout.HALF_FRAME + layout.PANEL_GAP)
+        and n["geometry"]["width"] in (layout.HALF_FRAME, layout.STRIP_WIDTH + 2 * layout.PANEL_PAD)
+    ]
+
+
+def test_narrow_frames_stand_side_by_side_at_one_height(screens):
+    """Width before height: two frames whose content needs at most half the width
+    stand side by side, the same top and height, and hold everything drawn there."""
+    pairs = 0
+    for name, doc in screens.items():
+        frames = _frames(doc)
+        halves = [g for g in frames if g["width"] == layout.HALF_FRAME]
+        lefts = [g for g in halves if g["x"] == layout.MARGIN - layout.PANEL_PAD]
+        rights = [g for g in halves if g not in lefts]
+        assert len(lefts) == len(rights), name  # a half frame always has its partner
+        for a in lefts:
+            (b,) = [g for g in rights if g["y"] == a["y"]]
+            assert b["height"] == a["height"], name
+            pairs += 1
+            inside = [
+                n["geometry"]
+                for n in _nodes(doc["root"])
+                if n["type"] != "absolute-canvas"
+                and n["geometry"] not in (a, b)
+                and a["y"] < n["geometry"]["y"] < a["y"] + a["height"]
+            ]
+            for g in inside:
+                within = any(
+                    f["x"] <= g["x"] and g["x"] + g["width"] <= f["x"] + f["width"] for f in (a, b)
+                )
+                assert within, (name, g)
+        for a, b in itertools.combinations(frames, 2):  # frames never overlap
+            assert (
+                a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
+                or a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
+            ), name  # fmt: skip
+    assert pairs >= 5  # the fixture has short sections to pair
