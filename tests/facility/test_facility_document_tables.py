@@ -11,6 +11,7 @@ the rendered file. The facts view and the channel-finder role descriptions read
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -90,6 +91,17 @@ def test_the_document_s_tables_are_copies_not_the_vocabulary(tmp_path: Path) -> 
     assert all("changed" not in row["subject"] for row in vocabulary()["relations"])
 
 
+def _without_configuration_digests(facts: dict[str, Any]) -> dict[str, Any]:
+    """``facts`` with each measurement model's configuration digest taken out.
+
+    A pyAML configuration carries numbers pyAT computes, such as ``alphac``,
+    whose last digits differ between platforms, so its digest cannot be frozen.
+    """
+    for model in facts["measurement_models"].values():
+        model.pop("sha256")
+    return facts
+
+
 def test_the_demo_role_views_are_those_of_the_base_build(built_demo: BuiltProject) -> None:
     from osprey.facility.views.channel_finder import _signal_descriptions
 
@@ -97,5 +109,10 @@ def test_the_demo_role_views_are_those_of_the_base_build(built_demo: BuiltProjec
     facts = json.loads((built_demo.build_dir / "data" / "facility_facts.json").read_bytes())
     descriptions = _signal_descriptions(FacilityRecords(built_demo.facility))
 
-    assert facts == reference["facts"]
+    for model in facts["measurement_models"].values():
+        written = (built_demo.build_dir / model["path"]).read_bytes()
+        assert model["sha256"] == hashlib.sha256(written).hexdigest()
+    assert _without_configuration_digests(facts) == _without_configuration_digests(
+        reference["facts"]
+    )
     assert descriptions == reference["channel_finder_signal_descriptions"]
