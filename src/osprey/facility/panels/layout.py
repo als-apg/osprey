@@ -4648,12 +4648,22 @@ class _Page:
 
     def calibrations(self, table: Calibrations) -> None:
         """A device's calibration block: column heads, then a row per kind (see
-        :meth:`calibration_row`). Read-only."""
+        :meth:`calibration_row`); conditions that several rows state alike once,
+        under the rows, after the titles of the rows they hold for. Read-only."""
         for word, dx in zip(_CAL_HEADS, CAL_COLUMNS, strict=True):
             self.text(MARGIN + dx, self.y, word.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
         self.y += ROW
+        # conditions that several rows state alike are stated once, under the rows
+        shared = Counter(row.conditions for row in table.rows if row.conditions)
+        once = {text for text, n in shared.items() if n > 1}
         for row in table.rows:
-            self.calibration_row(row)
+            self.calibration_row(replace(row, conditions=None) if row.conditions in once else row)
+        for text in sorted(once, key=lambda t: [r.conditions for r in table.rows].index(t)):
+            titles = ", ".join(r.title for r in table.rows if r.conditions == text)
+            for line in _prose(f"{titles}: {text}", STRIP_WIDTH, SMALL_SIZE):
+                self.small(MARGIN, self.y, line, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+            self.y += ROW_GAP
 
     def calibration_row(self, row: CalibrationRow) -> None:
         """One kind: its title (a link to the kind's view over a set), wrapped and
@@ -6960,8 +6970,15 @@ def _prose(text: str, width: float, size: float) -> list[str]:
 def _wrap_label(text: str, width: float, size: float, lines: int) -> list[str]:
     """A name in at most *lines* lines that each fit *width* at *size*, broken after a
     space, colon, hyphen or underscore; the last line cut with an ellipsis when the
-    rest does not fit."""
-    pieces = re.findall(r"[^\s:_-]*[\s:_-]|[^\s:_-]+$", text)
+    rest does not fit. A piece too wide for a line by itself breaks where a small
+    letter meets a capital (``ElectronicsChassis``)."""
+    pieces = [
+        part
+        for piece in re.findall(r"[^\s:_-]*[\s:_-]|[^\s:_-]+$", text)
+        for part in (
+            re.split(r"(?<=[a-z])(?=[A-Z])", piece) if text_width(piece, size) > width else [piece]
+        )
+    ]
     out: list[str] = []
     while pieces and len(out) < lines:
         line = pieces.pop(0)
