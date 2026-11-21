@@ -32,6 +32,7 @@
 
 import { icon } from '/design-system/js/icons.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { durationText, sinceText } from './duration.js';
 import { fetchServerFacts, readValues } from './directory-api.js';
@@ -108,8 +109,8 @@ const NOT_RECORDED = 'not recorded';
 const NO_ANSWER = 'no answer';
 const READING = '…';
 
-/** Bumped on every mount and unmount, so an answer for an old page is dropped. */
-let generation = 0;
+/** The mounts: a remount or an unmount retires this one, so an answer for an old page is dropped. */
+const mounts = createLatestRequest();
 /** @type {ReturnType<typeof setTimeout>|null} */
 let heartbeatTimer = null;
 
@@ -361,7 +362,7 @@ function alarmsCard(alarms) {
  * The page for found facts.
  * @param {HTMLElement} container
  * @param {ServerFacts} facts
- * @param {number} mounted - the generation this page belongs to
+ * @param {import('/design-system/js/latest-request.js').LatestToken} mounted - the mount this page belongs to
  */
 function renderPage(container, facts, mounted) {
   const page = el('div', 'cf-server-page');
@@ -541,11 +542,11 @@ function renderPage(container, facts, mounted) {
     }
   };
 
-  /** Bumped on every read, so an answer for an earlier read is dropped. */
-  let reads = 0;
+  /** The reads: a newer read retires this one, so an answer for an earlier read is dropped. */
+  const reads = createLatestRequest();
   const read = async () => {
-    const token = ++reads;
-    const stale = () => mounted !== generation || token !== reads;
+    const token = reads.begin();
+    const stale = () => !mounted.isCurrent() || !token.isCurrent();
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
     if (!fleet) showAlive(aliveness(heartbeat, undefined, undefined));
@@ -584,13 +585,13 @@ function renderPage(container, facts, mounted) {
  * @returns {void}
  */
 export function mountServerPage(container, params) {
-  const mounted = ++generation;
+  const mounted = mounts.begin();
   const name = params.name ?? '';
 
   renderState(container, { icon: 'refresh', message: `Loading ${LABELS.server} ${name}` });
   fetchServerFacts(name).then(
     (facts) => {
-      if (mounted !== generation) return;
+      if (!mounted.isCurrent()) return;
       if (facts.outcome === 'found' || facts.outcome === 'inactive') {
         renderPage(container, facts, mounted);
       } else if (facts.outcome === 'unavailable') {
@@ -607,7 +608,7 @@ export function mountServerPage(container, params) {
       }
     },
     (error) => {
-      if (mounted !== generation) return;
+      if (!mounted.isCurrent()) return;
       renderState(container, {
         icon: 'x',
         message: `The ${LABELS.server} facts could not be read`,
@@ -626,7 +627,7 @@ export function mountServerPage(container, params) {
 
 /** @returns {void} */
 export function unmountServerPage() {
-  generation += 1;
+  mounts.cancel();
   if (heartbeatTimer) clearTimeout(heartbeatTimer);
   heartbeatTimer = null;
 }

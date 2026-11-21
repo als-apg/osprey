@@ -24,6 +24,7 @@
  */
 
 import { icon } from '/design-system/js/icons.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { fetchFleet } from './directory-api.js';
 import {
@@ -58,7 +59,7 @@ const noSidebar = () => `The ${LABELS.serversView} view has no sidebar`;
  *   tile: TileFilter|null,
  *   text: string,
  *   grouped: boolean,
- *   pollSeq: number,
+ *   polls: ReturnType<typeof createLatestRequest>,
  *   reading: number,
  *   timer: number|undefined,
  *   ticker: number|undefined,
@@ -123,7 +124,7 @@ export function mountServers(container) {
     tile: null,
     text: '',
     grouped: false,
-    pollSeq: 0,
+    polls: createLatestRequest(),
     reading: 0,
     timer: undefined,
     ticker: undefined,
@@ -178,14 +179,14 @@ export function unmountServers() {
 async function poll() {
   if (!view) return;
   const current = view;
-  const seq = ++current.pollSeq;
+  const token = current.polls.begin();
   /** @type {FleetAnswer} */
   let answer;
   current.reading += 1;
   try {
     answer = await fetchFleet(current.controller.signal);
   } catch (err) {
-    if (view !== current || seq !== current.pollSeq) return;
+    if (view !== current || !token.isCurrent()) return;
     current.snapshot = null;
     showStatement(
       'The server fleet route did not answer',
@@ -195,7 +196,7 @@ async function poll() {
   } finally {
     current.reading -= 1;
   }
-  if (view !== current || seq !== current.pollSeq) return;
+  if (view !== current || !token.isCurrent()) return;
   if (answer?.outcome !== 'ok' || !answer.snapshot) {
     current.snapshot = null;
     const { message, detail } = outcomeStatement(answer ?? /** @type {any} */ ({}));

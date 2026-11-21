@@ -115,7 +115,7 @@ async function mount(setup = {}) {
     if (opts.method === 'HEAD') return answer(trace, '');
     if (target.startsWith('/api/directory/search')) {
       searches.push(target);
-      return answer(searchStatus, typeof search === 'function' ? search(target) : search);
+      return answer(searchStatus, typeof search === 'function' ? await search(target) : search);
     }
     if (target.startsWith('/api/directory/values')) {
       const names = new URL(target, 'http://x').searchParams.getAll('name');
@@ -327,6 +327,31 @@ describe('rows and states', () => {
 });
 
 describe('search and filters', () => {
+  test('of two searches, the page shows the newer answer when the older answers last', async () => {
+    /** @type {(body: any) => void} */
+    let releaseFirst = () => {};
+    const first = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    const { container, searches } = await mount({
+      search: (/** @type {string} */ url) => (url.includes('q=BPM02') ? pageOf(2) : first),
+    });
+    const input = /** @type {HTMLInputElement} */ (document.getElementById('cf-search'));
+    input.value = 'BPM02';
+    input.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    expect(searches).toHaveLength(2);
+
+    releaseFirst(pageOf(5));
+    await first;
+    // The released answer's path through the view is promise jobs only, so one
+    // task turn drains it.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(rows(container)).toHaveLength(2);
+    expect(container.querySelector('.channels-searched')?.textContent).toBe('matches BPM02');
+  });
+
   test('the toolbar search is seeded from scopeQuery and writes it back', async () => {
     const { container, state, searches } = await mount({ query: 'BPM01' });
     const input = /** @type {HTMLInputElement} */ (document.getElementById('cf-search'));
