@@ -61,6 +61,14 @@ def screens(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any
     }
 
 
+def _hidden(node: dict[str, Any]) -> bool:
+    """Whether *node* is hidden until a rule shows it: a ``visible`` rule whose
+    default is false."""
+    return any(
+        r["targetProperty"] == "visible" and r["default"] is False for r in node.get("rules") or ()
+    )
+
+
 def _texts(doc: dict[str, Any]) -> list[tuple[str, str, float, float, float, float]]:
     """Each text label's id, text and the box its letters take: x, y, width, height."""
     found = []
@@ -68,7 +76,7 @@ def _texts(doc: dict[str, Any]) -> list[tuple[str, str, float, float, float, flo
         props, g = node["props"], node["geometry"]
         if node["type"] != "text-label" or not str(props.get("text", "")).strip():
             continue
-        if props.get("invisible"):  # hidden until a rule shows it: see the layer test
+        if _hidden(node):  # hidden until a rule shows it: see the layer test
             continue
         size = props.get("fontSize", layout.TEXT_SIZE)
         w = min(_ink(props["text"], size), g["width"])
@@ -188,7 +196,7 @@ def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_grap
     groups: dict[tuple[str, tuple[float, ...]], list[dict[str, Any]]] = {}
     for name, doc in {**screens, **drawn}.items():
         for node in _nodes(doc["root"]):
-            if node["type"] != "text-label" or not node["props"].get("invisible"):
+            if node["type"] != "text-label" or not _hidden(node):
                 continue
             g = node["geometry"]
             groups.setdefault((name, (g["x"], g["y"], g["width"], g["height"])), []).append(node)
@@ -207,9 +215,9 @@ def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_grap
             k = int(match.group(1)) if match else -1
             proved = (
                 match is not None
-                and rule["targetProperty"] == "invisible"
-                and condition["value"] is False
-                and rule["default"] is True
+                and rule["targetProperty"] == "visible"
+                and condition["value"] is True
+                and rule["default"] is False
                 and test == layout.holder_condition(match.group(2), k, len(pvs))
                 and (held is None or pvs == held)
                 and k not in seen
@@ -219,6 +227,24 @@ def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_grap
             if not proved:
                 unproved.append(node["id"])
     assert unproved == []
+
+
+def _off_targets(doc: dict[str, Any]) -> list[tuple[str, str]]:
+    """Each (widget type, rule target) of *doc* the viewer does not honour."""
+    return [
+        (node["type"], rule["targetProperty"])
+        for node in _nodes(doc["root"])
+        for rule in node.get("rules") or ()
+        if rule["targetProperty"]
+        not in layout.RULE_TARGETS_EVERY | layout.RULE_TARGETS.get(node["type"], frozenset())
+    ]
+
+
+def test_every_rule_sets_a_prop_its_widget_honours(screens):
+    """A rule on a prop its widget does not read is dropped by the viewer without
+    a word; so the generator writes none (:data:`layout.RULE_TARGETS`)."""
+    off = {name: found for name, doc in screens.items() if (found := _off_targets(doc))}
+    assert off == {}
 
 
 def test_no_text_lies_over_another(screens):

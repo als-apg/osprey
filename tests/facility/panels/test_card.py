@@ -463,6 +463,7 @@ def _holds(test: str, values: list[float]) -> bool:
         "__builtins__": {},
         "max": lambda t: float(np.max(t)),
         "min": lambda t: float(np.min(t)),
+        "abs": abs,
         "nan": float("nan"),
     }
     return bool(eval(expression, names))
@@ -476,13 +477,20 @@ def _slot(doc, figure) -> list[dict]:
     ]  # fmt: skip
 
 
+def _hidden(node: dict) -> bool:
+    """Hidden until a rule shows it: a ``visible`` rule whose default is false."""
+    return any(
+        r["targetProperty"] == "visible" and r["default"] is False for r in node.get("rules") or ()
+    )
+
+
 def _shown(lines: list[dict], values: list[float]) -> list[str]:
     """The texts of the hidden *lines* whose rule shows them for *values*."""
     return [
         line["props"]["text"]
         for line in lines
         for rule in line["rules"]
-        if rule["targetProperty"] == "invisible"
+        if rule["targetProperty"] == "visible"
         and _holds(rule["conditions"][0]["expression"], values)
     ]
 
@@ -491,7 +499,7 @@ def test_the_highest_s_line_names_the_first_member_that_holds_it(tmp_path):
     graph, view = _over_all_card(tmp_path)
     doc = stub_render(view, graph)
     _count, highest = _figures(doc)
-    lines = [n for n in _slot(doc, highest) if n["props"].get("invisible")]
+    lines = [n for n in _slot(doc, highest) if _hidden(n)]
     assert len(lines) == 3  # one per member, in the one slot of the line, all hidden
     assert _shown(lines, [1.0, 5.0, 2.0]) == ["highest of 3 · Out2Cur-RB"]
     assert _shown(lines, [7.0, 7.0, 2.0]) == ["highest of 3 · Out1Cur-RB"]  # a tie: the first
@@ -499,6 +507,13 @@ def test_the_highest_s_line_names_the_first_member_that_holds_it(tmp_path):
     # what the figure is over is its tooltip, member by member
     tooltip = highest["props"]["tooltip"].splitlines()
     assert tooltip == ["max over 3 channels", "Out1Cur-RB", "Out2Cur-RB", "Out3Cur-RB"]
+
+
+def test_key_figures_set_only_props_the_viewer_honours(tmp_path):
+    from tests.facility.panels.test_geometry import _off_targets
+
+    graph, view = _over_all_card(tmp_path)
+    assert _off_targets(stub_render(view, graph)) == []
 
 
 def test_the_lowest_is_drawn_like_the_highest(tmp_path):
@@ -511,7 +526,7 @@ def test_the_lowest_is_drawn_like_the_highest(tmp_path):
     (figure,) = _figures(doc)
     formula = next(f for f in doc["formulas"] if "min((" in f["expression"])
     assert len(formula["bindings"]) == 3
-    lines = [n for n in _slot(doc, figure) if n["props"].get("invisible")]
+    lines = [n for n in _slot(doc, figure) if _hidden(n)]
     assert _shown(lines, [4.0, 1.0, 1.0]) == ["lowest of 3 · Out2Cur-RB"]
 
 
@@ -528,7 +543,7 @@ def test_past_the_holder_bound_the_line_says_only_of_how_many(tmp_path):
     doc = stub_render(view, graph)
     (highest,) = _figures(doc)
     slot = _slot(doc, highest)
-    assert not [line for line in slot if line["props"].get("invisible")]  # no name lines
+    assert not [line for line in slot if _hidden(line)]  # no name lines
     (note,) = slot
     (rule,) = note["rules"]
     assert rule["conditions"][0]["value"] == f"highest of {n}"  # with values
@@ -556,6 +571,31 @@ def test_a_count_s_slot_is_a_row_of_lamps_one_per_member(tmp_path):
         top = lamp["geometry"]["y"]
         assert below <= top and top + layout.MOSAIC_LIGHT <= below + layout.SMALL_LINE
     assert not [n for n in _slot(doc, count) if "has no value" in n["props"]["text"]]
+    # each lamp names its member and shows what the count counts: filled while
+    # the member is not zero, an outline at zero, unknown with no value
+    from osprey.facility.panels import symbols
+    from osprey.facility.panels.view import KeyTile
+
+    tile = next(
+        t for s in view.sections for t in s.items
+        if isinstance(t, KeyTile) and t.shown_as == "count_true"
+    )  # fmt: skip
+    lamps.sort(key=lambda n: n["geometry"]["x"])
+    assert [lamp["props"]["tooltip"] for lamp in lamps] == list(tile.names or tile.channels)
+
+    def look(lamp: dict, member: str, value: float) -> dict:
+        out = {}
+        for rule in lamp["rules"]:
+            assert [pv["name"] for pv in rule["pvs"]] == [member]
+            held = [c["value"] for c in rule["conditions"] if _holds(c["expression"], [value])]
+            out[rule["targetProperty"]] = held[0] if held else rule["default"]
+        return out
+
+    for lamp, member in zip(lamps, tile.channels, strict=True):
+        assert {r["targetProperty"] for r in lamp["rules"]} == set(symbols.LIGHT_PROPS)
+        for value, state in ((1.0, "normal"), (0.0, symbols.NONE), (float("nan"), "unknown")):
+            want = symbols.look(state)
+            assert look(lamp, member, value) == {p: want[p] for p in symbols.LIGHT_PROPS}
 
 
 def test_a_count_whose_lamps_do_not_fit_keeps_the_note(tmp_path):

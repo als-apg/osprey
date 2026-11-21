@@ -419,6 +419,79 @@ RACK_COLUMN = RACK_LABEL_WIDTH + RACK_WIDTH + 2 * RACK_PAD + 2 * COLUMN_GAP  # t
 # ``max_expression_len`` (canopy/formula_engine/config.py at 166989aa: 2048).
 RULE_EXPRESSION_LIMIT = 2048
 TOOLTIP_LINES = 24  # a card's sources line shows this many statements on hover
+
+#: The props a rule may set, per widget type: those the viewer honours under a
+#: rule. Read from the viewer runtime at commit 4038c44: its renderer handles
+#: ``visible`` (false hides) and the geometry for every node; any other target is
+#: handed to the widget, which reads only the props listed, and an unread one is
+#: dropped without a word. A type not listed takes only the common ones.
+RULE_TARGETS_EVERY = frozenset({"visible", "x", "y", "width", "height"})
+RULE_TARGETS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "text-label": frozenset(
+            {
+                "text",
+                "foregroundColor",
+                "backgroundColor",
+                "fontSize",
+                "fontFamily",
+                "align",
+                "fitText",
+            }
+        ),
+        "pv-label": frozenset(
+            {
+                "pv",
+                "text",
+                "foregroundColor",
+                "backgroundColor",
+                "fontSize",
+                "fontFamily",
+                "align",
+                "fitText",
+                "precision",
+                "precisionFromPV",
+                "showUnits",
+                "alarmSensitive",
+                "alarmBorder",
+            }
+        ),  # fmt: skip
+        "pv-button": frozenset(
+            {
+                "invisible",
+                "label",
+                "onLabel",
+                "offLabel",
+                "labelType",
+                "foregroundColor",
+                "backgroundColor",
+                "onColor",
+                "offColor",
+                "fontSize",
+                "fontFamily",
+                "buttonType",
+                "pressValue",
+                "releaseValue",
+                "transparent",
+                "onImage",
+                "offImage",
+                "pv",
+                "readbackPV",
+            }
+        ),  # fmt: skip
+        "pv-led": frozenset({"pv", "onColor", "offColor"}),
+        "rectangle": frozenset(
+            {"fill", "fillColor", "lineColor", "lineWidth", "lineStyle", "cornerRadius"}
+        ),
+        "ellipse": frozenset({"fill", "fillColor", "lineColor", "lineWidth", "lineStyle"}),
+        "polygon": frozenset(
+            {"fill", "fillColor", "lineColor", "lineWidth", "lineStyle", "closed", "points"}
+        ),
+        "line": frozenset(
+            {"lineColor", "lineWidth", "lineStyle", "arrowStart", "arrowEnd", "arrowSize", "points"}
+        ),
+    }
+)
 TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
@@ -2588,36 +2661,62 @@ class _Page:
 
     def lamp_row(self, x: float, y: float, w: float, tile: KeyTile) -> bool:
         """A count's slot: one small lamp per member, in order, each with the
-        member's name as its tooltip; whether it was drawn. Not drawn when the
-        lamps do not fit *w* at the mosaic's size, or their rules not the
+        member's name as its tooltip; whether it was drawn. A lamp shows what the
+        count counts: filled while its member is not zero, an outline while it is
+        zero, unknown with no value; so the lit lamps are the figure. Not drawn
+        when the lamps do not fit *w* at the mosaic's size, or their rules not the
         screen's budget."""
         members = tile.channels
         step = MOSAIC_LIGHT + MOSAIC_GAP
         if len(members) * step - MOSAIC_GAP > w:
             return False
-        lights = [describe_light(self.graph, channel) for channel in members]
-        stated = [meaning_stated(self.graph, channel) for channel in members]
-        rules = [
-            ladder(self.graph, [light]) if ok else None
-            for light, ok in zip(lights, stated, strict=True)
-        ]
-        costs = [light_cost(rule) for rule in rules if isinstance(rule, Ladder)]
-        if not self.budget.take(costs):
+        props = (*symbols.LIGHT_PROPS, symbols.MARK_PROP)
+        if not self.budget.take([(len(props), frozenset({m})) for m in members]):
             return False
-        top = y + (SMALL_LINE - MOSAIC_LIGHT) / 2 - (ROW - MOSAIC_LIGHT) / 2
+        top = y + (SMALL_LINE - MOSAIC_LIGHT) / 2
         names = tile.names or tuple(members)
-        for i, (light, rule) in enumerate(zip(lights, rules, strict=True)):
-            lx = x + i * step
-            if rule is None:  # no stated meaning: the neutral light
-                self.no_rule(lx, top, MOSAIC_LIGHT)
-                continue
-            self.light(lx, top, [light], rule=rule, size=MOSAIC_LIGHT, tile=True, tooltip=names[i])
+        for i, member in enumerate(members):
+            self.count_lamp(x + i * step, top, member, names[i])
         return True
+
+    def count_lamp(self, x: float, top: float, channel: str, name: str) -> None:
+        """One lamp of a count's row at ``(x, top)``: its shape and mark drawn
+        unknown, with a rule per prop over *channel*: counted (not zero) the
+        normal look, zero the look of no state, no value unknown's."""
+        counted, zero, unknown = (
+            symbols.look("normal"),
+            symbols.look(symbols.NONE),
+            symbols.look("unknown"),
+        )
+        shape, mark = symbols.light(x, top, MOSAIC_LIGHT, "unknown")
+        shape["props"][_TOOLTIP] = name
+
+        def rule(prop: str) -> dict[str, Any]:
+            if counted[prop] == zero[prop]:  # any number: one condition
+                conditions = [{"expression": "{0} == {0}", "value": counted[prop]}]
+            else:
+                conditions = [
+                    {"expression": "abs({0}) > 0", "value": counted[prop]},  # no NaN
+                    {"expression": "{0} == 0", "value": zero[prop]},
+                ]
+            self.s._rules += 1
+            return {
+                "id": f"r-{self.s._rules:04d}",
+                "name": f"{name} counted {prop}",
+                "targetProperty": prop,
+                "pvs": [{"name": channel, "trigger": True}],
+                "conditions": conditions,
+                "default": unknown[prop],
+            }
+
+        self.s.add(shape, rules=[rule(p) for p in symbols.LIGHT_PROPS], tags=[_need("state light")])
+        self.s.add(mark, rules=[rule(symbols.MARK_PROP)], tags=[_need("hatched fill")])
 
     def holder_lines(self, x: float, y: float, w: float, tile: KeyTile) -> None:
         """Under a largest or smallest figure, the member that holds it: one line
-        per member in the one slot, each hidden but while its member is the first
-        that holds the extreme (:func:`holder_condition`), so one shows at a time,
+        per member in the one slot, each hidden by a ``visible`` rule but while its
+        member is the first that holds the extreme (:func:`holder_condition`), so
+        one shows at a time,
         and none while any has no value (the extreme is then no number). Left out
         when the screen's rules do not fit."""
         members = tile.channels
@@ -2636,14 +2735,13 @@ class _Page:
             rule = {
                 "id": f"r-{self.s._rules:04d}",
                 "name": f"{tile.title} held by {members[k]}",
-                "targetProperty": "invisible",
+                "targetProperty": "visible",  # the one hide every widget type honours
                 "pvs": pvs,
-                "conditions": [{"expression": test, "value": False}],
-                "default": True,
+                "conditions": [{"expression": test, "value": True}],
+                "default": False,
             }
             props = {
                 "text": text,
-                "invisible": True,  # shown only while its member holds the extreme
                 "fontSize": SMALL_SIZE,
                 "foregroundColor": MUTED_TEXT,
                 "backgroundColor": TRANSPARENT,

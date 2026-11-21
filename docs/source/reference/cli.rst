@@ -1652,10 +1652,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    channel of the role on the device ``count_true``, ``max``, ``min`` or
    ``sum``. A count reads "k of N", "of N" on the figure's baseline right after
    it, and under it a row of small lamps, one per member in order, where they
-   fit the tile; the highest's or the lowest's line under the figure names the
+   fit the tile, each filled while its member is counted and an outline while
+   it is not, its tooltip the member's name; the highest's or the lowest's line under the figure names the
    member that holds it ("highest of N · <name>", the first such member, its
-   name short of the device's id), from one hidden label and one rule per
-   member, up to 32 members, past which it says "highest of N" and ``check``
+   name short of the device's id), from one label per member hidden by a
+   ``visible`` rule, up to 32 members, past which it says "highest of N" and ``check``
    names the tile; the figure's tooltip names what it is over, member by
    member; while any member has no value the figure is
    a dash and the line says "one of N has no value", or each lamp shows its
