@@ -13,6 +13,7 @@ import pytest
 import yaml
 from jinja2 import Environment, Template
 
+from osprey.deployment import run_once
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
@@ -23,10 +24,7 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
     resolve_nginx_port,
 )
-from osprey.deployment.web_terminals.provision import (
-    auth_sidecar_local_tag,
-    web_stack_service_names,
-)
+from osprey.deployment.web_terminals.provision import auth_sidecar_local_tag
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
     PROXY_ENV_NAMES,
@@ -41,6 +39,7 @@ from osprey.deployment.web_terminals.render import (
     origin_host,
     render_web_terminals,
     terminal_secret_env_var,
+    web_stack_service_names,
 )
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
 from osprey.docs_links import PERIMETER_LIMITS_URL
@@ -2661,8 +2660,21 @@ def _open_config(users: list | None = None) -> dict:
     [_auth_config(["alice", "bob"]), _open_config(["alice", "bob"])],
     ids=["sidecar-active", "auth-none"],
 )
-def test_the_web_stacks_service_names_are_the_rendered_documents_keys(config: dict) -> None:
-    assert set(web_stack_service_names(config)) == set(_compose(config)["services"])
+def test_the_overlay_renders_exactly_the_services_its_names_list(config: dict) -> None:
+    """Whatever its disk inputs, the overlay renders the services
+    :func:`web_stack_service_names` lists and declares none of them run-once,
+    so those names are all the deployment record and the after-start check need."""
+    provisioned = render_web_terminals(
+        config,
+        auth_env_digest="0" * 64,
+        terminal_secrets=_secrets_for(["alice", "bob"]),
+        facility_bundle_gid=1234,
+    )
+    bare = _compose(config)["services"]
+    with_inputs = yaml.safe_load(provisioned["docker-compose.web.yml"])["services"]
+
+    assert list(bare) == list(with_inputs) == web_stack_service_names(config).names()
+    assert run_once.declarations(bare) == run_once.declarations(with_inputs) == {}
 
 
 #: The history page's gate snippet: rendered by every signed-in render, beside

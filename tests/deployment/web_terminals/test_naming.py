@@ -35,10 +35,9 @@ WEB_TEMPLATE = (
     / "docker-compose.web.yml.j2"
 )
 
-# The literal jinja fragments the template uses for container names and the
-# per-user service key. naming.py exists to reproduce these after substitution.
+# The literal jinja fragment the template uses for a terminal's container name.
+# naming.py exists to reproduce it after substitution.
 TEMPLATE_USER_PATTERN = "{{ project_name }}-web-{{ svc.user }}"
-TEMPLATE_SERVICE_KEY = "  web-{{ svc.user }}:"
 
 
 def test_name_format():
@@ -107,7 +106,6 @@ def test_template_still_carries_the_patterns_this_module_mirrors():
     fragments naming.py reproduces must still appear in the compose template."""
     text = WEB_TEMPLATE.read_text(encoding="utf-8")
     assert f"container_name: {TEMPLATE_USER_PATTERN}" in text
-    assert TEMPLATE_SERVICE_KEY in text
     assert "container_name: {{ project_name }}-nginx" in text
     assert "container_name: {{ project_name }}-auth" in text
 
