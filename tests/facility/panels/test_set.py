@@ -296,9 +296,20 @@ def _cell_widgets(doc: dict, cell: dict) -> list[dict]:
         if n["props"].get("actions") or n["type"] == "rectangle":
             continue
         inside = cell["x"] <= mx <= cell["x"] + cell["width"]
-        if inside and cell["y"] <= my <= cell["y"] + cell["height"] and g not in out:
-            out.append(g)  # a light's layers share one box: one widget
+        if inside and cell["y"] <= my <= cell["y"] + cell["height"] and not _layer(g, out):
+            out.append(g)
     return out
+
+
+def _layer(g: dict, found: list[dict]) -> bool:
+    """A light's layers are one widget: they share its box, its mark grown about
+    the box's middle to one line of text."""
+    return any(
+        g["x"] == o["x"]
+        and g["width"] == o["width"]
+        and abs((g["y"] + g["height"] / 2) - (o["y"] + o["height"] / 2)) < 0.01
+        for o in found
+    )
 
 
 def _apart(a: dict, b: dict) -> bool:

@@ -3,7 +3,8 @@
 Nothing is rendered: text is measured in the viewer's font (:mod:`metrics`), as
 the layout measures it. Every screen of the fixture facility is checked:
 
-- a text label's text fits its box, so the viewer never shrinks or clips it;
+- a text label's text fits its box, in width and in line height, so the viewer
+  never shrinks or clips it;
 - no widget reaches outside the canvas, but the Apply buttons parked away by
   design (:data:`layout.APPLY_AWAY`);
 - no two text labels draw over each other;
@@ -20,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import layout, load_graph, metrics
+from osprey.facility.panels import layout, load_graph, metrics, symbols
 from osprey.facility.panels.emit import load_draw, write
 from tests._by_path import load_module
 from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
@@ -89,6 +90,32 @@ def test_every_text_fits_its_box(screens):
         > node["geometry"]["width"] + 0.01
     ]
     assert cut == []
+
+
+def test_every_text_label_is_one_line_high(screens):
+    low = [
+        (name, node["props"]["text"], node["geometry"]["height"], node["props"]["fontSize"])
+        for name, screen in screens.items()
+        for node in _nodes(screen["root"])
+        if node["type"] == "text-label"
+        and node["geometry"]["height"] < layout.line_height(node["props"]["fontSize"])
+    ]
+    assert low == []
+
+
+def test_a_lights_mark_gets_a_line_of_its_size():
+    _shape, mark = symbols.light(10, 30, layout.LIGHT_SIZE, "unknown")
+    drawn = layout._Screen("card-x", "x").add(mark)
+    size = mark["props"]["fontSize"]
+    assert drawn["geometry"]["height"] >= layout.line_height(size) > layout.LIGHT_SIZE
+    # grown about the light's middle, so the mark stays centred in it
+    middle = drawn["geometry"]["y"] + drawn["geometry"]["height"] / 2
+    assert middle == pytest.approx(30 + layout.LIGHT_SIZE / 2, abs=0.5)
+    # and every mark a light shows is measured and fits its width
+    for glyph in (symbols.UNKNOWN_MARK, symbols.DISAGREE_MARK, symbols.AGGREGATE_MARK):
+        assert glyph in metrics.WIDTHS
+        ink = metrics.WIDTHS[glyph] * size / metrics.PER_EM + 2 * layout.LABEL_INSET
+        assert ink <= drawn["geometry"]["width"]
 
 
 def test_no_widget_reaches_outside_the_canvas(screens):
@@ -168,3 +195,87 @@ def test_a_cut_text_fits_and_is_counted():
     assert cut.endswith(layout._ELLIPSIS)
     assert layout.text_width(cut, layout.SMALL_SIZE) <= 80
     assert cuts == [text]
+
+
+def test_a_checkout_s_name_columns_take_their_longest_names_and_stay_on_the_page():
+    from osprey.facility.panels.view import CheckRow
+
+    def row(channel: str, thing: str | None) -> CheckRow:
+        return CheckRow(channel, thing, True, True, True, True)
+
+    short = [row("XR01-PS1:On-Sts", "XR01:PS1")]
+    assert layout.check_columns(short) == (layout.NAME_WIDTH, layout.NAME_WIDTH)
+    long_name = "XR01-PS1:" + "VeryLongReadbackName" * 2 + "-RB"
+    channel_w, thing_w = layout.check_columns([*short, row(long_name, "XR01:PS1")])
+    assert channel_w >= layout.text_width(long_name, layout.TEXT_SIZE)  # whole, no cut
+    assert thing_w == layout.NAME_WIDTH
+    room = layout.STRIP_WIDTH - layout.CHECK_FLAGS * layout.CELL_WIDTH
+    assert channel_w + thing_w <= room  # the flag columns still fit the page
+    # both longer than the room: the thing column keeps its least, the channel the rest
+    huge = "X" * 120
+    channel_w, thing_w = layout.check_columns([row(huge, huge)])
+    assert thing_w == layout.NAME_LEAST and channel_w + thing_w == room
+
+
+def test_a_line_of_prose_takes_the_lines_it_needs_and_loses_no_text():
+    text = (
+        "source XR-0001-0002 B.5 (drawing) released in XR-0003-0004 A.12 feature 7, "
+        "path XR-0005-0006/XR-0003-0004/XR-0001-0002; the rest of the note follows"
+    )
+    width = 240
+    lines = layout._prose(text, width, layout.SMALL_SIZE)
+    assert len(lines) > layout.TILE_LINES  # more than the old limit of two
+    assert all(
+        layout.text_width(line, layout.SMALL_SIZE) <= width + layout.TEXT_PAD for line in lines
+    )
+    assert not any(line.endswith("…") for line in lines)  # nothing cut
+    # breaking at a space, a slash, a comma or a semicolon keeps every character
+    assert "".join(lines).replace(" ", "") == text.replace(" ", "")
+
+
+def test_every_cut_label_shows_its_whole_text_on_hover(screens):
+    def covers(box: dict[str, Any], g: dict[str, Any]) -> bool:
+        b = box["geometry"]
+        return (
+            b["x"] <= g["x"] + 0.01
+            and b["y"] <= g["y"] + 0.01
+            and b["x"] + b["width"] >= g["x"] + g["width"] - 0.01
+            and b["y"] + b["height"] >= g["y"] + g["height"] - 0.01
+        )
+
+    missing, shown = [], 0
+    for name, doc in screens.items():
+        found = list(_nodes(doc["root"]))
+        hovers = [n for n in found if n["type"] == "rectangle" and n["props"].get("tooltip")]
+        for node in found:
+            text = node["props"].get("text", "")
+            if node["type"] != "text-label" or node.get("rules") or not text.endswith("…"):
+                continue
+            kept = text[:-1].rstrip()
+            boxes = [h for h in hovers if covers(h, node["geometry"])]
+            if any(kept in h["props"]["tooltip"] or h["props"].get("actions") for h in boxes):
+                shown += 1
+            else:
+                missing.append((name, text))
+    assert missing == []
+    assert shown  # the fixture cuts some labels, so the rule is exercised
+
+
+def test_a_fact_s_long_note_wraps_beside_it_and_the_row_grows(panel_graph):
+    from osprey.facility.panels.view import Fact, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    caveat = "read from the drawing's own frame, " * 8 + "the rest of what it assumes"
+    here = Target("card", "device", "XR01:PS1")
+    view = View(
+        here,
+        "XR01:PS1",
+        (),
+        (Section("where", (Fact("pose", "s 1.0 m", caveat=caveat), Fact("after", "next"))),),
+    )
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
+    note = [n for n in texts if n["props"]["text"] and n["props"]["text"] in caveat]
+    assert len(note) > 1 and not any(n["props"]["text"].endswith("…") for n in note)
+    after = next(n for n in texts if n["props"]["text"] == "after")
+    assert after["geometry"]["y"] >= max(n["geometry"]["y"] + n["geometry"]["height"] for n in note)
