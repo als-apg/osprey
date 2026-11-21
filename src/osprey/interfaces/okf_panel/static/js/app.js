@@ -242,6 +242,13 @@ function requireEl(id) {
   const readerNav = createLatestRequest();
 
   /**
+   * The searches of the contents list: only the newest query is current, and
+   * clearing the field or switching views retires the one in flight, so an
+   * earlier query's answer never replaces a newer one or refills a cleared list.
+   */
+  const searches = createLatestRequest();
+
+  /**
    * The load that has not drawn what `knowledgeLoc` names, as it was asked
    * for: set while it is in flight, kept when the Graph view superseded it
    * before it drew, null once the Knowledge view shows it.
@@ -271,6 +278,7 @@ function requireEl(id) {
    */
   function enterView(view) {
     if (!showView(view)) return;
+    searches.cancel();
     searchInput.value = '';
     clearSearchResults();
     setContentsSearching(false);
@@ -669,25 +677,30 @@ function requireEl(id) {
     const q = (query || '').trim();
     // In the Graph view the field searches the graph's nodes.
     if (currentView() === 'graph') {
+      searches.cancel();
       if (graph) graph.search(q);
       return;
     }
     // The results are drawn in the contents list, so a search shows it.
     setContentsSearching(q !== '');
     if (!q) {
+      searches.cancel();
       clearSearchResults();
       return;
     }
 
+    const token = searches.begin();
     let data;
     try {
-      const resp = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const resp = await fetch('/api/search?q=' + encodeURIComponent(q), { signal: token.signal });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
+      if (!token.isCurrent()) return;
       renderSearchMessage('Search failed.');
       return;
     }
+    if (!token.isCurrent()) return;
     renderSearchResults(data.results || []);
   }
 
