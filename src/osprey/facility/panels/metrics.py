@@ -133,3 +133,7 @@ WIDTHS: dict[str, int] = {
 
 #: The width of a character :data:`WIDTHS` does not list.
 UNLISTED = max(WIDTHS.values())
+
+#: The height of one line of text (the browser's ``line-height: normal``), in
+#: thousandths of an em: a label's box lower than this the viewer shrinks.
+LINE = 1300

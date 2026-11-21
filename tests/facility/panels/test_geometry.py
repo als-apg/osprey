@@ -15,13 +15,18 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from osprey.facility.panels import layout, load_graph, metrics
 from osprey.facility.panels.emit import load_draw, write
+from tests._by_path import load_module
 from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+#: The script that writes :mod:`metrics` from the viewer's font file.
+FONT_METRICS = Path(__file__).parents[3] / "scripts" / "panel_font_metrics.py"
 
 #: Below this many px of shared width or height, two texts only touch.
 TOUCH = 2
@@ -139,6 +144,17 @@ def test_the_metrics_measure_the_font_the_layout_names():
     assert all(chr(c) in metrics.WIDTHS for c in range(0x20, 0x7F))
     assert layout.text_width("ab", 10) < layout.text_width("AB", 10)
     assert layout.text_width("ab", 10, caps=True) == layout.text_width("AB", 10)
+
+
+def test_the_metrics_table_is_the_font_file_it_names():
+    script = load_module("panel_font_metrics", FONT_METRICS)
+    family, version, widths, line = script.measure()
+    # regenerate the module from the font file: it is the module in the tree
+    assert metrics.FONT == family
+    assert metrics.WIDTHS == widths
+    assert metrics.LINE == line
+    assert f"from {family}, {version};" in (metrics.__doc__ or "")
+    assert (script.FONT_FILE.parent / "OFL.txt").is_file()  # the font's licence beside it
 
 
 def test_a_cut_text_fits_and_is_counted():
