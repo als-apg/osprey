@@ -1726,7 +1726,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    label, a ``layout`` hash (of the standard's structure, the format and the
    drawing settings), a ``drawing`` digest (of the standard's written file
    without the model stamp, which moves when the screen is drawn otherwise and
-   not when only the facility file's content hash does) and a ``sample``;
+   not when only the facility file's content hash does, taken by the rule the
+   index states as ``drawing_rule``) and a ``sample``;
    ``class_summary`` holds the counts
    a gate reads, with the classes of one screen per view kind. Two screens are
    of one class when they have one key: for a device's card and its channel
@@ -1773,8 +1774,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the view states an order. The kinds are ``rack-unit`` and ``grid-row``,
    which read down (top to bottom, then on in the next column), and
    ``strip-element``, ``key-tile`` and ``chain-block``, which read across (left
-   to right, then on in the next row). A class's ``drawing`` digest leaves these
-   comments out. The layout measures text in the viewer's own font
+   to right, then on in the next row). The list is complete: a key figure's
+   members (its lamps, its holder names) are parts of its tile, not items of
+   their own. A class's ``drawing`` digest leaves these comments out (rule 2;
+   an index with no ``drawing_rule`` was written by rule 1, which kept them in,
+   so between the two every class's digest differs once). The layout measures text in the viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
    label in a chain block takes two lines, a muted line of prose (a caption, a

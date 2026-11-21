@@ -814,6 +814,7 @@ def write(
         "format": FORMAT_VERSION,
         "facility_hash": graph.content_hash,
         "draw_hash": draw.digest,
+        "drawing_rule": screen_classes.DRAWING_RULE,
     }
 
     # a device with no card of its own: the screen of the owner it is drawn on
