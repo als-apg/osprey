@@ -2552,18 +2552,29 @@ class _Page:
         if counted and self.lamp_row(x, below, w, tile):
             return
         # the slot's one line: a missing member while one has no value; with values
-        # nothing, or "highest of N" where the tile names no holder
+        # nothing, or "highest of N" where the tile names no holder. It reads a
+        # formula of its own, the bare largest member: the viewer inlines a
+        # formula into each condition, and the shaped figure is too long for that
         held = tile.shown_as in _HOLDS and not tile.names
         shown = _HOLDS[tile.shown_as].format(len(members)) if held else ""
-        self.s._rules += 1
+        every: dict[str, Any] = {
+            "name": f"every-{len(self.s.formulas)}",
+            "kind": "scalar",
+            "expression": f"max(({', '.join(tokens)},))",
+            "bindings": bindings,
+        }
         missing = {
-            "id": f"r-{self.s._rules:04d}",
+            "id": f"r-{self.s._rules + 1:04d}",
             "name": f"{tile.title} every member reports",
             "targetProperty": "text",
-            "pvs": [{"name": pv, "trigger": True}],
+            "pvs": [{"name": _FORMULA_PREFIX + every["name"], "trigger": True}],
             "conditions": [{"expression": "{0} == {0}", "value": shown}],
             "default": _A_MEMBER_MISSING.format(len(members)),
         }
+        if len(engine_expression(missing, {every["name"]: every})) > RULE_EXPRESSION_LIMIT:
+            return  # too many members to say which way: the figure's dash says it alone
+        self.s.formulas.append(every)
+        self.s._rules += 1
         note = {
             "text": _A_MEMBER_MISSING.format(len(members)),
             "fontSize": SMALL_SIZE,

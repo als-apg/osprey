@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from osprey.facility.panels import layout
+from osprey.facility.panels import emit, layout
 from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.view import Section, ValueRow
 from tests.facility.panels._views import nodes, stub_render
@@ -331,8 +331,15 @@ def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_pat
     assert len(notes) == 2  # the count's slot is its row of lamps, which needs no note
     for note, figure in zip(notes, figures[1:], strict=True):
         (rule,) = note["rules"]
-        assert rule["pvs"] == [{"name": figure["rules"][0]["formula"], "trigger": True}]
+        (pv,) = rule["pvs"]
+        # its own short formula over the figure's members: the shaped figure inlined
+        # into a condition would be too long for the engine
+        assert pv["trigger"] and pv["name"] != figure["rules"][0]["formula"]
+        assert (
+            formulas[pv["name"]]["bindings"] == formulas[figure["rules"][0]["formula"]]["bindings"]
+        )
         assert rule["conditions"][0]["value"] == ""  # cleared once every member reports
+    assert emit._long_formulas(doc, "card") == []
 
 
 def _over_all_card(
@@ -558,6 +565,25 @@ def test_a_count_whose_lamps_do_not_fit_keeps_the_note(tmp_path):
     count = _figures(doc)[0]
     (note,) = [x for x in _slot(doc, count) if "has no value" in x["props"]["text"]]
     assert note["props"]["text"] == f"one of {n} has no value"
+
+
+def test_no_figure_s_rules_compile_past_the_engine_s_limit(tmp_path):
+    """Significant digits shape a figure into a long formula; the slot's rule reads
+    a short one, so at the holder bound nothing is too long. A count of more
+    members than the slot's rule can say keeps its figure and drops the note."""
+    from osprey.facility.panels.describe import HOLDER_MAX
+
+    for n, row in (
+        (HOLDER_MAX, "card,,1,Load peak,max,load,PowerSupply,A,,S,\n"),
+        (100, "card,,1,Outlets on,count_true,outlet,PowerSupply,,,S,\n"),
+    ):
+        head = "view,level,order,title,measure,signal,class,unit,caption,source,precision\n"
+        graph, view = _over_all_card(tmp_path / str(n), metrics=head + row, n=n)
+        doc = stub_render(view, graph)
+        assert emit._long_formulas(doc, "card") == []
+        (figure,) = _figures(doc)
+        assert figure["rules"][0]["formula"] in {f"formula://{f['name']}" for f in doc["formulas"]}
+    assert not [x for x in _slot(doc, figure) if "has no value" in x["props"]["text"]]
 
 
 def test_a_count_of_a_role_not_two_state_with_no_word_gets_no_default_tile(tmp_path):
