@@ -272,6 +272,7 @@ REASON_INTERRUPTED_ITEM_IN_QUEUE = "interrupted_item_in_queue"
 REASON_MANAGER_NOT_IDLE = "manager_not_idle"
 REASON_QUEUE_CHANGED_SINCE_APPROVAL = "queue_changed_since_approval"
 REASON_UNKNOWN_DEVICE = "unknown_device"
+REASON_PLAN_REGISTRY_UNREADABLE = "plan_registry_unreadable"
 REASON_STALE_DRAFT_REVISION = "stale_draft_revision"
 REASON_DRAFT_REVISION_ALREADY_LAUNCHED = "draft_revision_already_launched"
 REASON_SESSION_PLAN_UNVALIDATED = "session_plan_unvalidated"
@@ -330,6 +331,7 @@ REFUSAL_REASONS: Mapping[str, ReasonRecord] = MappingProxyType(
         REASON_MANAGER_NOT_IDLE: ReasonRecord(409, False),
         REASON_QUEUE_CHANGED_SINCE_APPROVAL: ReasonRecord(409, False),
         REASON_UNKNOWN_DEVICE: ReasonRecord(400, False),
+        REASON_PLAN_REGISTRY_UNREADABLE: ReasonRecord(503, True),
         REASON_STALE_DRAFT_REVISION: ReasonRecord(409, False),
         REASON_DRAFT_REVISION_ALREADY_LAUNCHED: ReasonRecord(409, False),
         REASON_SESSION_PLAN_UNVALIDATED: ReasonRecord(409, False),

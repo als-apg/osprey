@@ -598,6 +598,48 @@ async def test_queue_add_unknown_device_relays_a_capped_device_list(tmp_path, mo
     assert any("list_devices" in s for s in ctx["envelope"]["suggestions"])
 
 
+async def test_queue_add_relays_an_arguments_refusal(tmp_path, monkeypatch):
+    """Staged arguments the plan refuses as a set are corrected in the draft:
+    the hint names set_draft, and the field the plan objected to survives."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal(
+        "invalid_item",
+        "plan 'orbit_bump_sweep' arguments are not valid: num: Field required",
+        retryable=False,
+        plan="orbit_bump_sweep",
+        field="num",
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(400, body)):
+        with assert_raises_error(error_type="invalid_item") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    envelope = ctx["envelope"]
+    assert envelope["details"]["plan"] == "orbit_bump_sweep"
+    assert envelope["details"]["field"] == "num"
+    assert any("set_draft" in s for s in envelope["suggestions"])
+    assert queue._RETRY_HINT not in envelope["suggestions"]
+
+
+async def test_queue_add_relays_an_unreadable_plan_registry_as_retryable(tmp_path, monkeypatch):
+    """The draft is not the fault: the hint leaves it alone and the retry
+    advice comes from the refusal's own ``retryable``."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal(
+        "plan_registry_unreadable",
+        "the plan registry could not be read, so nothing was queued: permission denied",
+        retryable=True,
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(503, body)):
+        with assert_raises_error(error_type="plan_registry_unreadable") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    suggestions = ctx["envelope"]["suggestions"]
+    hints = queue._REFUSAL_HINTS["plan_registry_unreadable"]
+    assert suggestions[: len(hints)] == hints
+    assert queue._RETRY_HINT in suggestions
+    assert not any("get_draft" in s or "set_draft" in s for s in suggestions)
+
+
 @pytest.mark.parametrize("code", ["session_plan_unvalidated", "session_plan_not_in_namespace"])
 async def test_queue_add_session_plan_refusal_names_the_offending_plan(tmp_path, monkeypatch, code):
     _armed(tmp_path, monkeypatch)
