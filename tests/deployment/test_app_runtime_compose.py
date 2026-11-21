@@ -214,7 +214,7 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
         network="bridge",
         state="var/knob",
         launch_token_env="ORBIT_BUMP_LAUNCH_TOKEN",
-        roster_grant={"panel_id": "orbit-bump", "single_user_alias": None},
+        roster_grant={"panel_id": "orbit-bump"},
     )
     assert set(row) - {"template", "url"} == {
         "app",
