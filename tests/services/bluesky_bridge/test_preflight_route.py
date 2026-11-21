@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import plan_loader
@@ -78,6 +78,13 @@ class _FlatParams(BaseModel):
     monitors: ReadableChannels
 
 
+class _DefaultedParams(BaseModel):
+    """Every field defaulted, the movable channel by a factory."""
+
+    correctors: MovableChannels = Field(default_factory=lambda: ["COR_DEFAULT"])
+    monitors: ReadableChannels = Field(default_factory=list)
+
+
 def _spec(name: str, schema: type[BaseModel]) -> PlanSpec[Any]:
     """One registered plan, with the roles the loader would have recorded for it."""
     from osprey.services.bluesky_bridge.plan_fields import channel_roles
@@ -91,6 +98,12 @@ def _spec(name: str, schema: type[BaseModel]) -> PlanSpec[Any]:
 
 
 _PARAMS = {"axes": [{"setpoint": "COR1"}, {"setpoint": "COR2"}], "monitors": ["BPM1", "BPM2"]}
+
+#: The complete set `_PARAMS` resolves to: every axis states its default start.
+_RESOLVED = {
+    "axes": [{"setpoint": "COR1", "start": 0.0}, {"setpoint": "COR2", "start": 0.0}],
+    "monitors": ["BPM1", "BPM2"],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +174,7 @@ def _catalog(monkeypatch):
             "grid_scan": _spec("grid_scan", _ScanParams),
             "flat_scan": _spec("flat_scan", _FlatParams),
             "mystery": _spec("mystery", _NoRoleParams),
+            "defaulted": _spec("defaulted", _DefaultedParams),
         }
     )
     monkeypatch.setattr(plan_loader, "get_facility_plans", lambda: plans)
@@ -171,11 +185,18 @@ def _catalog(monkeypatch):
 def bridge():
     """A `TestClient` on the bridge, with a scripted manager behind the queue."""
 
-    def _build(submit: Any, task_replies: list[Any] | None = None) -> Any:
+    def _build(
+        submit: Any, task_replies: list[Any] | None = None, *, external_worker: bool = False
+    ) -> Any:
         replies = {"task_result": list(task_replies)} if task_replies else {}
         manager = FakeManager(function_execute=submit, **replies)
         app_module.set_queue_backend(
-            QueueBackend(manager, function_timeout=0.2, function_poll_interval=0.01)
+            QueueBackend(
+                manager,
+                function_timeout=0.2,
+                function_poll_interval=0.01,
+                external_worker=external_worker,
+            )
         )
         return TestClient(app), manager
 
@@ -208,6 +229,7 @@ def _preview(client: TestClient, name: str = "grid_scan", params: Any = _PARAMS)
         "reason",
         "detail",
         "retryable",
+        "plan_args",
     }
     return body
 
@@ -267,25 +289,77 @@ def test_a_plan_declaring_no_channel_roles_reports_no_channels(bridge) -> None:
     assert body["channels"] == []
 
 
-def test_the_plan_name_and_its_parameters_reach_the_worker_verbatim(bridge) -> None:
+def test_the_plan_name_and_its_resolved_parameters_reach_the_worker(bridge) -> None:
     client, manager = bridge(_accepted(), [_completed(_summary())])
 
-    _preview(client)
+    body = _preview(client)
 
     assert _items(manager) == [
         {
             "item_type": "function",
             "name": "preview_plan",
-            "args": ["grid_scan", _PARAMS],
+            "args": ["grid_scan", _RESOLVED],
             "kwargs": {},
         }
     ]
+    assert body["plan_args"] == _RESOLVED
     # In the background, which is what lets an operator ask for a summary while
     # the queue is draining.
     assert [c["run_in_background"] for c in manager.kwargs_for("function_execute")] == [True]
     assert _task_calls(manager) == [TASK_UID]
     # Submit and poll are the whole conversation with the manager.
     assert set(manager.method_names()) == {"function_execute", "task_result"}
+
+
+def test_a_channel_only_a_default_names_is_in_the_declared_channels(bridge) -> None:
+    client, _manager = bridge(_accepted(), [_completed(_summary())])
+
+    body = _preview(client, "defaulted", {})
+
+    assert body["channels"] == [{"channel": "COR_DEFAULT", "role": "movable"}]
+    assert body["plan_args"] == {"correctors": ["COR_DEFAULT"], "monitors": []}
+
+
+def test_the_worker_previews_the_resolved_arguments(bridge) -> None:
+    """The moves and the channels describe one argument set: the one queued."""
+    client, manager = bridge(_accepted(), [_completed(_summary())])
+
+    _preview(client, "defaulted", {"monitors": ["BPM1"]})
+
+    assert _items(manager)[0]["args"] == [
+        "defaulted",
+        {"correctors": ["COR_DEFAULT"], "monitors": ["BPM1"]},
+    ]
+
+
+def test_an_external_worker_lane_previews_the_arguments_as_typed(bridge) -> None:
+    """On that lane the enqueue queues the arguments as typed, so the preview
+    describes that set and resolves none."""
+    client, manager = bridge(_accepted(), [_completed(_summary())], external_worker=True)
+
+    body = _preview(client, "defaulted", {"monitors": ["BPM1"]})
+
+    assert _items(manager)[0]["args"] == ["defaulted", {"monitors": ["BPM1"]}]
+    assert body["plan_args"] is None
+    assert body["channels"] == [{"channel": "BPM1", "role": "readable"}]
+
+
+def test_parameters_that_do_not_resolve_reach_the_worker_as_posted(bridge) -> None:
+    """The route stays total: the worker judges the posted set and its own
+    reason is what the approver reads."""
+    posted = {"axes": "not a list", "monitors": ["BPM1"]}
+    client, manager = bridge(
+        _accepted(), [_completed({"ok": False, "error": "ValidationError: axes"})]
+    )
+
+    body = _preview(client, "grid_scan", posted)
+
+    assert _items(manager)[0]["args"] == ["grid_scan", posted]
+    assert body["ok"] is False
+    assert body["reason"] == PREVIEW_REASON_PLAN_ERROR
+    assert body["detail"] == "ValidationError: axes"
+    assert body["plan_args"] is None
+    assert body["channels"] == [{"channel": "BPM1", "role": "readable"}]
 
 
 def test_an_empty_body_previews_the_plan_with_no_parameters(bridge) -> None:
