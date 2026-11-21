@@ -1553,6 +1553,8 @@ class _Page:
         self.dropped = 0  # strip values the budget left out
         self.crowded = 0  # strip values with no room in the lanes under their symbol
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
+        # the last section heading: its line's top and the right edge of its words
+        self.head: tuple[float, float] | None = None
         self.x0: float = MARGIN  # the left edge of the column drawn in
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
@@ -4206,12 +4208,18 @@ class _Page:
         self.text(stamp_x, y, stamp, size=SMALL_SIZE, w=stamp_w, fg=MUTED_TEXT, align="right")
         page_right, self.right = self.right, stamp_x - GAP
         x: float = MARGIN - GAP
+        drawn: list[Link] = []
         for crumb in self.view.crumbs:
             if x + GAP + BUTTON_PAD + MARK_WIDTH > self.right:
                 break  # no room for one more step of the way out
+            if drawn:  # a mark between two steps, none after the last
+                x = self.text(x + GAP, y, "›", w=MARK_WIDTH, fg=MUTED_TEXT)
             x = self.button(x + GAP, y, crumb)
-            x = self.text(x + GAP, y, "›", w=MARK_WIDTH, fg=MUTED_TEXT)
-        x = self.text(x + GAP, y, self.view.id.id)
+            drawn.append(crumb)
+        if not (drawn and drawn[-1].target.id == self.view.id.id):  # the name once
+            if drawn:
+                x = self.text(x + GAP, y, "›", w=MARK_WIDTH, fg=MUTED_TEXT)
+            x = self.text(x + GAP, y, self.view.id.id)
         if self.view.alias is not None and x + 2 * GAP < self.right:  # the short name, a chip
             w = min(text_width(self.view.alias, SMALL_SIZE), self.right - x - GAP)
             self.box(x + GAP, y, w, ROW, fill=PANEL_BACKGROUND)
@@ -4225,14 +4233,31 @@ class _Page:
         """What the title says after the screen's id, when it starts with the id; the
         header bar carries it. ``None`` when the title is something else."""
         title, thing = self.view.title, self.view.id.id
-        if title.startswith(thing + " "):
-            return title.removeprefix(thing).strip()
+        if title.startswith(thing + " "):  # the join mark went with the name
+            return title.removeprefix(thing).strip().removeprefix("·").strip() or None
         return None
 
     def heading(self, text: str) -> None:
-        """A section's heading: small capitals in the muted role."""
-        self.text(self.x0, self.y, text.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+        """A section's heading: small capitals in the muted role. Its line keeps room
+        for what qualifies it (:meth:`on_head`)."""
+        right = self.text(self.x0, self.y, text.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+        self.head = (self.y, right)
         self.y += ROW + ROW_GAP
+
+    def on_head(self, w: float) -> float | None:
+        """Where something *w* wide goes on the line of the heading just drawn: right
+        after its words, when nothing was drawn under the heading yet and it fits
+        the line; then the next line starts under the heading line again. ``None``
+        when it does not go there."""
+        if self.head is None:
+            return None
+        top, right = self.head
+        x = right + WORD_GAP
+        if self.y != top + ROW + ROW_GAP or x + w > MARGIN + STRIP_WIDTH:
+            return None
+        self.head = None
+        self.y = top
+        return x
 
     def section(self, section: Section) -> None:
         """A section in its frame: the frame stands in the margin around what it holds."""
@@ -4278,7 +4303,8 @@ class _Page:
                 for i in section.items
                 if isinstance(i, Link | Fact)
             ]
-            self.chips(self.x0, entries)
+            x = self.on_head(self.chips_width(entries))  # one short row: beside its caption
+            self.chips(self.x0 if x is None else x, entries)
             return
         previous: object = None
         rows = left_out = 0
@@ -4415,8 +4441,17 @@ class _Page:
                 f"{n} {_STATE_WORDS[state]}"
                 for state, n in sorted(states.items(), key=lambda kv: _CAL_STATES.index(kv[0]))
             ]
-        line = " · ".join(words)
-        self.text(MARGIN, self.y, line.upper(), size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags)
+        line = " · ".join(words).upper()
+        x = self.on_head(text_width(line, SMALL_SIZE))  # a count shares its heading's line
+        top = self.y
+        right = self.text(
+            MARGIN if x is None else x, top, line, size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags
+        )
+        legend = grid.kind is not None and right + WORD_GAP + self.legend_width() <= (
+            MARGIN + STRIP_WIDTH
+        )
+        if legend:  # a one-line legend on the line it explains, at its right end
+            self.calibration_legend(MARGIN + STRIP_WIDTH - self.legend_width(), top)
         self.next_row()
         room = STRIP_WIDTH - SET_ROW_HEAD
         fit = max(1, int((room + GAP) // (SET_CELL_WIDTH + GAP)))
@@ -4472,20 +4507,27 @@ class _Page:
             self.y += ROW_GAP
             self.text(MARGIN, self.y, _SET_MORE.format(left_out), size=SMALL_SIZE, fg=MUTED_TEXT)
             self.next_row()
-        if grid.kind is not None:
-            self.calibration_legend()
+        if grid.kind is not None and not legend:
+            self.y += ROW_GAP
+            self.calibration_legend(MARGIN, self.y)
+            self.next_row()
 
-    def calibration_legend(self) -> None:
-        """What a calibration view's cell looks like in each state: a sample cell each."""
-        self.y += ROW_GAP
-        x: float = MARGIN
+    @staticmethod
+    def legend_width() -> float:
+        """How wide :meth:`calibration_legend` draws."""
+        return sum(text_width(_LEGEND[s], SMALL_SIZE) + GAP for s in _CAL_STATES) + CHIP_GAP * (
+            len(_CAL_STATES) - 1
+        )
+
+    def calibration_legend(self, x: float, y: float) -> None:
+        """What a calibration view's cell looks like in each state: a sample cell
+        each, in one line from ``(x, y)``."""
         for state in _CAL_STATES:
             word = _LEGEND[state]
             w = text_width(word, SMALL_SIZE) + GAP
-            self.calibration_box(x, self.y, w, state)
-            self.text(x + GAP / 2, self.y, word, size=SMALL_SIZE, w=w - GAP)
+            self.calibration_box(x, y, w, state)
+            self.text(x + GAP / 2, y, word, size=SMALL_SIZE, w=w - GAP)
             x += w + CHIP_GAP
-        self.next_row()
 
     def calibration_box(self, x: float, y: float, w: float, state: str, h: float = ROW) -> None:
         """A calibration cell's box: tinted by its basis, outlined in the basis role;
@@ -4944,7 +4986,7 @@ class _Page:
     def strip(self, item: Strip) -> None:
         """A place in beam order: the title line, each row of symbols with its locator,
         the legend of the symbols drawn, the tray, and the count of the rest."""
-        self.strip_title()
+        self.strip_title(looks=bool(item.elements))
         if item.elements:
             widths = {kind: units * SYMBOL_UNIT for kind, units in symbols.WIDTH_UNITS.items()}
             for row in _strip_rows(item.elements, widths):
@@ -4957,13 +4999,15 @@ class _Page:
             self.quiet_link(MARGIN + STRIP_WIDTH, self.y, item.others)
             self.next_row()
 
-    def strip_title(self) -> None:
-        """What the strip is, left; what its looks mean, right."""
+    def strip_title(self, *, looks: bool) -> None:
+        """What the strip is, left; what its looks mean, right, when *looks*: only
+        while something they explain is drawn."""
         self.text(MARGIN, self.y, _STRIP_TITLE)
-        w = text_width(_LOOKS_LEGEND, SMALL_SIZE)
-        self.text(
-            MARGIN + STRIP_WIDTH - w, self.y, _LOOKS_LEGEND, size=SMALL_SIZE, w=w, fg=MUTED_TEXT
-        )
+        if looks:
+            w = text_width(_LOOKS_LEGEND, SMALL_SIZE)
+            self.text(
+                MARGIN + STRIP_WIDTH - w, self.y, _LOOKS_LEGEND, size=SMALL_SIZE, w=w, fg=MUTED_TEXT
+            )
         self.next_row()
 
     def strip_row(
@@ -5438,6 +5482,15 @@ class _Page:
         if isinstance(rule, Ladder) and rule.arms and not self.budget.take([light_cost(rule)]):
             rule = "aggregate state"
         return self.light(x, y, lights, rule=rule, size=size, tile=True)
+
+    @staticmethod
+    def chips_width(entries: Sequence[tuple[str, Link | None, Node | None]]) -> float:
+        """How wide :meth:`chips` draws *entries* on one line."""
+        widths = [
+            text_width(label, SMALL_SIZE) + (CHIP_LIGHT + GAP if node is not None else 0) + GAP
+            for label, _link, node in entries
+        ]
+        return sum(widths) + CHIP_GAP * max(len(widths) - 1, 0)
 
     def chips(self, x0: float, entries: Sequence[tuple[str, Link | None, Node | None]]) -> None:
         """Chips that wrap across the content width, from *x0*."""

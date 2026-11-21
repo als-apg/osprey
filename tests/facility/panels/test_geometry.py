@@ -338,3 +338,78 @@ def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
     # a name that fits, or one with separators, breaks as before
     assert layout._wrap_label("PowerSupply", 400, layout.SMALL_SIZE, 2) == ["PowerSupply"]
     assert layout._wrap_label("XR01-PS1:On-Sts", 400, layout.SMALL_SIZE, 2) == ["XR01-PS1:On-Sts"]
+
+
+def _texts_at(doc: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    found: dict[str, list[dict[str, Any]]] = {}
+    for node in _nodes(doc["root"]):
+        text = node["props"].get("text") or node["props"].get("label")
+        if isinstance(text, str):
+            found.setdefault(text, []).append(node)
+    return found
+
+
+def test_one_short_row_of_chips_shares_its_caption_s_line(screens):
+    """A section of chips that fit beside their caption is one line high."""
+    seen = 0
+    for doc in screens.values():
+        texts = _texts_at(doc)
+        for caption in ("SETS", "CALIBRATION"):
+            for head in texts.get(caption, []):
+                y = head["geometry"]["y"]
+                beside = [
+                    n
+                    for n in _nodes(doc["root"])
+                    if n["type"] == "rectangle"
+                    and n["props"].get("actions")
+                    and n["geometry"]["x"] > head["geometry"]["x"] + head["geometry"]["width"]
+                    and abs(n["geometry"]["y"] - y) < layout.ROW
+                ]
+                seen += bool(beside)
+    assert seen >= 3  # the fixture's sets and calibration chips
+
+
+def test_a_count_shares_its_heading_s_line(screens):
+    for name in ("set/set-xr-quad", "calibration/calibration-xr-quad-centre"):
+        doc = screens[f"{name}.screen.json"]
+        texts = _texts_at(doc)
+        (head,) = texts["MEMBERS"]
+        count = next(
+            n for t, ns in texts.items() if t.endswith("ROWS") or " ROWS · " in t for n in ns
+        )
+        assert count["geometry"]["y"] == head["geometry"]["y"], name
+        assert count["props"]["foregroundColor"] == head["props"]["foregroundColor"]  # muted
+
+
+def test_a_one_line_legend_sits_on_the_line_it_explains(screens):
+    doc = screens["calibration/calibration-xr-quad-centre.screen.json"]
+    texts = _texts_at(doc)
+    (head,) = texts["MEMBERS"]
+    for word in ("design only", "surveyed"):
+        assert texts[word][0]["geometry"]["y"] == head["geometry"]["y"]
+
+
+def test_a_strip_with_nothing_placed_draws_no_legend_of_looks(panel_graph):
+    from osprey.facility.panels.view import TrayEntry
+    from tests.facility.panels._views import strip_view, stub_render
+
+    doc = stub_render(
+        strip_view([], (TrayEntry("XR01:QF1", None, "no position", None),)), panel_graph
+    )
+    assert not any(layout._LOOKS_LEGEND == t for t in _texts_at(doc))
+
+
+def test_the_header_names_the_page_once(screens):
+    twice = {}
+    for name, doc in screens.items():
+        words = [
+            n["props"].get("text") or n["props"].get("label")
+            for n in _nodes(doc["root"])
+            if n["geometry"]["y"] < layout.HEADER_HEIGHT
+            and n["type"] in ("text-label", "pv-button")
+        ]
+        words = [w for w in words if w and w != "›" and not w.startswith("model ")]
+        repeated = {w for w in words if words.count(w) > 1}
+        if repeated:
+            twice[name] = repeated
+    assert twice == {}
