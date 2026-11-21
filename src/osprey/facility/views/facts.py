@@ -24,8 +24,9 @@ class. ``unplaced_devices`` counts by class the devices that sit in no place.
 facility-added class: ``count`` devices, the ``aliases`` the vocabulary and
 ``classes.yaml`` give the class in their authored spelling, and ``groups``, the
 sorted ids of the groups holding one of its devices. ``vocabulary`` counts the
-channels by role and by signal, with each signal's vocabulary description, the
-setpoints paired with a readback and the channels that carry no signal.
+channels by role and by signal, with each signal's description from the
+document's signal-role table, the setpoints paired with a readback and the
+channels that carry no signal.
 ``models`` lists every model with its ``engine``, whether the render serves it
 and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 pyAML view the render carries, ``{path, sha256, files, kinds, names,
@@ -265,9 +266,7 @@ def _device_classes(records: FacilityRecords) -> dict[str, dict[str, Any]]:
 
 def _vocabulary(records: FacilityRecords) -> dict[str, Any]:
     """The roles and signals the channels use, counted."""
-    from osprey.facility.validate import vocabulary
-
-    rows = [*vocabulary()["signal_roles"], *(records.document.get("signals") or [])]
+    rows = records.document.get("signals") or []
     described = {str(row["name"]): row.get("description") for row in rows}
     roles: dict[str, int] = defaultdict(int)
     signals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))

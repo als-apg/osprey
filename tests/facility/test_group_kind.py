@@ -85,10 +85,18 @@ class TestTheSlot:
     ) -> None:
         assert _group(built[kind])["kind"] == kind
 
-    def test_an_unstated_kind_is_not_written(self, built: dict[str | None, dict[str, Any]]) -> None:
+    def test_an_unstated_kind_is_written_as_a_default_family(
+        self, built: dict[str | None, dict[str, Any]]
+    ) -> None:
         group = _group(built[None])
-        assert "kind" not in group
-        assert "kind" not in (group.get("provenance") or {}).get("defaults", [])
+        assert group["kind"] == "family"
+        assert "kind" in group["provenance"]["defaults"]
+
+    @pytest.mark.parametrize("kind", ["family", "section"])
+    def test_a_stated_kind_is_not_a_default(
+        self, built: dict[str | None, dict[str, Any]], kind: str
+    ) -> None:
+        assert "kind" not in (_group(built[kind]).get("provenance") or {}).get("defaults", [])
 
     def test_an_unstated_kind_is_a_family(self) -> None:
         assert is_family({"id": "G"})

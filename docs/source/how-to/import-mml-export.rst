@@ -217,7 +217,14 @@ is yours and is only drafted when absent. The authored files beside them ---
 ``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``measurement/<model>.yaml`` and ``scenarios/readout.yaml`` --- are created
 only when absent and never rewritten, so your edits to them survive a
-re-import. ``classes.yaml`` is created when absent; when it exists, the import
+re-import. Beside an existing ``limits.yaml`` the import prints a
+``limits differ: <address> file [..] export [..]`` line for each record whose
+band the export states otherwise, and one ``limits not recorded:`` line
+counting the setpoints the export bands that the file has no record for,
+followed by the first ten with their band; it writes none of them. A
+``Range`` given as one row per device whose row count is not the family's
+device count gives no band, and the import prints one ``limits table
+skipped:`` line for that field. ``classes.yaml`` is created when absent; when it exists, the import
 appends only the classes it lacks and leaves its rows as written.
 ``measurement/<model>.yaml`` names, as ``quad`` and ``sext``, the families the
 export tags as tune and chromaticity correctors, and lists every kind those

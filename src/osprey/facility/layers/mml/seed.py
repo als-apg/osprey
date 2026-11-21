@@ -201,9 +201,12 @@ def seed_once(
     seeded = Seeded()
 
     records, unbanded = _limit_records(claims, wired)
+    seeded.lines.extend(_misaligned_tables(claims))
     limits = facility_dir / LIMITS_FILE
     if limits.exists():
-        seeded.lines.extend(_differences(_load(limits), records))
+        existing = _load(limits)
+        seeded.lines.extend(_differences(existing, records))
+        seeded.lines.extend(_unrecorded(existing, records))
     else:
         if records:
             seeded.written.append(_write(limits, {"records": records}))
@@ -401,6 +404,61 @@ def _differences(document: Any, records: list[dict[str, Any]]) -> list[str]:
                 f"export [{_edge(ours[0])},{_edge(ours[1])}]"
             )
     return lines
+
+
+#: How many addresses an import line about limits names before it counts the rest.
+NAMED_ADDRESSES = 10
+
+
+def _unrecorded(document: Any, records: list[dict[str, Any]]) -> list[str]:
+    """The setpoints the export bands that an existing ``limits.yaml`` has no record
+    for, as one count line and the first :data:`NAMED_ADDRESSES` addresses with
+    their band. The file is authored, so the import names them and writes nothing."""
+    rows = document.get("records") if isinstance(document, dict) else None
+    stated = {
+        str(row.get("address"))
+        for row in (rows if isinstance(rows, list) else [])
+        if isinstance(row, dict)
+    }
+    missing = [record for record in records if record["address"] not in stated]
+    if not missing:
+        return []
+    lines = [
+        f"limits not recorded: {len(missing)} setpoints have a band in the export and no "
+        f"record in {LIMITS_FILE}; the import writes none of them"
+    ]
+    for record in missing[:NAMED_ADDRESSES]:
+        low, high = record.get("min_value"), record.get("max_value")
+        lines.append(f"  {record['address']} export [{_edge(low)},{_edge(high)}]")
+    if len(missing) > NAMED_ADDRESSES:
+        lines.append(f"  and {len(missing) - NAMED_ADDRESSES} more")
+    return lines
+
+
+def _misaligned_tables(claims: dict[str, _Claim]) -> list[str]:
+    """One line per setpoint field whose ``Range`` is a per-device table of another
+    length than the family's devices: :func:`band` takes no edge from such a
+    table, since no row can be matched to a device."""
+    lines: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for claim in claims.values():
+        if claim.role != SETPOINT_ROLE:
+            continue
+        key = (claim.view.raw_name, claim.fld.name)
+        if key in seen:
+            continue
+        seen.add(key)
+        declared = claim.fld.body.get(_RANGE_KEY)
+        if not isinstance(declared, (list, tuple)) or not declared:
+            continue
+        if not any(isinstance(row, (list, tuple)) for row in declared):
+            continue
+        if len(declared) != claim.view.n_devices:
+            lines.append(
+                f"limits table skipped: {key[0]}.{key[1]} Range states {len(declared)} rows "
+                f"for {claim.view.n_devices} devices; no edge is taken from it"
+            )
+    return sorted(lines)
 
 
 # -- seeds --------------------------------------------------------------------

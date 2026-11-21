@@ -124,8 +124,13 @@ def facility() -> None:
 
 @facility.command("validate")
 @repo_option
+@click.option(
+    "--all-limits",
+    is_flag=True,
+    help="List every address of the limits findings, not the first ten.",
+)
 @click.pass_context
-def validate(ctx: click.Context, repo: Path | None) -> None:
+def validate(ctx: click.Context, repo: Path | None, all_limits: bool) -> None:
     """Check data/facility/ and render every facility view in memory; writes nothing.
 
     A profile that states machine: validates that machine root, with the
@@ -144,13 +149,27 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     not change the exit code. A scenario that moves a readback beyond its
     setpoint's tolerance, and a lane whose float setpoints declare no
     tolerance, print the build's settle-tolerance warning on stderr; it does
-    not change the exit code. When the facility file holds relation claims,
+    not change the exit code. Two limits findings follow on stderr, each a
+    ``limits:`` count line and one line per address (the first ten and a
+    count of the rest, unless --all-limits): the setpoints with no
+    limits record (served writable with no range when the target's limits
+    mode is ``optional``, refused otherwise) and the limits records that state
+    one edge (served not writable); they report and change nothing, the exit
+    code included. When the facility file holds relation claims,
     one summary line closes stderr:
     ``relations: N claims (S stated, I inferred); A accepted, C contested``,
     with ``, X superseded`` appended when any claim is superseded; a facility
     without claims prints no such line.
     """
-    built = _build_in_memory(ctx, repo)
+    from osprey.facility.records import FacilityRecords
+    from osprey.facility.views.limits import limits_findings
+    from osprey.facility.views.simulator import unlisted_setpoints_writable
+
+    built = _build_in_memory(ctx, repo, read_config=True)
+    records = FacilityRecords(built.document)
+    writable = unlisted_setpoints_writable(built.rendered_config)
+    for finding in limits_findings(records, writable, every=all_limits):
+        click.echo(finding, err=True)
     line = _relation_summary(built.document)
     if line is not None:
         click.echo(line, err=True)
@@ -1157,8 +1176,7 @@ def _panel_graph(
 ):
     """The panel graph of the built facility; exits 1 with the cause when it cannot load."""
     from osprey.facility import FACILITY_FILE
-    from osprey.facility.panels import PanelTableError, load_graph
-    from osprey.utils.facility import FacilityFileError
+    from osprey.facility.panels import FacilityDocumentError, PanelTableError, load_graph
 
     try:
         if facility_file is None or tables is None:
@@ -1186,7 +1204,7 @@ def _panel_graph(
         return graph, tables
     except FileNotFoundError as error:
         fail("The facility cannot be read.", str(error), "Run osprey build, or name --facility.")
-    except (FacilityFileError, PanelTableError, OSError) as error:
+    except (FacilityDocumentError, PanelTableError, OSError) as error:
         fail("The facility cannot be read.", str(error))
     raise click.exceptions.Exit(1)
 

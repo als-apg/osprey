@@ -1921,13 +1921,13 @@ def test_when_conditions_select_by_channel_and_by_drawing(tmp_path):
     ],
 )
 def test_a_cards_row_that_cannot_be_read_says_why(tmp_path, row, said):
-    from osprey.facility.panels.tables import CARDS, PanelTableError, read_tables
-    from tests.facility.panels._fixture import copy_tables
+    from osprey.facility.panels.tables import CARDS, PanelTableError
+    from tests.facility.panels._fixture import copy_tables, read_fixture_tables
 
     tables = copy_tables(tmp_path / "panels")
     (tables / CARDS).write_text(CARDS_HEADER + row)
     with pytest.raises(PanelTableError, match=said):
-        read_tables(tables)
+        read_fixture_tables(tables)
 
 
 def test_choice_segments_that_share_a_word_carry_their_value() -> None:
@@ -2378,12 +2378,17 @@ def _interlocked(document) -> None:
 
 def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
     from osprey.facility.panels import load_graph
-    from osprey.facility.panels.tables import ROLE_SCOPES
+    from osprey.facility.panels.tables import walked_relations
     from osprey.facility.panels.view import Chain
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from tests.facility.panels._fixture import (
+        copy_tables,
+        fixture_relation_types,
+        write_fixture_facility,
+    )
 
-    assert {"read_out_by", "controlled_by", "interlocked_by"} <= set(ROLE_SCOPES)
-    assert "located_in" not in ROLE_SCOPES  # its object is a place
+    walked = walked_relations(fixture_relation_types())
+    assert {"read_out_by", "controlled_by", "interlocked_by"} <= set(walked)
+    assert "located_in" not in walked  # its object is a place
     tables = copy_tables(tmp_path / "panels")
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER + "Pump,interlock,*:In{n}-Sts,interlocked_by,lamp,,,,,stated,S,1,l\n"
@@ -2614,9 +2619,9 @@ def test_a_signal_s_title_names_its_channel_and_a_row_label_wins(tmp_path) -> No
 
 
 def test_the_vocabulary_titles_its_general_signals_with_the_operator_s_word() -> None:
-    from osprey.facility.validate import signal_titles
+    from osprey.facility.validate import vocabulary
 
-    titles = signal_titles()
+    titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
     assert {name: titles[name] for name in (
         "current_readback", "current_setpoint", "voltage_readback", "ramp_rate_setpoint",
         "power_on_command", "temperature_lolo_limit_readback", "temperature_hihi_limit_setpoint",
