@@ -94,13 +94,31 @@ def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
     )
 
 
-def test_a_clean_repo_exits_0_and_prints_nothing(
+#: What ``facility validate`` reports of the example's limits: its setpoints with
+#: no limits record, the first ten named. A report: the exit code stays 0.
+LIMITS_STDERR = [
+    "limits: 481 setpoints have no limits record; the target serves them writable with no range",
+    "  BR:DIAG:TV:01:PADDLE:SP",
+    "  BR:DIAG:TV:02:PADDLE:SP",
+    "  BR:DIAG:TV:03:PADDLE:SP",
+    "  BR:DIAG:TV:04:PADDLE:SP",
+    "  BR:DIAG:TV:05:PADDLE:SP",
+    "  BR:MAG:DIPOLE-RAMP:01:GAIN:SP",
+    "  BR:MAG:DIPOLE-RAMP:01:OFFSET:SP",
+    "  BR:MAG:DIPOLE:01:CURRENT:SP",
+    "  BR:MAG:DIPOLE:02:CURRENT:SP",
+    "  BR:MAG:DIPOLE:03:CURRENT:SP",
+    "  and 471 more; --all-limits lists every one",
+]
+
+
+def test_a_clean_repo_exits_0_and_prints_only_its_limits_findings(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Checking a facility file renders outside any build, so it asks no container runtime.
 
     The facility is the example without its Appendix A records, so no claim
-    warns and no relation summary is printed.
+    warns and no relation summary is printed; its open setpoints are reported.
     """
     facility_dir = repo / "data" / "facility"
     shutil.rmtree(facility_dir)
@@ -117,15 +135,25 @@ def test_a_clean_repo_exits_0_and_prints_nothing(
 
     assert asked == []
     assert result.exit_code == 0, result.output
-    assert (result.stdout, result.stderr) == ("", "")
+    assert result.stdout == ""
+    assert result.stderr.splitlines() == LIMITS_STDERR
+
+
+def test_all_limits_lists_every_open_setpoint(repo: Path) -> None:
+    result = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo), "--all-limits"])
+    assert result.exit_code == 0, result.output
+    listed = [line for line in result.stderr.splitlines() if line.startswith("  ")]
+    assert len(listed) == 481
+    assert "more; --all-limits" not in result.stderr
 
 
 #: What ``facility validate`` prints for the demo: one ``relation-coarse``
-#: warning, then the relation summary.
+#: warning, the limits findings, then the relation summary.
 DEMO_STDERR = [
     "facility: relation-coarse: relation type cabled_to \u2014 1 claim states less than the"
     " facility knows (1 place end); fix: name the device, port, unit or key attribute the"
     " claims leave out",
+    *LIMITS_STDERR,
     "relations: 18 claims (16 stated, 2 inferred); 17 accepted, 0 contested, 1 superseded",
 ]
 

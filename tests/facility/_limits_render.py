@@ -18,7 +18,33 @@ import yaml
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 
-__all__ = ["packaged_facility_dir", "render_limits", "validator_under"]
+__all__ = [
+    "packaged_facility_dir",
+    "render_limits",
+    "validator_under",
+    "without_limits_findings",
+]
+
+#: How a ``facility validate`` limits finding's count line begins; its address
+#: lines follow it, indented two spaces.
+LIMITS_FINDING = "limits: "
+
+
+def without_limits_findings(stderr: str) -> str:
+    """*stderr* of ``facility validate`` without its limits findings: each
+    ``limits:`` line and the indented address lines under it. A test about
+    other lines of the verb reads them through this."""
+    kept: list[str] = []
+    inside = False
+    for line in stderr.splitlines(keepends=True):
+        if line.startswith(LIMITS_FINDING):
+            inside = True
+            continue
+        if inside and line.startswith("  "):
+            continue
+        inside = False
+        kept.append(line)
+    return "".join(kept)
 
 
 def packaged_facility_dir(bundle: str) -> Path:

@@ -297,3 +297,50 @@ class TestTheBuildDerivesTheDatabasePath:
 
         assert config["control_system"]["limits_checking"]["database_path"] == LIMITS
         assert (built_demo.build_dir / LIMITS).is_file()
+
+
+# --- findings: report lines, nothing changed ----------------------------------------
+
+
+def test_findings_name_open_setpoints_and_one_edged_records() -> None:
+    from osprey.facility.views.limits import limits_findings
+
+    doc = _doc(
+        {QF: "setpoint", QD: "setpoint", CORR: "setpoint", BEAM: "readback"},
+        [
+            {"address": QF, "min_value": 0.0, "max_value": 5.0},  # banded: no finding
+            {"address": QD, "min_value": 0.0},  # one edge
+        ],
+    )
+    records = FacilityRecords(doc)
+    assert limits_findings(records, True) == [
+        "limits: 1 setpoints have no limits record; the target serves them writable with no range",
+        f"  {CORR}",  # a readback without a record is no finding: it is never writable
+        "limits: 1 limits records state one edge; each is served not writable until it states both",
+        f"  {QD}: min_value 0.0, no max_value",
+    ]
+    # the same setpoint where the target refuses a write to a channel with no record
+    refused = limits_findings(records, False)[0]
+    assert refused == "limits: 1 setpoints have no limits record; the target refuses writes to them"
+    # the findings change nothing: the database is what it was
+    assert limits_document(records)[QD]["writable"] is False
+
+
+def test_findings_list_the_first_addresses_unless_every_one_is_asked_for() -> None:
+    from osprey.facility.views.limits import FINDING_ADDRESSES, limits_findings
+
+    many = {f"XR:MAG:Q:{n:02d}:SP": "setpoint" for n in range(FINDING_ADDRESSES + 3)}
+    records = FacilityRecords(_doc(many, []))
+    short = limits_findings(records, True)
+    assert len(short) == 1 + FINDING_ADDRESSES + 1
+    assert short[-1] == "  and 3 more; --all-limits lists every one"
+    assert len(limits_findings(records, True, every=True)) == 1 + len(many)
+
+
+def test_a_facility_with_every_setpoint_banded_has_no_finding() -> None:
+    from osprey.facility.views.limits import limits_findings
+
+    records = FacilityRecords(
+        _doc({QF: "setpoint"}, [{"address": QF, "min_value": 0.0, "max_value": 5.0}])
+    )
+    assert limits_findings(records, True) == []

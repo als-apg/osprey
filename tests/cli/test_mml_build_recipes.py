@@ -46,6 +46,7 @@ from osprey.facility import DEFAULT_ROLE
 from osprey.facility.records import FacilityRecords
 from osprey_connectors import yaml_loader
 from tests.cli._lifecycle_build import rendered_config
+from tests.facility._limits_render import without_limits_findings
 from tests.fixtures.mml._trees import names
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -218,7 +219,11 @@ def apply_seed_invalid_remedies(
 
     clean = runner.invoke(cli, where, catch_exceptions=False) if stops else stopped
     assert clean.exit_code == 0, clean.output
-    printed = [line for line in clean.stderr.splitlines() if not line.startswith(VIEW_NOTE)]
+    printed = [
+        line
+        for line in without_limits_findings(clean.stderr).splitlines()
+        if not line.startswith(VIEW_NOTE)
+    ]
     if responses is None:
         assert all(line.startswith(RESPONSE_CHECK) for line in printed), clean.stderr
     else:
