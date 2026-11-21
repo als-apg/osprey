@@ -1114,7 +1114,8 @@ async def queue_list() -> str:
         this is a recent count, not a lifetime total.
 
         ``items`` are the pending items in execution order, each with its
-        ``item_uid``, plan ``name`` and ``kwargs``. ``running_item`` is the item
+        ``item_uid``, plan ``name`` and ``kwargs``. ``kwargs`` states every
+        parameter the plan will run with. ``running_item`` is the item
         under way (``null`` when idle) and carries ``progress`` when the point
         count is known: ``fraction`` may be ``null`` for a plan whose total
         points cannot be derived, which means indeterminate — report it as "N

@@ -110,8 +110,10 @@ Two ways to add a plan
      parameter becomes a well-labeled field. A default computed by a function
      (``default_factory``) fills its field like a written one, and a plan
      whose default breaks its parameter's own limits is refused when it
-     loads. Each parameter that holds channel names also says what the plan
-     does with them. See *A plan says what it touches* below.
+     loads. The function is evaluated when the catalog is read and once when
+     the plan is queued; the run uses the queued value, so the queued item is
+     what runs. Each parameter that holds channel names also says what the
+     plan does with them. See *A plan says what it touches* below.
    - **The plan function**: builds the actual Bluesky plan from the
      parameters and the resolved devices.
 
