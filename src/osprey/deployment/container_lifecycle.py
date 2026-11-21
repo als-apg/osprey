@@ -11,6 +11,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2126,8 +2127,6 @@ def _stage_site_ca(source: str, context_dir: Path | str) -> str:
     :return: :data:`SITE_CA_CONTEXT_FILENAME`.
     :raises FileNotFoundError: If *source* does not name a readable file.
     """
-    import shutil
-
     src = Path(source).expanduser()
     if not src.is_file():
         raise FileNotFoundError(

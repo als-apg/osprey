@@ -16,6 +16,7 @@ sees named is exactly what they can pull.
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -380,8 +381,6 @@ def apply_pull(
         the plan was refused, the whole unchanged ``actions`` list comes back
         instead and nothing was written.
     """
-    import shutil
-
     if any(action.action == "refused" for action in actions):
         return actions
 

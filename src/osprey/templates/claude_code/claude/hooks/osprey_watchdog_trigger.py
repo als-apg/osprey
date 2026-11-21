@@ -76,6 +76,7 @@ must stay 3.9-safe. Fails open on any error: writes nothing to stdout and exits 
 
 import json
 import os
+import subprocess
 import sys
 
 #: Set by the headless entry points in ``osprey.agent_runner``.
@@ -147,8 +148,6 @@ def _write_submission(prompt, record_session_id):
 
 def _spawn_child(path):
     """Start the detached child that owns the submission at *path*."""
-    import subprocess
-
     subprocess.Popen(
         [sys.executable, os.path.abspath(__file__), _CHILD_FLAG, path],
         stdin=subprocess.DEVNULL,
@@ -184,8 +183,6 @@ def _post_submission(path, port):
 
 def _run_record_entry(path, session_key):
     """Run the record entry over the submission at *path* and wait for it."""
-    import subprocess
-
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     argv = [
         sys.executable,

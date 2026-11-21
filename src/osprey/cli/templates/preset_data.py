@@ -19,6 +19,7 @@ except the knowledge indexes ``osprey knowledge regen-index`` writes.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,8 +92,6 @@ class PresetData:
         *ignore*, a :func:`shutil.copytree` ignore callable), then every
         :meth:`placed_files` entry lands beside it, byte-identical.
         """
-        import shutil
-
         placed = self.placed_files()
         if self.app_data.is_dir():
             shutil.copytree(self.app_data, destination, ignore=ignore)

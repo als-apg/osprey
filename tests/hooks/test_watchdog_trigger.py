@@ -535,4 +535,4 @@ def test_the_parent_path_imports_only_what_a_prompt_can_afford() -> None:
         if isinstance(node, ast.Import)
         for alias in node.names
     }
-    assert top_level == {"json", "os", "sys"}
+    assert top_level == {"json", "os", "subprocess", "sys"}

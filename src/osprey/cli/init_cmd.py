@@ -31,6 +31,8 @@ Usage::
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -911,8 +913,6 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
             by something this command cannot clear. Raised before a single
             entry moves, so the repo is exactly as it was.
     """
-    import shutil
-
     from .profile_cmd import MATERIALIZED_SOURCE_ENTRIES
 
     if not active:
@@ -1045,8 +1045,6 @@ def _bootstrap_git(target: Path, *, no_git: bool) -> str:
         return (
             f"Found a git repository already {where}, and left it alone. Commit when you are ready."
         )
-
-    import subprocess
 
     def run(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
