@@ -18,6 +18,7 @@ import { esc, messageOf } from './utils.js';
 import { filterChannels, totalChunksFor, clampChunkIdx, pageSlice } from './chunk-filter.js';
 import { bridgeHtml, directorySize, reportCurated } from './curated-bridge.js';
 import { state } from './state.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /** @type {any[]} */
 let allChannels = []; // the ENTIRE in-context database (loaded once)
@@ -25,8 +26,10 @@ let filterWords = ''; // as typed; the shared query beside All PVs
 let filterText = ''; // lower-cased, what the filter matches with
 let chunkIdx = 0;
 const CHUNK_SIZE = 50;
-/** Bumped on every mount and unmount, so a late count lands on no old page. */
-let generation = 0;
+/** The mounts: a remount or an unmount retires this one, so a late count lands on no old page. */
+const mounts = createLatestRequest();
+/** @type {import('/design-system/js/latest-request.js').LatestToken|null} */
+let mount = null;
 /** PVs in the whole directory, asked for on the first miss; null until known. */
 /** @type {number|null} */
 let directoryPvs = null;
@@ -42,7 +45,7 @@ function getFiltered() {
  * @param {HTMLElement} container
  */
 export async function mountInContext(container) {
-  generation += 1;
+  mount = mounts.begin();
   directoryPvs = null;
   directoryAsked = false;
   filterWords = state.directory ? state.scopeQuery : '';
@@ -81,7 +84,7 @@ export async function mountInContext(container) {
 }
 
 export function unmountInContext() {
-  generation += 1;
+  mounts.cancel();
   allChannels = [];
   filterWords = '';
   filterText = '';
@@ -175,9 +178,9 @@ function renderBridge() {
   slot.innerHTML = bridgeHtml(filterWords, total, directoryPvs);
   if (total === 0 && state.directory && !directoryAsked) {
     directoryAsked = true;
-    const mounted = generation;
+    const mine = mount;
     void directorySize().then((size) => {
-      if (mounted !== generation) return;
+      if (!mine?.isCurrent()) return;
       directoryPvs = size;
       const line = document.getElementById('ic-bridge');
       if (line) line.innerHTML = bridgeHtml(filterWords, getFiltered().length, size);
