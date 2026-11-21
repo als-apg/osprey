@@ -46,10 +46,8 @@ from __future__ import annotations
 
 import csv
 import dataclasses
-import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
@@ -86,7 +84,6 @@ __all__ = [
     "CardRule",
     "CARD_ACTIONS",
     "CARD_CONDITIONS",
-    "WALKED_RELATIONS",
     "StripSymbol",
     "Metric",
     "CalibrationKind",
@@ -98,6 +95,7 @@ __all__ = [
     "Pose",
     "RecordType",
     "read_tables",
+    "walked_relations",
 ]
 
 POSITIONS = "positions.csv"
@@ -427,23 +425,26 @@ PROBE_NEEDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 )
 
 
-def _walked_relations() -> tuple[str, ...]:
-    """The vocabulary's relation types that run from a device to a device, sorted."""
-    table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
-    rows = json.loads(table.read_text(encoding="utf-8"))["relations"]
+def walked_relations(rows: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
+    """The relation types of ``rows`` that run from a device to a device, sorted by name.
+
+    ``rows`` are a facility document's ``relation_types`` rows. Sorted, not a set,
+    so the order edges are walked in never depends on the hash seed.
+    """
     return tuple(
         sorted(
-            row["name"] for row in rows if "device" in row["subject"] and "device" in row["object"]
+            str(row["name"])
+            for row in rows
+            if "device" in (row.get("subject") or ()) and "device" in (row.get("object") or ())
         )
     )
 
 
-#: Where a ``channel_roles.csv`` row looks for its channels: the device's own, its
-#: parts', or those of the device a relation of the device names (any relation
-#: type of the vocabulary from a device to a device: what reads it out, controls
-#: it, interlocks it, ...).
-WALKED_RELATIONS: tuple[str, ...] = _walked_relations()
-ROLE_SCOPES: tuple[str, ...] = ("device", "parts", *WALKED_RELATIONS)
+#: The scopes of a ``channel_roles.csv`` row that need no relation: the device's
+#: own channels and its parts'. The others are the document's relation types from
+#: a device to a device (what reads it out, controls it, interlocks it, ...), so
+#: :func:`read_tables` builds the full set per call.
+_BUILT_IN_SCOPES: tuple[str, ...] = ("device", "parts")
 #: How a card shows a channel of a role: a number, its state word, a lamp, or a
 #: control (a typed entry, one segment of a choice, an action button).
 SHOWN_AS: tuple[str, ...] = ("value", "word", "lamp", "entry", "choice", "action")
@@ -523,7 +524,8 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         PROBE_PICTURES: {"shape": PROBE_SHAPES},
         STATE_LABELS: {},
         UNITS: {},
-        CHANNEL_ROLES: {"scope": ROLE_SCOPES, "shown_as": SHOWN_AS, "basis": BASES},
+        # the scope words are the document's: read_tables adds them per call
+        CHANNEL_ROLES: {"shown_as": SHOWN_AS, "basis": BASES},
         CARD_RECIPES: {},
         CARD_SECTIONS: {"kind": SECTION_KINDS},
         CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
@@ -1361,7 +1363,13 @@ _PARSED: Mapping[str, Mapping[str, tuple[Callable[[str], Any], str]]] = MappingP
 )
 
 
-def _field(name: str, line: int, column: str, text: str) -> Any:
+def _field(
+    name: str,
+    line: int,
+    column: str,
+    text: str,
+    vocabulary: Mapping[str, Mapping[str, tuple[str, ...]]] = _VOCABULARY,
+) -> Any:
     if not text:
         if column in _REQUIRED[name]:
             raise PanelTableError(name, line, f"{column} is empty")
@@ -1373,7 +1381,7 @@ def _field(name: str, line: int, column: str, text: str) -> Any:
         if found is None:
             raise PanelTableError(name, line, f"{column} is {text!r}, not {form}")
         return found
-    words = _VOCABULARY[name].get(column)
+    words = vocabulary[name].get(column)
     if words is not None and text not in words:
         raise PanelTableError(name, line, f"{column} is {text!r}, not one of {', '.join(words)}")
     if column in _NUMBERS.get(name, ()):
@@ -1384,7 +1392,12 @@ def _field(name: str, line: int, column: str, text: str) -> Any:
     return text
 
 
-def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[Any, ...]:
+def _read(
+    directory: Path,
+    name: str,
+    lines: list[int] | None = None,
+    vocabulary: Mapping[str, Mapping[str, tuple[str, ...]]] = _VOCABULARY,
+) -> tuple[Any, ...]:
     path = directory / name
     if not path.is_file():
         if name in OPTIONAL_FILES:
@@ -1421,7 +1434,12 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
                 )
             seen[key] = line
         rows.append(
-            make(**{column: _field(name, line, column, texts[column]) for column in header})
+            make(
+                **{
+                    column: _field(name, line, column, texts[column], vocabulary)
+                    for column in header
+                }
+            )
         )
         if name == CALIBRATION_KINDS:
             _check_kind_unit(rows[-1], line)
@@ -1572,11 +1590,14 @@ def _check_calibrations(
 CURVE_PREFIX = "curve:"
 
 
-def read_tables(panels_dir: Path) -> PanelTables:
+def read_tables(panels_dir: Path, *, relation_types: Iterable[Mapping[str, Any]]) -> PanelTables:
     """Read and check the rule tables of a panels directory.
 
     Args:
         panels_dir: The directory holding the CSV files.
+        relation_types: The facility document's ``relation_types`` rows. A
+            ``channel_roles.csv`` scope is ``device``, ``parts`` or a
+            type of :func:`walked_relations` of these rows.
 
     Returns:
         The tables.
@@ -1586,6 +1607,10 @@ def read_tables(panels_dir: Path) -> PanelTables:
             the schema; the message names the file and line.
     """
     directory = Path(panels_dir)
+    scopes = (*_BUILT_IN_SCOPES, *walked_relations(relation_types))
+    vocabulary = MappingProxyType(
+        {**_VOCABULARY, CHANNEL_ROLES: {**_VOCABULARY[CHANNEL_ROLES], "scope": scopes}}
+    )
     return PanelTables(
         positions=_read(directory, POSITIONS),
         record_types=_read(directory, RECORD_TYPES),
@@ -1598,7 +1623,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         probe_pictures=_read(directory, PROBE_PICTURES),
         state_labels=_read(directory, STATE_LABELS),
         units=_read(directory, UNITS),
-        channel_roles=_read(directory, CHANNEL_ROLES),
+        channel_roles=_read(directory, CHANNEL_ROLES, vocabulary=vocabulary),
         card_recipes=_read(directory, CARD_RECIPES),
         card_sections=_read(directory, CARD_SECTIONS),
         chains=_read(directory, CHAINS),

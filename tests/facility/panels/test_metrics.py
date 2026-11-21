@@ -12,9 +12,9 @@ import pytest
 
 from osprey.facility.panels import layout, symbols
 from osprey.facility.panels.describe import health_rollup, place_view
-from osprey.facility.panels.tables import PanelTableError, read_tables
+from osprey.facility.panels.tables import PanelTableError
 from osprey.facility.panels.view import Band
-from tests.facility.panels._fixture import copy_tables
+from tests.facility.panels._fixture import copy_tables, read_fixture_tables
 from tests.facility.panels._views import ABOVE, SYMBOLS, stub_render, with_symbols
 
 #: The formula engine's grammar (canopy formula_engine/language/grammar.py) and the
@@ -60,7 +60,7 @@ def xr01(panel_graph):
 
 
 def test_the_metrics_table_reads_and_refuses_an_unknown_measure(tmp_path, panel_tables):
-    rows = read_tables(panel_tables).metrics
+    rows = read_fixture_tables(panel_tables).metrics
     assert [(r.view, r.level, r.order, r.measure) for r in rows][:2] == [
         ("place", "sector", 1.0, "count_in_tolerance"),
         ("place", None, 2.0, "rms"),
@@ -70,7 +70,7 @@ def test_the_metrics_table_reads_and_refuses_an_unknown_measure(tmp_path, panel_
     path = directory / "metrics.csv"
     path.write_text(path.read_text() + "place,,9,Odd,median,current_readback,,,,s\n")
     with pytest.raises(PanelTableError, match="measure is 'median'"):
-        read_tables(directory)
+        read_fixture_tables(directory)
 
 
 def test_a_place_view_opens_with_its_band_selected_by_stated_signals(xr01) -> None:

@@ -67,8 +67,13 @@ def _fields(family: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {key: value for key, value in family.items() if not key.startswith("_")}
 
 
+#: The signal-role rows the hand-built documents below carry, as a build writes them.
+CURRENT_SETPOINT = {"name": "current_setpoint", "description": "the current setpoint"}
+POSITION_X = {"name": "position_x_readback", "description": "the horizontal position"}
+
 #: Two machines; one group spans both, one lives on the first only.
 SYNTHETIC: dict[str, Any] = {
+    "signals": [CURRENT_SETPOINT],
     "places": [
         {"id": "M", "level": "machine", "description": "the machine"},
         {"id": "M/S1", "level": "sector"},
@@ -310,6 +315,7 @@ def test_a_system_and_a_family_are_described_only_by_description_or_label() -> N
 
 
 def _signal_text(name: str) -> str:
+    """The vocabulary's sentence for ``name``, which a build writes into ``signals``."""
     from osprey.facility.validate import vocabulary
 
     (row,) = [row for row in vocabulary()["signal_roles"] if row["name"] == name]
@@ -323,13 +329,13 @@ def _class_text(name: str) -> str:
     return str(row["description"])
 
 
-def test_a_field_is_keyed_by_signal_and_described_by_the_vocabulary() -> None:
+def test_a_field_is_keyed_by_signal_and_described_by_the_signal_table() -> None:
     document, _left_out, _by_address = _document(SYNTHETIC)
     field = _fields(document["M"]["QUAD"])["current_setpoint"]
 
     assert field == {
         "ChannelNames": ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"],
-        "_description": _signal_text("current_setpoint"),
+        "_description": CURRENT_SETPOINT["description"],
     }
 
 
@@ -349,25 +355,10 @@ def test_an_address_keyed_field_takes_its_channel_s_description() -> None:
     assert by_address == 1
 
 
-def test_a_role_without_a_vocabulary_sentence_takes_the_members_common_description(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from osprey.facility import validate
-
-    table = validate.vocabulary()
-    stripped = {
-        **table,
-        "signal_roles": [
-            {key: value for key, value in row.items() if key != "description"}
-            if row["name"] == "current_setpoint"
-            else row
-            for row in table["signal_roles"]
-        ],
-    }
-    monkeypatch.setattr(validate, "vocabulary", lambda: stripped)
-
+def test_a_role_without_a_table_sentence_takes_the_members_common_description() -> None:
     def described(first: str, second: str) -> dict[str, Any]:
         doc = {
+            "signals": [{"name": "current_setpoint"}],
             "places": [{"id": "M"}],
             "devices": [
                 {"id": "M/A", "place": "M", "s": 1.0},
@@ -458,6 +449,7 @@ def test_the_count_is_the_distinct_addresses_the_fields_list() -> None:
 
 def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
     doc = {
+        "signals": [POSITION_X],
         "devices": [
             {"id": "A", "place": "M", "label": "a"},
             {"id": "B", "place": "M", "label": "b"},
@@ -479,7 +471,7 @@ def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
 
     assert fields["position_x_readback"] == {
         "ChannelNames": ["A:X", "B:X"],
-        "_description": _signal_text("position_x_readback"),
+        "_description": POSITION_X["description"],
     }
     keyed = ["A:H:CURRENT", "A:V:CURRENT", "B:H:CURRENT", "A:ONLY", "B:BARE"]
     assert {address: fields[address]["ChannelNames"] for address in keyed} == {

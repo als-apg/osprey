@@ -103,6 +103,8 @@ _KEY_PATTERN = re.compile(r"^(?:" + "|".join(_SECTIONS) + r")\.[a-z0-9_.-]+$")
 _EXEMPTIONS: dict[str, str] = {
     "api.js": "a file of the ARIEL frontend, named in the contract's module table",
     "facility.json": "a file name on the channel-finder contract page, not a key",
+    "facility.schema.json": "a file name on the facility.json contract page, not a key",
+    "provenance.defaults": "a field of a facility.json group, not a config.yml key",
     "ariel.database.uri": (
         "recorded as deleted so no preset renders it live, but an explicit uri "
         "is still read and wins (services/ariel_search/config.py); the "

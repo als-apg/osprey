@@ -2,8 +2,9 @@
 
 ``signals.yaml`` declares signal roles beyond the vocabulary, each a
 ``{name, aliases?, description?}`` row. A channel may carry a declared role,
-``facility.json`` ``signals`` holds the rows verbatim, sorted by name, and the
-facts and the channel finder describe the role from its row. A role that
+``facility.json`` ``signals`` holds the effective table (the vocabulary's rows
+and the declared ones verbatim, sorted by name), and the facts and the channel
+finder describe the role from its row. A role that
 shadows a vocabulary role or another declared role stops the build naming both.
 """
 
@@ -30,6 +31,13 @@ FIXTURE_ROLE = {
 }
 
 
+def _effective(*declared: dict[str, Any]) -> list[dict[str, Any]]:
+    """The ``signals`` a build writes: the vocabulary's rows and ``declared``, by name."""
+    from osprey.facility.validate import vocabulary
+
+    return sorted([*vocabulary()["signal_roles"], *declared], key=lambda row: row["name"])
+
+
 def _tree(signals: list[dict[str, Any]] | None, signal: str = "fixture_role") -> dict[str, Any]:
     tree = plain_tree()
     for channel in tree["records/channels.yaml"]:
@@ -44,7 +52,7 @@ def test_a_declared_role_builds_and_is_carried_verbatim(build_project: Build) ->
     project, result = build_project(_tree([FIXTURE_ROLE]))
 
     assert result.exit_code == 0, result.output
-    assert project.facility["signals"] == [FIXTURE_ROLE]
+    assert project.facility["signals"] == _effective(FIXTURE_ROLE)
     [readback] = [c for c in project.facility["channels"] if c["id"] == "Q1:RB"]
     assert readback["signal"] == "fixture_role"
 
@@ -85,11 +93,13 @@ def test_signal_roles_joins_the_declared_rows_to_the_vocabulary() -> None:
     assert joined == signal_roles() | {"fixture_role"}
 
 
-def test_a_tree_without_signals_yaml_carries_no_signals(build_project: Build) -> None:
+def test_a_tree_without_signals_yaml_carries_the_vocabulary_s_signals(
+    build_project: Build,
+) -> None:
     project, result = build_project(_tree(None, signal="current_readback"))
 
     assert result.exit_code == 0, result.output
-    assert project.facility["signals"] == []
+    assert project.facility["signals"] == _effective()
 
 
 def test_an_undeclared_role_stops_the_build_naming_signals_yaml(build_project: Build) -> None:

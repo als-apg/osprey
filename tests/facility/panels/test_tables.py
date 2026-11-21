@@ -12,9 +12,8 @@ from osprey.facility.panels.tables import (
     OPTIONAL_FILES,
     TABLE_FILES,
     PanelTableError,
-    read_tables,
 )
-from tests.facility.panels._fixture import copy_tables
+from tests.facility.panels._fixture import copy_tables, read_fixture_tables
 
 
 def _edit(directory: Path, name: str, lines: list[str]) -> Path:
@@ -85,7 +84,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
 
 
 def test_the_fixture_tables_read(panel_tables: Path) -> None:
-    tables = read_tables(panel_tables)
+    tables = read_fixture_tables(panel_tables)
     assert len(tables.positions) == 13
     assert len(tables.record_types) == 6
     assert len(tables.health) == 17
@@ -105,7 +104,7 @@ def test_a_missing_optional_file_is_empty(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
     for name in OPTIONAL_FILES:
         (directory / name).unlink(missing_ok=True)
-    tables = read_tables(directory)
+    tables = read_fixture_tables(directory)
     assert tables.pictures == ()
     assert tables.excluded == ()
     assert tables.names == ()
@@ -113,7 +112,7 @@ def test_a_missing_optional_file_is_empty(tmp_path: Path) -> None:
 
 
 def test_an_empty_directory_reads_as_empty_tables(tmp_path: Path) -> None:
-    tables = read_tables(tmp_path)
+    tables = read_fixture_tables(tmp_path)
     assert tables.positions == () and tables.record_types == () and tables.health == ()
 
 
@@ -121,7 +120,7 @@ def test_an_extra_column_is_refused_at_line_one(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
     _edit(directory, "record_types.csv", [_header("record_types.csv") + ",note"])
     with pytest.raises(PanelTableError, match=r"record_types\.csv line 1.*note") as raised:
-        read_tables(directory)
+        read_fixture_tables(directory)
     assert raised.value.line == 1
 
 
@@ -130,7 +129,7 @@ def test_a_missing_column_is_refused_at_line_one(tmp_path: Path) -> None:
     columns = [column for column in COLUMNS["health.csv"] if column != "evidence"]
     _edit(directory, "health.csv", [",".join(columns)])
     with pytest.raises(PanelTableError, match=r"health\.csv line 1.*evidence"):
-        read_tables(directory)
+        read_fixture_tables(directory)
 
 
 @pytest.mark.parametrize(
@@ -160,7 +159,7 @@ def test_a_malformed_row_is_refused_naming_file_and_line(
     original = (directory / name).read_text(encoding="utf-8").splitlines()
     _edit(directory, name, [*original[:2], row, *original[2:]])
     with pytest.raises(PanelTableError, match=rf"{re.escape(name)} line 3\b.*{word}") as raised:
-        read_tables(directory)
+        read_fixture_tables(directory)
     assert (raised.value.file, raised.value.line) == (name, 3)
 
 
@@ -178,7 +177,7 @@ def test_the_line_counts_a_quoted_field_spanning_two_lines(tmp_path: Path) -> No
         ],
     )
     with pytest.raises(PanelTableError, match=r"record_types\.csv line 4\b"):
-        read_tables(directory)
+        read_fixture_tables(directory)
 
 
 @pytest.mark.parametrize(
@@ -197,7 +196,7 @@ def test_a_second_row_for_one_key_is_refused(tmp_path: Path, name: str, row: str
     lines = (directory / name).read_text(encoding="utf-8").splitlines()
     _edit(directory, name, [*lines, row])
     with pytest.raises(PanelTableError, match=rf"line {len(lines) + 1}\b.*line 2\b"):
-        read_tables(directory)
+        read_fixture_tables(directory)
 
 
 def test_a_picture_part_may_be_of_any_kind_the_facility_names(tmp_path: Path) -> None:
@@ -206,11 +205,11 @@ def test_a_picture_part_may_be_of_any_kind_the_facility_names(tmp_path: Path) ->
     tables = copy_tables(tmp_path / "panels")
     with (tables / "pictures.csv").open("a") as rows:
         rows.write("Quadrupole,end,probe 1,a_kind_of_this_facility,1.0,2.0,0.0,,,,\n")
-    assert read_tables(tables).pictures[-1].kind == "a_kind_of_this_facility"
+    assert read_fixture_tables(tables).pictures[-1].kind == "a_kind_of_this_facility"
 
 
 def test_a_short_name_row_reads_with_its_citation(panel_tables: Path) -> None:
-    (first, *_rest) = read_tables(panel_tables).names
+    (first, *_rest) = read_fixture_tables(panel_tables).names
     assert (first.thing, first.short_name, first.scheme, first.basis) == (
         "XR01:QF1",
         "F1",
@@ -228,11 +227,11 @@ def test_a_short_name_must_be_stated(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
     _edit(directory, "names.csv", [_header("names.csv"), "XR01:QF1,,controls,stated,d,v,s,l"])
     with pytest.raises(PanelTableError, match="short_name is empty"):
-        read_tables(directory)
+        read_fixture_tables(directory)
 
 
 def test_the_calibration_tables_read(panel_tables: Path) -> None:
-    tables = read_tables(panel_tables)
+    tables = read_fixture_tables(panel_tables)
     kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
     assert kinds["integrated_gradient", "Quadrupole"].tolerance == ("rel", pytest.approx(0.002))
     assert kinds["centre", "Quadrupole"].tolerance == ("abs", pytest.approx(5.0))
@@ -275,7 +274,7 @@ def test_a_calibration_row_that_does_not_hold_is_refused(tmp_path, name, row, sa
         _edit(directory, "calibrations.csv", [*claims, _CLAIM])
     _edit(directory, name, [*lines, row])
     with pytest.raises(PanelTableError, match=says) as raised:
-        read_tables(directory)
+        read_fixture_tables(directory)
     assert raised.value.file == name and raised.value.line == len(lines) + 1
 
 
@@ -284,11 +283,11 @@ def test_a_calibration_id_must_be_unique(tmp_path) -> None:
     lines = (directory / "calibrations.csv").read_text().splitlines()
     _edit(directory, "calibrations.csv", [*lines, lines[1]])
     with pytest.raises(PanelTableError, match="already has a row"):
-        read_tables(directory)
+        read_fixture_tables(directory)
 
 
 def test_a_kind_id_may_name_kinds_of_several_classes(panel_tables: Path) -> None:
-    kinds = read_tables(panel_tables).calibration_kinds
+    kinds = read_fixture_tables(panel_tables).calibration_kinds
     assert [k.cls for k in kinds if k.kind == "centre"] == ["Quadrupole", "Dipole"]
 
 
@@ -296,7 +295,7 @@ def test_the_under_column_may_be_left_out_of_the_header(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
     lines = (directory / "calibration_kinds.csv").read_text().splitlines()
     _edit(directory, "calibration_kinds.csv", [line.rsplit(",", 1)[0] for line in lines])
-    kinds = read_tables(directory).calibration_kinds
+    kinds = read_fixture_tables(directory).calibration_kinds
     assert len(kinds) == len(lines) - 1 and all(k.under is None for k in kinds)
 
 
@@ -307,27 +306,27 @@ def test_a_metric_may_state_its_decimals_and_nothing_else_there(tmp_path) -> Non
     path = tables / "metrics.csv"
     lines = path.read_text().splitlines()
     path.write_text("\n".join([lines[0] + ",precision", lines[1] + ",2"]) + "\n")
-    (metric,) = read_tables(tables).metrics
+    (metric,) = read_fixture_tables(tables).metrics
     assert metric.precision == 2
     path.write_text("\n".join([lines[0] + ",precision", lines[1] + ",1.5"]) + "\n")
     with pytest.raises(PanelTableError, match="precision"):
-        read_tables(tables)
+        read_fixture_tables(tables)
 
 
 def test_state_labels_read_one_word_per_channel_and_value(tmp_path) -> None:
     from osprey.facility.panels.tables import STATE_LABELS
 
     tables = copy_tables(tmp_path / "panels")
-    assert read_tables(tables).state_labels == ()  # absent: no words
+    assert read_fixture_tables(tables).state_labels == ()  # absent: no words
     header = "channel,value,label,source,revision,locator\n"
     (tables / STATE_LABELS).write_text(header + "X:A,0,Closed,S,1,l\nX:A,1,Open,S,1,l\n")
-    assert [(r.value, r.label) for r in read_tables(tables).state_labels] == [
+    assert [(r.value, r.label) for r in read_fixture_tables(tables).state_labels] == [
         ("0", "Closed"),
         ("1", "Open"),
     ]
     (tables / STATE_LABELS).write_text(header + "X:A,1,Open,S,1,l\nX:A,1,Shut,S,1,l\n")
     with pytest.raises(PanelTableError, match="already has a row"):
-        read_tables(tables)
+        read_fixture_tables(tables)
 
 
 def test_the_graph_finds_a_state_word_for_a_value_however_it_is_written(tmp_path) -> None:
@@ -359,7 +358,59 @@ def test_a_channel_role_row_that_cannot_be_drawn_is_refused(tmp_path, row: str, 
     tables = copy_tables(tmp_path / "panels")
     (tables / CHANNEL_ROLES).write_text(",".join(COLUMNS[CHANNEL_ROLES]) + "\n" + row + "\n")
     with pytest.raises(PanelTableError, match=re.escape(why)):
-        read_tables(tables)
+        read_fixture_tables(tables)
+
+
+def test_walked_relations_are_the_device_to_device_types_sorted_by_name():
+    from osprey.facility.panels.tables import walked_relations
+
+    rows = [
+        {"name": "read_out_by", "subject": ["device"], "object": ["device"]},
+        {"name": "located_in", "subject": ["device"], "object": ["place"]},
+        {"name": "cabled_to", "subject": ["device", "place"], "object": ["device", "place"]},
+        {"name": "member_of", "subject": ["device"]},  # no object: never walked
+    ]
+    assert walked_relations(rows) == ("cabled_to", "read_out_by")
+    assert walked_relations([]) == ()
+
+
+def _one_role(tmp_path, scope: str):
+    from osprey.facility.panels.tables import CHANNEL_ROLES
+
+    tables = copy_tables(tmp_path / "panels")
+    row = f"Pump,p,*:P,{scope},value,,,,,stated,S,1,l"
+    (tables / CHANNEL_ROLES).write_text(",".join(COLUMNS[CHANNEL_ROLES]) + "\n" + row + "\n")
+    return tables
+
+
+def test_a_role_scope_is_a_relation_type_of_the_document_it_is_read_against(tmp_path):
+    from osprey.facility.panels.tables import read_tables
+
+    tables = _one_role(tmp_path, "fed_by")
+    own = [{"name": "fed_by", "subject": ["device"], "object": ["device"]}]
+    (role,) = read_tables(tables, relation_types=own).channel_roles
+    assert role.scope == "fed_by"
+    with pytest.raises(PanelTableError, match=re.escape("scope is 'fed_by'")) as refused:
+        read_tables(tables, relation_types=[])
+    assert refused.value.file == "channel_roles.csv" and refused.value.line == 2
+    assert "not one of device, parts" in str(refused.value)
+
+
+def test_a_role_scope_of_a_type_that_ends_at_a_place_is_refused(tmp_path):
+    from osprey.facility.panels.tables import read_tables
+
+    tables = _one_role(tmp_path, "located_in")
+    place = [{"name": "located_in", "subject": ["device"], "object": ["place"]}]
+    with pytest.raises(PanelTableError, match=re.escape("scope is 'located_in'")):
+        read_tables(tables, relation_types=place)
+
+
+def test_the_built_in_scopes_need_no_relation_type(tmp_path):
+    from osprey.facility.panels.tables import read_tables
+
+    for scope in ("device", "parts"):
+        (role,) = read_tables(_one_role(tmp_path / scope, scope), relation_types=()).channel_roles
+        assert role.scope == scope
 
 
 def test_a_card_key_number_names_its_class_and_shows_a_value_or_a_word(tmp_path):
@@ -367,16 +418,16 @@ def test_a_card_key_number_names_its_class_and_shows_a_value_or_a_word(tmp_path)
     path = tables / "metrics.csv"
     base = path.read_text()
     path.write_text(base + "card,,1,Pressure,word,pressure,Pump,,,S\n")
-    assert [m.measure for m in read_tables(tables).metrics if m.view == "card"] == ["word"]
+    assert [m.measure for m in read_fixture_tables(tables).metrics if m.view == "card"] == ["word"]
     path.write_text(base + "card,,1,Pressure,rms,pressure,Pump,,,S\n")
     with pytest.raises(PanelTableError, match="one of value, word, count_true, max, sum"):
-        read_tables(tables)
+        read_fixture_tables(tables)
     path.write_text(base + "card,,1,Pressure,value,pressure,,,,S\n")
     with pytest.raises(PanelTableError, match="names its class"):
-        read_tables(tables)
+        read_fixture_tables(tables)
     path.write_text(base + "place,,9,Pressure,word,pressure,Pump,,,S\n")
     with pytest.raises(PanelTableError, match="only a card's key number is a word"):
-        read_tables(tables)
+        read_fixture_tables(tables)
 
 
 @pytest.mark.parametrize(
@@ -393,7 +444,7 @@ def test_a_front_row_with_one_of_far_relation_and_far_direction_is_refused(
         + f"\nsupply,front,outputs,2,Out2,power,,,{far},,,S,,\n"
     )
     with pytest.raises(PanelTableError, match=r"fronts\.csv line 3\b.*both given or both empty"):
-        read_tables(directory)
+        read_fixture_tables(directory)
 
 
 def test_a_front_row_with_neither_far_relation_nor_far_direction_is_read(tmp_path: Path) -> None:
@@ -401,5 +452,5 @@ def test_a_front_row_with_neither_far_relation_nor_far_direction_is_read(tmp_pat
     (directory / "fronts.csv").write_text(
         _header("fronts.csv") + "\nsupply,front,inputs,1,In1,io,,,,,,,S,,\n"
     )
-    (row,) = read_tables(directory).fronts
+    (row,) = read_fixture_tables(directory).fronts
     assert (row.far_relation, row.far_direction) == (None, None)

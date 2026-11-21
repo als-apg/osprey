@@ -144,6 +144,37 @@ def test_a_missing_facility_file_says_so(tmp_path):
     assert "cannot be read" in result.output
 
 
+def _assert_refused(result: Result) -> None:
+    """Refused as an unreadable facility: the reason and the rebuild hint, exit 1, no traceback."""
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert "The facility cannot be read." in result.output
+    assert "rebuild with osprey build" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_facility_3_document_is_refused_with_the_rebuild_hint(tmp_path):
+    def older(document) -> None:
+        document["schema"] = "osprey.facility.facility/3"
+
+    facility = write_fixture_facility(tmp_path / "facility.json", older)
+    for verb in ("check", "write"):
+        result = _run(facility, verb, "--out", str(tmp_path / f"out-{verb}"))
+        _assert_refused(result)
+        assert "osprey.facility.facility/3" in result.output
+    assert not (tmp_path / "out-write" / "index.json").exists()
+
+
+def test_a_facility_4_document_without_relation_types_is_refused(tmp_path):
+    def without(document) -> None:
+        document.pop("relation_types", None)
+
+    facility = write_fixture_facility(tmp_path / "facility.json", without)
+    result = _run(facility, "check", "--out", str(tmp_path / "out"))
+    _assert_refused(result)
+    assert "relation_types" in result.output
+
+
 def test_a_corrupt_index_stops_write_and_check(facility_file, tmp_path):
     out = tmp_path / "out"
     assert _run(facility_file, "write", "--out", str(out)).exit_code == 0

@@ -844,7 +844,9 @@ def test_a_scope_cuts_a_group_to_its_kept_members_and_writes_a_duplicate_once(tm
     from osprey.facility.panels.emit import scoped, write_scope
 
     def per_sector(document) -> None:  # the facility's own set of XR01's quadrupoles
-        document["groups"].append({"id": "XR01-QUAD", "members": ["XR01:QF1", "XR01:QD1"]})
+        document["groups"].append(
+            {"id": "XR01-QUAD", "kind": "family", "members": ["XR01:QF1", "XR01:QD1"]}
+        )
 
     graph = graph_with_part(tmp_path, per_sector)
     scope = write_scope(graph, ("XR/XR01",))
@@ -865,7 +867,9 @@ def test_no_written_screen_links_to_a_duplicate_the_scope_writes_once(tmp_path):
     from osprey.facility.panels.emit import Draw, _links
 
     def per_sector(document) -> None:  # the facility's own set of XR01's quadrupoles
-        document["groups"].append({"id": "XR01-QUAD", "members": ["XR01:QF1", "XR01:QD1"]})
+        document["groups"].append(
+            {"id": "XR01-QUAD", "kind": "family", "members": ["XR01:QF1", "XR01:QD1"]}
+        )
 
     graph = graph_with_part(tmp_path, per_sector)
     out = tmp_path / "out"

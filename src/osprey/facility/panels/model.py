@@ -1,12 +1,12 @@
 """The panel graph: a built facility file read with its rule tables.
 
 :func:`load_graph` reads the facility file through
-:class:`~osprey.facility.records.FacilityRecords` and the rule tables through
+:class:`~osprey.facility.panels.document.FacilityDocument` and the rule tables through
 :func:`~osprey.facility.panels.tables.read_tables`, then builds every index
 once. :class:`PanelGraph` is read-only; each accessor returns fresh lists.
 
 A thing is a device, a place or a group of the facility file, the three kinds
-a relation end may name (:data:`~osprey.facility.relations.END_KINDS`). One id
+a relation end may name (:data:`~osprey.facility.panels.document.END_KINDS`). One id
 can name records of two kinds; an accessor given only an id takes the first
 kind in that order (device, place, group), and ``kind=`` picks another.
 
@@ -54,7 +54,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from osprey.facility import FACILITY_FILE
+from osprey.facility.panels.document import (
+    END_KINDS,
+    FACILITY_FILE,
+    FacilityDocument,
+    end_identity,
+)
 from osprey.facility.panels.tables import (
     CALIBRATION_BASES,
     CHANNEL_ROLES,
@@ -63,7 +68,6 @@ from osprey.facility.panels.tables import (
     NAMES,
     RECORD_TYPES,
     TABLE_FILES,
-    WALKED_RELATIONS,
     Basis,
     Calibration,
     CalibrationKind,
@@ -85,10 +89,8 @@ from osprey.facility.panels.tables import (
     RecordType,
     StripSymbol,
     read_tables,
+    walked_relations,
 )
-from osprey.facility.records import FacilityRecords
-from osprey.facility.relations import END_KINDS, end_identity
-from osprey.facility.validate import nameplate_signals, signal_titles
 
 __all__ = [
     "CalibrationState",
@@ -590,12 +592,15 @@ class PanelGraph:
 
     def __init__(
         self,
-        records: FacilityRecords,
+        document: FacilityDocument,
         tables: PanelTables,
         *,
         content_hash: str | None = None,
     ) -> None:
-        self._records = records
+        self._records = document
+        #: The document's relation types from a device to a device, sorted: the
+        #: relations a ``channel_roles.csv`` scope, a signal and a picture walk.
+        self.walked: tuple[str, ...] = walked_relations(document.relation_types())
         self._lengths: dict[str, float] | None = None
         self._tables = tables
         self._content_hash = content_hash
@@ -606,19 +611,25 @@ class PanelGraph:
         for row in tables.excluded:
             excluded[row.kind].add(row.id)
         self._excluded_documents = frozenset(excluded["document"])
-        self._things = self._read_things(records, excluded["thing"])
+        self._things = self._read_things(document, excluded["thing"])
         short = {
             row.thing: row.short_name
             for row in tables.names
             if row.document not in self._excluded_documents
         }
         #: Per table, the rows that only restate what the facility file says.
-        #: The signal roles that name a unit rather than its state (a ``nameplate``
-        #: signal of the vocabulary or ``signals.yaml``): a role of one of these
+        #: The signal roles that name a unit rather than its state (a ``signals``
+        #: row of the document with ``nameplate`` true): a role of one of these
         #: words says what a device is, never how it is.
-        self.identity: frozenset[str] = nameplate_signals(records.document.get("signals") or ())
+        self.identity: frozenset[str] = frozenset(
+            str(row["name"]) for row in document.signal_rows() if row.get("nameplate") is True
+        )
         #: The short word each titled signal role is named by on a screen.
-        self.titles: dict[str, str] = signal_titles(records.document.get("signals") or ())
+        self.titles: dict[str, str] = {
+            str(row["name"]): row["title"]
+            for row in document.signal_rows()
+            if isinstance(row.get("title"), str) and row["title"]
+        }
         self.redundant: dict[str, int] = {}
         #: Per ``table column``: the rows whose value in it is the default, while
         #: another column of the row is read (the row stays, the value may go).
@@ -633,7 +644,7 @@ class PanelGraph:
             if thing.kind != "group" and thing.place is not None:
                 self._children.setdefault(thing.place, []).append(thing)
         self._members: dict[str, tuple[str, ...]] = {}
-        for group in records.of_kind("group"):
+        for group in document.of_kind("group"):
             if ("group", str(group["id"])) not in self._things:
                 continue
             members = group.get("members") or ()
@@ -641,8 +652,8 @@ class PanelGraph:
                 self.unread += 1
                 members = ()
             self._members[str(group["id"])] = tuple(str(member) for member in members)
-        self._read_channels(records, tables, excluded["channel"])
-        self._read_edges(records)
+        self._read_channels(document, tables, excluded["channel"])
+        self._read_edges(document)
         self._read_claims()
         self._read_wholes()
         self._read_poses(tables)
@@ -719,7 +730,7 @@ class PanelGraph:
             if citation is not None and citation.document not in self._excluded_documents
         )
 
-    def _read_things(self, records: FacilityRecords, excluded: set[str]) -> dict[_Key, Thing]:
+    def _read_things(self, records: FacilityDocument, excluded: set[str]) -> dict[_Key, Thing]:
         every_place = {str(place["id"]) for place in records.of_kind("place")}
         hidden = {
             place
@@ -736,7 +747,7 @@ class PanelGraph:
         things: dict[_Key, Thing] = {}
         self._left_out: set[_Key] = set()
         for kind in END_KINDS:
-            for record in records.of_kind(kind):  # type: ignore[arg-type]
+            for record in records.of_kind(kind):
                 thing_id = str(record["id"])
                 if (
                     thing_id in excluded
@@ -762,7 +773,7 @@ class PanelGraph:
                     citations=self._citations(record),
                     level=_text(record.get("level")) if kind == "place" else None,
                     model=_text(record.get("model")) if kind == "device" else None,
-                    group_kind=(_text(record.get("kind")) or "family") if kind == "group" else None,
+                    group_kind=_text(record.get("kind")) if kind == "group" else None,
                     attributes=_attribute_pairs(record) if kind == "device" else (),
                     s_m=_number_or_none(record.get("s")) if kind == "device" else None,
                     short_name=_text(record.get("label")),
@@ -770,7 +781,9 @@ class PanelGraph:
         return things
 
     @staticmethod
-    def _withheld_parts(records: FacilityRecords, excluded: set[str], hidden: set[str]) -> set[str]:
+    def _withheld_parts(
+        records: FacilityDocument, excluded: set[str], hidden: set[str]
+    ) -> set[str]:
         """The devices ``part_of`` an excluded device (at any depth), which are left out too.
 
         A device is excluded by name or by a place it is in; the ``part_of``
@@ -802,7 +815,7 @@ class PanelGraph:
         return withheld
 
     def _read_channels(
-        self, records: FacilityRecords, tables: PanelTables, excluded: set[str]
+        self, records: FacilityDocument, tables: PanelTables, excluded: set[str]
     ) -> None:
         types = {
             row.channel: row
@@ -865,7 +878,7 @@ class PanelGraph:
             if not held:
                 self._unheld.append(channel)
 
-    def _read_edges(self, records: FacilityRecords) -> None:
+    def _read_edges(self, records: FacilityDocument) -> None:
         self._edges: dict[_Key, dict[str, list[Edge]]] = {}
         for claim in records.document.get("relations") or ():
             if not isinstance(claim, Mapping) or claim.get("standing") == "superseded":
@@ -1417,7 +1430,7 @@ class PanelGraph:
         first of these that has any: (1) the device the ``port`` of the device's
         relations to devices names, when it names a device (the control system's own
         records); (2) the device itself; (3) the devices those relations name (any
-        relation type in :data:`~osprey.facility.panels.tables.WALKED_RELATIONS`).
+        relation type in :attr:`walked`).
         Empty when none states it.
 
         Raises:
@@ -1426,7 +1439,7 @@ class PanelGraph:
         near = self.neighbours(device_id, "device")
         edges = [
             edge
-            for relation in WALKED_RELATIONS
+            for relation in self.walked
             for edge in near.get(relation, ())
             if edge.outgoing and edge.other_kind == "device"
         ]
@@ -1459,7 +1472,7 @@ class PanelGraph:
         channel)`` pairs from the first of these levels that has any: (1) the device
         itself; (2) its parts, the devices ``part_of`` it (one level); (3) the devices
         the ``port`` of its relations to devices names (any relation type a
-        ``channel_roles.csv`` scope may walk, :data:`~osprey.facility.panels.tables.WALKED_RELATIONS`);
+        ``channel_roles.csv`` scope may walk, :attr:`walked`);
         (4) the devices those relations name. *signal* is a signal name, matched
         against a channel's stated signal, or a pattern with ``*``, ``?`` or ``[``,
         matched against channel names. Matches on more than one device of a level
@@ -1478,7 +1491,7 @@ class PanelGraph:
         ]
         walked = [
             edge
-            for relation in WALKED_RELATIONS
+            for relation in self.walked
             for edge in edges.get(relation, ())
             if edge.outgoing and edge.other_kind == "device"
         ]
@@ -1672,7 +1685,7 @@ class PanelGraph:
 
         A ``device`` row matches the device's own channels and a ``parts`` row
         those of its parts (``part_of`` it, one level); every match plays the role.
-        A row whose scope is a relation type (:data:`~osprey.facility.panels.tables.ROLE_SCOPES`:
+        A row whose scope is a relation type (:attr:`walked`:
         ``read_out_by``, ``controlled_by``, ``interlocked_by``, ...) walks each such
         relation of the device to a device, fills the pattern from that relation's object port
         (:func:`substitute`) and matches that device's channels: exactly one
@@ -1826,16 +1839,17 @@ def load_graph(facility: Path, panels_dir: Path) -> PanelGraph:
 
     Raises:
         FileNotFoundError: No facility file is there.
-        FacilityFileError: The facility file cannot be read.
+        FacilityDocumentError: The facility file cannot be read or is no document
+            the engine reads.
         PanelTableError: A rule table breaks its schema.
     """
     path = Path(facility)
     if path.is_dir():
         path = path / FACILITY_FILE
-    records = FacilityRecords.from_file(path)
+    records = FacilityDocument.from_file(path)
     if records is None:
         raise FileNotFoundError(f"no facility file at {path}")
-    tables = read_tables(panels_dir)
+    tables = read_tables(panels_dir, relation_types=records.relation_types())
     digest = hashlib.sha256()
     digest.update(path.read_bytes())
     for name in TABLE_FILES:

@@ -346,7 +346,10 @@ def test_the_engine_judges_the_setting_the_kind_patches(tmp_path: Path) -> None:
 
 
 def test_the_facility_added_signal_role_is_carried(built) -> None:
-    assert built.facility["signals"] == [FIXTURE_ROLE]
+    [declared] = [row for row in built.facility["signals"] if row["name"] == "fixture_role"]
+    assert declared == FIXTURE_ROLE
+    names = [row["name"] for row in built.facility["signals"]]
+    assert names == sorted(names)
     assert _channel(built.facility, "CLEAN:EN")["signal"] == "fixture_role"
     assert "fixture_role" in json.dumps(_facts(built)["vocabulary"])
 

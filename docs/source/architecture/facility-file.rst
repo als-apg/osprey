@@ -22,9 +22,9 @@ The facility file
 =================
 
 ``build/facility.json`` is every record of the facility in one document,
-under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
-``channels``, ``groups``, ``models`` with their wiring and inputs, ``limits`` and
-``scenarios``. A model's *deck* is the lattice file its simulation engine
+under a ``schema`` header: ``identity``, ``classes``, the ``signals`` and
+``relation_types`` tables, ``places``, ``devices``, ``channels``, ``groups``,
+``models`` with their wiring and inputs, ``limits`` and ``scenarios``. A model's *deck* is the lattice file its simulation engine
 loads, and its *wiring* is the set of records that tie channel addresses to
 elements of that deck.
 

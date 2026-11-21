@@ -1157,8 +1157,7 @@ def _panel_graph(
 ):
     """The panel graph of the built facility; exits 1 with the cause when it cannot load."""
     from osprey.facility import FACILITY_FILE
-    from osprey.facility.panels import PanelTableError, load_graph
-    from osprey.utils.facility import FacilityFileError
+    from osprey.facility.panels import FacilityDocumentError, PanelTableError, load_graph
 
     try:
         if facility_file is None or tables is None:
@@ -1186,7 +1185,7 @@ def _panel_graph(
         return graph, tables
     except FileNotFoundError as error:
         fail("The facility cannot be read.", str(error), "Run osprey build, or name --facility.")
-    except (FacilityFileError, PanelTableError, OSError) as error:
+    except (FacilityDocumentError, PanelTableError, OSError) as error:
         fail("The facility cannot be read.", str(error))
     raise click.exceptions.Exit(1)
 
