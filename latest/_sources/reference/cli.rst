@@ -1750,10 +1750,20 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
    the layout cut to fit. The layout measures text in the viewer's own font
-   (IBM Plex Sans): a column takes the width its longest label needs, a long
-   label in a chain block takes two lines, and a text still longer than its box
-   is cut there with an ellipsis and listed, so the viewer never has to shrink
-   or clip a label. A class's ``sample`` names the members a reviewer
+   (IBM Plex Sans): a column takes the width its longest label needs (a
+   checkout's channel and thing columns their longest names), a long
+   label in a chain block takes two lines, a muted line of prose (a caption, a
+   note, what a press writes, a source, also beside a fact) takes as many lines
+   as it needs, and a
+   text still longer than its box
+   is cut there with an ellipsis and listed, with a box over it that shows the
+   whole text on hover (a link over it shows the link's label), so the viewer
+   never has to shrink or clip a label. A value display is as wide as the widest text the facility
+   states it can show: its longest state word, else its limits as the display
+   prints them when they are wider than the stand-in ``-0.00123``, else that
+   stand-in, with the unit where the display prints it. Every text label's box
+   is at least one line of the font high (a light's mark among them), grown
+   about its middle where it was lower. A class's ``sample`` names the members a reviewer
    opens: the standard, the smallest, the largest, the one with the longest
    label, the first off standard, and one member on each side of every
    variation that changes the drawing (a part drawn with or without a stated
