@@ -122,7 +122,6 @@ from osprey.deployment.service_tokens import (
 )
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.subprocess_capture import run_captured
-from osprey.deployment.web_terminals.artifacts import web_compose_file
 from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
@@ -6609,7 +6608,9 @@ def _start_stack(
         DeploymentRecord(
             get_runtime_command(config)[0],
             resolve_project_name(config),
-            compose_services=_driven_service_names(config, compose_files, Path(repo_root)),
+            compose_services=tuple(
+                sorted(_started_services(config, compose_files, Path(repo_root)))
+            ),
         ),
     )
 
@@ -7937,29 +7938,34 @@ def _started_services(
     """Every service a start hands to compose: the rendered files' and the web stack's.
 
     Relative entries of *compose_files* are resolved against *repo_root*, as the
-    compose invocation resolves them. A service several files define is merged
-    key by key, the later file winning, as compose merges its ``-f`` list; its
-    ``labels`` are merged label by label, as compose merges them, so the labels
-    the build adds do not drop the ones the service's own template sets.
+    compose invocation resolves them, and merged by :func:`merged_services`.
+    The web stack's services are the keys its renderer names
+    (:func:`~osprey.deployment.web_terminals.render.web_stack_service_names`),
+    from the config alone: the start writes ``docker-compose.web.yml`` only once
+    its secrets and directories are provisioned, after this answer is recorded.
+    They are merged with no spec of their own because the overlay declares
+    nothing the run-once rule reads.
     """
     files = [
         repo_root / path if not Path(path).is_absolute() else Path(path) for path in compose_files
     ]
+    mappings: list[Mapping[Any, Any]] = [rendered_compose_services(file) or {} for file in files]
     if _web_terminals_enabled(config):
-        files.append(web_compose_file(repo_root))
-    return merged_compose_services(files)
+        mappings.append({name: {} for name in web_stack_service_names(config).names()})
+    return merged_services(mappings)
 
 
-def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
-    """The ``services`` of rendered compose *files*, merged as compose merges its ``-f`` list.
+def merged_services(mappings: Sequence[Mapping[Any, Any]]) -> dict[str, Any]:
+    """Compose ``services`` *mappings*, merged as compose merges its ``-f`` list.
 
-    A service several files define is merged key by key, the later file
-    winning; its ``labels`` are merged label by label. A file that cannot be
-    read adds nothing.
+    A service several mappings define is merged key by key, the later mapping
+    winning; its ``labels`` are merged label by label, as compose merges them,
+    so the labels the build adds do not drop the ones the service's own
+    template sets.
     """
     started: dict[str, Any] = {}
-    for file in files:
-        for name, spec in (rendered_compose_services(file) or {}).items():
+    for mapping in mappings:
+        for name, spec in mapping.items():
             earlier = started.get(name)
             if isinstance(earlier, Mapping) and isinstance(spec, Mapping):
                 labels = {**run_once.service_labels(earlier), **run_once.service_labels(spec)}
@@ -7968,23 +7974,12 @@ def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
     return started
 
 
-def _driven_service_names(
-    config: dict, compose_files: Sequence[str | Path], repo_root: Path
-) -> tuple[str, ...]:
-    """The compose service keys a start drives: its files' and the web stack's.
+def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
+    """The ``services`` of rendered compose *files*, merged by :func:`merged_services`.
 
-    Relative entries of *compose_files* are resolved against *repo_root*, as
-    :func:`_started_services` resolves them. The web stack's keys come from the
-    roster and the auth method, not from its compose file, which the start
-    renders only after this is asked.
+    A file that cannot be read adds nothing.
     """
-    names: set[str] = set()
-    for path in compose_files:
-        file = repo_root / path if not Path(path).is_absolute() else Path(path)
-        names.update(rendered_compose_services(file) or {})
-    if _web_terminals_enabled(config):
-        names.update(web_stack_service_names(config).names())
-    return tuple(sorted(names))
+    return merged_services([rendered_compose_services(file) or {} for file in files])
 
 
 def _refuse_services_not_running(
