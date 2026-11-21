@@ -353,3 +353,72 @@ def test_check_finds_what_the_index_states_and_the_model_does_not_give(tmp_path)
     assert {p.file for p in found} == {entry["file"], known["file"], "index.json"}
     assert any("gaps" in p.detail for p in found if p.file == known["file"])
     assert all(p.failing for p in found)
+
+
+def test_a_device_screen_names_what_it_shows_of_other_things():
+    from osprey.facility.panels.describe import others
+    from osprey.facility.panels.view import (
+        BlockRow,
+        CardStrip,
+        Chain,
+        ChainBlock,
+        StripMember,
+    )
+
+    here = Target("card", "device", "XR01:BPM1")
+    strip = CardStrip(
+        (0.0, 10.0),
+        (
+            StripMember("XR01:BPM0", "BPM0", 1.0, "bpm", "beam", channel="XR01-BPM0:X"),
+            StripMember("XR01:BPM1", "BPM1", 5.0, "bpm", "beam", channel="XR01-BPM1:X", focus=True),
+            StripMember("XR01:BPM2", "BPM2", 9.0, "bpm", "beam", channel="XR01-BPM2:X"),
+            StripMember("XR01:VV1", "VV1", 7.0, "valve", "beam"),  # nothing bound of it
+        ),
+    )
+    chain = Chain(
+        (
+            ChainBlock("BPM XR01:BPM1", None, (BlockRow("x", "XR01-BPM1:X", shown_as="value"),), focus=True),
+            ChainBlock(
+                "chassis XR01:E1",
+                Link("XR01:E1", Target("card", "device", "XR01:E1")),
+                (BlockRow("sum", "XR01-E1:Sum", shown_as="value"), BlockRow("slot", text="3")),
+            ),
+        )
+    )  # fmt: skip
+    view = View(here, "XR01:BPM1", (), (Section("strip", (strip,)), Section("chain", (chain,))))
+    assert others(view) == (
+        {"thing": "XR01:BPM0", "as": "strip member", "channels": ["XR01-BPM0:X"]},
+        {"thing": "XR01:BPM2", "as": "strip member", "channels": ["XR01-BPM2:X"]},
+        {"thing": "XR01:E1", "as": "chain block", "channels": ["XR01-E1:Sum"]},
+    )
+    # a screen about a set or a place shows its members as what it is about
+    assert others(dataclasses.replace(view, id=Target("set", "group", "XR01-BPM"))) == ()
+
+
+def test_the_check_holds_what_the_index_states_of_other_things(tmp_path):
+    graph = _graph(tmp_path)
+    draw = load_draw(PANELS_DIR / "draw.json")
+    out = tmp_path / "out"
+    index = _written(graph, out, draw)
+    entry = next(e for e in index["screens"] if e["id"] == "card-xr01-ip2")
+    entry["others"] = [{"thing": "XR99:NONE", "as": "strip member", "channels": ["X"]}]
+    (out / "index.json").write_text(json.dumps(index))
+    found = [p for p in check(graph, out, draw=draw) if p.kind == "stale_class"]
+    assert [p.file for p in found] == [entry["file"]]
+    assert "others" in found[0].detail
+
+
+def test_a_row_that_names_no_thing_is_named_by_its_channels_owner(tmp_path):
+    from osprey.facility.panels.describe import others
+
+    graph = _graph(tmp_path)
+    here = Target("channels", "device", "XR01:QD1")
+    rows = (
+        ValueRow("current", "XR01-QD1:Current-RB", None, None, False),  # its own
+        ValueRow("family", "XR01-QF1:Current-RB", None, None, False),  # one its roles reach
+    )
+    view = View(here, "XR01:QD1", (), (Section("current", rows),))
+    assert others(view, graph) == (
+        {"thing": "XR01:QF1", "as": "value row", "channels": ["XR01-QF1:Current-RB"]},
+    )
+    assert others(view) == ()  # without the graph, an unnamed row is not placed

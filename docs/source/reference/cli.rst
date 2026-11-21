@@ -1753,6 +1753,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    label, the first off standard, and one member on each side of every
    variation that changes the drawing (a part drawn with or without a stated
    position, a channel list drawn as a grid or a count).
+   A device's card and channel list also state, under ``others``, what they
+   show of other things on purpose: each thing, the kind of item that draws it
+   (``strip member``, ``chain block``, ...) and the channels of it the screen
+   binds; a row that names no thing (a channel list's row of a device the
+   roles reach) is placed by its channel's owner. A checker can then tell a
+   neighbour's channel from a channel on the wrong screen.
 
 ``osprey facility panels check --out DIRECTORY [--strict] [--max-bytes N] [--limit N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
    Regenerate every screen and compare it with the files under ``--out``;

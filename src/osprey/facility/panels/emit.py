@@ -79,6 +79,7 @@ from osprey.facility.panels.describe import (
     describe,
     drawn_on,
     light,
+    others,
     targets,
     unset_groups,
 )
@@ -591,7 +592,9 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
     )
     measure = screen_classes.measure(view)
     cls, key = screen_classes.class_key(graph, target, measure.structure)
-    sample = screen_classes.Sample(own, target, cls, key, measure, tuple(dict.fromkeys(cuts)))
+    sample = screen_classes.Sample(
+        own, target, cls, key, measure, tuple(dict.fromkeys(cuts)), others(view, graph)
+    )
     return _Drawn(
         (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked)), sample
     )
@@ -1163,7 +1166,7 @@ def check(
 
 
 #: What an index entry states about its screen's class, beside the class itself.
-CLASS_FIELDS = ("differs", "varies", "cuts", "sizes", "gaps", "flags", "label")
+CLASS_FIELDS = ("differs", "varies", "cuts", "others", "sizes", "gaps", "flags", "label")
 
 
 def _check_classes(
