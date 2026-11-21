@@ -108,6 +108,12 @@ output, and durable state:
      build/                         rendered by `osprey build`; gitignored
      var/                           agent memory and audit log; gitignored
 
+So that the run limits and the identity an active ``dispatch:`` or
+``va_archiver:`` block builds with can be read and changed where the block
+sits, ``osprey init`` writes such a block whole: every key the preset leaves
+unstated appears at the value it builds with, with a one-line comment; the
+ports the build takes from ``port_base`` and the archiver host are left out,
+since the build derives them, and a profile without the block gets none of it.
 ``git init`` and an initial commit run at the end, unless a git repository
 already encloses the target or ``--no-git`` is given.
 
@@ -2037,7 +2043,14 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    and the like) and start anyway. Without it, a failed check refuses the start.
 
 ``osprey web stop [--repo DIRECTORY]``
-   Stop a background web terminal server.
+   Stop a background web terminal server. So that the next ``osprey web`` or
+   ``osprey web sessions clear`` finds nothing of it still running, it returns
+   only once the server and the processes it started have exited. A process
+   that outlives the server is ended with SIGTERM, then SIGKILL; one that
+   cannot be ended is named and the command exits 1. A server still running
+   after the wait is named with the ``kill`` line that ends it and left alone:
+   its PID file is kept, so ``osprey web stop`` can be run again, and the
+   command exits 1.
 
 ``osprey web sessions``
    Group for the commands that manage the sessions kept on disk.
