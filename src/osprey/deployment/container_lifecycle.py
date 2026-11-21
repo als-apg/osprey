@@ -129,9 +129,8 @@ from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
     preflight_web_terminals,
-    web_stack_service_names,
 )
-from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
+from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES, web_stack_service_names
 from osprey.deployment.web_terminals.render_images import (
     build_render_images,
     dispatch_worker_tier_image,
@@ -7984,7 +7983,7 @@ def _driven_service_names(
         file = repo_root / path if not Path(path).is_absolute() else Path(path)
         names.update(rendered_compose_services(file) or {})
     if _web_terminals_enabled(config):
-        names.update(web_stack_service_names(config))
+        names.update(web_stack_service_names(config).names())
     return tuple(sorted(names))
 
 
