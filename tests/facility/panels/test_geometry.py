@@ -3,7 +3,8 @@
 Nothing is rendered: text is measured in the viewer's font (:mod:`metrics`), as
 the layout measures it. Every screen of the fixture facility is checked:
 
-- a text label's text fits its box, so the viewer never shrinks or clips it;
+- a text label's text fits its box, in width and in line height, so the viewer
+  never shrinks or clips it;
 - no widget reaches outside the canvas, but the Apply buttons parked away by
   design (:data:`layout.APPLY_AWAY`);
 - no two text labels draw over each other;
@@ -20,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import layout, load_graph, metrics
+from osprey.facility.panels import layout, load_graph, metrics, symbols
 from osprey.facility.panels.emit import load_draw, write
 from tests._by_path import load_module
 from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
@@ -89,6 +90,32 @@ def test_every_text_fits_its_box(screens):
         > node["geometry"]["width"] + 0.01
     ]
     assert cut == []
+
+
+def test_every_text_label_is_one_line_high(screens):
+    low = [
+        (name, node["props"]["text"], node["geometry"]["height"], node["props"]["fontSize"])
+        for name, screen in screens.items()
+        for node in _nodes(screen["root"])
+        if node["type"] == "text-label"
+        and node["geometry"]["height"] < layout.line_height(node["props"]["fontSize"])
+    ]
+    assert low == []
+
+
+def test_a_lights_mark_gets_a_line_of_its_size():
+    _shape, mark = symbols.light(10, 30, layout.LIGHT_SIZE, "unknown")
+    drawn = layout._Screen("card-x", "x").add(mark)
+    size = mark["props"]["fontSize"]
+    assert drawn["geometry"]["height"] >= layout.line_height(size) > layout.LIGHT_SIZE
+    # grown about the light's middle, so the mark stays centred in it
+    middle = drawn["geometry"]["y"] + drawn["geometry"]["height"] / 2
+    assert middle == pytest.approx(30 + layout.LIGHT_SIZE / 2, abs=0.5)
+    # and every mark a light shows is measured and fits its width
+    for glyph in (symbols.UNKNOWN_MARK, symbols.DISAGREE_MARK, symbols.AGGREGATE_MARK):
+        assert glyph in metrics.WIDTHS
+        ink = metrics.WIDTHS[glyph] * size / metrics.PER_EM + 2 * layout.LABEL_INSET
+        assert ink <= drawn["geometry"]["width"]
 
 
 def test_no_widget_reaches_outside_the_canvas(screens):

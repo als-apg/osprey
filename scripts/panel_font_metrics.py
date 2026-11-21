@@ -26,7 +26,7 @@ from pathlib import Path
 FONT_FILE = Path(__file__).parent / "panel_font" / "IBMPlexSans-Regular.woff"
 
 #: The characters measured: printable ASCII, then the marks a panel writes.
-CHARACTERS = "".join(chr(i) for i in range(0x20, 0x7F)) + "—–·›≈…→←↑↓Σ±°µ×Δ²³Ω"
+CHARACTERS = "".join(chr(i) for i in range(0x20, 0x7F)) + "—–·›≈≠…→←↑↓Σ±°µ×Δ²³Ω"
 
 
 def measure(path: Path | str = FONT_FILE) -> tuple[str, str, dict[str, int], int]:

@@ -676,6 +676,21 @@ def text_width(text: str, size: float, *, caps: bool = False) -> float:
     return math.ceil(_em(text.upper() if caps else text) * size / metrics.PER_EM) + TEXT_PAD
 
 
+def line_height(size: float) -> float:
+    """The height of one line of text at *size* px in the viewer's font
+    (:data:`.metrics.LINE`): a label's box lower than this the viewer shrinks."""
+    return math.ceil(size * metrics.LINE / metrics.PER_EM)
+
+
+def _line_room(g: Mapping[str, float], size: float) -> Mapping[str, float]:
+    """*g* at least one line of *size* high, grown about its middle, so the
+    viewer draws the text at the size the file states."""
+    need = line_height(size)
+    if g["height"] >= need:
+        return g
+    return {**g, "y": max(g["y"] - (need - g["height"]) / 2, 0.0), "height": need}
+
+
 def _em(text: str) -> int:
     """The advance of *text* in thousandths of an em."""
     return sum(metrics.WIDTHS.get(c, metrics.UNLISTED) for c in text)
@@ -1369,8 +1384,10 @@ class _Screen:
     ) -> dict[str, Any]:
         self._widgets += 1
         g = node["geometry"]
-        if node["type"] == "text-label" and node["props"].get("fontSize", SMALL_SIZE) < SMALL_SIZE:
-            node["props"]["fontSize"] = SMALL_SIZE  # the floor: nothing smaller anywhere
+        if node["type"] == "text-label":
+            if node["props"].get("fontSize", SMALL_SIZE) < SMALL_SIZE:
+                node["props"]["fontSize"] = SMALL_SIZE  # the floor: nothing smaller anywhere
+            g = _line_room(g, node["props"].get("fontSize", TEXT_SIZE))
         out: dict[str, Any] = {
             "id": f"w-{self._widgets:04d}",
             "type": node["type"],

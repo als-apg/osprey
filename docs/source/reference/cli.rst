@@ -1755,7 +1755,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    or clip a label. A value display is as wide as the widest text the facility
    states it can show: its longest state word, else its limits as the display
    prints them when they are wider than the stand-in ``-0.00123``, else that
-   stand-in, with the unit where the display prints it. A class's ``sample`` names the members a reviewer
+   stand-in, with the unit where the display prints it. Every text label's box
+   is at least one line of the font high (a light's mark among them), grown
+   about its middle where it was lower. A class's ``sample`` names the members a reviewer
    opens: the standard, the smallest, the largest, the one with the longest
    label, the first off standard, and one member on each side of every
    variation that changes the drawing (a part drawn with or without a stated
