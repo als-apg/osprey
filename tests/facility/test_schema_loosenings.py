@@ -38,6 +38,7 @@ FACILITY_SLOTS = [
     "identity",
     "classes",
     "signals",
+    "relation_types",
     "places",
     "devices",
     "channels",
