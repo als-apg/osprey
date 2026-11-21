@@ -521,10 +521,10 @@ def test_a_node_without_a_rule_reads_no_rule_not_unknown(panel_graph) -> None:
     without = [n for n in found if n.no_rule]
     assert without and len(without) < len(found)
     doc, _ = draw(view, panel_graph)
-    polygons = [  # the tree's: left of the rows by system
+    polygons = [  # the tree's lights: left of the rows by system (a tile's outline is none)
         n
         for n in _by_type(doc, "polygon")
-        if n["geometry"]["x"] < layout.MARGIN + layout.ROLLUP_LEFT
+        if n["geometry"]["x"] < layout.MARGIN + layout.ROLLUP_LEFT and "tooltip" in n["props"]
     ]
     assert len(polygons) == len(found)  # one light per node, those without a rule in "none"
     bare = [n for n in polygons if n["props"]["lineColor"] == symbols.look("none")["lineColor"]]
@@ -882,7 +882,8 @@ def test_a_device_in_no_place_turns_the_root_roll_up_bad(panel_graph) -> None:
     loose = "XR09-LOOSE1:Fault-Sts"
     for by in ("place", "system"):
         doc, _ = draw(health_rollup(panel_graph, "XR", by), panel_graph)
-        root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
+        # the root's row is the first light drawn (a dashed outline is no light)
+        root = next(n for n in _by_type(doc, "polygon") if n.get("rules"))
         names = set(bound(doc, root))
         assert loose in names
         quiet = dict.fromkeys(names, 1) | {loose: 0}
@@ -1260,7 +1261,8 @@ def test_a_bad_part_turns_the_place_of_its_whole_bad(tmp_path) -> None:
     card = "XR01-CARD1:Fault-Sts"
     for place in ("XR/XR01/RK1", "XR/XR01"):
         doc, _ = draw(health_rollup(graph, place), graph)
-        root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
+        # the root's row is the first light drawn (a dashed outline is no light)
+        root = next(n for n in _by_type(doc, "polygon") if n.get("rules"))
         names = set(bound(doc, root))
         assert card in names, place
         quiet = dict.fromkeys(names, 1) | {card: 0}
@@ -1648,3 +1650,67 @@ def test_every_size_constant_is_named_once() -> None:
     names = re.findall(r"^([A-Z][A-Z0-9_]*) = ", source, flags=re.MULTILINE)
     twice = sorted({n for n in names if names.count(n) > 1})
     assert twice == []  # a second binding silently changes every use of the first
+
+
+def test_a_roll_up_s_summed_state_is_its_headline_and_what_it_does_not_sum_stands_apart(
+    panel_graph,
+) -> None:
+    """The root's light is larger than its members' and its name in the page's text;
+    a child the root does not sum (no rule) comes after the members, a wider gap
+    before it, as a dashed outline with no fill."""
+    view = health_rollup(panel_graph, "XR/XR01")
+    doc, _ = draw(view, panel_graph)
+    lights = [n for n in _by_type(doc, "polygon") if "tooltip" in n["props"]]
+    root, *members = lights
+    assert root["geometry"]["width"] == layout.HEADLINE_LIGHT
+    assert all(m["geometry"]["width"] < root["geometry"]["width"] for m in members)
+    g = root["geometry"]
+    (name,) = [  # the root's name beside its light
+        n for n in _by_type(doc, "text-label")
+        if n["props"]["text"] == "XR/XR01" and n["geometry"]["x"] > g["x"]
+        and abs(n["geometry"]["y"] - g["y"]) < layout.ROW
+    ]  # fmt: skip
+    assert name["props"]["fontSize"] == layout.HEADLINE_SIZE
+    assert name["props"]["foregroundColor"] == symbols.PAGE_TEXT
+    outlines = [
+        n for n in _by_type(doc, "polygon")
+        if n["props"].get("lineStyle") == "dashed" and n["geometry"]["height"] == layout.ROLLUP_TILE_HEIGHT
+    ]  # fmt: skip
+    (root_node,) = view.sections[-1].items
+    bare = [c for c in root_node.children if c.no_rule]
+    assert len(outlines) == len(bare) > 0
+    assert all(o["props"]["fill"] is False for o in outlines)
+    tiles = sorted(
+        (
+            n["geometry"]
+            for n in _by_type(doc, "rectangle")
+            if n["geometry"]["height"] == layout.ROLLUP_TILE_HEIGHT
+            and not n["props"].get("actions")
+        ),  # fmt: skip
+        key=lambda g: (g["y"], g["x"]),
+    )
+    first_out = min(outlines, key=lambda n: (n["geometry"]["y"], n["geometry"]["x"]))["geometry"]
+    assert all((g["y"], g["x"]) < (first_out["y"], first_out["x"]) for g in tiles)  # members first
+    before = [g for g in tiles if g["y"] == first_out["y"]]
+    if before:  # on the members' row: a wider gap than between members
+        gap = first_out["x"] - (before[-1]["x"] + before[-1]["width"])
+        assert gap == layout.OUTSIDE_GAP
+
+
+def test_a_screen_shows_what_it_is_for_before_its_ways_to_other_screens(panel_graph) -> None:
+    """On a set's screen the members come first; the sections of nothing but links
+    (its group, its calibration views) follow, each in its own order."""
+    from osprey.facility.panels.describe import set_overview
+
+    view = set_overview(panel_graph, "XR-QUAD")
+    assert [s.title for s in view.sections] == ["group", "calibration", "members"]
+    assert [s.title for s in layout.first_what_it_is_for(view.sections)] == [
+        "members", "group", "calibration"
+    ]  # fmt: skip
+    doc, _ = draw(view, panel_graph)
+    heads = {
+        n["props"]["text"]: n["geometry"]["y"]
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"] in ("MEMBERS", "GROUP", "CALIBRATION")
+    }
+    assert heads["MEMBERS"] < heads["GROUP"] < heads["CALIBRATION"]

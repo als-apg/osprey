@@ -372,6 +372,9 @@ CHAIN_ARROW = 40  # the run of an arrow between two boxes of the chain
 ROLLUP_LEFT = 700  # a roll-up's tiles, with the gap to its by-system rows
 ROLLUP_TILE_WIDTH = 150  # the least width of a child's tile
 ROLLUP_TILE_HEIGHT = 64
+HEADLINE_LIGHT = 20  # a roll-up's summed state: larger than the lights it sums
+HEADLINE_SIZE = 16  # and its name, in the page's text
+OUTSIDE_GAP = 24  # more room before the tiles a roll-up's state does not sum
 RING_OUTER = 185  # a ring roll-up's arcs: outer and inner radius
 RING_INNER = 120
 RING_GAP = 2  # degrees left free at each end of an arc
@@ -1469,6 +1472,21 @@ class _Screen:
         }
 
 
+def _only_links(section: Section) -> bool:
+    """Whether *section* holds nothing but links: a way to other screens."""
+    return bool(section.items) and all(isinstance(i, Link) for i in section.items)
+
+
+def first_what_it_is_for(sections: Sequence[Section]) -> list[Section]:
+    """*sections* in three parts, each in its own order: what the screen is for,
+    then the ways to other screens (sections of nothing but links), then where
+    its facts come from (its sources)."""
+    sources = [s for s in sections if s.title == _SOURCES]
+    ways = [s for s in sections if _only_links(s) and s not in sources]
+    rest = [s for s in sections if s not in ways and s not in sources]
+    return [*rest, *ways, *sources]
+
+
 def _need(name: str) -> str:
     assert name in _REQUEST_NAMES, name
     return _REQUEST_TAG + name
@@ -2058,7 +2076,7 @@ class _Page:
                 else:
                     continue
                 sections.remove(section)
-        for section in sections:
+        for section in first_what_it_is_for(sections):
             tree = section.items[0] if section.items else None
             if self.view.id.view == "rollup" and isinstance(tree, Node):
                 self.rollup(tree, beside, arcs)
@@ -2094,12 +2112,21 @@ class _Page:
         columns = max(1, int((width + GAP) // (ROLLUP_TILE_WIDTH + GAP)))
         w = (width - (columns - 1) * GAP) / columns
         children = [(i, c) for i, c in enumerate(root.children) if c.label not in on_ring]
+        # what the root's state does not sum (no rule) comes after what it does,
+        # a wider gap between, and never looks like a member
+        members = [(i, c) for i, c in children if not c.no_rule]
+        outside = [(i, c) for i, c in children if c.no_rule]
+        x: float = MARGIN
         y = self.y
-        for start in range(0, len(children), columns):
-            for column, (i, child) in enumerate(children[start : start + columns]):
-                x = MARGIN + column * (w + GAP)
-                plan_i = "none" if child.no_rule else decisions.get(i, "open")
-                self.rollup_tile(x, y, w, ROLLUP_TILE_HEIGHT, child, root.label, plan_i)
+        for k, (i, child) in enumerate([*members, *outside]):
+            if members and k == len(members) and x > MARGIN:
+                x += OUTSIDE_GAP - GAP  # set apart from the members
+            if x > MARGIN and x + w > MARGIN + width + 1:
+                x, y = MARGIN, y + ROLLUP_TILE_HEIGHT + GAP
+            plan_i = "none" if child.no_rule else decisions.get(i, "open")
+            self.rollup_tile(x, y, w, ROLLUP_TILE_HEIGHT, child, root.label, plan_i)
+            x += w + GAP
+        if children:
             y += ROLLUP_TILE_HEIGHT + GAP
         bottom = y
         if beside is not None:
@@ -2186,16 +2213,19 @@ class _Page:
             self.text(self.x0, self.y, text, size=SMALL_SIZE, tags=tags)
             self.next_row()
             return
+        size = HEADLINE_LIGHT  # the headline of its block: larger than its members
         if root.no_rule:
-            x = self.no_rule(self.x0, self.y)
+            x = self.no_rule(self.x0, self.y, size)
             note = _NO_RULE_YET
         elif plan == "live":
-            x = self.light(self.x0, self.y, lights, rule=ladder(self.graph, lights, node=True))
+            rule = ladder(self.graph, lights, node=True)
+            x = self.light(self.x0, self.y, lights, rule=rule, size=size)
             note = _READS.format(count, "" if count == 1 else "s")
         else:
-            x = self.light(self.x0, self.y, lights, rule="aggregate state")
+            x = self.light(self.x0, self.y, lights, rule="aggregate state", size=size)
             note = _AGGREGATE_TEXT.format(count)
-        x = self.text(x + GAP, self.y, f"{root.label} · {note}", size=SMALL_SIZE, fg=MUTED_TEXT)
+        x = self.text(x + GAP, self.y, root.label, size=HEADLINE_SIZE)
+        x = self.text(x + WORD_GAP, self.y, note, size=SMALL_SIZE, fg=MUTED_TEXT)
         height: float = ROW
         if plan == "parts":
             height = self.parts(chunks(self.graph, lights), x + GAP, self.x0 + INDENT)
@@ -2213,8 +2243,9 @@ class _Page:
     ) -> None:
         """One child: its light top left with its short name and what it reads under
         it; a child over the rule limit has the aggregate mark, its count and
-        ``open``."""
-        self.box(x, y, w, h, fill=FIELD_BACKGROUND)
+        ``open``. A child with no rule, which its parent's state does not sum, is
+        a dashed outline with no fill."""
+        self.box(x, y, w, h, fill=FIELD_BACKGROUND, line=MUTED_TEXT, dashed=plan == "none")
         inner = x + TILE_PAD
         top = y + TILE_PAD / 2
         lights = [describe_light(self.graph, c) for c in node.channels]
@@ -5469,10 +5500,22 @@ class _Page:
         self.y += GAP
 
     def band(self, band: Band) -> None:
-        """The key numbers: an even grid of tiles across the content width, in the fewest
-        rows whose tiles are :data:`MIN_TILE_WIDTH` wide, the earlier rows one tile
-        longer when the count does not divide; each row spans the full width."""
-        n = len(band.tiles)
+        """The key numbers: those with data first, as an even grid of tiles across the
+        content width, in the fewest rows whose tiles are :data:`MIN_TILE_WIDTH`
+        wide, the earlier rows one tile longer when the count does not divide; each
+        row spans the full width. Those with no data yet fold into one last line
+        that says so once (:meth:`no_data_line`)."""
+        live = [(i, t) for i, t in enumerate(band.tiles) if t.channels or t.pairs]
+        empty = [t for t in band.tiles if not (t.channels or t.pairs)]
+        if live:
+            self.tile_grid(live)
+        if empty:
+            self.no_data_line(empty)
+
+    def tile_grid(self, tiles: Sequence[tuple[int, Tile]]) -> None:
+        """*tiles* (each with its place in the band, which names its formula) as the
+        even grid :meth:`band` describes."""
+        n = len(tiles)
         rows = next(
             r for r in range(1, n + 1) if _tile_width(math.ceil(n / r)) >= MIN_TILE_WIDTH or r == n
         )
@@ -5480,16 +5523,34 @@ class _Page:
         sizes = [base + 1] * extra + [base] * (rows - extra)
         widths = [_tile_width(size) for size in sizes]
         inner = min(widths) - 2 * TILE_PAD
-        titles = max(len(_wrap(t.title.upper(), inner, SMALL_SIZE, caps=True)) for t in band.tiles)
-        captions = max(len(_wrap(self.caption(t), inner, SMALL_SIZE)) for t in band.tiles)
+        titles = max(len(_wrap(t.title.upper(), inner, SMALL_SIZE, caps=True)) for _i, t in tiles)
+        captions = max(len(_wrap(self.caption(t), inner, SMALL_SIZE)) for _i, t in tiles)
         height = 2 * TILE_PAD + (titles + captions) * SMALL_LINE + NUMBER_HEIGHT + 2 * ROW_GAP
-        i = 0
+        k = 0
         for size, w in zip(sizes, widths, strict=True):
             for column in range(size):
                 x = MARGIN + column * (w + GAP)
-                self.tile(x, self.y, w, height, band.tiles[i], f"m{i}", titles)
-                i += 1
+                i, tile = tiles[k]
+                self.tile(x, self.y, w, height, tile, f"m{i}", titles)
+                k += 1
             self.y += height + GAP
+
+    def no_data_line(self, tiles: Sequence[Tile]) -> None:
+        """The key numbers with no data yet, after those with data: "no data yet" once,
+        muted, then each one's title in a dashed outline, wrapping across the width."""
+        x = self.small(MARGIN, self.y, _NO_DATA.upper(), fg=MUTED_TEXT) + WORD_GAP
+        for tile in tiles:
+            title = tile.title.upper()
+            w = text_width(title, SMALL_SIZE) + GAP
+            if x > MARGIN and x + w > MARGIN + STRIP_WIDTH:
+                x = MARGIN
+                self.y += CHIP_HEIGHT + CHIP_GAP
+            self.box(x, self.y, w, CHIP_HEIGHT, line=MUTED_TEXT, dashed=True, fill=PANEL_BACKGROUND)
+            self.text(
+                x + GAP / 2, self.y, title, size=SMALL_SIZE, w=w - GAP, h=CHIP_HEIGHT, fg=MUTED_TEXT
+            )
+            x += w + CHIP_GAP
+        self.y += CHIP_HEIGHT + GAP
 
     @staticmethod
     def caption(item: Tile) -> str:
