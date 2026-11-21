@@ -1,0 +1,113 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="fpt-title fpt-desc">
+  <title id="fpt-title">Today versus target: the one facility package with its import cycle, and the edges the boundary ratchet lists, grouped by the phase that removes them</title>
+  <desc id="fpt-desc">Two halves. The left half is today. src/osprey/facility is one package. Its description, some 22 modules such as records, combine, build, validate, render, scenarios, compute, layers and kinds, imports itself in one cycle, and the cycle runs through the framework's views, scenarios and render: the description reaches into the framework, and the framework imports description modules that are not its public API. The panels code lives inside it, at facility/panels: model and describe import records, relations, validate and pairing, tables reads the vocabulary files of the description, and emit climbs its own file path to reach the framework's theme and imports osprey_connectors.safety_file. The framework's facility CLI imports the panels. Beside it, third-party reaches: click in nine description modules, and kinds into pyaml_cs_osprey. Warn edges are the ones the ratchet lists; each is an allowed entry today and fails the check once its phase has passed. The right half is the ratchet, drawn by edge class and the phase that removes it, not entry by entry. Phase 2, the panels seam: panels to facility code, the model and describe imports and the tables read of the vocabulary; after it the panels read facility.json only. Phase 3, the facility untangle: every description edge into the framework, the views helpers, utils.facility, registry.mcp, the CLI, deployment, config paths, the osprey.simulation root and the engine implementations such as pyat; the edges to click and to pyaml_cs_osprey; the engine contract's osprey.simulation.engines spelling, which moves to osprey_connectors; and any description edge to the panels; this breaks the import cycle. Phase 4, the facility package: framework edges into description modules outside the public API, such as the CLI's read of the MML layer data, after which the public API is protected. Phase 5, the panels package: the framework CLI's import of the panels, the panels' climb to the framework theme, which becomes a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: both packages tag and publish. Footer: the ratchet only shrinks; an edge of none of these classes fails the boundary check today.</desc>
+  <defs>
+    <marker id="fpt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fpt-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/></marker>
+  </defs>
+
+  <!-- half labels -->
+  <text class="te" x="20" y="32">TODAY · ONE PACKAGE, ONE CYCLE</text>
+  <text class="te" x="520" y="32">TARGET · THE RATCHET BY EDGE CLASS AND REMOVING PHASE</text>
+  <line class="divider" x1="500" y1="44" x2="500" y2="556"/>
+
+  <!-- today: the one package -->
+  <rect class="zone" x="20" y="50" width="290" height="312" rx="6"/>
+  <text class="te" x="32" y="68">SRC/OSPREY/FACILITY/</text>
+
+  <rect class="nb-warn" x="32" y="80" width="266" height="124" rx="6"/>
+  <text class="ta ta-warn" x="44" y="98">DESCRIPTION · ONE IMPORT CYCLE</text>
+  <text class="ts" x="44" y="116">~22 modules import one another:</text>
+  <text class="ts" x="44" y="130">records combine build validate</text>
+  <text class="ts" x="44" y="144">render scenarios compute layers</text>
+  <text class="ts" x="44" y="158">kinds relations pairing …</text>
+  <text class="ts" x="44" y="176">the cycle runs through the</text>
+  <text class="ts" x="44" y="190">framework's views, scenarios, render</text>
+
+  <rect class="nb-warn" x="32" y="240" width="266" height="110" rx="6"/>
+  <text class="ta ta-warn" x="44" y="258">PANELS · FACILITY/PANELS/</text>
+  <text class="ts" x="44" y="276">model, describe → records,</text>
+  <text class="ts" x="44" y="290">  relations, validate, pairing</text>
+  <text class="ts" x="44" y="304">tables → vocabulary files</text>
+  <text class="ts" x="44" y="318">emit → framework theme (path climb)</text>
+  <text class="ts" x="44" y="332">emit → osprey_connectors.safety_file</text>
+
+  <!-- today: framework -->
+  <rect class="nb" x="350" y="80" width="130" height="270" rx="6"/>
+  <text class="ta" x="362" y="98">OSPREY</text>
+  <text class="ta" x="362" y="110">FRAMEWORK</text>
+  <text class="ts" x="362" y="130">views</text>
+  <text class="ts" x="362" y="144">utils.facility</text>
+  <text class="ts" x="362" y="158">registry.mcp</text>
+  <text class="ts" x="362" y="172">cli · deployment</text>
+  <text class="ts" x="362" y="186">config paths</text>
+  <text class="ts" x="362" y="200">simulation</text>
+  <text class="ts" x="362" y="214">  engines (pyat …)</text>
+  <text class="ts" x="362" y="228">bundled</text>
+  <text class="ts" x="362" y="282">cli facility</text>
+  <text class="ts" x="362" y="296">theme</text>
+
+  <!-- today: edges -->
+  <line class="e-warn" x1="298" y1="118" x2="348" y2="118" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="112">reaches</text>
+  <line class="e" x1="350" y1="180" x2="300" y2="180" marker-end="url(#fpt-arr)"/>
+  <text class="ta" x="303" y="174">imports</text>
+  <line class="e-warn" x1="165" y1="240" x2="165" y2="206" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="172" y="227">imports</text>
+  <line class="e-warn" x1="350" y1="278" x2="300" y2="278" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="272">imports</text>
+  <line class="e-warn" x1="298" y1="314" x2="348" y2="314" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="308">climbs</text>
+
+  <!-- today: third-party reaches -->
+  <rect class="nb-st" x="20" y="390" width="460" height="62" rx="6"/>
+  <text class="ta" x="32" y="408">THIRD-PARTY REACHES</text>
+  <text class="ts" x="32" y="424">click in nine description modules</text>
+  <text class="ts" x="32" y="438">kinds → pyaml_cs_osprey (step measurement)</text>
+
+  <!-- legend -->
+  <line class="e-warn" x1="20" y1="486" x2="60" y2="486" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ts" x="70" y="489">an edge the ratchet lists; removed by its phase</text>
+  <line class="e" x1="20" y1="508" x2="60" y2="508" marker-end="url(#fpt-arr)"/>
+  <text class="ts" x="70" y="511">an edge the end state keeps, through the public API</text>
+
+  <!-- target: the ratchet by phase -->
+  <rect class="nb-bnd" x="520" y="50" width="460" height="88" rx="6"/>
+  <text class="ta ta-warn" x="532" y="68">PHASE 2 · PANELS SEAM</text>
+  <text class="ts" x="532" y="86">panels → facility code: model, describe → records, relations,</text>
+  <text class="ts" x="532" y="100">  validate, pairing</text>
+  <text class="ts" x="532" y="114">panels → the description's vocabulary files</text>
+  <text class="ts t-acc" x="532" y="128">after it, the panels read facility.json only</text>
+
+  <rect class="nb-bnd" x="520" y="148" width="460" height="130" rx="6"/>
+  <text class="ta ta-warn" x="532" y="166">PHASE 3 · FACILITY UNTANGLE</text>
+  <text class="ts" x="532" y="184">description → framework: views helpers, utils.facility,</text>
+  <text class="ts" x="532" y="198">  registry.mcp, CLI, deployment, config paths, the</text>
+  <text class="ts" x="532" y="212">  osprey.simulation root, engine implementations (pyat …)</text>
+  <text class="ts" x="532" y="226">description → click, → pyaml_cs_osprey</text>
+  <text class="ts" x="532" y="240">the engine contract's osprey. spelling → osprey_connectors</text>
+  <text class="ts" x="532" y="254">description → panels (none today)</text>
+  <text class="ts t-acc" x="532" y="268">after it, the import cycle is gone</text>
+
+  <rect class="nb-bnd" x="520" y="288" width="460" height="74" rx="6"/>
+  <text class="ta ta-warn" x="532" y="306">PHASE 4 · FACILITY PACKAGE</text>
+  <text class="ts" x="532" y="324">framework → description modules outside the public API,</text>
+  <text class="ts" x="532" y="338">  such as the CLI's read of the MML layer data</text>
+  <text class="ts t-acc" x="532" y="352">after it, the public API is protected</text>
+
+  <rect class="nb-bnd" x="520" y="372" width="460" height="88" rx="6"/>
+  <text class="ta ta-warn" x="532" y="390">PHASE 5 · PANELS PACKAGE</text>
+  <text class="ts" x="532" y="408">framework CLI → panels</text>
+  <text class="ts" x="532" y="422">panels → framework theme by path climb; a theme file is passed in</text>
+  <text class="ts" x="532" y="436">panels → osprey_connectors.safety_file</text>
+  <text class="ts t-acc" x="532" y="450">after it, the ratchet is empty</text>
+
+  <rect class="nb-st" x="520" y="470" width="460" height="56" rx="6"/>
+  <text class="ta" x="532" y="488">PHASE 6 · RELEASE WIRING</text>
+  <text class="ts" x="532" y="506">removes no edge: osprey-facility and osprey-panels</text>
+  <text class="ts" x="532" y="520">tag and publish on their own streams</text>
+
+  <text class="ts" x="20" y="582">The ratchet only shrinks: each phase deletes its classes; an edge of none of these classes fails the boundary check today.</text>
+</svg>
+</div>
