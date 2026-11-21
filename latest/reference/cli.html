@@ -2072,7 +2072,13 @@ the layout cut to fit. A class’s <code class="docutils literal notranslate"><s
 opens: the standard, the smallest, the largest, the one with the longest
 label, the first off standard, and one member on each side of every
 variation that changes the drawing (a part drawn with or without a stated
-position, a channel list drawn as a grid or a count).</p>
+position, a channel list drawn as a grid or a count).
+A device’s card and channel list also state, under <code class="docutils literal notranslate"><span class="pre">others</span></code>, what they
+show of other things on purpose: each thing, the kind of item that draws it
+(<code class="docutils literal notranslate"><span class="pre">strip</span> <span class="pre">member</span></code>, <code class="docutils literal notranslate"><span class="pre">chain</span> <span class="pre">block</span></code>, …) and the channels of it the screen
+binds; a row that names no thing (a channel list’s row of a device the
+roles reach) is placed by its channel’s owner. A checker can then tell a
+neighbour’s channel from a channel on the wrong screen.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">check</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--strict]</span> <span class="pre">[--max-bytes</span> <span class="pre">N]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--tables</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--facility</span> <span class="pre">FILE]</span> <span class="pre">[--draw</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Regenerate every screen and compare it with the files under <code class="docutils literal notranslate"><span class="pre">--out</span></code>;
 nothing is written. It prints the count of each problem kind and the first
