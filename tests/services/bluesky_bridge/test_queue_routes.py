@@ -19,6 +19,7 @@ refusal path and consumed on success.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from typing import Any
 
@@ -26,7 +27,7 @@ import pytest
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import (
@@ -562,6 +563,143 @@ def test_enqueue_refuses_a_non_admissible_session_plan(
 
 
 # ---------------------------------------------------------------------------
+# POST /queue/items — the item states every argument the plan runs with
+# ---------------------------------------------------------------------------
+
+_DEFAULTS_PLAN = "defaults_probe"
+
+
+class _DefaultedParams(BaseModel):
+    """One required field, one channel list only a factory default names, one
+    scalar default, and a rule that judges two fields together."""
+
+    span: float = Field(..., gt=0)
+    correctors: MovableChannels = Field(default_factory=lambda: ["COR_DEFAULT"])
+    limit: float = 10.0
+
+    @model_validator(mode="after")
+    def _span_within_limit(self) -> _DefaultedParams:
+        if self.span > self.limit:
+            raise ValueError("span must not exceed limit")
+        return self
+
+
+#: The complete set a draft stating ``span`` alone resolves to, in the
+#: order the plan declares its fields.
+_DEFAULTED_RESOLVED: dict[str, Any] = {"span": 1.0, "correctors": ["COR_DEFAULT"], "limit": 10.0}
+
+
+def _register(monkeypatch: pytest.MonkeyPatch, spec: PlanSpec[Any]) -> list[int]:
+    """Serve *spec* from the plan registry beside the shipped plans.
+
+    Returns a list that grows by one entry per registry read, so a test can
+    count the readings a request takes.
+    """
+    real = plan_loader.get_facility_plans
+    reads: list[int] = []
+
+    def _with_spec() -> plan_loader.FacilityPlans:
+        reads.append(1)
+        found = real()
+        return dataclasses.replace(found, plans={**found.plans, spec.name: spec})
+
+    monkeypatch.setattr(plan_loader, "get_facility_plans", _with_spec)
+    return reads
+
+
+def _defaulted_draft(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, args: dict[str, Any]
+) -> tuple[int, list[int]]:
+    """Register the defaults probe plan and stage *args* for it in the draft."""
+    reads = _register(monkeypatch, _probe_spec(_DefaultedParams, name=_DEFAULTS_PLAN))
+    resp = client.patch(
+        "/draft",
+        json={"plan_name": _DEFAULTS_PLAN, "plan_args_patch": args, "client_id": "test"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["revision"], reads
+
+
+def test_enqueue_refuses_a_device_only_a_default_names(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A channel the plan's own default supplies is judged at enqueue like a
+    typed one, so a worker lacking it refuses the add instead of the run."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("COR1"))
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 1.0})
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert detail["devices"] == ["COR_DEFAULT"]
+    assert "item_add" not in manager.method_names()
+    assert draft._launching == set()
+
+
+def test_the_queued_item_states_every_parameter(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The item, and the identity stamp its run's start document carries, hold
+    the complete resolved set, defaults included."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("COR_DEFAULT"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 1.0})
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200, resp.text
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    item = add_kwargs["item"]
+    assert item["kwargs"] == _DEFAULTED_RESOLVED
+    assert list(item["kwargs"]) == list(_DEFAULTED_RESOLVED)
+    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _DEFAULTED_RESOLVED
+
+
+@pytest.mark.parametrize(
+    ("args", "field"),
+    [
+        pytest.param({}, "span", id="required-field-missing"),
+        pytest.param({"span": 20.0}, None, id="cross-field-rule-broken"),
+    ],
+)
+def test_enqueue_refuses_arguments_the_plan_does_not_accept(
+    client: TestClient,
+    connector,
+    monkeypatch: pytest.MonkeyPatch,
+    args: dict[str, Any],
+    field: str | None,
+) -> None:
+    """A set the plan's own model refuses is refused at enqueue, never queued
+    to fail when the run starts; the pinned revision stays usable."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("COR_DEFAULT"))
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, args)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == qb.REASON_INVALID_ITEM
+    assert detail["retryable"] is False
+    assert detail["plan"] == _DEFAULTS_PLAN
+    assert detail["field"] == field
+    assert detail["detail"].startswith(f"plan {_DEFAULTS_PLAN!r} arguments are not valid: ")
+    assert "item_add" not in manager.method_names()
+    assert draft._launching == set()
+    assert draft._last_launched_revision == 0
+
+
+# ---------------------------------------------------------------------------
 # POST /queue/items — add-time device pre-check
 # ---------------------------------------------------------------------------
 
@@ -582,10 +720,10 @@ def _devices(*names: str, uid: str | None = None) -> dict[str, Any]:
     return reply
 
 
-def _probe_spec(schema: type[BaseModel]) -> PlanSpec[Any]:
+def _probe_spec(schema: type[BaseModel], *, name: str = "probe") -> PlanSpec[Any]:
     """A `PlanSpec` around *schema*, with the roles the loader would record."""
     return PlanSpec(
-        name="probe",
+        name=name,
         plan=lambda devices, params: None,
         schema=schema,
         roles=tuple(channel_roles(schema)),
