@@ -1813,7 +1813,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    model gives now). A link outside the written set, a card or checkout over its
    budget, a probe row whose signal no channel states, and a ``pictures.csv``
    row whose signal binds no channel (``unbound_picture``) or channels of two
-   devices (``ambiguous_picture``) are notes, and fail only with ``--strict``.
+   devices (``ambiguous_picture``), and a strip badge's stem drawn through
+   another thing's state word (``crossed_word``) are notes, and fail only with
+   ``--strict``.
    Before the problems it prints the device classes by how ``pictures.csv``
    draws them (with a drawing, with parts only, with none) and, per class, the
    parts not placed (no position and no angle): information, never a problem.

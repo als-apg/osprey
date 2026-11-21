@@ -683,6 +683,30 @@ def test_ring_words_never_stand_over_one_another(panel_graph, lane, symbol) -> N
     assert len({w[1] for w in words.values()}) >= 3  # the close run needed a further lane
 
 
+def test_a_stem_through_another_badge_s_word_is_named(panel_graph) -> None:
+    """Rings too close for one stem length stand on longer stems, whose lines run
+    down past the words below them; each such crossing is named, for ``check``."""
+    close = [
+        StripElement(f"R{i:02d}", None, 0.5 * i, "ion_pump", "above", None, RULED)
+        for i in range(60)
+    ]
+    crossed: list[str] = []
+    view = strip_view(close)
+    layout.render(
+        view, graph=panel_graph, screens=Screens(), doc_id=Screens.doc_id(view.id), crossed=crossed
+    )
+    assert crossed and all(" stem runs through " in c for c in crossed)
+    apart = [
+        StripElement(f"R{i}", None, 5.0 * i, "ion_pump", "above", None, RULED) for i in range(4)
+    ]
+    crossed = []
+    view = strip_view(apart)
+    layout.render(
+        view, graph=panel_graph, screens=Screens(), doc_id=Screens.doc_id(view.id), crossed=crossed
+    )
+    assert crossed == []
+
+
 def test_word_lanes_take_the_lowest_free_lane_and_open_one_when_none_is():
     assert layout.word_lanes([0, 50, 100, 150], 70) == [0, 1, 0, 1]
     assert layout.word_lanes([0, 10, 20, 100], 70) == [0, 1, 2, 0]

@@ -542,6 +542,9 @@ _BEAM_AXIS = "beam axis"
 _ELLIPSIS = "\u2026"
 #: While :func:`render` runs with ``cuts``: the list each label cut to fit is added to.
 _CUTS: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar("cuts", default=None)
+#: While :func:`render` runs with ``crossed``: each badge stem drawn through another
+#: thing's state word, in words.
+_CROSSED: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar("crossed", default=None)
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
 _WHOLE_KINDS = frozenset({"state", "command"})  # an enum, a two-valued output: printed whole
@@ -1553,6 +1556,7 @@ class _Page:
         self.dropped = 0  # strip values the budget left out
         self.crowded = 0  # strip values with no room in the lanes under their symbol
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
+        self.words: list[tuple[str, tuple[float, float, float, float]]] = []  # its state words
         self.x0: float = MARGIN  # the left edge of the column drawn in
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
@@ -5003,6 +5007,7 @@ class _Page:
         axis = self.y + above + GAP
         self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
         self.taken = []  # boxes a badge's name and values must clear: tags, badges
+        self.words = []
         for p, tag_level in zip(beam, tags, strict=True):
             x = MARGIN + p.x
             self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol], tag_level)
@@ -5020,6 +5025,12 @@ class _Page:
             centres.append((p, x, cy))
         for p, x, cy in centres:
             self.badge_text(p, x, cy)
+            crossed = _CROSSED.get()
+            if crossed is None:
+                continue
+            for thing, (wx, wy, ww, wh) in self.words:  # a stem runs from its badge down
+                if thing != p.thing and wx < x < wx + ww and cy + BADGE / 2 < wy + wh and wy < axis:
+                    crossed.append(f"{p.thing}'s stem runs through {thing}'s state word")
         blocks = self.value_blocks(beam)
         lines = 0
         bare = [p for p in beam if id(p) not in blocks]
@@ -5249,6 +5260,7 @@ class _Page:
         word = symbols.tag(centre, above, TAG_WIDTH, TAG_HEIGHT, SMALL_SIZE, static)
         g = word["geometry"]
         self.taken.append((g["x"], g["y"], g["width"], g["height"]))
+        self.words.append((element.thing, (g["x"], g["y"], g["width"], g["height"])))
         rules: list[dict] = []
         word_rules: list[dict] = []
         if live is not None:
@@ -7249,6 +7261,7 @@ def render(
     doc_id: str,
     colours: Mapping[str, str] = MappingProxyType({}),
     cuts: list[str] | None = None,
+    crossed: list[str] | None = None,
 ) -> dict[str, Any]:
     """The view as a Screen-IR 1.1 document.
 
@@ -7264,12 +7277,15 @@ def render(
             the panel's ground.
         cuts: When given, each label the layout cuts to fit is added to it, as it
             was before the cut.
+        crossed: When given, each badge stem drawn through another thing's state
+            word is added to it, in words.
 
     Returns:
         The document, as JSON-ready data. Equal inputs give equal documents.
     """
-    token = _CUTS.set(cuts)
+    token, crossing = _CUTS.set(cuts), _CROSSED.set(crossed)
     try:
         return _Page(view, graph, screens, doc_id, colours).draw()
     finally:
+        _CROSSED.reset(crossing)
         _CUTS.reset(token)
