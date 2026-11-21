@@ -643,6 +643,52 @@ def test_a_strip_symbols_state_is_a_live_ring_and_word_never_its_fill(tmp_path) 
     assert word["props"]["text"] == unknown["text"]
 
 
+@pytest.mark.parametrize(("lane", "symbol"), [("beam", "corrector"), ("above", "ion_pump")])
+def test_ring_words_never_stand_over_one_another(panel_graph, lane, symbol) -> None:
+    """Ringed and unringed symbols closer than a word's width, alternating, on the
+    axis and as badges over it: each ring's word, at its widest, touches no other
+    word and no other ring. An unringed symbol on the axis takes no lane, and
+    where two lanes would not do a further one is opened."""
+    row = [
+        StripElement(f"E{i:02d}", None, float(i), symbol, lane, None, RULED if i % 2 else ())
+        for i in range(36)
+    ] + [  # and a run of rings too close for two lanes
+        StripElement(f"R{i}", None, 36 + 0.2 * i, symbol, lane, None, RULED) for i in range(4)
+    ]
+    doc, _ = draw(strip_view(row), panel_graph)
+    widest = max(
+        layout.text_width(str(symbols.ring_look(state)["text"]), layout.SMALL_SIZE)
+        for state in symbols.STATES
+    )
+    assert widest + 2 * layout.LABEL_INSET <= layout.TAG_WIDTH  # the room holds every word
+
+    def box(node: dict) -> tuple[float, float, float, float]:
+        g = node["geometry"]
+        return g["x"], g["y"], g["width"], g["height"]
+
+    def touch(a: tuple, b: tuple) -> bool:
+        return (
+            a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+        )
+
+    words, rings = {}, {}
+    for element in row:
+        ring, word = _ring(doc, element.thing)
+        assert (ring is None) == (not element.channels)
+        if word is not None:
+            words[element.thing], rings[element.thing] = box(word), box(ring)
+    over = [(a, b) for a, b in itertools.combinations(words, 2) if touch(words[a], words[b])]
+    over += [(a, b) for a in words for b in rings if a != b and touch(words[a], rings[b])]
+    assert over == []
+    assert len({w[1] for w in words.values()}) >= 3  # the close run needed a further lane
+
+
+def test_word_lanes_take_the_lowest_free_lane_and_open_one_when_none_is():
+    assert layout.word_lanes([0, 50, 100, 150], 70) == [0, 1, 0, 1]
+    assert layout.word_lanes([0, 10, 20, 100], 70) == [0, 1, 2, 0]
+    assert layout.word_lanes([], 70) == []
+
+
 def test_a_strip_symbol_with_no_rule_has_a_dashed_outline_and_no_ring(panel_graph) -> None:
     shown = {**SYMBOLS, "Infrastructure": "generic"}  # mapped on purpose: drawn, no rule
     view = place_view(with_symbols(panel_graph, shown, ABOVE), "XR/XR02")

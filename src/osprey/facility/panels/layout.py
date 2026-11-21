@@ -4978,18 +4978,26 @@ class _Page:
         placed, _scale = strip.arrange_scaled(drawn, widths, STRIP_WIDTH, fill=True)
         beam = [p for p in placed if p.lane != "above"]
         badges = [p for p in placed if p.lane == "above"]
-        # a ringed badge needs its ring's room beside its neighbour's
-        ringed = any(p.channels for p in badges)
-        levels = stem_levels(
-            [p.x for p in badges], BADGE + BADGE_GAP + (2 * RING_PAD if ringed else 0)
-        )
-        # the upper lane only when something stands in it
-        tags = stem_levels([p.x for p in beam], TAG_WIDTH + STRIP_LABEL_GAP)
+        if any(p.channels for p in badges):
+            # a ringed badge carries its word over its ring: words of one stem
+            # length never touch, and a word clears the ring of the longer stem
+            levels = word_lanes([tag_centre(p.x) for p in badges], TAG_WIDTH + STRIP_LABEL_GAP)
+            pitch = max(STEM_HIGH - STEM_LOW, BADGE + 2 * RING_PAD + TAG_HEIGHT)
+        else:
+            levels = stem_levels([p.x for p in badges], BADGE + BADGE_GAP)
+            pitch = STEM_HIGH - STEM_LOW
+        stems = [STEM_LOW + level * pitch for level in levels]
+        # a ring's word in the lowest lane where it touches no other word; only
+        # ringed symbols carry one, and a lane above only when something stands in it
+        ringed_beam = [p for p in beam if p.channels]
+        words = word_lanes([tag_centre(p.x) for p in ringed_beam], TAG_WIDTH + STRIP_LABEL_GAP)
+        lane = {id(p): n for p, n in zip(ringed_beam, words, strict=True)}
+        tags = [lane.get(id(p), 0) for p in beam]
         above: float = STRIP_AXIS  # room over the axis: rings' words, then badges with theirs
         if any(p.channels for p in beam):
             above += RING_PAD + (max(tags) + 1) * TAG_HEIGHT
         if badges:
-            stem = STEM_HIGH if any(levels) else STEM_LOW
+            stem = max(stems)
             ruled = any(p.channels for p in badges)
             above = max(above, stem + BADGE / 2 + (RING_PAD + TAG_HEIGHT if ruled else 0))
         axis = self.y + above + GAP
@@ -5003,9 +5011,9 @@ class _Page:
                 link = replace(p.link, label=p.thing)
                 self.nav(x - half, axis - STRIP_AXIS, p.width, 2 * STRIP_AXIS, link)
         centres = []
-        for p, level in zip(badges, levels, strict=True):
+        for p, stem in zip(badges, stems, strict=True):
             x = MARGIN + p.x
-            cy = axis - (STEM_HIGH if level else STEM_LOW)
+            cy = axis - stem
             self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
             self.badge(p, x, cy)
             self.taken.append((x - BADGE / 2, cy - BADGE / 2, BADGE, BADGE))
@@ -5237,8 +5245,7 @@ class _Page:
         outline = symbols.ring(left, top, right, bottom, RING_PAD, static)
         outline["props"][_TOOLTIP] = element.thing
         above = top - RING_PAD - level * TAG_HEIGHT
-        low, high = MARGIN + TAG_WIDTH / 2, MARGIN + STRIP_WIDTH - TAG_WIDTH / 2
-        centre = min(max((left + right) / 2, low), high)  # the word stays on the page
+        centre = MARGIN + tag_centre((left + right) / 2 - MARGIN)  # the word stays on the page
         word = symbols.tag(centre, above, TAG_WIDTH, TAG_HEIGHT, SMALL_SIZE, static)
         g = word["geometry"]
         self.taken.append((g["x"], g["y"], g["width"], g["height"]))
@@ -7176,7 +7183,8 @@ def metric_formula(name: str, item: Tile) -> dict[str, Any]:
 def stem_levels(xs: Sequence[float], room: float = BADGE + BADGE_GAP) -> list[int]:
     """The level of each of a row of things at *xs* (in order), each *room* wide: the
     low one, unless it would touch the last one there, then the high one; when both
-    would, the level whose last thing is further away. Badges' stems, rings' tags."""
+    would, the level whose last thing is further away: the stems of badges that carry
+    no ring, so no word (:func:`word_lanes` places the others)."""
     last = [-math.inf, -math.inf]
     out = []
     for x in xs:
@@ -7185,6 +7193,28 @@ def stem_levels(xs: Sequence[float], room: float = BADGE + BADGE_GAP) -> list[in
             level = 0 if last[0] <= last[1] else 1
         last[level] = x
         out.append(level)
+    return out
+
+
+def tag_centre(x: float) -> float:
+    """Where a ring's word stands over a symbol at *x* on a strip: over it, kept
+    whole on the strip."""
+    return min(max(x, TAG_WIDTH / 2), STRIP_WIDTH - TAG_WIDTH / 2)
+
+
+def word_lanes(xs: Sequence[float], room: float) -> list[int]:
+    """The lane of each of a row of words centred at *xs* (in order), each *room*
+    wide: the lowest lane whose last word it does not touch, a new lane above
+    when it touches them all. Unlike :func:`stem_levels`, which has two stem
+    lengths to give, a word never stands over another."""
+    last: list[float] = []
+    out = []
+    for x in xs:
+        lane = next((n for n, at in enumerate(last) if x - at >= room), len(last))
+        if lane == len(last):
+            last.append(x)
+        last[lane] = x
+        out.append(lane)
     return out
 
 
