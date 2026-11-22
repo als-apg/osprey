@@ -193,7 +193,14 @@ def test_a_build_whose_engine_is_under_the_retired_group_only_is_refused(
         metadata.EntryPoint(name=point.name, value=point.value, group=OLD_GROUP)
         for point in real(group=ENGINE_GROUP)
     ]
-    others = [point for point in real() if point.group != ENGINE_GROUP]
+    # Every installed entry point: `entry_points()` with no selection answers
+    # a dict of groups on Python 3.11, so the points come from the distributions.
+    others = [
+        point
+        for dist in metadata.distributions()
+        for point in dist.entry_points
+        if point.group != ENGINE_GROUP
+    ]
     served = metadata.EntryPoints([*others, *retired])
 
     def entry_points(**selection: Any) -> metadata.EntryPoints:
