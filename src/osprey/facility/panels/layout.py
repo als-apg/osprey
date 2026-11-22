@@ -2151,8 +2151,9 @@ class _Page:
         x: float = MARGIN
         y = self.y
         for k, (i, child) in enumerate([*members, *outside]):
-            if members and k == len(members) and x > MARGIN:
-                x += OUTSIDE_GAP - GAP  # set apart from the members
+            apart = x + OUTSIDE_GAP - GAP + w <= MARGIN + width + 1  # on the row still
+            if members and k == len(members) and x > MARGIN and apart:
+                x += OUTSIDE_GAP - GAP  # set apart from the members, where the row has room
             if x > MARGIN and x + w > MARGIN + width + 1:
                 x, y = MARGIN, y + ROLLUP_TILE_HEIGHT + GAP
             plan_i = "none" if child.no_rule else decisions.get(i, "open")

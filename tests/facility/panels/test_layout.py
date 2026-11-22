@@ -1692,9 +1692,9 @@ def test_a_roll_up_s_summed_state_is_its_headline_and_what_it_does_not_sum_stand
     first_out = min(outlines, key=lambda n: (n["geometry"]["y"], n["geometry"]["x"]))["geometry"]
     assert all((g["y"], g["x"]) < (first_out["y"], first_out["x"]) for g in tiles)  # members first
     before = [g for g in tiles if g["y"] == first_out["y"]]
-    if before:  # on the members' row: a wider gap than between members
+    if before:  # on the members' row: a wider gap than between members where it fits
         gap = first_out["x"] - (before[-1]["x"] + before[-1]["width"])
-        assert gap == layout.OUTSIDE_GAP
+        assert gap in (layout.OUTSIDE_GAP, layout.GAP)  # the wide gap never wraps the tile
 
 
 def test_a_roll_up_row_that_fits_keeps_its_outside_tile_and_counts_on_its_heading(
