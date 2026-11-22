@@ -20,6 +20,13 @@ served as the record's ``address`` is: :meth:`SimulatorView.record_address`
 gives the address a channel is served as, and :attr:`Binding.addresses` every
 address of a record.
 
+A setpoint whose channel states ``started_by`` moves its readback when the
+setpoint named there, its command, is written; a seed's ``responds`` names
+the command whose write the channel answers. The reader refuses either key
+when the command is not a setpoint of the view or is a further address, a
+``responds`` that lacks ``to``, ``for_s`` or ``value`` or times nothing, and
+a ``responds`` on a readback a setpoint's write moves.
+
 The module imports only the standard library and ``osprey_connectors``, so a
 reader that must not load a model can open a view.
 """
@@ -482,8 +489,88 @@ class SimulatorView:
                 ``SCHEMAS[name]`` nor an older one this OSPREY still reads.
         """
         if name not in self._documents:
-            self._documents[name] = _freeze(self._parsed(name))
+            document = self._parsed(name)
+            if name == VARIABLES_FILE:
+                self._check_started_by()
+            elif name == SEEDS_FILE:
+                self._check_responds(document)
+            self._documents[name] = _freeze(document)
         return self._documents[name]
+
+    def _command_refusal(self, address: object) -> str | None:
+        """Why ``address`` cannot be a command a channel names; ``None`` when it can.
+
+        A command is a setpoint channel of the view, named by the address it is
+        served as.
+        """
+        channel = self._channels().get(address) if isinstance(address, str) else None
+        if channel is None or channel.role != SETPOINT:
+            return f"{address!r} is not a setpoint of the view"
+        served_as = self.record_address(channel.address)
+        if served_as != channel.address:
+            return f"{address!r} is served as {served_as!r}; name that address"
+        return None
+
+    def _check_started_by(self) -> None:
+        """Refuse a channel whose ``started_by`` names no setpoint of the view."""
+        for entry in self._parsed(VARIABLES_FILE)["channels"]:
+            if "started_by" not in entry:
+                continue
+            address = entry.get("address")
+            refusal = (
+                "it is not a setpoint"
+                if entry.get("role") != SETPOINT
+                else self._command_refusal(entry["started_by"])
+            )
+            if refusal is not None:
+                raise ViewSchemaError(
+                    f"{self.path / VARIABLES_FILE}: channel {address!r} states `started_by` "
+                    f"{entry['started_by']!r}, but {refusal}: rebuild with osprey build"
+                )
+
+    def _followed(self) -> frozenset[str]:
+        """The readbacks a setpoint's write moves, each by the address it is served as."""
+        return frozenset(
+            self.record_address(channel.pair)
+            for channel in self._channels().values()
+            if channel.role == SETPOINT
+            and channel.pair is not None
+            and self.record_address(channel.pair) != self.record_address(channel.address)
+        )
+
+    def _check_responds(self, document: Mapping[str, object]) -> None:
+        """Refuse a seed whose ``responds`` lacks a part, times nothing, or follows no command."""
+        seeds = document.get("seeds")
+        if not isinstance(seeds, Mapping):
+            return
+        followed: frozenset[str] | None = None
+        for address, seed in seeds.items():
+            if not isinstance(seed, Mapping) or "responds" not in seed:
+                continue
+            responds = seed["responds"]
+            refusal: str | None
+            if not isinstance(responds, Mapping) or any(
+                key not in responds for key in ("to", "for_s", "value")
+            ):
+                refusal = "it is not {to, for_s, value}"
+            elif (
+                not isinstance(responds["for_s"], int | float)
+                or isinstance(responds["for_s"], bool)
+                or not responds["for_s"] > 0
+            ):
+                refusal = f"for_s {responds['for_s']!r} is not a number above zero"
+            else:
+                refusal = self._command_refusal(responds["to"])
+            if refusal is None:
+                if followed is None:
+                    followed = self._followed()
+                if self.record_address(address) in followed:
+                    refusal = "a setpoint's write moves it"
+            if refusal is not None:
+                raise ViewSchemaError(
+                    f"{self.path / SEEDS_FILE}: the seed of {address!r} states `responds`, "
+                    f"but {refusal}: rebuild with osprey build"
+                )
 
     @overload
     def _parsed(self, name: Literal["variables.json"]) -> VariablesDocument: ...
