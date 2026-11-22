@@ -14,7 +14,7 @@ the `[Unreleased]` section below when a release is cut.
 
 ## [Unreleased]
 
-## [2026.11.1] - 2026-11-23
+## [2026.11.1] - 2026-11-22
 
 Follow-up to 2026.11.0. It moves the simulation engines to the
 `osprey_connectors.simulation.engines` entry-point group and requires
