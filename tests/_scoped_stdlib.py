@@ -48,16 +48,49 @@ arguments and leaves the real ``Popen`` in place unless ``popen=`` is passed:
         fake.Popen.return_value.pid = 4321
         ...
         assert fake.Popen.call_args.args[0] == [...]
+
+A test that states "nothing here starts a child process" names no module to
+fake. :func:`no_child_process` refuses and records every child the code it
+wraps starts, through the interpreter's audit events, and only in that code's
+context (the test's thread, the tasks it starts, the request handlers a
+``TestClient`` runs for it)::
+
+    with no_child_process() as started:
+        process_table.snapshot()
+    assert started == []
 """
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import importlib
+import sys
+from collections.abc import Iterator
 from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+#: The audit events every way of starting a child process raises.
+_CHILD_EVENTS = frozenset(
+    {
+        "subprocess.Popen",
+        "os.fork",
+        "os.forkpty",
+        "os.posix_spawn",
+        "os.spawn",
+        "os.exec",
+        "os.system",
+    }
+)
+
+_refusing: contextvars.ContextVar[list[tuple[str, tuple[Any, ...]]] | None] = (
+    contextvars.ContextVar("_refusing", default=None)
+)
+
+_audit_hook_added = False
 
 
 class _StandIn(ModuleType):
@@ -145,3 +178,37 @@ def patch_subprocess(target_module: str, *, popen: Any = None, **run_kwargs: Any
         return stand_in(importlib.import_module("subprocess"), **overrides)
 
     return patch(f"{target_module}.subprocess", new_callable=_new)
+
+
+class ChildProcessRefused(OSError):
+    """Raised where a child process would start inside :func:`no_child_process`."""
+
+
+def _refuse_children(event: str, args: tuple[Any, ...]) -> None:
+    started = _refusing.get()
+    if started is not None and event in _CHILD_EVENTS:
+        started.append((event, args))
+        raise ChildProcessRefused(f"{event} refused: this code starts no child process")
+
+
+@contextlib.contextmanager
+def no_child_process() -> Iterator[list[tuple[str, tuple[Any, ...]]]]:
+    """Refuse every child process started in this context, and record each attempt.
+
+    Yields:
+        The attempts, as ``(audit event, its arguments)``. A refusal raises
+        :class:`ChildProcessRefused` where the child would start; code that
+        swallows it still leaves its attempt here, so assert the list is empty.
+    """
+    global _audit_hook_added
+    if not _audit_hook_added:
+        # An audit hook cannot be removed; it refuses nothing outside a context
+        # this function opened.
+        sys.addaudithook(_refuse_children)
+        _audit_hook_added = True
+    started: list[tuple[str, tuple[Any, ...]]] = []
+    token = _refusing.set(started)
+    try:
+        yield started
+    finally:
+        _refusing.reset(token)

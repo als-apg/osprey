@@ -1,7 +1,6 @@
 """Tests for the HTML-to-image converter module."""
 
 import asyncio
-import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -18,6 +17,7 @@ from osprey.mcp_server.export.converter import (
     PlotNotDrawnError,
     convert_html_to_image,
 )
+from tests._scoped_stdlib import no_child_process
 
 # The launch error Playwright raises when the browser binary is absent — the only
 # launch error the converter reports as a missing browser.
@@ -152,21 +152,10 @@ class TestMissingBrowser:
     """A missing browser is reported with its install command, never installed."""
 
     @pytest.fixture(autouse=True)
-    def _subprocess_calls(self, monkeypatch):
-        """Record every subprocess started instead of running it."""
-        calls: list[list[str]] = []
-
-        def _fake_run(cmd, *args, **kwargs):
-            calls.append(list(cmd))
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-        def _fake_popen(cmd, *args, **kwargs):
-            calls.append(list(cmd))
-            raise OSError("subprocess refused under test")
-
-        monkeypatch.setattr(subprocess, "run", _fake_run)
-        monkeypatch.setattr(subprocess, "Popen", _fake_popen)
-        return calls
+    def _subprocess_calls(self):
+        """Record every child process started instead of running it."""
+        with no_child_process() as started:
+            yield started
 
     @staticmethod
     def _html(tmp_path):
