@@ -1768,12 +1768,17 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
    the layout cut to fit. A rack screen numbers every unit, draws a free one as
-   a slot and keeps every list of the rack in one column beside it: those at no
-   unit as a grid of at least three columns, then the classes and sources, then
-   those side by side at one unit, level with it. The list of those at no unit
-   fills the column down to the rack's foot; what does not fit continues under
-   the rack across the full width under its heading continued, nothing left
-   out, and nothing else stands under the rack. Every widget stands on
+   a slot and keeps the lists of the rack in one column beside it, down to the
+   rack's foot and never past it: those at no unit, then the classes and
+   sources, then those side by side at one unit, level with it and joined to it
+   by a line. The list of those at no unit takes the room the rest leaves; what
+   does not fit beside stands under the rack across the full width: the rest of
+   the list under its heading continued, then each group side by side that did
+   not fit, its units on its heading in place of the line. A list takes as many
+   columns as its longest name allows whole; a name longer than one column keeps
+   the part that tells it from the others, the whole on hover. Every long list
+   reads alike: filled downward in balanced columns, a larger gap after every
+   fourth row, in bands of twenty rows read down then across. Every widget stands on
    whole pixels, each edge rounded where it is written, and every screen ends
    one margin under its lowest frame. The layout measures text in the viewer's
    own font

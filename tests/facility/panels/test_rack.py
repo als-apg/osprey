@@ -253,3 +253,102 @@ def test_a_list_longer_than_the_rack_continues_under_it_at_the_full_width(panel_
     rows_over = len({g["y"] for g in over})
     rows_under = len({g["y"] for g in under})
     assert rows_under < 2 * rows_over  # width before height: more to a row under it
+
+
+# -- a long list: one way of reading it, everywhere
+
+
+def test_a_long_list_fills_balanced_columns_downward_in_bands_with_a_gap_every_fourth_row():
+    from osprey.facility.panels.layout import list_cells, list_height, list_offset
+
+    # ten in three columns: four, four, two, read down then across
+    assert list_cells(10, 3) == [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1), (1, 2),
+                                 (1, 3), (2, 0), (2, 1)]  # fmt: skip
+    # a band of twenty rows is read whole before the next band starts under it
+    cells = list_cells(2 * layout.LIST_BAND + 3, 2)
+    assert cells[layout.LIST_BAND - 1] == (0, layout.LIST_BAND - 1)
+    assert cells[layout.LIST_BAND] == (1, 0)
+    assert cells[2 * layout.LIST_BAND :] == [(0, 20), (0, 21), (1, 20)]
+    pitch = 30
+    assert list_offset(3, pitch) == 3 * pitch  # no gap inside a run of four
+    assert list_offset(4, pitch) == 4 * pitch + layout.LIST_RUN_GAP  # the larger gap
+    assert list_offset(20, pitch) == 20 * pitch + 4 * layout.LIST_RUN_GAP + layout.LIST_BAND_GAP
+    assert list_height(0, 3, 26, pitch) == 0
+    assert list_height(10, 3, 26, pitch) == list_offset(3, pitch) + 26
+
+
+def _rack(panel_graph, unpositioned: int, crowded: int, prefix: str = "XR01:SPARE"):
+    """The test rack with *unpositioned* devices at no unit and *crowded* side by side
+    at one unit, drawn: the document, the rack's frame and the column's left edge."""
+    import dataclasses
+
+    from osprey.facility.panels.view import Elevation, Fact
+
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
+    unit = elevation.units[0]
+    loose = tuple(
+        dataclasses.replace(unit, position=None, link=Fact(n, n), conflicting=False)
+        for n in (f"{prefix}{k:03d}" for k in range(unpositioned))
+    )
+    crowd = tuple(
+        dataclasses.replace(unit, link=Fact(f"XR01:SLOT{k:02d}", f"XR01:SLOT{k:02d}"),
+                            conflicting=False)
+        for k in range(crowded)
+    )  # fmt: skip
+    elevation = dataclasses.replace(elevation, units=crowd or elevation.units, unpositioned=loose)
+    sections = tuple(
+        dataclasses.replace(s, items=tuple(elevation if isinstance(i, Elevation) else i
+                                           for i in s.items))
+        for s in view.sections
+    )  # fmt: skip
+    doc = stub_render(dataclasses.replace(view, sections=sections), panel_graph)
+    (rack,) = [
+        n["geometry"] for n in nodes(doc)
+        if n["type"] == "rectangle" and n["props"].get("lineColor") == layout.PAGE_TEXT
+        and n["geometry"]["width"] == layout.RACK_WIDTH + 2 * layout.RACK_PAD
+    ]  # fmt: skip
+    return doc, rack, layout.MARGIN + layout.RACK_COLUMN
+
+
+def test_nothing_beside_the_rack_runs_past_its_foot_and_a_group_that_does_not_fit_goes_under(
+    panel_graph,
+) -> None:
+    doc, rack, column = _rack(panel_graph, 30, 200)  # more side by side than the column holds
+    foot = rack["y"] + rack["height"]
+    beside = [n["geometry"] for n in nodes(doc) if n["geometry"]["x"] >= column - layout.GAP
+              and n["geometry"]["y"] < foot]  # fmt: skip
+    assert all(g["y"] + g["height"] <= foot + 1 for g in beside)  # down to the foot, no further
+    heads = {n["props"]["text"]: n["geometry"] for n in nodes(doc) if n["type"] == "text-label"}
+    (group,) = [t for t in heads if t.startswith("SIDE BY SIDE AT ONE UNIT")]
+    assert re.search(r" · U\d+", group)  # its unit on its heading, the line's place
+    assert heads[group]["y"] > foot and heads[group]["x"] < column  # under, at the full width
+    lines = [n["geometry"] for n in nodes(doc) if n["type"] == "line"]
+    assert all(g["y"] + g["height"] <= foot for g in lines)  # no joining line under the foot
+    counts = next(t for t in heads if t.endswith("30 not at a unit"))
+    assert heads[counts]["y"] < foot  # the reference stays beside
+
+
+def test_the_continued_list_takes_more_columns_than_beside_and_reads_downward(panel_graph):
+    doc, rack, column = _rack(panel_graph, 300, 0)
+    foot = rack["y"] + rack["height"]
+    chips = [n["geometry"] for n in nodes(doc) if n["type"] == "text-label"
+             and n["props"]["text"].startswith("XR01:SPARE")]  # fmt: skip
+    over = [g for g in chips if g["y"] < foot]
+    under = [g for g in chips if g["y"] > foot]
+    assert len({g["x"] for g in under}) > len({g["x"] for g in over})
+    names = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"
+             and n["props"]["text"].startswith("XR01:SPARE")]  # fmt: skip
+    first = min(g["x"] for g in under)
+    down = [n for n, g in zip(names, chips, strict=True) if g["y"] > foot and g["x"] == first]
+    assert down == sorted(down) and len(down) > 1  # the first column holds a run, in order
+
+
+def test_a_rack_name_cut_keeps_the_part_that_tells_it_apart(panel_graph) -> None:
+    long = "XR01:PLC1:A-VERY-LONG-SHARED-POINT-NAME-THAT-NO-TILE-HOLDS-WHOLE-"
+    doc, _rack_frame, _column = _rack(panel_graph, 4, 0, prefix=long * 3)
+    hover = [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith(long)]
+    assert len(hover) == 4  # the whole name on hover
+    shown = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"
+             and "\u2026" in str(n["props"].get("text", ""))]  # fmt: skip
+    assert len(shown) == 4 and len({text[-3:] for text in shown}) == 4  # each its own number

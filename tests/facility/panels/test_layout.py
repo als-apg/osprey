@@ -483,10 +483,9 @@ def test_units_too_many_side_by_side_are_one_bar_and_listed_beside_the_rack(pane
 
 
 def test_nothing_of_a_rack_screen_starts_under_the_elevation(panel_graph) -> None:
-    """Everything that belongs to a rack stands in the column beside it, from the
-    top: those not at a unit as a grid of three columns, the classes and the
-    sources under it, the devices side by side at one unit at the column's foot;
-    the column runs on past the rack's foot if it must, never under the rack."""
+    """Everything that belongs to a rack and fits beside it stands in the column
+    beside it, from the top: those not at a unit as a grid, the classes and the
+    sources under it, the devices side by side at one unit at the column's foot."""
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     (elevation,) = view.sections[0].items
     unit = elevation.units[0]
@@ -519,7 +518,7 @@ def test_nothing_of_a_rack_screen_starts_under_the_elevation(panel_graph) -> Non
     assert heads["NOT AT A UNIT"] < counts < heads["SIDE BY SIDE AT ONE UNIT"]
     tiles = [n["geometry"] for n in _by_type(doc, "text-label")
              if str(n["props"]["text"]).startswith("XR01:LOOSE")]  # fmt: skip
-    assert len({g["x"] for g in tiles}) >= layout.RACK_GRID  # a grid, three columns at least
+    assert len({g["x"] for g in tiles}) >= 2  # a grid, as wide as the names allow
     assert all(g["x"] >= column for g in tiles)
 
 
