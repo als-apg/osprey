@@ -1770,7 +1770,21 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
-   the layout cut to fit. An operate panel draws each control as one row on one
+   the layout cut to fit. A rack screen numbers every unit, draws a free one as
+   a slot and keeps the lists of the rack in one column beside it, down to the
+   rack's foot and never past it: those at no unit, then the classes and
+   sources, then those side by side at one unit, level with it and joined to it
+   by a line, the bar over them saying whether they are listed beside the rack
+   or under it. The list of those at no unit takes the room the rest leaves;
+   what does not fit beside stands under the rack across the full width: the
+   rest of the list under its heading continued, then each group side by side
+   that did not fit, its units on its heading in place of the line. A list
+   takes as many columns as fit with each as wide as its own longest name; a
+   name longer than the whole width keeps the part that tells it from the
+   others, the whole on hover. A rack's list is filled downward in
+   balanced columns (two columns of a band differ by one row at most), a larger
+   gap after every fourth row, in bands of twenty rows read down then across; a
+   list of one or two rows fills across. An operate panel draws each control as one row on one
    set of columns: tag, name, now, field or button, what it does; groups whose
    rows end at their button or value (actions, choices, read-only values) stand
    up to three side by side, and a group of many such rows takes up to three
