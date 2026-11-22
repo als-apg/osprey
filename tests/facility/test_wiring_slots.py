@@ -13,6 +13,7 @@ import yaml
 from osprey.facility import wiring as wiring_module
 from osprey.facility.validate import StageReport, run_stages
 from osprey.facility.wiring import fill_wiring_slots
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 
 GAIN = 0.37
 OFFSET = -0.012
@@ -540,7 +541,7 @@ class TestEntryPoint:
         monkeypatch.setattr(wiring_module.metadata, "entry_points", spy)
         result = _run(tmp_path, _files())
         assert result.ok, _lines(result)
-        assert groups == ["osprey.simulation.engines"]
+        assert groups == [ENGINE_GROUP]
 
 
 def test_an_authored_computed_slot_is_never_overwritten() -> None:

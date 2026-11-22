@@ -41,7 +41,7 @@ dependencies = []
 [project.entry-points."osprey.facility.kinds"]
 {KIND} = "fixture_kind_deployment:FIXTURE_KIND"
 
-[project.entry-points."osprey.simulation.engines"]
+[project.entry-points."osprey_connectors.simulation.engines"]
 {ENGINE} = "fixture_kind_deployment.engine"
 """
 

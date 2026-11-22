@@ -702,14 +702,14 @@ def _engine(name: str) -> Any:
     """The simulation engine registered as ``name``."""
     from importlib import metadata
 
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
-    return metadata.entry_points(group=ENTRY_POINT_GROUP)[name].load()
+    return metadata.entry_points(group=ENGINE_GROUP)[name].load()
 
 
 def _physics_span(record: Mapping[str, Any], held: float, width: float) -> float:
     """The physics distance between ``held + width/2`` and ``held - width/2``."""
-    from osprey.simulation.engines.calibration import curve_from_record, to_physics
+    from osprey_connectors.simulation.engines import curve_from_record, to_physics
 
     curve = curve_from_record((record.get("calibration") or {}).get("curve"))
     return to_physics(curve, held + 0.5 * width) - to_physics(curve, held - 0.5 * width)
@@ -717,7 +717,7 @@ def _physics_span(record: Mapping[str, Any], held: float, width: float) -> float
 
 def _table_calibrated(record: Mapping[str, Any]) -> bool:
     """Whether a record's hardware-to-physics curve is a table."""
-    from osprey.simulation.engines.calibration import Table, curve_from_record
+    from osprey_connectors.simulation.engines import Table, curve_from_record
 
     return isinstance(curve_from_record((record.get("calibration") or {}).get("curve")), Table)
 
@@ -728,7 +728,7 @@ def _monitor_gain(record: Mapping[str, Any]) -> float:
     Exact for a linear calibration, whose slope is the same everywhere; a
     table-calibrated monitor is never converted.
     """
-    from osprey.simulation.engines.calibration import curve_from_record, to_hardware
+    from osprey_connectors.simulation.engines import curve_from_record, to_hardware
 
     calibration = record.get("calibration") or {}
     curve = curve_from_record(calibration.get("curve"))

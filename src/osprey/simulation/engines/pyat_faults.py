@@ -57,11 +57,11 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from osprey.simulation.engines.calibration import field as _slot
-from osprey.simulation.engines.calibration import to_hardware, to_physics
+from osprey_connectors.simulation.engines import field as _slot
+from osprey_connectors.simulation.engines import to_hardware, to_physics
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey.simulation.engines.calibration import Calibration
+    from osprey_connectors.simulation.engines import Calibration
 
 #: The readout fields every monitor readback carries on its own axis, each at
 #: its identity: a monitor that reports the true orbit position exactly, and

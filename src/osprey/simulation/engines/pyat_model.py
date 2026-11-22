@@ -94,7 +94,6 @@ from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
 from pydantic import ConfigDict, model_validator
 
-from osprey.simulation.engines.calibration import check_inverse
 from osprey.simulation.engines.pyat import SOLVES
 from osprey.simulation.engines.pyat_faults import (
     CALIBRATED_ATTRIBUTES,
@@ -117,6 +116,7 @@ from osprey.simulation.engines.pyat_variables import (
     PyATWritableEnumVariable,
     ReadbackCalibration,
 )
+from osprey_connectors.simulation.engines import check_inverse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.actions import ActionVariable

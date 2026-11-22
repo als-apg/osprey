@@ -53,7 +53,7 @@ declares the value and leaves computing it to the model that owns it.
 **Beam rigidity is the coupling between them.** A calibration states its
 physics value at the energy the deck was built for. A record the control
 system scales with the rigidity (``energy_scaling: brho``) is worth
-:func:`~osprey.simulation.engines.calibration.energy_factor` of that at any
+:func:`~osprey_connectors.simulation.engines.energy_factor` of that at any
 other energy, so two writes have to agree: a setpoint write applies the factor
 for the energy the lattice is at *now*, and an energy write rescales every
 rigidity-scaled field already on the lattice. The lattice then ends in the
@@ -69,7 +69,7 @@ actually on the machine.
 
 **Back to hardware units is one rule.** The record's ``calibration.inverse``
 when it states one, else the algebraic inverse of a ``linear`` curve
-(:func:`~osprey.simulation.engines.calibration.to_hardware`). A ``table``
+(:func:`~osprey_connectors.simulation.engines.to_hardware`). A ``table``
 without an ``inverse``, or a linear gain of 0, has no way back, and a variable
 built on one is refused at construction.
 """
@@ -91,7 +91,9 @@ from lume_pyat.actions import (
 from lume_pyat.simulator import PyATSimulator
 from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
-from osprey.simulation.engines.calibration import (
+from osprey.simulation.engines.pyat_faults import magnet_cal, multipole_error, supply_calibration
+from osprey.simulation.engines.pyat_turn_settings import ARRAY_SIGNALS, SETTING_SIGNALS, SIGNALS
+from osprey_connectors.simulation.engines import (
     Calibration,
     check_inverse,
     curve_from_record,
@@ -100,8 +102,6 @@ from osprey.simulation.engines.calibration import (
     to_hardware,
     to_physics,
 )
-from osprey.simulation.engines.pyat_faults import magnet_cal, multipole_error, supply_calibration
-from osprey.simulation.engines.pyat_turn_settings import ARRAY_SIGNALS, SETTING_SIGNALS, SIGNALS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
