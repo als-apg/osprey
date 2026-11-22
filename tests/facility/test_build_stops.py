@@ -444,6 +444,12 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ),
     ("command_invalid__idle_on_setpoint", "command-invalid", "`idle` on a setpoint"),
     ("command_invalid__idle_type", "command-invalid", "`idle` not of its channel's type"),
+    ("command_invalid__idle_on_waveform", "command-invalid", "`idle` on a waveform channel"),
+    (
+        "command_invalid__bound_on_waveform_status",
+        "command-invalid",
+        "`timeout_s` on a command whose status is a waveform channel",
+    ),
     (
         "command_invalid__idle_unpaired",
         "command-invalid",
@@ -1636,8 +1642,33 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(commanded(state={"idle": "MAYBE"})),
         (
             "facility: command-invalid: channel Q1:STATE — `idle` of bool channel Q1:STATE is "
-            "'MAYBE', not a label; fix: type `idle` by the channel: a label on a bool or enum, an "
-            "integer on an int, a number on a float"
+            "'MAYBE', not a label; fix: type `idle` by the channel: a label on a bool or enum "
+            "channel, an integer on an int, a number on a float, text on a string; a waveform "
+            "channel is never a status"
+        ),
+    ),
+    "command_invalid__idle_on_waveform": (
+        _plain(
+            commanded(
+                on={"timeout_s": None},
+                state={"value_type": "waveform", "options": None, "shape": [3], "idle": 0},
+            )
+        ),
+        (
+            "facility: command-invalid: channel Q1:STATE — `idle` on waveform channel Q1:STATE; "
+            "a waveform channel is never a status; fix: type `idle` by the channel: a label on a "
+            "bool or enum channel, an integer on an int, a number on a float, text on a string; "
+            "a waveform channel is never a status"
+        ),
+    ),
+    "command_invalid__bound_on_waveform_status": (
+        _plain(
+            commanded(state={"value_type": "waveform", "options": None, "shape": [3], "idle": None})
+        ),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command whose status "
+            "Q1:STATE is a waveform channel; fix: pair Q1:ON with a status that is no waveform, "
+            "or remove `timeout_s`"
         ),
     ),
     "command_invalid__idle_unpaired": (

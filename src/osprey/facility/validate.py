@@ -161,6 +161,11 @@ _SAME_VARIABLE_SLOTS: dict[str, Any] = {
     "options": None,
     "shape": None,
 }
+#: How ``idle`` is typed by its status; the schema description and the docs row say the same.
+_IDLE_TYPING = (
+    "a label on a bool or enum channel, an integer on an int, a number on a float, "
+    "text on a string; a waveform channel is never a status"
+)
 #: The two edges of a limits record's range; a float or int setpoint is writable only with both.
 _LIMIT_EDGES = ("min_value", "max_value")
 #: The bound slots of a limits record, in the order the limits document writes them.
@@ -1332,6 +1337,17 @@ class _Records:
                     "remove `timeout_s`; only a command states how long one act may take",
                 )
             return
+        if status != address and is_waveform(self._type(status)):
+            if "timeout_s" in channel:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    f"`timeout_s` on a command whose status {status} is a waveform channel",
+                    f"pair {address} with a status that is no waveform, or remove `timeout_s`",
+                )
+            return
         if "timeout_s" not in channel:
             if status != address and "idle" in self.index.channels[status]:
                 yield self._error(
@@ -1414,15 +1430,19 @@ class _Records:
                     address,
                     files,
                     problem,
-                    "type `idle` by the channel: a label on a bool or enum, an integer on an "
-                    "int, a number on a float",
+                    f"type `idle` by the channel: {_IDLE_TYPING}",
                 )
 
     def _idle_problem(self, address: str, idle: Any) -> str | None:
         """Why ``idle`` does not fit its channel's type, or ``None``."""
         value_type = self._type(address)
+        if is_waveform(value_type):
+            return f"`idle` on waveform channel {address}; a waveform channel is never a status"
         prefix = f"`idle` of {value_type} channel {address} is {idle!r}"
-        if value_type == "float":
+        if value_type == "string":
+            if not isinstance(idle, str):
+                return f"{prefix}, not text"
+        elif value_type == "float":
             if not _finite(idle):
                 return f"{prefix}, not a number"
         elif value_type == "int":

@@ -158,8 +158,9 @@ address means anything to OSPREY. What a channel is comes from its fields:
        its readback must both state a ``unit``.
    * - ``idle``
      - On a readback a command pairs with, its status: what it reads while no
-       act runs. A label on a bool or enum channel, a number otherwise.
-       Several commands may share one status. A status that states ``idle``
+       act runs, typed by the channel: a label on a bool or enum channel, an
+       integer on an int, a number on a float, text on a string; a waveform
+       channel is never a status. Several commands may share one status. A status that states ``idle``
        is never followed: ``follows`` naming a setpoint on it stops the build
        with ``command-invalid``.
    * - ``timeout_s``
