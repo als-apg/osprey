@@ -2256,8 +2256,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: engine-missing: model LINE — engine warpcore is not registered under "
-            "osprey.simulation.engines; fix: install the engine's package, or name an engine the "
-            "environment registers"
+            "osprey_connectors.simulation.engines; fix: install the engine's package, or name an "
+            "engine the environment registers"
         ),
     ),
     "engine_invalid__single_pass_twiss": (

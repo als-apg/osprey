@@ -392,3 +392,82 @@ def test_a_rack_name_cut_keeps_the_part_that_tells_it_apart(panel_graph) -> None
     shown = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"
              and "\u2026" in str(n["props"].get("text", ""))]  # fmt: skip
     assert len(shown) == 4 and len({text[-3:] for text in shown}) == 4  # each its own number
+
+
+def test_a_cut_rack_label_under_its_link_shows_its_whole_text_on_the_link(panel_graph) -> None:
+    """A rack unit's link box lies over its label; where the label is cut, the
+    box's tooltip, the one the pointer reaches, holds the label's whole text,
+    the contested standing the label adds to the link's name included."""
+    import dataclasses
+
+    from osprey.facility.panels.view import Elevation, Link
+
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    long = "XR01:CH1 " + "chassis with a stated name longer than its bar " * 2
+    sections = []
+    for section in view.sections:
+        items = []
+        for item in section.items:
+            if isinstance(item, Elevation):
+                units = tuple(
+                    dataclasses.replace(
+                        u, link=dataclasses.replace(u.link, label=long), standing="contested"
+                    )
+                    if isinstance(u.link, Link) and u.link.target.id == "XR01:CH1"
+                    else u
+                    for u in item.units
+                )
+                item = dataclasses.replace(item, units=units)
+            items.append(item)
+        sections.append(dataclasses.replace(section, items=tuple(items)))
+    doc = stub_render(dataclasses.replace(view, sections=tuple(sections)), panel_graph)
+    cut = [
+        n for n in nodes(doc)
+        if n["type"] == "text-label" and n["props"]["text"].endswith("…")
+        and n["props"]["text"].startswith("XR01:CH1")
+    ]  # fmt: skip
+    assert cut  # the label is cut in its room
+    for label in cut:
+        g = label["geometry"]
+        middle = (g["x"] + g["width"] / 2, g["y"] + g["height"] / 2)
+        over = [
+            n for n in nodes(doc)
+            if n["type"] == "rectangle" and n["props"].get("actions")
+            and n["geometry"]["x"] <= middle[0] <= n["geometry"]["x"] + n["geometry"]["width"]
+            and n["geometry"]["y"] <= middle[1] <= n["geometry"]["y"] + n["geometry"]["height"]
+        ]  # fmt: skip
+        assert over  # the link lies over it
+        assert f"{long} · contested" in over[-1]["props"]["tooltip"]
+        # its one-line hover label is the link's own label, held short, never the added lines
+        hover = over[-1]["props"]["hoverLabel"]
+        assert len(hover) <= layout.HOVER_LABEL_MOST and hover.endswith("…")
+        assert long.startswith(hover[:-1])
+
+
+def test_rack_units_are_numbered_by_where_they_stand(panel_graph) -> None:
+    """A rack unit's order tag follows its place in the rack: top down, then left
+    to right, whatever order the view lists the units in."""
+    import dataclasses
+    import re
+
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    shuffled = []
+    for section in view.sections:
+        items = tuple(
+            dataclasses.replace(i, units=tuple(reversed(i.units))) if hasattr(i, "units") else i
+            for i in section.items
+        )
+        shuffled.append(dataclasses.replace(section, items=items))
+    for v in (view, dataclasses.replace(view, sections=tuple(shuffled))):
+        doc = stub_render(v, panel_graph)
+        first: dict[int, tuple[float, float]] = {}
+        for n in nodes(doc):
+            comment = n.get("meta", {}).get("comment", "")
+            if "item: rack-unit" not in comment:
+                continue
+            order = int(re.search(r"order: (\d+)", comment).group(1))
+            g = n["geometry"]
+            first[order] = min(first.get(order, (g["y"], g["x"])), (g["y"], g["x"]))
+        assert len(first) > 1
+        places = [first[k] for k in sorted(first)]
+        assert places == sorted(places)  # by place: down the rack, then across

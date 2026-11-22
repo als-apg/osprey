@@ -534,6 +534,114 @@ A pyAT lattice
 ``decks/<model>.json``, and the container builds the model from that copy when
 ``simulation.models`` serves it. No code and no image are involved.
 
+.. _va-rf-setpoints:
+
+RF setpoints
+------------
+
+A wiring record on a cavity element sets one of three cavity attributes, in
+pyAT's words: ``Frequency`` (Hz), ``Voltage`` (V) and ``TimeLag`` (m). Each is
+a setpoint written through the record's calibration, and a record of
+direction ``read`` on the same element and attribute reads it back. With
+invented addresses, for a ring whose RF wavelength is 0.6 m:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     wiring:
+       - address: RING:RF:FREQ:SP
+         element: CAV
+         engine: {attribute: Frequency}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}  # MHz
+       - address: RING:RF:VOLT:SP
+         element: CAV
+         engine: {attribute: Voltage}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}  # MV
+       - address: RING:RF:VOLT:RB
+         element: CAV
+         engine: {attribute: Voltage}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}
+       - address: RING:RF:PHASE:SP
+         element: CAV
+         engine: {attribute: TimeLag}
+         calibration: {curve: {linear: {gain: 1.6667e-3, offset: 0.0}}}  # deg
+
+- **Phase is a calibration.** pyAT states a cavity's phase as a time lag, the
+  length by which the cavity's wave lags the reference particle. One RF
+  wavelength is 360 degrees, so a phase setpoint in degrees is a linear curve
+  of gain ``wavelength / 360``.
+- **Several cavities.** A record naming ``slices`` writes every cavity it
+  lists. A frequency or a time lag lands in full on each. A voltage lands
+  times the slice's ``weight``, so a setpoint that is the total over two
+  cavities states ``weight: 0.5`` on each.
+- **The RF switch.** On a turn-by-turn ring (:ref:`va-turn-by-turn`) the
+  ``rf_switch`` and a voltage setpoint work together: the setpoint reads what
+  was commanded whether the RF is on or off, a voltage written while the RF
+  is off is delivered when it is switched on, and a voltage of ``0`` is not
+  a switched-off RF.
+
+Each RF setpoint carries one fault (:ref:`how-to-run-scenarios`), in the
+setpoint's own unit: ``cal_offset`` on a frequency (a frequency offset) and on
+a time lag (a phase offset), ``cal_factor`` on a voltage (a scale error). The
+cavity gets the faulty value; the setpoint and its readback show what was
+commanded.
+
+.. code-block:: yaml
+
+   faults:
+     RING:
+       RING:RF:PHASE:SP: {cal_offset: 30.0}
+       RING:RF:VOLT:SP: {cal_factor: 1.02}
+       RING:RF:FREQ:SP: {cal_offset: 1.0e-4}
+
+.. _va-radiation:
+
+A radiating ring
+----------------
+
+A pyAT deck radiates through the pass methods of its elements. A deck that
+states radiating pass methods is tracked as written. For a deck that does
+not, the model's ``pyat`` settings can switch radiation on:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     settings:
+       pyat:
+         radiation: true
+
+With ``radiation: true`` every bend, quadrupole, sextupole, octupole,
+multipole and wiggler of the model's copy of the deck gets its radiating
+pass method. The cavities and the deck file stay as they are. The key is a
+``true`` or ``false``; absent or ``false`` leaves the deck's own pass methods,
+so it does not strip a deck that already radiates. A ``single_pass`` model
+refuses ``true``.
+
+What changes:
+
+- The beam loses energy in every magnet and the cavity makes it up. The
+  closed orbit is the six-dimensional one at the synchronous phase, where
+  the cavity returns the energy lost per turn, and it carries the small
+  horizontal sawtooth of an energy that falls between cavities.
+- The orbit readings, the optics and the response matrix are those of the
+  radiating ring. Tracked motion is damped. The radiation is the mean energy
+  loss, without quantum excitation: a tracked bunch does not grow to an
+  equilibrium size.
+- A voltage below the energy loss per turn leaves no closed orbit. A ring
+  refuses the write that takes it there and keeps its last value; a
+  turn-by-turn ring (:ref:`va-turn-by-turn`) accepts it and its orbit
+  readings read NaN.
+- With the RF off on a turn-by-turn ring, a tracked bunch loses the energy
+  loss per turn every turn. It moves inwards by the dispersion times the
+  relative energy lost, and it is lost where that reaches a declared
+  aperture.
+- A closed-orbit solve costs several times that of the same deck without
+  radiation; tracking a shot costs about the same.
+
 .. _va-injection-chain:
 
 An injection chain
@@ -700,7 +808,9 @@ and without ``stored_current`` there is no stored beam. Each wiring record's
 - ``turns_tracked``: the turns the last shot tracked, the ring's; it names no
   element.
 - ``rf_switch``: ``0`` sets every cavity's voltage to zero, anything else
-  restores the deck's voltages. It starts at ``1`` and names no element.
+  restores the voltages the cavities had, or the one a voltage setpoint
+  (:ref:`va-rf-setpoints`) commanded meanwhile. It starts at ``1`` and names
+  no element.
 - ``pilot_tone``: non-zero turns the pilot tone on. It starts at ``0`` and
   names no element.
 - ``stored``: a setting that holds what is written and drives no physics,
@@ -820,7 +930,8 @@ same in every run.
 - With the RF off the ring has no closed orbit: its orbit readings read NaN
   and its settings stay writable. The stored beam adds nothing to the sum, so
   the samples before the trigger read the floor, and a bunch with declared
-  apertures is lost within some hundred turns.
+  apertures is lost within some hundred turns. On a radiating ring
+  (:ref:`va-radiation`) it also loses energy every turn.
 
 **Cost.** Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
@@ -869,22 +980,22 @@ Another backend
 ---------------
 
 An engine OSPREY does not ship is an engine plug-in. The container looks up
-the ``engine`` each model record names in the ``osprey.simulation.engines``
-entry-point group. It calls the registered module's ``build``, which returns
+the ``engine`` each model record names in the
+``osprey_connectors.simulation.engines`` entry-point group. It calls the registered module's ``build``, which returns
 the ``LUMEModel`` serving that model's wiring over its deck. ``osprey build``
 reaches the same module through the same group when it checks the facility
 tree. The shipped ``osprey.simulation.engines.pyat`` is the reference
 implementation of the contract.
 
 1. Write the engine module to the contract
-   ``osprey.simulation.engines.EnginePlugin`` states;
+   ``osprey_connectors.simulation.engines.EnginePlugin`` states;
    ``osprey.simulation.engines.pyat`` implements it.
 2. Register it under the entry-point group in your package's metadata, and
    install the package where ``osprey build`` runs:
 
    .. code-block:: toml
 
-      [project.entry-points."osprey.simulation.engines"]
+      [project.entry-points."osprey_connectors.simulation.engines"]
       my_engine = "my_facility.engine"
 
 3. Build an image that carries OSPREY's virtual-accelerator install and your

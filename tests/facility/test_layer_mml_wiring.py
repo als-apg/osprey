@@ -23,7 +23,7 @@ from osprey.facility.layers.mml import decks
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, read_mapping
 from osprey.facility.layers.mml.wiring import _Derived, _kept, _one_way
-from osprey.simulation.engines.calibration import Linear, Table
+from osprey_connectors.simulation.engines import Linear, Table
 from tests.facility._mml_built import MmlImport, load_yaml, read_yaml
 from tests.fixtures.mml._trees import SUPPORTED
 
@@ -189,7 +189,7 @@ def test_every_written_deck_is_the_served_deck_of_its_export(
 def test_the_spear3_energy_knob_drives_the_deck_energy_through_its_energy_table(
     imports: Callable[[str], _Imported],
 ) -> None:
-    from osprey.simulation.engines.calibration import curve_from_record, to_hardware
+    from osprey_connectors.simulation.engines import curve_from_record, to_hardware
 
     wiring = _spear3_wiring(imports)
     knob = wiring["MS1-BD:CurrSetpt"]
@@ -224,7 +224,7 @@ def _spear3_wiring(imports: Callable[[str], _Imported]) -> dict[str, dict[str, A
 def test_a_series_member_follows_its_own_row_from_its_own_nominal(
     imports: Callable[[str], _Imported],
 ) -> None:
-    from osprey.simulation.engines.calibration import curve_from_record, evaluate, to_hardware
+    from osprey_connectors.simulation.engines import curve_from_record, evaluate, to_hardware
 
     record = _spear3_wiring(imports)["MS1-QDZ:CurrSetpt"]
     va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))

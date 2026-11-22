@@ -380,7 +380,7 @@ class TestSolve:
         ]
 
     def test_each_step_spans_corrector_delta_in_physics(self, sandbox, sr_render):
-        from osprey.simulation.engines.calibration import curve_from_record, to_physics
+        from osprey_connectors.simulation.engines import curve_from_record, to_physics
 
         sandbox["render"] = sr_render
         request = tool.resolve_model_request("SR", [CORRECTOR_X], render_root=sr_render)

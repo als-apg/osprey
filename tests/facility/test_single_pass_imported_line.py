@@ -92,7 +92,7 @@ def _ltb_setpoints(built: BuiltModel, family: str) -> dict[tuple[int, ...], dict
 
 def _ltb_readings(model: Any, entries: Sequence[dict[str, Any]]) -> np.ndarray:
     """What the plug-in serves at each monitor entry, in the physics units of its wiring."""
-    from osprey.simulation.engines.calibration import curve_from_record, to_physics
+    from osprey_connectors.simulation.engines import curve_from_record, to_physics
 
     served = model.get([entry["address"] for entry in entries])
     return np.array(
@@ -105,7 +105,7 @@ def _ltb_readings(model: Any, entries: Sequence[dict[str, Any]]) -> np.ndarray:
 
 def _ltb_hardware(entry: dict[str, Any], physics: float) -> float:
     """The setpoint value the wiring's inverse calibration gives for a physics value."""
-    from osprey.simulation.engines.calibration import curve_from_record, to_hardware
+    from osprey_connectors.simulation.engines import curve_from_record, to_hardware
 
     calibration = entry["calibration"]
     return to_hardware(
