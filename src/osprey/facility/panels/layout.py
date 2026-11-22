@@ -6612,10 +6612,7 @@ class _Page:
     def rack_columns(self, entries: Sequence[RackUnit]) -> int:
         """The columns a rack list takes from :attr:`x0` to :attr:`right`: as many as
         its longest tile's text allows, whole; one at the least."""
-        need = max(
-            text_width(_rack_label(u), SMALL_SIZE) + CHIP_LIGHT + 2 * GAP + _mark_room(u)
-            for u in entries
-        )
+        need = max(_chip_need(_rack_label(u), u) for u in entries)
         return max(1, int((self.right - self.x0 + CHIP_GAP) // (need + CHIP_GAP)))
 
     def rack_chips(
@@ -6638,16 +6635,21 @@ class _Page:
             if not fit:
                 return list(entries)  # not one row fits here: all of it goes on
             entries, labels, rest = entries[:fit], labels[:fit], list(entries[fit:])
+            widths = [(room - (per - 1) * CHIP_GAP) // per] * per
+        else:  # each column as wide as its own longest name: more of them where they fit
+            needs = [_chip_need(label, unit) for label, unit in zip(labels, entries, strict=True)]
+            widths = list_columns(needs, room, CHIP_GAP)
+            per = len(widths)
         self.heading(heading)
-        w = (room - (per - 1) * CHIP_GAP) // per
+        lefts = [self.x0 + sum(widths[:c]) + c * CHIP_GAP for c in range(per)]
         top = self.y
         pitch = CHIP_HEIGHT + CHIP_GAP
         for (unit, label), (column, row) in zip(
             zip(entries, labels, strict=True), list_cells(len(entries), per), strict=True
         ):
-            mark = _mark_room(unit)
+            mark, w = _mark_room(unit), widths[column]
             label = _cut_apart(label, labels, w - CHIP_LIGHT - 2 * GAP - mark, SMALL_SIZE)
-            x, y = self.x0 + column * (w + CHIP_GAP), top + list_offset(row, pitch)
+            x, y = lefts[column], top + list_offset(row, pitch)
             self.box(x, y, w, CHIP_HEIGHT, fill=FIELD_BACKGROUND)
             self.unit_light(x + GAP / 2, y + (CHIP_HEIGHT - ROW) / 2, unit)
             self.text(x + CHIP_LIGHT + GAP + mark, y, label, size=SMALL_SIZE, h=CHIP_HEIGHT)
@@ -6701,6 +6703,11 @@ def _cut_apart(text: str, siblings: Sequence[str], width: float, size: float) ->
     return ""
 
 
+def _chip_need(label: str, unit: RackUnit) -> float:
+    """The width a rack list's tile needs to hold *label* whole beside its light."""
+    return text_width(label, SMALL_SIZE) + CHIP_LIGHT + 2 * GAP + _mark_room(unit)
+
+
 def _rack_label(unit: RackUnit) -> str:
     """A rack list's tile text: the device's name, with the unit a claim gives."""
     name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
@@ -6741,6 +6748,22 @@ def list_height(count: int, columns: int, height: float, pitch: float) -> float:
         return 0
     last = max(row for _column, row in list_cells(count, columns))
     return list_offset(last, pitch) + height
+
+
+def list_columns(needs: Sequence[float], room: float, gap: float) -> list[float]:
+    """The widths of a long list's columns (:func:`list_cells`) whose entries need
+    *needs* each, within *room*, *gap* between two: as many columns as fit with
+    each as wide as its own longest entry, the room left shared out evenly; one
+    column, of the room, at the least."""
+    most = min(len(needs), int((room + gap) // (min(needs, default=room) + gap)))
+    for columns in range(most, 1, -1):
+        widths = [0.0] * columns
+        for need, (column, _row) in zip(needs, list_cells(len(needs), columns), strict=True):
+            widths[column] = max(widths[column], need)
+        spare = room - sum(widths) - (columns - 1) * gap
+        if spare >= 0:
+            return [math.floor(w + spare / columns) for w in widths]
+    return [room]
 
 
 def list_fit(room: float, columns: int, height: float, pitch: float) -> int:
