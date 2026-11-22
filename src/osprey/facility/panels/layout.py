@@ -5538,18 +5538,31 @@ class _Page:
         """The key numbers: those with data first, as an even grid of tiles across the
         content width, in the fewest rows whose tiles are :data:`MIN_TILE_WIDTH`
         wide, the earlier rows one tile longer when the count does not divide; each
-        row spans the full width. Those with no data yet fold into one last line
-        that says so once (:meth:`no_data_line`)."""
+        row spans the full width. Those with no data yet fold into one line that
+        says so once (:meth:`no_data_line`): on the grid's last row, right of its
+        last tile, where the whole line fits there; else under the grid."""
         live = [(i, t) for i, t in enumerate(band.tiles) if t.channels or t.pairs]
         empty = [t for t in band.tiles if not (t.channels or t.pairs)]
+        last: tuple[float, float, float] | None = None
         if live:
-            self.tile_grid(live)
-        if empty:
-            self.no_data_line(empty)
+            last = self.tile_grid(live)
+        if not empty:
+            return
+        if last is not None:
+            right, top, height = last
+            x = right + GAP
+            if x + self.fold_width(empty) <= MARGIN + STRIP_WIDTH:  # shares the last row
+                y = self.y
+                self.y = top + (height - CHIP_HEIGHT) // 2
+                self.no_data_line(empty, x)
+                self.y = y
+                return
+        self.no_data_line(empty)
 
-    def tile_grid(self, tiles: Sequence[tuple[int, Tile]]) -> None:
+    def tile_grid(self, tiles: Sequence[tuple[int, Tile]]) -> tuple[float, float, float]:
         """*tiles* (each with its place in the band, which names its formula) as the
-        even grid :meth:`band` describes."""
+        even grid :meth:`band` describes. Returns the right edge of the last row's
+        last tile, that row's top and the rows' height."""
         n = len(tiles)
         rows = next(
             r for r in range(1, n + 1) if _tile_width(math.ceil(n / r)) >= MIN_TILE_WIDTH or r == n
@@ -5562,17 +5575,29 @@ class _Page:
         captions = max(len(_wrap(self.caption(t), inner, SMALL_SIZE)) for _i, t in tiles)
         height = 2 * TILE_PAD + (titles + captions) * SMALL_LINE + NUMBER_HEIGHT + 2 * ROW_GAP
         k = 0
+        right: float = MARGIN
+        top: float = MARGIN
         for size in sizes:
             for x, w in spread(size, MARGIN, STRIP_WIDTH, GAP):
                 i, tile = tiles[k]
                 self.tile(x, self.y, w, height, tile, f"m{i}", titles)
+                right, top = x + w, self.y
                 k += 1
             self.y += height + GAP
+        return right, top, height
 
-    def no_data_line(self, tiles: Sequence[Tile]) -> None:
+    @staticmethod
+    def fold_width(tiles: Sequence[Tile]) -> float:
+        """The width of :meth:`no_data_line` over *tiles* on one line."""
+        words = text_width(_NO_DATA.upper(), SMALL_SIZE) + WORD_GAP
+        chips = [text_width(t.title.upper(), SMALL_SIZE) + GAP for t in tiles]
+        return words + sum(chips) + CHIP_GAP * (len(chips) - 1)
+
+    def no_data_line(self, tiles: Sequence[Tile], left: float = MARGIN) -> None:
         """The key numbers with no data yet, after those with data: "no data yet" once,
-        muted, then each one's title in a dashed outline, wrapping across the width."""
-        x = self.small(MARGIN, self.y, _NO_DATA.upper(), fg=MUTED_TEXT) + WORD_GAP
+        muted, then each one's title in a dashed outline, from *left*, wrapping
+        across the width."""
+        x = self.small(left, self.y, _NO_DATA.upper(), fg=MUTED_TEXT) + WORD_GAP
         for tile in tiles:
             title = tile.title.upper()
             w = text_width(title, SMALL_SIZE) + GAP

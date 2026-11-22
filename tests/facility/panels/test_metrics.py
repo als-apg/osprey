@@ -146,6 +146,22 @@ def test_tiles_with_nothing_selected_fold_into_one_last_line_that_says_so_once(x
     assert all(g["y"] + g["height"] <= said["geometry"]["y"] for g in live)  # after the live
 
 
+def test_the_fold_shares_the_band_s_last_row_where_it_fits(panel_graph, monkeypatch) -> None:
+    """Tiles that leave room at the right of their last row: the fold stands on
+    that row, right of the last tile, and adds no line under the band."""
+    whole = layout.spread
+    monkeypatch.setattr(layout, "spread", lambda n, x0, w, gap: whole(n, x0, w / 2, gap))
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in nodes(doc) if n["type"] == "text-label"]
+    (said,) = [n["geometry"] for n in texts if n["props"]["text"] == "NO DATA YET"]
+    live = [t["rectangle"][0]["geometry"] for t in _tiles(doc).values()]
+    row = [g for g in live if g["y"] == max(g["y"] for g in live)]
+    top, bottom = row[0]["y"], row[0]["y"] + row[0]["height"]
+    assert top <= said["y"] and said["y"] + said["height"] <= bottom  # on the last row
+    assert said["x"] > max(g["x"] + g["width"] for g in row)  # right of its last tile
+
+
 def test_a_tile_too_long_for_the_engine_needs_a_server_side_aggregate(
     panel_graph, monkeypatch
 ) -> None:
