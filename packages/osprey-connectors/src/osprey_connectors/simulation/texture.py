@@ -50,6 +50,14 @@ motion; a bool or enum holds the label ``gated``; an int holds the integer
 input the model does not hold never blocks. The gate is part of the held
 value, so a read, :meth:`TextureModel.held` and every reader built on it --
 the archive seed, a subscription comparing held values -- see it alike.
+
+A channel whose seed states ``responds: {to, for_s, value}`` holds ``value``
+for ``for_s`` seconds after each live write to the command ``to``, and its
+value by the rules above otherwise; a second write while the response runs
+starts its time again. A gate still wins: a gated channel holds its gated
+value while a response runs. Only a write fires a response: the start state,
+the active scenarios' writes and a reset fire none, and a reset ends a running
+one. The response is part of the held value, as the gate is.
 """
 
 from __future__ import annotations
@@ -85,6 +93,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         NoiseRecord,
         PulseRecord,
         ResolvedCoupling,
+        RespondsRecord,
         SeedRecord,
         SeedsDocument,
         VariablesDocument,
@@ -284,6 +293,16 @@ class TextureModel(LUMEModel):
             and self._channels[address].get("pair") not in (None, address)
             and str(self._channels[address]["pair"]) in owned
         }
+        #: Each command's responding channels, and each responding channel's record.
+        self._responders: dict[str, list[str]] = {}
+        self._responds: dict[str, RespondsRecord] = {}
+        for address in owned:
+            record = (self._seeds.get(address) or {}).get("responds")
+            if record:
+                self._responds[address] = record
+                self._responders.setdefault(str(record["to"]), []).append(address)
+        #: Each command's last firing, in epoch seconds.
+        self._fired: dict[str, float] = {}
 
         self._nominals: dict[str, values.StoredValue] = {
             address: self._nominal(address, unserved_defaults.get(address)) for address in owned
@@ -364,7 +383,11 @@ class TextureModel(LUMEModel):
 
     @override
     def reset(self) -> None:
-        """Return every texture-owned channel to its nominal, then apply the active writes."""
+        """Return every texture-owned channel to its nominal, then apply the active writes.
+
+        Every running response ends.
+        """
+        self._fired = {}
         self._held = {address: self._nominals[address] for address in self._variables}
         self._hold(self._active)
 
@@ -393,8 +416,10 @@ class TextureModel(LUMEModel):
         """Each channel's held value, without motion or clamp.
 
         A ``linear`` channel holds the weighted sum of its inputs' held values;
-        an input the model does not hold counts as zero. A ``gate`` channel
-        holds its gated value while any input holds its blocking label.
+        an input the model does not hold counts as zero. A ``responds``
+        channel holds its response's value while the response runs, and a
+        ``gate`` channel its gated value while any input holds its blocking
+        label.
 
         Args:
             names: Texture-owned addresses.
@@ -409,7 +434,8 @@ class TextureModel(LUMEModel):
 
         The channel itself, the readback it echoes into, and every channel
         downstream of either: a ``linear`` channel summing it, a ``gate``
-        channel it blocks, a ``pulse`` waveform it drives or enables.
+        channel it blocks, a ``pulse`` waveform it drives or enables. A command
+        also reaches the channels responding to it.
         """
         downstream: dict[str, set[str]] = {}
         for address in self._variables:
@@ -426,7 +452,7 @@ class TextureModel(LUMEModel):
         for address, variable in self._variables.items():
             if variable.read_only:
                 continue
-            found = {address, self._echo.get(address, address)}
+            found = {address, self._echo.get(address, address), *self._responders.get(address, ())}
             pending = list(found)
             while pending:
                 for dependent in downstream.get(pending.pop(), ()):
@@ -440,8 +466,20 @@ class TextureModel(LUMEModel):
         return self._derived(address, self._held)
 
     def _derived(self, address: str, held: Mapping[str, values.StoredValue]) -> values.StoredValue:
-        """A channel's value from ``held``: its weighted sum, then its gate."""
-        return self._gated(address, self._weighted_sum(address, held), held)
+        """A channel's value from ``held``: its weighted sum, then its response, then its gate."""
+        return self._gated(
+            address, self._responding(address, self._weighted_sum(address, held)), held
+        )
+
+    def _responding(self, address: str, value: values.StoredValue) -> values.StoredValue:
+        """``value``, or the ``responds`` value while the response to its command runs."""
+        record = self._responds.get(address)
+        if record is None:
+            return value
+        fired = self._fired.get(str(record["to"]))
+        if fired is None or float(self._clock()) - fired >= float(record["for_s"]):
+            return value
+        return self._coerce(address, record["value"])
 
     def _weighted_sum(
         self, address: str, held: Mapping[str, values.StoredValue]
@@ -686,10 +724,13 @@ class TextureModel(LUMEModel):
 
     @override
     def _set(self, values_by_name: dict[str, object]) -> None:
-        self._hold(values_by_name)
+        self._hold(values_by_name, fired_at=float(self._clock()))
 
-    def _hold(self, values_by_name: Mapping[str, object]) -> None:
-        """Hold coerced values and their echoes; nothing is held when one is refused."""
+    def _hold(self, values_by_name: Mapping[str, object], *, fired_at: float | None = None) -> None:
+        """Hold coerced values and their echoes; nothing is held when one is refused.
+
+        With ``fired_at``, each command written fires its responses then.
+        """
         coerced = {
             name: self._coerce(name, value.tolist() if isinstance(value, np.ndarray) else value)
             for name, value in values_by_name.items()
@@ -701,3 +742,7 @@ class TextureModel(LUMEModel):
         }
         self._held.update(coerced)
         self._held.update(echoes)
+        if fired_at is not None:
+            self._fired.update(
+                dict.fromkeys((name for name in coerced if name in self._responders), fired_at)
+            )
