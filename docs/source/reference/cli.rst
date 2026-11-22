@@ -108,12 +108,12 @@ output, and durable state:
      build/                         rendered by `osprey build`; gitignored
      var/                           agent memory and audit log; gitignored
 
-So that the run limits and the identity an active ``dispatch:`` or
-``va_archiver:`` block builds with can be read and changed where the block
-sits, ``osprey init`` writes such a block whole: every key the preset leaves
-unstated appears at the value it builds with, with a one-line comment; the
-ports the build takes from ``port_base`` and the archiver host are left out,
-since the build derives them, and a profile without the block gets none of it.
+An active ``dispatch:`` or ``va_archiver:`` block is written whole, so that
+its run limits and identity can be read and changed where the block sits: each
+key the preset leaves unstated appears at its default, with a one-line comment.
+Keys the build derives (the ports it takes from ``port_base``, the archiver
+host) or that have no default are left out.
+
 ``git init`` and an initial commit run at the end, unless a git repository
 already encloses the target or ``--no-git`` is given.
 
