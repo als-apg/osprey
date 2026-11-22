@@ -20,12 +20,13 @@ served as the record's ``address`` is: :meth:`SimulatorView.record_address`
 gives the address a channel is served as, and :attr:`Binding.addresses` every
 address of a record.
 
-A setpoint whose channel states ``started_by`` moves its readback when the
-setpoint named there, its command, is written; a seed's ``responds`` names
-the command whose write the channel answers. The reader refuses either key
-when the command is not a setpoint of the view or is a further address, a
-``responds`` that lacks ``to``, ``for_s`` or ``value`` or times nothing, and
-a ``responds`` on a readback a setpoint's write moves.
+A setpoint the texture serves whose channel states ``started_by`` moves its
+readback when the setpoint named there, its command, is written; a seed's
+``responds`` names the command whose write the channel answers. The reader
+refuses either key when the command is not a setpoint of the view or is a
+further address, ``started_by`` on a setpoint a physics model serves, a
+``responds`` that lacks ``to``, ``for_s`` or ``value`` or times nothing, and a
+``responds`` on a readback a setpoint's write moves.
 
 The module imports only the standard library and ``osprey_connectors``, so a
 reader that must not load a model can open a view.
@@ -512,16 +513,22 @@ class SimulatorView:
         return None
 
     def _check_started_by(self) -> None:
-        """Refuse a channel whose ``started_by`` names no setpoint of the view."""
-        for entry in self._parsed(VARIABLES_FILE)["channels"]:
-            if "started_by" not in entry:
-                continue
+        """Refuse a channel whose ``started_by`` names no setpoint of the view, or that a physics model serves."""
+        started = [
+            entry for entry in self._parsed(VARIABLES_FILE)["channels"] if "started_by" in entry
+        ]
+        if not started:
+            return
+        physics = {model.name for model in self.physics_models()}
+        for entry in started:
             address = entry.get("address")
-            refusal = (
-                "it is not a setpoint"
-                if entry.get("role") != SETPOINT
-                else self._command_refusal(entry["started_by"])
-            )
+            owner = entry.get("owner")
+            if entry.get("role") != SETPOINT:
+                refusal: str | None = "it is not a setpoint"
+            elif owner in physics:
+                refusal = f"model {owner!r} serves it, not the texture"
+            else:
+                refusal = self._command_refusal(entry["started_by"])
             if refusal is not None:
                 raise ViewSchemaError(
                     f"{self.path / VARIABLES_FILE}: channel {address!r} states `started_by` "
