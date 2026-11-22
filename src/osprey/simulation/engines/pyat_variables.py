@@ -170,7 +170,8 @@ class ReadbackCalibration:
             and the way back is then the algebraic inverse of a linear
             ``curve``.
         energy_scaling: ``"brho"`` where the physics value the curve states
-            moves with the beam rigidity, else ``"none"``.
+            moves with the beam rigidity, else ``"none"``. Always ``"none"``
+            on a readback of a deck property.
     """
 
     curve: Calibration
@@ -805,6 +806,27 @@ class EnergyVariable(PyATLatticeScalarVariable):
         elements = {element.FamName: element for element in lattice}
         for variable in self._scaled:
             variable.rescale(elements, factor)
+
+    def readback_through(self, value: float, own: ReadbackCalibration) -> float:
+        """What a readback stating its own calibration reads once ``value`` is written.
+
+        ``value`` goes forward through this knob's curve, and that curve value
+        goes back through the readback's own way to the readback's unit. It is
+        the curve's own value, not the energy the lattice is put at: the two
+        differ by the constant ``E_deck / curve(I_nom)`` wherever the curve's
+        absolute scale and the deck disagree, and a facility states the
+        readback's curve against the setpoint's curve, which it knows, not
+        against the deck. So the reading follows the setpoint as the two
+        curves say, whatever the deck's energy is, and no rigidity enters.
+
+        Args:
+            value: the hardware value written to this knob.
+            own: the readback's calibration.
+
+        Returns:
+            The value to serve on the readback address, in the readback's unit.
+        """
+        return to_hardware(own.curve, own.inverse, to_physics(self.calibration, value))
 
     def _energy_gev(self, value: float) -> float:
         """The beam energy ``value`` on the bend implies, in GeV."""

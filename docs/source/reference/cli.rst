@@ -1778,7 +1778,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    members (its lamps, its holder names) are parts of its tile, not items of
    their own. A class's ``drawing`` digest leaves these comments out (rule 2;
    an index with no ``drawing_rule`` was written by rule 1, which kept them in,
-   so between the two every class's digest differs once). The layout measures text in the viewer's own font
+   so between the two every class's digest differs once). Every widget stands
+   on whole pixels, each edge rounded where it is written, and every screen
+   ends one margin under its lowest frame. The layout measures text in the
+   viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
    label in a chain block takes two lines, a muted line of prose (a caption, a
