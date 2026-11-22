@@ -1,1 +1,1 @@
-A further address of a wiring record (under `also`) states no `tolerance` of its own: the build stops with `value-invalid`, naming the record's address.
+A further address of a wiring record (under `also`) states no `tolerance` of its own: the build stops with `value-invalid`, naming the record's address. It settles on the record's readback within the record's `tolerance`, in the Bluesky device file and in `osprey.runtime.settle`.

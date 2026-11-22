@@ -15,7 +15,8 @@ One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
 readback channel, paired or not; a channel whose role is ``none`` is no device.
 A settable carries ``settle_tolerance`` when its setpoint declares a
-``tolerance``: the number of an absolute one, ``{relative: <f>}`` of a relative
+``tolerance``, a further address of a wiring record (under ``also``) its
+record's: the number of an absolute one, ``{relative: <f>}`` of a relative
 one. A settable without one carries ``motion_band`` when the channel it reads
 back declares motion in its ``simulation`` seed: the envelope
 :func:`osprey_connectors.simulation.envelope.motion_envelope` derives from that
@@ -78,12 +79,13 @@ def _records(records: FacilityRecords, facility_file: Path) -> list[Any]:
 
 
 def _tolerances(records: FacilityRecords) -> dict[str, Mapping[str, float]]:
-    """Each setpoint's declared ``tolerance`` record, by address."""
-    return {
-        channel["id"]: channel["tolerance"]
-        for channel in records.of_kind("channel")
-        if channel.get("tolerance")
-    }
+    """Each setpoint's settle ``tolerance`` record, by address; a further address of a wiring record takes its record's."""
+    tolerances: dict[str, Mapping[str, float]] = {}
+    for channel in records.of_kind("channel"):
+        held = records.record("channel", records.record_address(channel["id"])) or channel
+        if held.get("tolerance"):
+            tolerances[channel["id"]] = held["tolerance"]
+    return tolerances
 
 
 def _motion_bands(records: FacilityRecords) -> dict[str, float]:
