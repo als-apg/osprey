@@ -1281,6 +1281,41 @@ class _Frame:
     end: int
     top: float
     bottom: float
+    role: str | None = None  # what the frame is for (:func:`frame_role`)
+
+
+#: What a section's frame is for, by what it holds first: two frames stand side
+#: by side only with the same role, so an action block never stands beside a
+#: reference list. A kind not named here has no role and stands alone.
+FRAME_ROLES: Mapping[type, str] = MappingProxyType(
+    {
+        Operate: "action",
+        Front: "action",
+        Picture: "picture",
+        CurvePlot: "picture",  # a picture with its curve
+        Chain: "live",
+        CardStrip: "live",
+        LimitLadder: "live",
+        RingStrip: "live",
+        ValueRow: "live",
+        Light: "live",
+        ChannelGrid: "reference",
+        ChannelCount: "reference",
+        Link: "reference",
+        Fact: "reference",
+    }
+)
+
+
+def frame_role(section: Section, grouped: bool) -> str | None:
+    """The role of *section*'s frame. On a list split into groups (*grouped*), a
+    stated group's grouping, so two groups pair only within one grouping, and
+    ``None`` for a group that is no stated group. Else :data:`FRAME_ROLES` of
+    what it holds; ``None``, which never pairs, for mixed or unnamed kinds."""
+    if grouped:
+        return None if section.grouping is None else f"group: {section.grouping}"
+    kinds = {FRAME_ROLES.get(type(item)) for item in section.items}
+    return kinds.pop() if len(kinds) == 1 else None
 
 
 #: The content that stretches to the width it is given (``_Page.room``): drawn at
@@ -1593,6 +1628,7 @@ class _Page:
         self.frame_x: float = MARGIN - PANEL_PAD
         self.frame_w: float = STRIP_WIDTH + 2 * PANEL_PAD
         self.card_number = 0  # the drawn card's sections numbered so far
+        self.role: str | None = None  # the role of the frame drawn next (frame_role)
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
         self.facts_bottom: float = 0  # a rack's right column, where it ends
@@ -2316,7 +2352,13 @@ class _Page:
         reads no channel, so drawing it again takes nothing from the screen's
         budget."""
         before, nodes = self.last_frame, self.s.nodes
-        if before is None or before.end != len(nodes) or before.bottom + PANEL_GAP != self.y:
+        role = frame_role(section, grouped=False)
+        if (
+            before is None
+            or before.role != role
+            or before.end != len(nodes)
+            or before.bottom + PANEL_GAP != self.y
+        ):
             self.drawn_section(section)
             return
         kept = (self.x0, self.room, self.frame_x, self.frame_w)
@@ -2348,6 +2390,7 @@ class _Page:
     def drawn_section(self, section: Section) -> None:
         """One section of a drawn card, by what it holds (:meth:`drawn_card`)."""
         first = section.items[0] if section.items else None
+        self.role = frame_role(section, grouped=False)
         if isinstance(first, CardHead):
             self.title_line(first)
         elif isinstance(first, KeyTile):
@@ -2496,15 +2539,16 @@ class _Page:
             },
         )
         self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
-        self.beside(_Frame(first, len(self.s.nodes), top, self.y))
+        self.beside(_Frame(first, len(self.s.nodes), top, self.y, self.role))
         self.y += PANEL_GAP
 
     def beside(self, block: _Frame) -> None:
         """Width before height: *block*, just framed, goes to the right half beside
         the frame drawn just before it when both hold content no wider than half a
         frame and nothing in either is placed by a rule; both frames then take the
-        taller one's height. Only frames across the full width pair: a frame in a
-        column of its own stays where it is."""
+        taller one's height. Only frames of one role pair (:func:`frame_role`),
+        and only across the full width: a frame in a column of its own stays
+        where it is."""
         before, self.last_frame = self.last_frame, block
         nodes = self.s.nodes
         if not _half_wide(nodes[block.first + 1 : block.end]):
@@ -2512,6 +2556,8 @@ class _Page:
             return
         if before is None or before.end != block.first or before.bottom + PANEL_GAP != block.top:
             return
+        if block.role is None or before.role != block.role:
+            return  # not the same role: each stands alone (:func:`frame_role`)
         full = (MARGIN - PANEL_PAD, STRIP_WIDTH + 2 * PANEL_PAD)
         if any(
             (nodes[f]["geometry"]["x"], nodes[f]["geometry"]["width"]) != full
@@ -4375,6 +4421,7 @@ class _Page:
 
     def section(self, section: Section) -> None:
         """A section in its frame: the frame stands in the margin around what it holds."""
+        self.role = frame_role(section, grouped=self.view.id.view == "channels")
         first = len(self.s.nodes)
         top = self.y
         self.y += PANEL_PAD

@@ -1768,7 +1768,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
    the layout cut to fit. Two frames in a row whose content needs at most half the
-   width each stand side by side at one height; content that stretches (a curve's
+   width each stand side by side at one height when they have one role (live
+   values, references, an action block, a picture with its curve; two groups of
+   a channel list only as stated groups of one grouping, a group of no stated
+   kind alone); content that stretches (a curve's
    plot) is drawn after the next frame and, where that one takes at most half,
    fills the other half. The layout measures text in the
    viewer's own font

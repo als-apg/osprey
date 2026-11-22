@@ -1115,10 +1115,20 @@ Item = (
 
 @dataclass(frozen=True)
 class Section:
-    """A titled run of items."""
+    """A titled run of items.
+
+    Attributes:
+        title: What it is titled.
+        items: What it holds, in order.
+        grouping: For one of several groups of one list, the grouping it is a
+            stated group of (``role``, ``record type``); ``None`` for a group
+            that is no stated group (the not stated, the leftovers). Two
+            neighbouring groups stand side by side only within one grouping.
+    """
 
     title: str
     items: tuple[Item, ...]
+    grouping: str | None = None
 
 
 @dataclass(frozen=True)

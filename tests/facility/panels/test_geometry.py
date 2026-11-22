@@ -387,3 +387,53 @@ def test_narrow_frames_stand_side_by_side_at_one_height(screens):
                 or a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
             ), name  # fmt: skip
     assert pairs >= 5  # the fixture has short sections to pair
+
+
+def _paired_titles(doc: dict[str, Any]) -> list[tuple[str, str]]:
+    """The headings of each two frames standing side by side, left then right."""
+    half = layout.HALF_FRAME
+    frames = [
+        n["geometry"] for n in _nodes(doc["root"])
+        if n["type"] == "rectangle" and n["geometry"]["width"] == half
+        and n["props"].get("fillColor") == symbols.PANEL_BACKGROUND
+    ]  # fmt: skip
+
+    def title(g: dict[str, Any]) -> str:
+        heads = sorted(
+            (n for n in _nodes(doc["root"]) if n["type"] == "text-label"
+             and abs(n["geometry"]["y"] - (g["y"] + layout.PANEL_PAD)) < 1
+             and g["x"] <= n["geometry"]["x"] < g["x"] + g["width"]),
+            key=lambda n: n["geometry"]["x"],
+        )  # fmt: skip
+        return str(heads[0]["props"]["text"]) if heads else ""
+
+    rows: dict[float, list[dict[str, Any]]] = {}
+    for g in frames:
+        rows.setdefault(g["y"], []).append(g)
+    return [
+        (title(a), title(b))
+        for a, b in (sorted(r, key=lambda g: g["x"]) for r in rows.values() if len(r) == 2)
+    ]
+
+
+def test_frames_pair_only_with_their_own_role(screens, panel_graph):
+    """An action block never stands beside a reference list; on a channel list two
+    groups pair only as stated groups of one grouping, and a group of no stated
+    kind (the not stated, the leftovers) stands alone."""
+    from osprey.facility.panels.describe import channel_list
+    from osprey.facility.panels.view import Link, Section, Target, ValueRow
+
+    pairs = [p for doc in screens.values() for p in _paired_titles(doc)]
+    assert pairs  # some do pair
+    actions = [p for p in pairs if any(t.endswith("OPERATE") for t in p)]
+    assert not [p for p in actions if any("ALL CHANNELS" in t for t in p)]
+    reference = Section("links", (Link("x", Target("card", "device", "X")),))
+    live = Section("values", (ValueRow("a", "XR01-X:A-RB", None, None, False),))
+    assert layout.frame_role(reference, grouped=False) == "reference"
+    assert layout.frame_role(live, grouped=False) == "live"
+    assert layout.frame_role(live, grouped=True) is None  # a group of no stated kind
+    stated = Section("record type ai", live.items, "record type")
+    assert layout.frame_role(stated, grouped=True) == "group: record type"
+    view = channel_list(panel_graph, "XR01:PS1")
+    unstated = [s for s in view.sections if s.grouping is None]
+    assert all(view.sections.index(s) >= len(view.sections) - len(unstated) for s in unstated)
