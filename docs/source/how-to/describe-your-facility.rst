@@ -766,9 +766,52 @@ The readback's ``curve`` runs the way every curve does, from its own unit to
 the physics value; a ``table`` needs an ``inverse``. State the setpoint's
 ``energy_scaling`` on it unless its unit does not move with the beam energy
 as the setpoint's does. Its computed ``default`` is the value it is served
-with at start, and its seed's noise and drift act in its own unit. A readback
-of a deck property such as ``energy`` cannot state another calibration than
-its setpoint; the build stops with ``engine-invalid``.
+with at start, and its seed's noise and drift act in its own unit.
+
+A setpoint may drive a property of the whole deck: a record that names no
+element and the engine ``attribute: energy`` is the deck's energy, set through
+the curve from its unit to electron-volts. The deck is at its own energy while
+that setpoint holds its ``default``, and moves from there as the curve's value
+does. A readback record with the same engine block reads that setpoint, and it
+too may state its own calibration. The current of a string of bending magnets
+and the string's voltage, 0.5 V per ampere, are two channels:
+
+.. code-block:: yaml
+
+   - id: SR:MAG:BEND:CURRENT:SP
+     role: setpoint
+     unit: A
+     label: bending magnet string current
+   - id: SR:MAG:BEND:VOLTAGE:RB
+     unit: V
+     label: bending magnet string voltage
+
+and two records that name no element:
+
+.. code-block:: yaml
+
+   - address: SR:MAG:BEND:CURRENT:SP
+     engine:
+       attribute: energy
+     calibration:
+       curve:
+         linear: {gain: 4.0e+6, offset: 0.0}
+       energy_scaling: none
+   - address: SR:MAG:BEND:VOLTAGE:RB
+     engine:
+       attribute: energy
+     calibration:
+       curve:
+         linear: {gain: 8.0e+6, offset: 0.0}
+       energy_scaling: none
+
+The voltage reads the value of the setpoint's curve at the current the
+setpoint holds, through its own way back: 250 V at 500 A here. Both curves end
+in the same unit, the one the setpoint's curve states, so write the readback's
+curve against the setpoint's curve and not against the deck, whose energy may
+differ from the curve's by a constant factor. Such a readback states
+``energy_scaling: none``, as the value of the setpoint's curve does not move
+with the beam rigidity; the build stops on any other with ``engine-invalid``.
 
 The model computes a wired readback from the setpoint record on its element,
 so it reads that setpoint whether or not the channels ``pair`` the two, where

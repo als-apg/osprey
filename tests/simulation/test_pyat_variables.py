@@ -855,6 +855,35 @@ class TestMonitorStartValues:
         assert values == {"DIAG:MONITOR:X": 0.0}
 
 
+class TestEnergyReadbackThroughItsOwnCalibration:
+    """The energy knob's curve value, read in the unit of a readback's own calibration."""
+
+    def test_reads_the_curve_value_back_along_its_own_line(self) -> None:
+        knob = build(energy_record())
+
+        read = knob.readback_through(BEND_RAISED, _own("none"))
+
+        curve_value = cal.to_physics(knob.calibration, BEND_RAISED)
+        assert read == pytest.approx((curve_value - VOLT_OFFSET) / VOLT_GAIN, rel=1e-12)
+
+    def test_its_stated_inverse_wins_over_the_algebraic_one(self) -> None:
+        knob = build(energy_record())
+
+        read = knob.readback_through(BEND_RAISED, _own("none", inverse=_linear(240.0, 3.0)))
+
+        curve_value = cal.to_physics(knob.calibration, BEND_RAISED)
+        assert read == pytest.approx(240.0 * curve_value + 3.0, rel=1e-12)
+
+    def test_a_deck_the_curve_disagrees_with_plays_no_part(self) -> None:
+        """The reading is the curve's own value, not the energy the lattice is put at."""
+        agreeing = build(energy_record())
+        disagreeing = build(energy_record(), deck_energy_gev=0.9 * DECK_ENERGY_GEV)
+
+        assert disagreeing.readback_through(BEND_RAISED, _own("none")) == (
+            agreeing.readback_through(BEND_RAISED, _own("none"))
+        )
+
+
 class TestEnergyVariable:
     def test_the_nominal_setpoint_leaves_the_deck_energy(self, simulator) -> None:
         build(energy_record())._set(simulator, BEND_NOMINAL)

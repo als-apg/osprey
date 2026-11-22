@@ -63,7 +63,7 @@ def test_the_drawing_is_to_scale_with_lettered_buttons_and_bars(bpm_graph) -> No
     buttons = [n for n in block if n["type"] == "ellipse" and n["props"].get("tooltip") in "ABCD"]
     assert len(buttons) == 4
     size = buttons[0]["geometry"]["width"]
-    assert size == pytest.approx(layout.PROBE_BORE * 8 / (2 * 14.2), abs=0.1)
+    assert size == pytest.approx(layout.PROBE_BORE * 8 / (2 * 14.2), abs=1)  # whole pixels
     a = next(n for n in buttons if n["props"]["tooltip"] == "A")
     centre_x = bore["geometry"]["x"] + layout.PROBE_BORE / 2
     centre_y = bore["geometry"]["y"] + layout.PROBE_BORE / 2

@@ -30,7 +30,7 @@ judges a command reads this mark and no rule of its own.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -193,12 +193,13 @@ def _fill_model(
             )
         ]
     records = [r for r in model.get("wiring", []) if r["address"] in channels]
+    wired = _reading_a_setpoint_of_the_whole_model(records, channels)
     deckless = "deck" not in model
     if deckless and getattr(engine, "deckless_start_values", False) is not True:
         errors: list[FacilityBuildError] = []
         for record in records:
             _fill_record(record, channels[record["address"]], limits.get(record["address"]))
-            errors.extend(_describe_record(describe, model, record, pairs))
+            errors.extend(_describe_record(describe, model, record, pairs, wired))
         return errors
     readbacks = {
         r["address"]: setpoint_of.get(r["address"])
@@ -244,7 +245,7 @@ def _fill_model(
         if deckless:
             # A deckless engine starts its setpoints only; a reading has no start value.
             _fill_record(record, channels[address], limits.get(address), values.get(address))
-            errors.extend(_describe_record(describe, model, record, pairs))
+            errors.extend(_describe_record(describe, model, record, pairs, wired))
             continue
         if address not in values:
             errors.append(
@@ -259,8 +260,24 @@ def _fill_model(
             )
             continue
         _fill_record(record, channels[address], limits.get(address), values[address])
-        errors.extend(_describe_record(describe, model, record, pairs))
+        errors.extend(_describe_record(describe, model, record, pairs, wired))
     return errors
+
+
+def _reading_a_setpoint_of_the_whole_model(
+    records: Iterable[Mapping[str, Any]], channels: Mapping[str, Mapping[str, Any]]
+) -> frozenset[str]:
+    """The records naming no element that share their engine block with such a setpoint.
+
+    An engine may describe one as a readback of that setpoint of the whole
+    model (its energy, say) whether or not the channels pair the two; any
+    other record naming no element is an output.
+    """
+    whole = [r for r in records if r.get("element") is None and not r.get("slices")]
+    driven = [
+        r["engine"] for r in whole if "engine" in r and _role(channels[r["address"]]) == "setpoint"
+    ]
+    return frozenset(r["address"] for r in whole if r.get("engine") in driven)
 
 
 def _describe_record(
@@ -268,6 +285,7 @@ def _describe_record(
     model: Mapping[str, Any],
     record: dict[str, Any],
     pairs: frozenset[str],
+    wired: frozenset[str] = frozenset(),
 ) -> list[FacilityBuildError]:
     """Write what the engine says a record is; the stop when it cannot say or says wrong."""
     try:
@@ -284,7 +302,7 @@ def _describe_record(
             )
         ]
     try:
-        _check_description(model, record, description, pairs)
+        _check_description(model, record, description, pairs, wired)
     except FacilityBuildError as stop:
         return [stop]
     slots = {key: description[key] for key in _DESCRIPTION_KEYS}
@@ -306,6 +324,7 @@ def _check_description(
     record: Mapping[str, Any],
     description: Mapping[str, Any],
     pairs: frozenset[str],
+    wired: frozenset[str] = frozenset(),
 ) -> None:
     """Stop when an engine's description contradicts the schema or the facility file.
 
@@ -351,6 +370,10 @@ def _check_description(
         expected, why = "setpoint", "its direction is write"
     elif address in pairs:
         expected, why = "readback", "a setpoint pairs with it"
+    elif address in wired and description.get("engine_role") == "readback":
+        # No setpoint pairs with it, and it is wired where a setpoint of the
+        # whole model is: the engine may say it reads that setpoint back.
+        return
     elif record.get("element") is None and not record.get("slices"):
         expected, why = "output", "it names no element"
     else:

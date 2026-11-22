@@ -118,6 +118,37 @@ def test_a_lights_mark_gets_a_line_of_its_size():
         assert ink <= drawn["geometry"]["width"]
 
 
+def test_every_widget_stands_on_whole_pixels(screens):
+    """Edges on fractions of a pixel draw soft: every box, and every point of a
+    line or shape, is on a whole pixel."""
+    off = []
+    for name, doc in screens.items():
+        for node in _nodes(doc["root"]):
+            g = node["geometry"]
+            points = node["props"].get("points") or ()
+            values = [g["x"], g["y"], g["width"], g["height"]]
+            values += [v for p in points for v in (p["x"], p["y"])]
+            if any(not float(v).is_integer() for v in values):
+                off.append((name, node["id"]))
+    assert off == []
+
+
+def test_the_canvas_ends_one_margin_under_the_content(screens):
+    """Every screen, of every kind, ends :data:`layout.PAGE_END` under its lowest
+    widget; nothing more, so the viewer draws it as large as it can."""
+    wrong = {}
+    for name, doc in screens.items():
+        bottom = max(
+            n["geometry"]["y"] + n["geometry"]["height"]
+            for n in _nodes(doc["root"])
+            if n["type"] != "absolute-canvas" and n["geometry"]["x"] != layout.APPLY_AWAY
+        )
+        height = doc["metadata"]["size"]["height"]
+        if height != doc["root"]["geometry"]["height"] or height - bottom != layout.PAGE_END:
+            wrong[name] = height - bottom
+    assert wrong == {}
+
+
 def test_no_widget_reaches_outside_the_canvas(screens):
     outside = []
     for name, doc in screens.items():
@@ -136,6 +167,27 @@ def test_no_widget_reaches_outside_the_canvas(screens):
             ):
                 outside.append((name, node["id"], node["type"]))
     assert outside == []
+
+
+#: The widgets that print a channel's value in a box of their own.
+VALUE_WIDGETS = frozenset({"pv-label", "pv-text-input", "pv-progress-bar"})
+
+
+def test_no_text_lies_under_a_value(screens):
+    under = []
+    for name, doc in screens.items():
+        values = [n for n in _nodes(doc["root"]) if n["type"] in VALUE_WIDGETS]
+        for t_id, text, x, y, w, h in _texts(doc):
+            for value in values:
+                g = value["geometry"]
+                if (
+                    x < g["x"] + g["width"] - TOUCH
+                    and g["x"] < x + w - TOUCH
+                    and y < g["y"] + g["height"] - TOUCH
+                    and g["y"] < y + h - TOUCH
+                ):
+                    under.append((name, t_id, text, value["id"]))
+    assert under == []
 
 
 def test_no_text_lies_over_another(screens):
@@ -233,7 +285,7 @@ def test_a_line_of_prose_takes_the_lines_it_needs_and_loses_no_text():
     assert "".join(lines).replace(" ", "") == text.replace(" ", "")
 
 
-def test_every_cut_label_shows_its_whole_text_on_hover(screens):
+def test_every_cut_label_carries_its_whole_text_as_a_tooltip(screens):
     def covers(box: dict[str, Any], g: dict[str, Any]) -> bool:
         b = box["geometry"]
         return (
@@ -279,3 +331,41 @@ def test_a_fact_s_long_note_wraps_beside_it_and_the_row_grows(panel_graph):
     assert len(note) > 1 and not any(n["props"]["text"].endswith("…") for n in note)
     after = next(n for n in texts if n["props"]["text"] == "after")
     assert after["geometry"]["y"] >= max(n["geometry"]["y"] + n["geometry"]["height"] for n in note)
+
+
+def test_conditions_several_calibration_rows_share_are_stated_once_under_them(panel_graph):
+    from osprey.facility.panels.view import CalibrationRow, Calibrations, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    frame = "in the support frame; x across, y up, z along the beam, angles seen from upstream"
+
+    def row(title: str, conditions: str | None) -> CalibrationRow:
+        return CalibrationRow(
+            title, conditions, "0.1 mrad", None, "stated", "stated", False, None, None, None
+        )
+
+    table = Calibrations((row("Roll", frame), row("Yaw", frame), row("Gain", "at 20 C")))
+    view = View(
+        Target("card", "device", "XR01:PS1"), "XR01:PS1", (), (Section("calibration", (table,)),)
+    )
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
+    words = " ".join(n["props"]["text"] for n in texts)
+    assert words.count("support frame") == 1  # once, not per row
+    assert "Roll, Yaw: in the support frame" in words
+    assert "at 20 C" in words  # a row's own conditions stay with it
+    gain = next(n for n in texts if n["props"]["text"] == "Gain")
+    shared = next(n for n in texts if n["props"]["text"].startswith("Roll, Yaw:"))
+    assert shared["geometry"]["y"] > gain["geometry"]["y"]  # under the rows
+    assert not any(n["props"]["text"].endswith("…") for n in texts if "frame" in n["props"]["text"])
+
+
+def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
+    width = layout.text_width("Electronics", layout.SMALL_SIZE) + 4
+    assert layout._wrap_label("ElectronicsChassis", width, layout.SMALL_SIZE, 2) == [
+        "Electronics",
+        "Chassis",
+    ]
+    # a name that fits, or one with separators, breaks as before
+    assert layout._wrap_label("PowerSupply", 400, layout.SMALL_SIZE, 2) == ["PowerSupply"]
+    assert layout._wrap_label("XR01-PS1:On-Sts", 400, layout.SMALL_SIZE, 2) == ["XR01-PS1:On-Sts"]

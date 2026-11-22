@@ -280,7 +280,7 @@ OPERATE_COLUMNS = 3  # press groups side by side; an entry group takes the width
 GRID_ROW = ROW + ROW_GAP
 GRID_VALUE = 100
 GRID_NAME_LEAST = 80  # a grid row's name, however wide its value and unit
-CARD_END = 30  # the stated height: the last section's end and this
+PAGE_END = PANEL_GAP + SECTION_GAP  # the canvas ends this far under its lowest frame
 # a card's strip: the pipe, the lanes above and below it, the metre ticks
 CARD_PIPE = 14
 CARD_LANE = 44  # a lane's symbols from the pipe's axis
@@ -291,6 +291,7 @@ CARD_TICK = 6
 CARD_STRIP_VALUE = 90
 CARD_TICK_LEAST = 40  # the least px between two labelled ticks
 CARD_LEAST_SPAN = 1e-9  # m: a window of no length is drawn as this
+HALF_PIXEL = 0.5  # a coordinate this far past a pixel rounds up to the next
 CARD_ABOVE_ROOM = 2 * ROW + CARD_LANE  # over the pipe: a lane, a name, a value
 CARD_BELOW_ROOM = 3 * ROW + CARD_LANE  # under it: a lane, a name, a value
 _STRIP_TRIES = 200  # lines a strip's name or value moves out, at most, to clear the others
@@ -686,11 +687,14 @@ def line_height(size: float) -> float:
 
 def _line_room(g: Mapping[str, float], size: float) -> Mapping[str, float]:
     """*g* at least one line of *size* high, grown about its middle, so the
-    viewer draws the text at the size the file states."""
+    viewer draws the text at the size the file states. It grows by an even
+    number of pixels, so a whole box stays centred on whole pixels."""
     need = line_height(size)
     if g["height"] >= need:
         return g
-    return {**g, "y": max(g["y"] - (need - g["height"]) / 2, 0.0), "height": need}
+    grow = math.ceil(need - g["height"])
+    grow += grow % 2
+    return {**g, "y": max(g["y"] - grow / 2, 0.0), "height": g["height"] + grow}
 
 
 def check_columns(rows: Sequence[CheckRow]) -> tuple[float, float]:
@@ -1379,6 +1383,18 @@ def _geometry(x: float, y: float, w: float, h: float) -> dict[str, float | int]:
     return {"x": _n(x), "y": _n(y), "width": _n(w), "height": _n(h)}
 
 
+def _pixel(value: float) -> int:
+    """*value* to the nearest whole pixel, a half up (never to even)."""
+    return math.floor(value + HALF_PIXEL)
+
+
+def snapped(x: float, y: float, w: float, h: float) -> dict[str, int]:
+    """A box on whole pixels: each edge rounded, not its origin and size, so two
+    boxes that touch still touch and a box of whole size keeps it."""
+    x0, y0, x1, y1 = _pixel(x), _pixel(y), _pixel(x + w), _pixel(y + h)
+    return {"x": x0, "y": y0, "width": max(x1 - x0, 0), "height": max(y1 - y0, 0)}
+
+
 @dataclass
 class _Screen:
     """One Screen-IR document under construction, ids in build order."""
@@ -1404,15 +1420,20 @@ class _Screen:
             if node["props"].get("fontSize", SMALL_SIZE) < SMALL_SIZE:
                 node["props"]["fontSize"] = SMALL_SIZE  # the floor: nothing smaller anywhere
             g = _line_room(g, node["props"].get("fontSize", TEXT_SIZE))
+        box = snapped(g["x"], g["y"], g["width"], g["height"])
         out: dict[str, Any] = {
             "id": f"w-{self._widgets:04d}",
             "type": node["type"],
             "props": node["props"],
-            "geometry": _geometry(g["x"], g["y"], g["width"], g["height"]),
+            "geometry": box,
         }
-        if "points" in out["props"]:
+        if "points" in out["props"]:  # each point where it was on the page, on a pixel
             out["props"]["points"] = [
-                {"x": _n(p["x"]), "y": _n(p["y"])} for p in out["props"]["points"]
+                {
+                    "x": _pixel(g["x"] + p["x"]) - box["x"],
+                    "y": _pixel(g["y"] + p["y"]) - box["y"],
+                }
+                for p in out["props"]["points"]
             ]
         if rules:
             out["rules"] = rules
@@ -1440,7 +1461,7 @@ class _Screen:
         }
 
     def document(self, height: float) -> dict[str, Any]:
-        size = {"width": PAGE_WIDTH, "height": _n(height)}
+        size = {"width": PAGE_WIDTH, "height": _pixel(height)}
         description = f"Generated from the facility's panel view {self.doc_id}."
         if self.unknown:
             description += (
@@ -2036,7 +2057,7 @@ class _Page:
             isinstance(i, CardHead) for section in sections for i in section.items
         ):
             self.drawn_card(sections)  # the stated height: the last frame's end and a margin
-            return self.s.document(self.y - PANEL_GAP + CARD_END)
+            return self.s.document(self.y + SECTION_GAP)
         if self.on_card:
             if any(s.title == PROBE_SECTION for s in sections):  # the picture is the point
                 first = [s for s in sections if s.title in _PICTURE_FIRST]
@@ -3013,7 +3034,7 @@ class _Page:
             "default": NO_VALUE,
             "formula": _FORMULA_PREFIX + formula,
         }
-        w = COUNT_DIGITS * CHAR_WIDTH * TEXT_SIZE + NUMBER_PAD
+        w = math.ceil(COUNT_DIGITS * CHAR_WIDTH * TEXT_SIZE + NUMBER_PAD)
         props = {"text": NO_VALUE, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT,
                  "backgroundColor": TRANSPARENT, "align": "right"}  # fmt: skip
         self.s.widget("text-label", x, y - (ROW - SMALL_LINE) / 2, w, ROW, props, rules=[rule])
@@ -4648,12 +4669,22 @@ class _Page:
 
     def calibrations(self, table: Calibrations) -> None:
         """A device's calibration block: column heads, then a row per kind (see
-        :meth:`calibration_row`). Read-only."""
+        :meth:`calibration_row`); conditions that several rows state alike once,
+        under the rows, after the titles of the rows they hold for. Read-only."""
         for word, dx in zip(_CAL_HEADS, CAL_COLUMNS, strict=True):
             self.text(MARGIN + dx, self.y, word.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
         self.y += ROW
+        # conditions that several rows state alike are stated once, under the rows
+        shared = Counter(row.conditions for row in table.rows if row.conditions)
+        once = {text for text, n in shared.items() if n > 1}
         for row in table.rows:
-            self.calibration_row(row)
+            self.calibration_row(replace(row, conditions=None) if row.conditions in once else row)
+        for text in sorted(once, key=lambda t: [r.conditions for r in table.rows].index(t)):
+            titles = ", ".join(r.title for r in table.rows if r.conditions == text)
+            for line in _prose(f"{titles}: {text}", STRIP_WIDTH, SMALL_SIZE):
+                self.small(MARGIN, self.y, line, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+            self.y += ROW_GAP
 
     def calibration_row(self, row: CalibrationRow) -> None:
         """One kind: its title (a link to the kind's view over a set), wrapped and
@@ -5474,9 +5505,8 @@ class _Page:
         captions = max(len(_wrap(self.caption(t), inner, SMALL_SIZE)) for t in band.tiles)
         height = 2 * TILE_PAD + (titles + captions) * SMALL_LINE + NUMBER_HEIGHT + 2 * ROW_GAP
         i = 0
-        for size, w in zip(sizes, widths, strict=True):
-            for column in range(size):
-                x = MARGIN + column * (w + GAP)
+        for size in sizes:
+            for x, w in spread(size, MARGIN, STRIP_WIDTH, GAP):
                 self.tile(x, self.y, w, height, band.tiles[i], f"m{i}", titles)
                 i += 1
             self.y += height + GAP
@@ -5574,7 +5604,7 @@ class _Page:
             )  # fmt: skip
         else:
             digits = max(len(str(total)), COUNT_DIGITS) if counted else VALUE_DIGITS
-            number_w = digits * CHAR_WIDTH * BIG_SIZE + NUMBER_PAD
+            number_w: float = math.ceil(digits * CHAR_WIDTH * BIG_SIZE + NUMBER_PAD)
             size: float = BIG_SIZE
             room = inner - beside_w - GAP
             if not counted:
@@ -6960,8 +6990,15 @@ def _prose(text: str, width: float, size: float) -> list[str]:
 def _wrap_label(text: str, width: float, size: float, lines: int) -> list[str]:
     """A name in at most *lines* lines that each fit *width* at *size*, broken after a
     space, colon, hyphen or underscore; the last line cut with an ellipsis when the
-    rest does not fit."""
-    pieces = re.findall(r"[^\s:_-]*[\s:_-]|[^\s:_-]+$", text)
+    rest does not fit. A piece too wide for a line by itself breaks where a small
+    letter meets a capital (``ElectronicsChassis``)."""
+    pieces = [
+        part
+        for piece in re.findall(r"[^\s:_-]*[\s:_-]|[^\s:_-]+$", text)
+        for part in (
+            re.split(r"(?<=[a-z])(?=[A-Z])", piece) if text_width(piece, size) > width else [piece]
+        )
+    ]
     out: list[str] = []
     while pieces and len(out) < lines:
         line = pieces.pop(0)
@@ -6988,9 +7025,25 @@ def _wrap_name(text: str, width: float, size: float, lines: int) -> list[str]:
     return out or [""]
 
 
-def _tile_width(per_row: int) -> float:
-    """The width of each of *per_row* tiles spanning the content width."""
-    return (STRIP_WIDTH - (per_row - 1) * GAP) / per_row
+def _tile_width(per_row: int) -> int:
+    """The width of each of *per_row* tiles spanning the content width: whole
+    pixels, the rest given to the gaps (:func:`spread`)."""
+    return (STRIP_WIDTH - (per_row - 1) * GAP) // per_row
+
+
+def spread(count: int, left: float, width: float, gap: float) -> list[tuple[int, int]]:
+    """``(x, width)`` of *count* boxes of one whole width filling *width* from
+    *left*, at least *gap* apart: what whole widths leave over widens the first
+    gaps by a pixel each, so the row ends exactly at its right edge."""
+    if count <= 0:
+        return []
+    each = int((width - (count - 1) * gap) // count)
+    rest = int(round(width - count * each - (count - 1) * gap))
+    out, x = [], int(round(left))
+    for i in range(count):
+        out.append((x, each))
+        x += each + int(gap) + (1 if i < rest else 0)
+    return out
 
 
 def strip_labels(placed: Sequence[Placed]) -> list[tuple[str, float, float, int]]:
@@ -7043,7 +7096,7 @@ def precision_expression(value: str, *, compact: bool = False) -> str:
 def shown_width(text: str, size: float) -> float:
     """The width of a value display that prints *text* at *size*: the characters,
     in the display's fixed-width face, and its own padding and frame."""
-    return len(text) * CHAR_WIDTH * size + NUMBER_PAD
+    return math.ceil(len(text) * CHAR_WIDTH * size + NUMBER_PAD)
 
 
 def _significant(value: float) -> str:
@@ -7058,7 +7111,7 @@ def value_width(unit: str | None, size: float) -> float:
     """The width of a value display that prints :data:`VALUE_SAMPLE` and *unit* at
     *size*: the characters, and the display's own padding and frame."""
     text = f"{VALUE_SAMPLE} {unit}" if unit else VALUE_SAMPLE
-    return len(text) * CHAR_WIDTH * size + NUMBER_PAD
+    return math.ceil(len(text) * CHAR_WIDTH * size + NUMBER_PAD)
 
 
 def value_size(unit: str | None, width: float) -> float:
