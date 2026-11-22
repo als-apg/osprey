@@ -4,8 +4,9 @@
 ``data/simulator/`` and serves its channels through two kinds of child:
 
 * one **physics child** per served model whose engine is not ``texture``,
-  built by the engine plug-in the ``osprey.simulation.engines`` entry-point
-  group names, through ``build(model, wiring, deck, settings, active=...)``;
+  built by the engine plug-in the
+  :data:`~osprey_connectors.simulation.engines.ENGINE_GROUP` entry-point group
+  names, through ``build(model, wiring, deck, settings, active=...)``;
 * the **texture**, a :class:`~osprey_connectors.simulation.texture.TextureModel`
   holding every other channel and the motion of all of them.
 
@@ -138,6 +139,7 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
@@ -186,9 +188,6 @@ __all__ = [
 ]
 
 logger = get_logger("simulation_composite")
-
-#: The entry-point group every engine plug-in registers under.
-_ENGINE_GROUP = "osprey.simulation.engines"
 
 #: The serving instances a model log record names.
 _INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
@@ -310,7 +309,7 @@ def _producers_first(children: Mapping[str, _Child]) -> list[str]:
 
 
 class _Engine(Protocol):
-    """An engine plug-in, as the ``osprey.simulation.engines`` group names it.
+    """An engine plug-in, as the :data:`ENGINE_GROUP` entry-point group names it.
 
     Its optional functions (``error_text``, ``readout``, ``take_inputs`` and
     the time contract) are looked up by name.
@@ -561,11 +560,11 @@ class Composite(LUMEModel):
         Raises:
             LookupError: No plug-in is registered under that name.
         """
-        found = metadata.entry_points(group=_ENGINE_GROUP, name=name)
+        found = metadata.entry_points(group=ENGINE_GROUP, name=name)
         for entry in found:
             engine: _Engine = entry.load()
             return engine
-        raise LookupError(f"no simulation engine {name!r} is registered in {_ENGINE_GROUP}")
+        raise LookupError(f"no simulation engine {name!r} is registered in {ENGINE_GROUP}")
 
     def _build(self, child: _Child) -> None:
         """Build a child at its active state; a raise leaves it failed with the engine's text.

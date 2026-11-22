@@ -104,8 +104,10 @@ virtual accelerator loads them. osprey-connectors is the one layer all three
 depend on, so the contract is spelled once. The cost is a larger public API in
 osprey-connectors and its compatibility table.
 
-*Phase:* 3. *Today:* the contract is framework code, and the group name has
-three spellings.
+*Phase:* 3. *Today:* the contract lives there, and the group has one spelling,
+``osprey_connectors.simulation.engines``, held by that module's
+``ENGINE_GROUP``. The engine implementations, such as
+``osprey.simulation.engines.pyat``, stay framework code.
 
 5. Names, public modules and the command line
 ---------------------------------------------

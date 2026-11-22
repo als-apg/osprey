@@ -21,7 +21,6 @@ import pytest
 from pydantic import ValidationError
 
 from osprey.simulation.engines import pyat_model
-from osprey.simulation.engines.calibration import Linear
 from osprey.simulation.engines.pyat_faults import supply_attribute
 from osprey.simulation.engines.pyat_model import (
     BETA_AT_MONITORS,
@@ -36,6 +35,7 @@ from osprey.simulation.engines.pyat_variables import (
     ReadbackCalibration,
     variable_from_wiring,
 )
+from osprey_connectors.simulation.engines import Linear
 
 ENGINES = Path(__file__).resolve().parents[2] / "src/osprey/simulation/engines"
 

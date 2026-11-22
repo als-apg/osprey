@@ -118,9 +118,9 @@ def engine_module(engine: str) -> str:
     """
     from importlib import metadata
 
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
-    found = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    found = metadata.entry_points(group=ENGINE_GROUP)
     if engine not in found.names:
         _refuse(
             f"no simulation engine plug-in is installed for engine {engine!r}",
@@ -233,7 +233,7 @@ def _correctors(model: Any, correctors: object) -> dict[str, Any]:
 
 def _hardware_width(address: str, record: Mapping[str, Any], delta: float) -> float:
     """The hardware step whose physics span about the held value is ``delta``."""
-    from osprey.simulation.engines.calibration import (
+    from osprey_connectors.simulation.engines import (
         NoInverse,
         curve_from_record,
         to_hardware,

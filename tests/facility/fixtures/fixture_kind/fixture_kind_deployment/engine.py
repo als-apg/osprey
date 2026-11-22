@@ -1,6 +1,6 @@
 """The engine ``fixture_ring``: the shipped pyat engine, plus the records it fires as commands.
 
-Reached through the ``osprey.simulation.engines`` group as a deployment's own
+Reached through the ``osprey_connectors.simulation.engines`` group as a deployment's own
 engine would be. A wiring record whose engine block names a ``fire`` is the
 engine's own: a written record it describes with the ``command`` mark and
 starts at zero. Every other record, the deck and the settings go to the
@@ -16,6 +16,8 @@ from collections.abc import Iterable, Mapping
 from importlib import metadata
 from typing import Any
 
+from osprey_connectors.simulation.engines import ENGINE_GROUP
+
 #: The engine's name, the key of its settings block.
 NAME = "fixture_ring"
 
@@ -27,7 +29,7 @@ TURNS = "turns"
 
 
 def _pyat() -> Any:
-    return metadata.entry_points(group="osprey.simulation.engines")["pyat"].load()
+    return metadata.entry_points(group=ENGINE_GROUP)["pyat"].load()
 
 
 def _value(record: Any, key: str) -> Any:
