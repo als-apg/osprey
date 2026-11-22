@@ -1732,8 +1732,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    a gate reads, with the classes of one screen per view kind. Two screens are
    of one class when they have one key: for a device's card and its channel
    list, the device's class, the card recipe it is drawn from and the set of
-   signal roles the card shows (a role played by two channels counts once; the
-   driver-internal role and channels with no role are not in it). Where cards
+   signal roles the device's channels play (a role played by two channels
+   counts once; the driver-internal role and channels with no role are not in
+   it), and, for a device with no channels of its own, ``own_channels: none``, so it is
+   not classed with one whose channels play no stated role. Where cards
    of one such class drawn by the default recipe show different blocks (a card
    one can act from and a read-only one, a card with or without key tiles),
    the key also holds ``blocks``, the kinds of block the card shows by presence
@@ -1781,8 +1783,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    an index with no ``drawing_rule`` was written by rule 1, which kept them in,
    so between the two every class's digest differs once). Every widget stands
    on whole pixels, each edge rounded where it is written, and every screen
-   ends one margin under its lowest frame. The layout measures text in the
-   viewer's own font
+   ends one margin under its lowest frame. A section's heading line carries
+   what qualifies it: a count, a one-line legend, or the one row of chips that
+   fits beside it. The layout measures text in the viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
    label in a chain block takes two lines, a muted line of prose (a caption, a
