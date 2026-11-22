@@ -87,7 +87,7 @@ def test_a_drawn_card_has_its_title_line_numbered_sections_and_no_signal_table(p
     texts = {n["props"]["text"] for n in _by_type(doc, "text-label")}
     assert not texts & {"SIGNAL", "SETPOINT", "READBACK", "SIGNALS", "SETTINGS"}
     bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in nodes(doc))
-    assert doc["metadata"]["size"]["height"] == bottom + layout.CARD_END
+    assert doc["metadata"]["size"]["height"] == bottom + layout.PAGE_END
 
 
 def test_the_relations_are_blocks_with_arrows_the_device_in_focus(panel_graph) -> None:
