@@ -52,8 +52,8 @@ value, so a read, :meth:`TextureModel.held` and every reader built on it --
 the archive seed, a subscription comparing held values -- see it alike.
 
 A channel whose seed states ``responds: {to, for_s, value}`` holds ``value``
-for ``for_s`` seconds after each live write to the command ``to``, and its
-value by the rules above otherwise; a second write while the response runs
+for ``for_s`` seconds after each live write to the command ``to``, whichever
+model serves it, and its value by the rules above otherwise; a second write while the response runs
 starts its time again. A gate still wins: a gated channel holds its gated
 value while a response runs. Only a write fires a response: the start state,
 the active scenarios' writes and a reset fire none, and a reset ends a running
@@ -402,7 +402,7 @@ class TextureModel(LUMEModel):
         """
         self._fired = {}
         self._held = {address: self._nominals[address] for address in self._variables}
-        self._hold(self._active)
+        self.write(self._active, at=None)
 
     def set_active(self, writes: Mapping[str, object]) -> None:
         """Make the active scenarios' writes the start state, and reset to it.
@@ -741,18 +741,31 @@ class TextureModel(LUMEModel):
 
     @override
     def _set(self, values_by_name: dict[str, object]) -> None:
-        self._hold(values_by_name, fired_at=float(self._clock()))
+        self.write(values_by_name, at=float(self._clock()))
 
-    def _hold(self, values_by_name: Mapping[str, object], *, fired_at: float | None = None) -> None:
-        """Hold coerced values and their echoes; nothing is held when one is refused.
+    def write(self, values_by_name: Mapping[str, object], *, at: float | None) -> None:
+        """Hold one write, made at ``at``.
 
-        A started setpoint is held without its echo; a command echoes the
-        held value of each setpoint it starts, this batch's writes included.
-        With ``fired_at``, each command written fires its responses then.
+        The values of texture-owned channels are held; a name another model
+        serves is the write's act alone, its value not held here. A started
+        setpoint is held without its echo. Each command written, whichever
+        model serves it, moves the readback of every setpoint it starts to the
+        setpoint's held value, this write's targets included, and fires its
+        responses at ``at``; with ``at`` ``None`` it fires none. Nothing is
+        held when one value is refused.
+
+        Args:
+            values_by_name: The write's values by address.
+            at: The instant of the write in epoch seconds, or ``None`` for a
+                write that fires no response.
+
+        Raises:
+            ValueError: A value is refused for its channel.
         """
         coerced = {
             name: self._coerce(name, value.tolist() if isinstance(value, np.ndarray) else value)
             for name, value in values_by_name.items()
+            if name in self._variables
         }
         targets = {**self._held, **coerced}
         echoes = {
@@ -760,14 +773,36 @@ class TextureModel(LUMEModel):
             for name, value in coerced.items()
             if name in self._echo and name not in self._started
         }
-        for command in coerced:
+        for command in values_by_name:
             for setpoint in self._starts.get(command, ()):
                 echoes[self._echo[setpoint]] = self._echoed(
                     self._echo[setpoint], setpoint, targets[setpoint]
                 )
         self._held.update(coerced)
         self._held.update(echoes)
-        if fired_at is not None:
+        if at is not None:
             self._fired.update(
-                dict.fromkeys((name for name in coerced if name in self._responders), fired_at)
+                dict.fromkeys((name for name in values_by_name if name in self._responders), at)
             )
+
+    def replay(self, entries: Sequence[tuple[str, object, float | None]]) -> None:
+        """Hold journalled writes in order, each made at the time it was written.
+
+        Each ``(address, value, t_s)`` is taken as :meth:`write` takes a write
+        made at ``t_s``; an entry without a time holds its value and fires
+        nothing. Nothing is held when one entry is refused.
+
+        Args:
+            entries: Writes in the order they were written; an address
+                another model serves is the entry's act alone.
+
+        Raises:
+            ValueError: A value is refused for its channel.
+        """
+        held, fired = dict(self._held), dict(self._fired)
+        try:
+            for address, value, t_s in entries:
+                self.write({address: value}, at=t_s)
+        except ValueError:
+            self._held, self._fired = held, fired
+            raise

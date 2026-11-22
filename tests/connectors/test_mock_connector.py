@@ -290,7 +290,9 @@ class TestVAInProcessConnector:
         def rejecting_set(_values):
             raise ValueError("orbit does not close")
 
-        monkeypatch.setattr(connector._composite, "set", rejecting_set)
+        # Whichever of the two the installed connectors write through.
+        for method in ("write", "set"):
+            monkeypatch.setattr(connector._composite, method, rejecting_set, raising=False)
 
         result = await connector.write_channel("A:SP", 1.0)
 
