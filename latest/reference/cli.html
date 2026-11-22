@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 21, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -2087,7 +2087,9 @@ drawing variants (a channel list drawn as a count above its size). Each
 entry also states its own <code class="docutils literal notranslate"><span class="pre">sizes</span></code>, <code class="docutils literal notranslate"><span class="pre">gaps</span></code> (per gap the count, such as
 <code class="docutils literal notranslate"><span class="pre">unit</span></code> or <code class="docutils literal notranslate"><span class="pre">where</span> <span class="pre">without</span> <span class="pre">a</span> <span class="pre">link</span></code>, for a checker to total per class),
 <code class="docutils literal notranslate"><span class="pre">flags</span></code>, its longest <code class="docutils literal notranslate"><span class="pre">label</span></code> in characters, and under <code class="docutils literal notranslate"><span class="pre">cuts</span></code> the labels
-the layout cut to fit. The layout measures text in the viewer’s own font
+the layout cut to fit. Every widget stands on whole pixels, each edge rounded
+where it is written, and every screen ends one margin under its lowest frame.
+The layout measures text in the viewer’s own font
 (IBM Plex Sans): a column takes the width its longest label needs (a
 checkout’s channel and thing columns their longest names), a long
 label in a chain block takes two lines, a muted line of prose (a caption, a
