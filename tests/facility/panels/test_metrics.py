@@ -15,7 +15,7 @@ from osprey.facility.panels.describe import health_rollup, place_view
 from osprey.facility.panels.tables import PanelTableError
 from osprey.facility.panels.view import Band
 from tests.facility.panels._fixture import copy_tables, read_fixture_tables
-from tests.facility.panels._views import ABOVE, SYMBOLS, stub_render, with_symbols
+from tests.facility.panels._views import ABOVE, SYMBOLS, nodes, stub_render, with_symbols
 
 #: The formula engine's grammar (canopy formula_engine/language/grammar.py) and the
 #: functions the band uses from its namespace.
@@ -135,12 +135,31 @@ def test_a_count_reads_n_of_n_and_turns_its_border_bad_on_a_loss(xr01) -> None:
     assert not [n for n in tiles["Pumps"]["rectangle"] if n.get("rules")]  # nothing to lose
 
 
-def test_a_tile_with_nothing_selected_is_greyed_and_says_no_data_yet(xr01) -> None:
+def test_tiles_with_nothing_selected_fold_into_one_last_line_that_says_so_once(xr01) -> None:
     _view, doc = xr01
-    tile = _tiles(doc)["Temperature"]
-    texts = [n["props"]["text"] for n in tile["text-label"]]
-    assert "no data yet" in texts and "—" in texts
-    assert "pv-label" not in tile
+    texts = [n for n in nodes(doc) if n["type"] == "text-label"]
+    (said,) = [n for n in texts if n["props"]["text"] == "NO DATA YET"]
+    folded = [n for n in texts if n["props"]["text"] == "TEMPERATURE"]
+    assert folded and folded[0]["geometry"]["y"] == said["geometry"]["y"]  # on its line
+    assert "Temperature" not in _tiles(doc)  # no tile of its own
+    live = [t["rectangle"][0]["geometry"] for t in _tiles(doc).values()]
+    assert all(g["y"] + g["height"] <= said["geometry"]["y"] for g in live)  # after the live
+
+
+def test_the_fold_shares_the_band_s_last_row_where_it_fits(panel_graph, monkeypatch) -> None:
+    """Tiles that leave room at the right of their last row: the fold stands on
+    that row, right of the last tile, and adds no line under the band."""
+    whole = layout.spread
+    monkeypatch.setattr(layout, "spread", lambda n, x0, w, gap: whole(n, x0, w / 2, gap))
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in nodes(doc) if n["type"] == "text-label"]
+    (said,) = [n["geometry"] for n in texts if n["props"]["text"] == "NO DATA YET"]
+    live = [t["rectangle"][0]["geometry"] for t in _tiles(doc).values()]
+    row = [g for g in live if g["y"] == max(g["y"] for g in live)]
+    top, bottom = row[0]["y"], row[0]["y"] + row[0]["height"]
+    assert top <= said["y"] and said["y"] + said["height"] <= bottom  # on the last row
+    assert said["x"] > max(g["x"] + g["width"] for g in row)  # right of its last tile
 
 
 def test_a_tile_too_long_for_the_engine_needs_a_server_side_aggregate(
@@ -151,7 +170,7 @@ def test_a_tile_too_long_for_the_engine_needs_a_server_side_aggregate(
     doc = stub_render(view, panel_graph)
     tile = _tiles(doc)["Currents"]
     texts = [n["props"]["text"] for n in tile["text-label"]]
-    assert "—" in texts and "needs a server-side aggregate" in texts
+    assert "—" in texts and "needs a server-side aggregate" in " ".join(texts)
     assert "server-side aggregate" in layout.needs(doc)
     assert all(len(f["expression"]) <= 20 for f in doc.get("formulas", ()))
 
@@ -190,7 +209,9 @@ def _frames(doc: dict) -> list[dict]:
 def test_the_band_is_an_even_grid_whose_rows_span_the_content_width(panel_graph, count, rows):
     from osprey.facility.panels.view import Tile
 
-    tiles = tuple(Tile(f"T{i}", "value", None, None) for i in range(count))
+    tiles = tuple(
+        Tile(f"T{i}", "value", None, None, ("XR01-QF1:Current-RB",)) for i in range(count)
+    )
     frames = _frames(_band_doc(panel_graph, tiles))
     by_row: dict[float, list[dict]] = {}
     for g in frames:
