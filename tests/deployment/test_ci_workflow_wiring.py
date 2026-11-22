@@ -16565,3 +16565,42 @@ def test_every_spending_lane_and_stack_cell__mutation_opts_a_cell_out(job_id: st
     cell["pytest_args"] = "-p no:no_skips"
     with pytest.raises(AssertionError, match="stack cells that touch"):
         test_every_spending_lane_and_stack_cell_fails_on_any_skipped_test(mutated)
+
+
+# ---------------------------------------------------------------------------
+# `connectors_compat_matrix.py` reads the tags reachable from HEAD and refuses a
+# shallow checkout. A job that calls it after the default one-commit checkout
+# fails on its first run; in release.yml that run is a pushed release tag.
+# ---------------------------------------------------------------------------
+
+
+def _jobs_calling_the_compat_matrix_shallow(documents: dict[str, dict[str, Any]]) -> list[str]:
+    """``<workflow>:<job>`` for each job that calls the script without full history."""
+    shallow: list[str] = []
+    for path, document in documents.items():
+        for job_id, job in (document.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            if not any("connectors_compat_matrix.py" in str(s.get("run", "")) for s in steps):
+                continue
+            checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
+            if not any((s.get("with") or {}).get("fetch-depth") == 0 for s in checkouts):
+                shallow.append(f"{path}:{job_id}")
+    return sorted(shallow)
+
+
+def test_every_job_that_reads_the_compat_matrix_checks_out_full_history() -> None:
+    shallow = _jobs_calling_the_compat_matrix_shallow(_github_documents())
+    assert shallow == [], (
+        f"jobs calling connectors_compat_matrix.py on a shallow checkout: {shallow}"
+    )
+
+
+def test_every_job_that_reads_the_compat_matrix__mutation_drops_the_depth() -> None:
+    documents = _github_documents()
+    release = documents[".github/workflows/release.yml"]
+    for step in release["jobs"]["verify-connectors-floor"]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/checkout@"):
+            step["with"].pop("fetch-depth", None)
+    assert _jobs_calling_the_compat_matrix_shallow(documents) == [
+        ".github/workflows/release.yml:verify-connectors-floor"
+    ]
