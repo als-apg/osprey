@@ -139,6 +139,31 @@ def test_a_link_over_two_cut_labels_joins_their_whole_texts_line_by_line():
     assert screen.link_tip("Open the device", 0, 0, 100, 60).splitlines()[0] == "Open the device"
 
 
+def test_a_link_s_tooltip_adds_no_text_another_line_already_holds():
+    screen = layout._Screen("card-x", "x")
+    _cut_label(screen, 10, 10, "XR02S Straight")  # a place's last part, cut
+    _cut_label(screen, 10, 30, "+1.02 % / +3.35 %")  # the figures the label holds
+    tip = screen.link_tip("XR/XR02/XR02S Straight: +1.02 % / +3.35 %", 0, 0, 100, 60)
+    assert tip == "XR/XR02/XR02S Straight: +1.02 % / +3.35 %"
+    # and a whole path drawn after its last part keeps the path alone
+    screen = layout._Screen("card-x", "x")
+    _cut_label(screen, 10, 10, "XR02S Straight")
+    _cut_label(screen, 10, 30, "XR/XR02/XR02S Straight")
+    assert screen.link_tip("XR02S", 0, 0, 100, 60) == "XR/XR02/XR02S Straight"
+
+
+def test_a_hover_label_is_one_line(screens):
+    """The viewer draws ``hoverLabel`` as one line at the widget, breaks and all
+    run together; the lines a link adds go to its tooltip only."""
+    broken = [
+        (name, node["id"])
+        for name, doc in screens.items()
+        for node in _nodes(doc["root"])
+        if "\n" in str(node["props"].get("hoverLabel", ""))
+    ]
+    assert broken == []
+
+
 def test_a_link_over_more_cut_labels_than_a_bubble_shows_counts_the_rest():
     screen = layout._Screen("card-x", "x")
     many = layout.TOOLTIP_LINES + 5

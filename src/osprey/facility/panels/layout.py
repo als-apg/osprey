@@ -1430,10 +1430,12 @@ class _Screen:
         return self.add({"type": kind, "props": props, "geometry": _geometry(x, y, w, h)}, **kw)
 
     def link_tip(self, label: str, x: float, y: float, w: float, h: float) -> str:
-        """The tooltip of a link box over ``(x, y, w, h)``: the whole text of every
-        cut label already drawn under it, one per line in the order drawn, so a
-        link drawn over cut labels shows what they cannot, and the link's own
-        *label* first where none of those texts holds it. Past
+        """The tooltip of a link box over ``(x, y, w, h)``: the link's own *label*
+        first, then the whole text of every cut label already drawn under it, one
+        per line in the order drawn, so a link drawn over cut labels shows what
+        they cannot. A text another line already holds is not added (a place's
+        last part under its whole path, a cut row under the label that holds
+        it), and the label is left out where a text holds it. Past
         :data:`TOOLTIP_LINES` lines the rest is counted, as the viewer shows a
         bubble only as far as the window reaches."""
         wholes: list[str] = []
@@ -1445,8 +1447,12 @@ class _Screen:
             middle_x, middle_y = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
             if x <= middle_x <= x + w and y <= middle_y <= y + h and text.whole not in wholes:
                 wholes.append(text.whole)
-        if not any(label in whole for whole in wholes):
-            wholes.insert(0, label)
+        texts = [label, *wholes]
+        wholes = [
+            text
+            for i, text in enumerate(texts)
+            if text not in texts[:i] and not any(text in other and text != other for other in texts)
+        ]
         if len(wholes) > TOOLTIP_LINES:
             rest = len(wholes) - TOOLTIP_LINES + 1
             wholes = [*wholes[: TOOLTIP_LINES - 1], f"and {rest} more"]
@@ -4959,8 +4965,8 @@ class _Page:
                 }
             ],
         }
-        if not outline:
-            props[_HOVER_LABEL] = tip
+        if not outline:  # the viewer draws it on one line at the box: the label alone
+            props[_HOVER_LABEL] = link.label
         self.s.widget("rectangle", x, y, w, h, props, tags=(_need("clickable text"),))
 
     # -- the strip ------------------------------------------------------------
