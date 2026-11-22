@@ -36,6 +36,7 @@ from osprey.cli.web_cmd import (
     resolve_session_lifetime,
     web,
 )
+from tests._scoped_stdlib import scoped
 from tests._text import flat
 from tests.cli._lifecycle_build import stub_build
 
@@ -440,7 +441,7 @@ class TestStoreDirectoryPublication:
             child_env.update(os.environ)
             return _FakeProc()
 
-        monkeypatch.setattr("osprey.cli.web_cmd.subprocess.Popen", _fake_popen)
+        scoped(monkeypatch, "osprey.cli.web_cmd", "subprocess", Popen=_fake_popen)
 
         result = _invoke(runner, lifecycle_repo, ["--detach"])
 

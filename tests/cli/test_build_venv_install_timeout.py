@@ -38,6 +38,7 @@ from osprey.cli import build_environment
 from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import scoped
 
 # A full cold-cache install of osprey's dependency tree is a >1 GB download.
 # Fifteen minutes is the floor at which the cap is bounding a hung installer
@@ -67,7 +68,7 @@ def _is_install(cmd: list[str]) -> bool:
 def with_uv(monkeypatch) -> str:
     """Pin the uv branch so the install command shape is deterministic."""
     uv = "/usr/bin/uv"
-    monkeypatch.setattr("osprey.cli.build_environment.shutil.which", lambda _: uv)
+    scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda _: uv)
     monkeypatch.delenv("UV", raising=False)
     return uv
 
@@ -75,7 +76,7 @@ def with_uv(monkeypatch) -> str:
 @pytest.fixture
 def without_uv(monkeypatch) -> None:
     """Pin the stdlib branch: no uv on PATH."""
-    monkeypatch.setattr("osprey.cli.build_environment.shutil.which", lambda _: None)
+    scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda _: None)
     monkeypatch.delenv("UV", raising=False)
 
 
@@ -88,7 +89,7 @@ def test_install_timeout_allows_a_full_dependency_download(monkeypatch, tmp_path
         seen.append((cmd, kwargs))
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
 
     _create_project_venv(tmp_path, _plan_project_venv(_profile(), install=True))
 
@@ -111,7 +112,7 @@ def test_install_timeout_is_reported_as_an_actionable_build_error(monkeypatch, t
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 0))
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
         _create_project_venv(tmp_path, _plan_project_venv(_profile(), install=True))
@@ -132,7 +133,7 @@ def test_venv_creation_failure_still_reports_its_own_error(monkeypatch, tmp_path
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
         return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="boom")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
 
     with pytest.raises(BuildProfileError, match="Failed to create project venv"):
         _create_project_venv(Path(tmp_path), _plan_project_venv(_profile(), install=True))
@@ -152,7 +153,7 @@ def test_a_venv_creation_timeout_is_reported_as_a_build_error_naming_the_step(
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 0))
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
         _create_project_venv(tmp_path, _plan_project_venv(_profile(), install=True))
@@ -176,7 +177,7 @@ def test_the_venv_creation_bound_leaves_a_loaded_host_room(monkeypatch, tmp_path
         seen.append((cmd, kwargs))
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
 
     _create_project_venv(tmp_path, _plan_project_venv(_profile(), install=True))
 
@@ -214,7 +215,7 @@ def test_a_failed_install_mentioning_litellm_fails_closed(monkeypatch, tmp_path)
                 )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
         _create_project_venv(tmp_path, _plan_project_venv(_profile(), install=True))
@@ -237,7 +238,7 @@ def test_install_timeout_names_the_mirror_remedy(monkeypatch, tmp_path):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 0))
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
         _create_project_venv(tmp_path, _plan_project_venv(_profile(), install=True))
@@ -302,8 +303,11 @@ def test_a_network_install_failure_ends_with_the_mirror_remedy(
 ):
     """An install that could not reach the index keeps its output and adds the remedy."""
     request.getfixturevalue(branch)
-    monkeypatch.setattr(
-        "osprey.cli.build_environment.subprocess.run", _failing_install(returncode, output)
+    scoped(
+        monkeypatch,
+        "osprey.cli.build_environment",
+        "subprocess",
+        run=_failing_install(returncode, output),
     )
 
     with pytest.raises(BuildProfileError) as excinfo:
@@ -331,7 +335,9 @@ def test_a_network_install_failure_ends_with_the_mirror_remedy(
 @pytest.mark.usefixtures("with_uv")
 def test_a_non_network_install_failure_carries_no_mirror_remedy(output, monkeypatch, tmp_path):
     """An install that reached the index and failed reads as the installer's output alone."""
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", _failing_install(1, output))
+    scoped(
+        monkeypatch, "osprey.cli.build_environment", "subprocess", run=_failing_install(1, output)
+    )
 
     with pytest.raises(BuildProfileError) as excinfo:
         _create_project_venv(tmp_path, _plan_project_venv(_profile(), install=True))

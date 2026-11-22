@@ -86,6 +86,7 @@ from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import configured_targets, tier_writes
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.cli._template_projects import graph_permission_entries
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
@@ -2009,7 +2010,7 @@ class TestWebTerminalContextShipped:
                 seeded.append(input)
             return subprocess.CompletedProcess(argv, returncode=0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(seeding.subprocess, "run", _fake_run)
+        scoped(monkeypatch, seeding, "subprocess", run=_fake_run)
         monkeypatch.setattr(seeding, "get_runtime_command", lambda config=None: ["docker"])
         monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None, **kw: {})
         monkeypatch.chdir(repo)

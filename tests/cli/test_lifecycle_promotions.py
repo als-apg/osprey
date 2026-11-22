@@ -58,6 +58,7 @@ from osprey.deployment.web_terminals import (
 from osprey.simulation import apply
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build_in
 from tests.cli._reporters import ConsoleReporter, installed
 from tests.cli.conftest import TerminalProbe
@@ -667,7 +668,7 @@ def _stub_label_sweep(
         stdout = "\n".join(container_ids) + ("\n" if container_ids else "")
         return subprocess.CompletedProcess(list(cmd), 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_run)
 
 
 def _seed_state(name: str):
@@ -1217,7 +1218,7 @@ def _stub_a_successful_wheel_build(monkeypatch: pytest.MonkeyPatch) -> None:
         (outdir / "osprey-0.0.0-py3-none-any.whl").write_bytes(b"")
         return subprocess.CompletedProcess(list(argv), 0, stdout="", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", _fake_build)
+    scoped(monkeypatch, "osprey.deployment.wheel_build", "subprocess", run=_fake_build)
     monkeypatch.setattr(wheel_build, "_wheel_base_requirements", lambda path: [])
     # The lock export is uv's, not the build's; the stub above answers only
     # `python -m build`.
@@ -1754,7 +1755,7 @@ _LOCAL_SIDECAR_CONFIG = {
 def _stub_linger(monkeypatch: pytest.MonkeyPatch, *, enable_returncode: int) -> None:
     """Reduce ``enable_linger`` to its narration: podman, ``loginctl`` present."""
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
     monkeypatch.setattr(postup_hooks.getpass, "getuser", lambda: "deployuser")
 
     def _run(argv, **kwargs):
@@ -1762,7 +1763,7 @@ def _stub_linger(monkeypatch: pytest.MonkeyPatch, *, enable_returncode: int) -> 
         returncode = 0 if argv[1] == "show-user" else enable_returncode
         return SimpleNamespace(returncode=returncode, stdout="Linger=no", stderr="")
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_run)
 
 
 def _stub_the_host_port_bounce(

@@ -22,6 +22,7 @@ from osprey.agent_runner import (
 )
 from osprey.cli.query_cmd import query
 from osprey_connectors.logger import configure_logging, get_logger
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import stub_build
 
 # ---------------------------------------------------------------------------
@@ -479,8 +480,11 @@ class TestPinnedClaudeCodeNotInstalled:
     ) -> None:
         from osprey.agent_runner import launcher
 
-        monkeypatch.setattr(
-            "shutil.which", lambda *_a, **_k: "/usr/local/bin/claude" if found else None
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda *_a, **_k: "/usr/local/bin/claude" if found else None,
         )
         monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: found)
         run = AsyncMock()
