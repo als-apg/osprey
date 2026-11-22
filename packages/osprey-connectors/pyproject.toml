@@ -106,7 +106,7 @@ raw-options = { root = "../..", version_scheme = "post-release", scm = { git = {
 # follows it, and neither may name a release with no tag. The 2026.9.0 betas
 # are superseded at the cut-over rather than supported, so both start empty.
 [tool.osprey-connectors.compat]
-frameworks = []
+frameworks = ["2026.11.1"]
 retired = [
     # 2026.11.0: deliberate break. The simulation engines entry-point group was
     # renamed to `osprey_connectors.simulation.engines` (owner ruling q-0002),
