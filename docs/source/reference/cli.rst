@@ -1775,7 +1775,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    does not fit beside stands under the rack across the full width: the rest of
    the list under its heading continued, then each group side by side that did
    not fit, its units on its heading in place of the line. A list takes as many
-   columns as its longest name allows whole; a name longer than one column keeps
+   columns as fit with each as wide as its own longest name; a name longer than
+   the whole width keeps
    the part that tells it from the others, the whole on hover. Every long list
    reads alike: filled downward in balanced columns, a larger gap after every
    fourth row, in bands of twenty rows read down then across. Every widget stands on

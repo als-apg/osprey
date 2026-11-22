@@ -6478,16 +6478,19 @@ class _Page:
         listed = live_first(elevation.unpositioned)
         rest: list[RackUnit] = []
         if listed:  # as many rows as leave every group that fits beside where it fits
-            per, pitch = self.rack_columns(listed), CHIP_HEIGHT + CHIP_GAP
-            shown = 0.0
-            for rows in range(max(r for _c, r in list_cells(len(listed), per)) + 1, 0, -1):
+            pitch, room = CHIP_HEIGHT + CHIP_GAP, self.right - self.x0
+            needs = [_chip_need(_rack_label(u), u) for u in listed]
+            held, widths = 0, [float(room)]
+            for rows in range(len(listed), 0, -1):
                 tall_list = ROW + ROW_GAP + list_offset(rows - 1, pitch) + CHIP_HEIGHT + GAP
                 end, fits = foot(tall_list)
                 if end <= bottom and fits == kept:
-                    shown = tall_list
+                    held, widths = list_most(needs, rows, room, CHIP_GAP)
                     break
             self.y = top
-            rest = self.rack_chips(_NOT_AT_A_UNIT, listed, until=top + shown)
+            rest = list(listed[held:])
+            if held:
+                self.rack_chips(_NOT_AT_A_UNIT, listed[:held], widths=widths)
         self.rack_facts(elevation, height)
         under: list[tuple[tuple[int, int], list[RackUnit]]] = []
         for (at, span, members), stays in zip(beside, kept, strict=True):
@@ -6609,37 +6612,20 @@ class _Page:
         self.s._widgets, self.s._rules, self.y = widgets, rules, y
         return height
 
-    def rack_columns(self, entries: Sequence[RackUnit]) -> int:
-        """The columns a rack list takes from :attr:`x0` to :attr:`right`: as many as
-        its longest tile's text allows, whole; one at the least."""
-        need = max(_chip_need(_rack_label(u), u) for u in entries)
-        return max(1, int((self.right - self.x0 + CHIP_GAP) // (need + CHIP_GAP)))
-
     def rack_chips(
-        self, heading: str, entries: Sequence[RackUnit], *, until: float | None = None
-    ) -> list[RackUnit]:
+        self, heading: str, entries: Sequence[RackUnit], *, widths: Sequence[float] = ()
+    ) -> None:
         """In the column from :attr:`x0` to :attr:`right`: a muted heading, then a
-        tile per device with its light and the unit a claim gives, in as many
-        columns as the longest tile's text allows, whole (one at the least), read
-        as every long list is (:func:`list_cells`). A text longer than one column
-        keeps the part that tells it from the others (:func:`_cut_apart`). With
-        *until*, only the rows that end above it; returns the entries left over."""
+        tile per device with its light and the unit a claim gives, read as every
+        long list is (:func:`list_cells`), in columns of *widths*, else each as wide
+        as its own longest name and as many as fit (:func:`list_columns`). A text
+        longer than its column keeps the part that tells it from the others
+        (:func:`_cut_apart`)."""
         labels = [_rack_label(unit) for unit in entries]
-        room = self.right - self.x0
-        per = self.rack_columns(entries)
-        rest: list[RackUnit] = []
-        if until is not None:  # whole rows that end above it
-            fit = list_fit(
-                until - self.y - (ROW + ROW_GAP) - GAP, per, CHIP_HEIGHT, CHIP_HEIGHT + CHIP_GAP
-            )
-            if not fit:
-                return list(entries)  # not one row fits here: all of it goes on
-            entries, labels, rest = entries[:fit], labels[:fit], list(entries[fit:])
-            widths = [(room - (per - 1) * CHIP_GAP) // per] * per
-        else:  # each column as wide as its own longest name: more of them where they fit
+        if not widths:
             needs = [_chip_need(label, unit) for label, unit in zip(labels, entries, strict=True)]
-            widths = list_columns(needs, room, CHIP_GAP)
-            per = len(widths)
+            widths = list_columns(needs, self.right - self.x0, CHIP_GAP)
+        per = len(widths)
         self.heading(heading)
         lefts = [self.x0 + sum(widths[:c]) + c * CHIP_GAP for c in range(per)]
         top = self.y
@@ -6656,7 +6642,6 @@ class _Page:
             if isinstance(unit.link, Link):
                 self.nav(x, y, w, CHIP_HEIGHT, unit.link)
         self.y = top + list_height(len(entries), per, CHIP_HEIGHT, pitch) + GAP
-        return rest
 
 
 def _cut_apart(text: str, siblings: Sequence[str], width: float, size: float) -> str:
@@ -6766,13 +6751,31 @@ def list_columns(needs: Sequence[float], room: float, gap: float) -> list[float]
     return [room]
 
 
-def list_fit(room: float, columns: int, height: float, pitch: float) -> int:
-    """How many entries of a long list in *columns* stand in whole rows within *room*
-    (:func:`list_offset`), each *height* tall: every row that ends in it, full."""
-    rows = 0
-    while list_offset(rows, pitch) + height <= room:
-        rows += 1
-    return rows * columns
+def list_rows(count: int, columns: int) -> int:
+    """How many rows a long list of *count* entries in *columns* takes (:func:`list_cells`)."""
+    band = columns * LIST_BAND
+    return count // band * LIST_BAND + -(-(count % band) // columns)
+
+
+def list_most(
+    needs: Sequence[float], rows: int, room: float, gap: float
+) -> tuple[int, list[float]]:
+    """How many of a long list's first entries, which need *needs* each, stand in at
+    most *rows* rows within *room*, each column as wide as its own longest entry
+    (:func:`list_columns`), and the columns' widths; ``0`` when not one does."""
+    best: tuple[int, list[float]] = (0, [room])
+    for count in range(1, len(needs) + 1):
+        columns = 1
+        while list_rows(count, columns) > rows:
+            columns += 1
+        widths = [0.0] * columns
+        for need, (column, _row) in zip(needs, list_cells(count, columns), strict=False):
+            widths[column] = max(widths[column], need)
+        spare = room - sum(widths) - (columns - 1) * gap
+        if spare < 0:
+            break
+        best = (count, [math.floor(w + spare / columns) for w in widths])
+    return best
 
 
 def live_first(units: Sequence[RackUnit]) -> list[RackUnit]:
