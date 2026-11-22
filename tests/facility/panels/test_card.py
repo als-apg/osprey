@@ -1605,6 +1605,12 @@ def test_in_a_mixed_ring_strip_only_the_inferred_member_says_so(tmp_path):
     marked = {m.thing: m.inferred for m in ring.members}
     assert marked == {"XR01:CH1": None, "XR01:CH2": "joined by the document's name"}
     assert "inferred" not in (ring.caption or "")
+    # its link's hover label is the link's own label; the basis is in the tooltip only
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    (box,) = [n for n in nodes(doc) if n["props"].get("hoverLabel") == "open XR01:CH2"]
+    assert box["props"]["tooltip"].splitlines()[0] == (
+        "open XR01:CH2 · inferred: joined by the document's name"
+    )
 
 
 def test_when_most_members_are_inferred_only_the_stated_one_is_marked(tmp_path):
