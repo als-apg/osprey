@@ -5,7 +5,7 @@
  *   npx vitest run src/osprey/interfaces/health/static/js/drawer.test.mjs
  */
 
-import { test, expect, describe, beforeEach, afterEach } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { demoEnvelope } from './demo.js';
 import { store, mcp, S, DS, indexModel } from './state.js';
@@ -106,29 +106,30 @@ describe('caret', () => {
   // happy-dom has no layout: give each tile a fixed x, and record where the
   // caret stands (left, transition) at the forced reflow that precedes the
   // transition, i.e. its start position, plus its final left.
+  // The DOM classes are shared by every file a worker runs, so the stubs are
+  // spies that restore each prototype exactly as found: an own property left
+  // on HTMLElement.prototype would shadow another file's Element.prototype stub.
   const X = { hooks: 100, limits: 300, disk: 500 };
   let starts = /** @type {{left: string, transition: string}[]} */ ([]);
-  const rectOf = HTMLElement.prototype.getBoundingClientRect;
-  const ow = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
 
   beforeEach(() => {
     starts = [];
-    HTMLElement.prototype.getBoundingClientRect = function () {
-      const x = this.id.startsWith('tile-') ? X[this.id.slice(5)] || 0 : 0;
-      return /** @type {DOMRect} */ ({ left: x, width: 0 });
-    };
-    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
-      configurable: true,
-      get() {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      /** @this {HTMLElement} */ function () {
+        const x = this.id.startsWith('tile-') ? X[this.id.slice(5)] || 0 : 0;
+        return /** @type {DOMRect} */ ({ left: x, width: 0 });
+      }
+    );
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(
+      /** @this {HTMLElement} */ function () {
         if (this.classList.contains('caret'))
           starts.push({ left: this.style.left, transition: this.style.transition });
         return 0;
-      },
-    });
+      }
+    );
   });
   afterEach(() => {
-    HTMLElement.prototype.getBoundingClientRect = rectOf;
-    if (ow) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', ow);
+    vi.restoreAllMocks();
   });
 
   const caretLeft = (/** @type {string} */ band) =>
