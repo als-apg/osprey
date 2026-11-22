@@ -450,6 +450,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "`idle` on a readback no command pairs with",
     ),
     (
+        "command_invalid__idle_followed",
+        "command-invalid",
+        "`follows` naming a setpoint on a status that states `idle`",
+    ),
+    (
         "command_invalid__confirm_on_bound",
         "command-invalid",
         "`confirm: true` on a command that states `timeout_s`",
@@ -1640,6 +1645,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: command-invalid: channel Q1:RB — `idle` on a readback no command pairs "
             "with; fix: remove `idle`, or name Q1:RB as a command's `pair`"
+        ),
+    ),
+    "command_invalid__idle_followed": (
+        _plain(commanded(state={"simulation": {"follows": "Q1:ON"}})),
+        (
+            "facility: command-invalid: channel Q1:STATE — `follows` names Q1:ON on a status that "
+            "states `idle`; a followed status holds each write to Q1:ON and never returns to "
+            "`idle` by itself; fix: remove `follows`; a status that states `idle` is never followed"
         ),
     ),
     "command_invalid__confirm_on_bound": (

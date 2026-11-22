@@ -148,8 +148,8 @@ address means anything to OSPREY. What a channel is comes from its fields:
        signal states, may differ. Several setpoints may name one readback (a
        set and a reset command read back on one channel). The simulation
        drives a readback from its setpoint only where exactly one setpoint
-       names it and the two agree in type; any other readback it drives from
-       no setpoint. The readback's seed ``follows`` changes that for one pair
+       names it, the two agree in type and the readback states no ``idle``;
+       any other readback it drives from no setpoint. The readback's seed ``follows`` changes that for one pair
        (see Seeds).
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
@@ -159,7 +159,9 @@ address means anything to OSPREY. What a channel is comes from its fields:
    * - ``idle``
      - On a readback a command pairs with, its status: what it reads while no
        act runs. A label on a bool or enum channel, a number otherwise.
-       Several commands may share one status.
+       Several commands may share one status. A status that states ``idle``
+       is never followed: ``follows`` naming a setpoint on it stops the build
+       with ``command-invalid``.
    * - ``timeout_s``
      - On a command whose status states ``idle``: the longest one act may
        take, in seconds. A command and its status state the two together.
@@ -665,7 +667,8 @@ a ``nominal`` beside it or ``topoff_lifetime.of`` names no channel with a
 
 ``follows`` says whether the simulation copies a setpoint's writes into this
 readback. By default it does when exactly one setpoint names the readback as
-its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``.
+its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``,
+and the readback states no ``idle``.
 ``follows: <setpoint>`` makes the copy where the default does not, and
 ``follows: none`` stops it where the default makes it. A followed readback
 starts at its setpoint's value and takes each write at once, with its own noise
