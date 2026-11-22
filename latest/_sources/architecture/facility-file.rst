@@ -472,7 +472,9 @@ are an injection chain's records with ``engine: {signal: shot}``,
 records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
 ``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
 ``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
-``offset_<coordinate>`` and ``mismatch_<plane>``. Each array channel is declared
+``offset_<coordinate>`` and ``mismatch_<plane>``, and a ``pulsed_kick`` record
+per pulsed magnet, naming its ``element`` and stating ``plane`` and optionally
+``scale`` and ``pulse``. Each array channel is declared
 ``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. Each
 ``arm`` and the chain's ``request`` are marked ``command`` by their engines. The build
 stops ``engine-invalid`` on a malformed block, a turn record on a ring

@@ -821,9 +821,12 @@ and without ``stored_current`` there is no stored beam. Each wiring record's
 - ``mismatch_x``, ``mismatch_y``: the factor on the arriving beta function
   of that plane. Each starts at the block's ``mismatch`` and names no
   element.
+- ``pulsed_kick``: the setting of a pulsed magnet, which kicks a shot at
+  its ``element`` on the first turns only. It starts at ``0``; see *Pulsed
+  magnets* below.
 
-Declare ``arm``, ``rf_switch``, ``pilot_tone``, ``stored``, ``offset_*`` and
-``mismatch_*`` channels ``role: setpoint``, and each array
+Declare ``arm``, ``rf_switch``, ``pilot_tone``, ``stored``, ``offset_*``,
+``mismatch_*`` and ``pulsed_kick`` channels ``role: setpoint``, and each array
 ``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``, here
 ``[260]``; every other record is a
 plain float.
@@ -969,6 +972,35 @@ make and write down, as for magnet errors. A ``mismatch`` record written
 ``0`` or below fails the next shots as any failed tracking does, until it is
 written above ``0`` again. The trajectory response matrix is computed from
 the block alone, so it starts at ``launch`` without the records' offsets.
+
+**Pulsed magnets.** An injection kicker or a pulsed septum acts on the
+arriving bunch and is off again before the stored beam would notice it. A
+``pulsed_kick`` record is its setting: the shot is kicked at the record's
+``element`` by what the record holds, and the closed orbit never is. Its
+engine block states, beside the signal:
+
+- ``plane``: ``x`` or ``y``, required.
+- ``scale``: the radians one unit of the record is worth, ``1`` by default.
+  It is the magnet's calibration, and its sign the kick's direction.
+- ``pulse``: the share of the kick the bunch meets on each turn, from the
+  first; ``[1.0]`` by default, a pulse shorter than one revolution. A
+  kicker still at 30 % when the bunch returns is ``[1.0, 0.3]``. The turns
+  after the last get no kick.
+
+.. code-block:: yaml
+
+   - name: RING
+     wiring:
+       - address: SIM:RING:INJ:KICKER:VOLTAGE
+         element: INJ_KICKER
+         engine: {signal: pulsed_kick, plane: x, scale: -2.0e-7, pulse: [1.0]}
+
+The element is one the deck's tracking gives a kick angle to: a corrector, or
+a magnet with a length such as a quadrupole of zero strength. A drift or a
+marker stops the build. The kick adds to whatever kick angle the element
+holds. A bunch launched off axis with the kicker's set point at the value
+that puts it on axis is the off-axis injection scheme; state both in a
+scenario. The trajectory response matrix is computed without pulsed kicks.
 
 **The arrays.** Each array holds ``trigger_sample + turns`` samples. The
 samples before ``trigger_sample`` see the stored beam only, and injected
