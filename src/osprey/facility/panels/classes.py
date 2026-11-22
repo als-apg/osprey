@@ -66,6 +66,7 @@ from osprey.facility.panels.view import Fact, Operate, Target, View
 
 __all__ = [
     "DERIVED_PARTS",
+    "DRAWING_RULE",
     "DRAWN_GAPS",
     "FLAGS",
     "GAP_FIELDS",
@@ -86,6 +87,12 @@ __all__ = [
     "summary",
     "summary_line",
 ]
+
+#: The rule a ``drawing`` digest is taken by, stated in the index beside the digests:
+#: 1, the written file without the model stamp; 2, also without any widget's
+#: ``meta``. Two sets of one rule differ in a class's ``drawing`` only where the
+#: drawing differs; across rules, every digest may differ once.
+DRAWING_RULE = 2
 
 #: The view kinds whose screens are classed by what they show rather than by structure.
 KEYED_VIEWS = frozenset({"card", "channels", "set", "calibration"})
@@ -516,8 +523,9 @@ def blocks(view: View, key: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def drawing_digest(text: str) -> str:
-    """16 hex digits naming a written screen's drawing: its file without the model
-    stamp (the stamp in its description and the one its header shows)."""
+    """16 hex digits naming a written screen's drawing, by :data:`DRAWING_RULE`:
+    its file without the model stamp (the stamp in its description and the one
+    its header shows) and without any widget's ``meta``."""
     return _digest(text)[:16]
 
 
