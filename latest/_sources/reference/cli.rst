@@ -1770,7 +1770,17 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
-   the layout cut to fit. Frames in a row whose content needs at most half
+   the layout cut to fit. An operate panel draws each control as one row on one
+   set of columns: tag, name, now, field or button, what it does; groups whose
+   rows end at their button or value (actions, choices, read-only values) stand
+   up to three side by side, and a group of many such rows takes up to three
+   columns, filled downward, as do a choice's segments that wrap. Said once:
+   the kind's tag stands at the head of a run of one kind (groups of one kind
+   that follow each other, each with its line of what it writes, are one run),
+   and a row whose button says its name has no name beside it. Every list
+   ordered by name takes the numbers in a name by value (``2`` before ``10``);
+   it only orders, it groups nothing. A thing's channels come in that order,
+   so a role's rows, a block's lines and a card's channel list follow it. Frames in a row whose content needs at most half
    the width each stand in two columns when they have one role
    (live values, references, an action block, a picture with its curve; two
    groups of a channel list only as stated groups of one grouping, a group of
