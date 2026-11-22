@@ -304,7 +304,8 @@ class ReadbackVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
     Attributes:
         source: A setpoint's address, read back through the setpoint's own
             calibration at the hardware value it holds (a deck property's
-            setpoint, such as the energy knob, at that value itself); ``tunes`` or
+            setpoint, such as the energy knob, at that value itself, or at
+            the knob's curve value through ``calibration``); ``tunes`` or
             ``chromaticity``, read at ``component``; or ``None`` for a
             readback with nothing to follow, which reads ``default_value``.
         calibration: The readback's own calibration where its record states
@@ -362,16 +363,15 @@ def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> N
             among ``channels`` nor ``tunes``/``chromaticity``, an optics
             plane the deck does not have, or ``tunes``/``chromaticity`` on a
             single-pass model; or it states its own calibration and its source
-            is no calibrated setpoint.
+            is no calibrated setpoint, or is a deck property's setpoint while
+            the calibration scales with the rigidity.
     """
     setpoints = {
         variable.name
         for variable in channels
         if isinstance(variable, (CalibratedSetpoint, EnergyVariable))
     }
-    calibrated = {
-        variable.name for variable in channels if isinstance(variable, CalibratedSetpoint)
-    }
+    knobs = {variable.name for variable in channels if isinstance(variable, EnergyVariable)}
     for variable in channels:
         if isinstance(variable, ArrayReadbackVariable):
             if solve != PERIODIC or variable.source not in PLANE_OPTICS:
@@ -403,10 +403,19 @@ def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> N
                 f"readback {variable.name} reads {variable.source}, which is no setpoint "
                 f"of the model and none of {sorted(PLANE_OPTICS)}"
             )
-        if variable.calibration is not None and variable.source not in calibrated:
+        if variable.calibration is None:
+            continue
+        if variable.source not in setpoints:
             raise ValueError(
                 f"readback {variable.name} states its own calibration and reads "
                 f"{variable.source}, which is no calibrated setpoint of the model"
+            )
+        if variable.source in knobs and variable.calibration.energy_scaling != "none":
+            raise ValueError(
+                f"readback {variable.name} states energy_scaling "
+                f"{variable.calibration.energy_scaling} on its own calibration and reads "
+                f"{variable.source}, a deck property's setpoint, whose curve value no "
+                "rigidity scales; state energy_scaling: none on the readback"
             )
 
 
@@ -584,9 +593,9 @@ class PyATLatticeModel(LUMEPyATModel):
             for variable in channels
             if isinstance(variable, CalibratedSetpoint)
         }
-        self._knobs: frozenset[str] = frozenset(
-            variable.name for variable in channels if isinstance(variable, EnergyVariable)
-        )
+        self._knobs: dict[str, EnergyVariable] = {
+            variable.name: variable for variable in channels if isinstance(variable, EnergyVariable)
+        }
         self._optics_memo: _OpticsMemo | None = None
         self._chromaticity_memo: _ChromaticityMemo | None = None
 
@@ -685,7 +694,10 @@ class PyATLatticeModel(LUMEPyATModel):
         if readback.source in PLANE_OPTICS:
             return float(arrays[readback.source][readback.component])
         if readback.source in self._knobs:
-            return float(self._inputs[readback.source])
+            held = float(self._inputs[readback.source])
+            if readback.calibration is not None:
+                return self._knobs[readback.source].readback_through(held, readback.calibration)
+            return held
         setpoint = self._setpoints[readback.source]
         value = self._inputs[readback.source]
         if readback.calibration is not None:
