@@ -777,6 +777,12 @@ holds ``0``.
          engine: {signal: stored}
        - address: RING:TBT:TURNS
          engine: {signal: turns_tracked}
+       - address: RING:TBT:SURVIVED
+         engine: {signal: turns_survived}
+       - address: RING:TBT:REACHED
+         engine: {signal: monitors_reached}
+       - address: RING:TBT:STATUS
+         engine: {signal: shot_status}
        - address: RING:BPM1:ARM
          element: BPM1
          engine: {signal: arm}
@@ -805,8 +811,9 @@ and without ``stored_current`` there is no stored beam. Each wiring record's
 - ``armed``: whether that monitor waits for a shot.
 - ``turn_x``, ``turn_y``, ``turn_sum``: the monitor's arrays, positions in
   metres and the sum signal.
-- ``turns_tracked``: the turns the last shot tracked, the ring's; it names no
-  element.
+- ``turns_tracked``, ``turns_survived``, ``monitors_reached``,
+  ``shot_status``: the ring's read-outs of its last shot, each optional; see
+  *The shot's outcome* below. They name no element.
 - ``rf_switch``: ``0`` sets every cavity's voltage to zero, anything else
   restores the voltages the cavities had, or the one a voltage setpoint
   (:ref:`va-rf-setpoints`) commanded meanwhile. It starts at ``1`` and names
@@ -1091,14 +1098,15 @@ same in every run.
   what was written; ``armed`` is the state.
 - A restore, a scenario's start state and a write a ``stuck`` or
   ``disconnected`` fault holds never arm.
-- A shot reaches the armed monitors only. Their arrays and ``turns_tracked``
-  are posted, then their ``armed`` drops to ``0``; every other monitor keeps
+- A shot reaches the armed monitors only. Their arrays and the shot's
+  read-outs are posted, then their ``armed`` drops to ``0``; every other monitor keeps
   its arrays. A shot with no monitor armed changes nothing.
 - ``armed`` at ``0`` guarantees the shot's arrays are already served, on
   Channel Access and PVAccess both, so a client may time a shot on ``armed``
   alone. A shot that arrives before the drop finds those monitors unarmed.
 - A reset or a scenario change returns every monitor to unarmed, every array
-  to zeros and ``turns_tracked`` to ``0``, and is not mistaken for a shot.
+  to zeros and every read-out of the shot to ``0``, and is not mistaken for a
+  shot.
 
 **Shots.**
 
@@ -1107,14 +1115,59 @@ same in every run.
   counter that falls is not a shot.
 - A zero-charge shot is still a shot: the arrays read the floor, the noise
   and any stored beam, and ``armed`` drops.
-- A tracking that fails leaves the armed monitors' arrays at zeros and
+- A shot that is not tracked leaves the armed monitors' arrays at zeros and
   ``turns_tracked`` at ``0``; ``armed`` still drops and the ring keeps
-  serving.
+  serving. ``shot_status`` says why, below.
 - With the RF off the ring has no closed orbit: its orbit readings read NaN
   and its settings stay writable. The stored beam adds nothing to the sum, so
   the samples before the trigger read the floor, and a bunch with declared
   apertures is lost within some hundred turns. On a radiating ring
   (:ref:`va-radiation`) it also loses energy every turn.
+
+**The shot's outcome.** Four records of the ring, posted with the arrays, say
+what became of the last shot that reached an armed monitor. All are ``0`` at
+the start and after a reset.
+
+- ``turns_tracked``: the turns the shot was tracked for: the block's
+  ``turns`` for a tracked shot, whatever became of the beam, and ``0`` for a
+  shot that was not tracked. It does not say the beam survived.
+- ``turns_survived``: the last turn on which at least one particle was alive
+  at the last monitor, counting turns from 1. The last monitor is, of the
+  monitors that read the shot, the one the beam meets last on its way round
+  from the injection element. ``0`` is a beam that never reached it; the
+  block's ``turns`` is a beam still there at the end. A lost particle stays
+  lost, so the beam reached that monitor on every turn up to this one.
+- ``monitors_reached``: how many of the monitors that read the shot saw at
+  least one particle alive on the first turn. The beam meets them in ring
+  order from the injection element, so with ``turns_survived`` at ``0`` the
+  beam was lost between the monitor of that number and the next.
+- ``shot_status``: how the shot ended.
+
+  .. list-table::
+     :header-rows: 1
+     :widths: 10 90
+
+     * - Value
+       - Meaning
+     * - ``0``
+       - No shot since the start or the last reset.
+     * - ``1``
+       - Tracked and read out. The beam may still be lost: read
+         ``turns_survived`` and ``monitors_reached``.
+     * - ``2``
+       - Not set up: the bunch could not be built from the ring's state and
+         settings, so nothing was tracked. A mismatch factor that is not above
+         ``0`` does this, and so does a bunch to match to the ring's own optics
+         (a ``twiss`` block that leaves a function out) on a ring that has no
+         periodic optics just then. The reason is logged as a warning.
+     * - ``3``
+       - An unexpected error in the tracking or the read-out: a defect, not
+         the beam. It is logged as an error with its traceback.
+
+With ``2`` and ``3`` the arrays are zeros and the other three records ``0``.
+Both are logged under ``simulation_turn_by_turn``, naming the model and the
+shot. All four count over the monitors that read the shot: arm every monitor
+to have them speak for the whole ring.
 
 **Cost.** Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly

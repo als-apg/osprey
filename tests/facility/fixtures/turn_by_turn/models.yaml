@@ -85,6 +85,12 @@
       engine: {signal: stored}
     - address: SR:DIAG:TBT:TURNS
       engine: {signal: turns_tracked}
+    - address: SR:DIAG:TBT:SURVIVED
+      engine: {signal: turns_survived}
+    - address: SR:DIAG:TBT:REACHED
+      engine: {signal: monitors_reached}
+    - address: SR:DIAG:TBT:STATUS
+      engine: {signal: shot_status}
     - address: SR:DIAG:BPM:01:ARM
       element: BPM01
       engine: {signal: arm}

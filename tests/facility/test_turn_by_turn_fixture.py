@@ -36,17 +36,20 @@ from tests.facility._turn_by_turn_fixture import (
     FIXTURE,
     INPUTS,
     MONITORS,
+    MONITORS_REACHED,
     PILOT_TONE,
     REQUEST,
     RF_SWITCH,
     RING,
     SAMPLES,
     SHOT,
+    SHOT_STATUS,
     STORED,
     TURN_SUM,
     TURN_X,
     TURN_Y,
     TURNS,
+    TURNS_SURVIVED,
     TURNS_TRACKED,
     turn_by_turn_view,
 )
@@ -168,6 +171,9 @@ def test_the_ring_carries_every_turn_by_turn_record(view: SimulatorView) -> None
     assert signals[RF_SWITCH] == ("rf_switch", None, "write")
     assert signals[PILOT_TONE] == ("pilot_tone", None, "write")
     assert signals[TURNS_TRACKED] == ("turns_tracked", None, "read")
+    assert signals[TURNS_SURVIVED] == ("turns_survived", None, "read")
+    assert signals[MONITORS_REACHED] == ("monitors_reached", None, "read")
+    assert signals[SHOT_STATUS] == ("shot_status", None, "read")
     assert [signals[address][0::2] for address in STORED] == [("stored", "write")] * 2
     for table, signal, direction in (
         (ARMS, "arm", "write"),

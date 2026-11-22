@@ -32,6 +32,7 @@ __all__ = [
     "SHAPE_BASES",
     "SLICE_S",
     "TRACK_FLOATS",
+    "ShotSetupError",
     "TurnReading",
     "bunch_shape",
     "declared_bunch",
@@ -72,6 +73,15 @@ BUNCH_SUBKEY = b":bunch"
 JITTER_DRAWS: tuple[int, ...] = (0, 2, 1, 3, 4, 5)
 
 
+class ShotSetupError(ValueError):
+    """A shot's bunch cannot be set up from what the ring and its settings state.
+
+    An outcome of the machine's state, not a defect of the code: a mismatch
+    factor that is not above 0, or a bunch to match to the ring's optics on
+    a ring that has no periodic optics.
+    """
+
+
 @dataclass(frozen=True)
 class TurnReading:
     """One tracked shot, per monitor (rows, in the caller's order) and turn (columns).
@@ -80,11 +90,21 @@ class TurnReading:
         x: The survivors' horizontal centroid in metres, NaN where none is alive.
         y: The survivors' vertical centroid in metres, NaN where none is alive.
         alive: The share of the launched particles alive, from 0 to 1.
+        turns_survived: The last turn on which a particle was alive at the
+            last monitor, the one the beam meets last on its way round from
+            the injection; turns count from 1, and 0 is a beam that never
+            reached that monitor. A lost particle stays lost, so every turn
+            up to this one reached it too.
+        monitors_reached: How many of the monitors saw a particle alive on
+            the first turn. The beam meets them in ring order from the
+            injection, so these are the first that many of them.
     """
 
     x: np.ndarray
     y: np.ndarray
     alive: np.ndarray
+    turns_survived: int = 0
+    monitors_reached: int = 0
 
 
 def shot_key(model: str, shot: int) -> bytes:
@@ -226,22 +246,23 @@ def declared_bunch(
         ``(6, particles)`` float64 offsets from the launch.
 
     Raises:
-        ValueError: ``particles`` is below 1, a mismatch factor is not a
-            finite number above 0, or an optics function is left out and the
-            ring has no periodic optics at ``injection``.
+        ValueError: ``particles`` is below 1.
+        ShotSetupError: a mismatch factor is not a finite number above 0, or
+            an optics function is left out and the ring has no periodic
+            optics at ``injection``.
     """
     if int(particles) < 1:
         raise ValueError(f"a bunch takes 1 or more particles, not {int(particles)}")
     factors = np.asarray(mismatch, dtype=np.float64)
     if factors.shape != (2,) or not np.all(np.isfinite(factors) & (factors > 0.0)):
-        raise ValueError(
+        raise ShotSetupError(
             f"a mismatch factor is a finite number above 0 per plane, not {tuple(mismatch)}"
         )
     if beta is None or alpha is None or dispersion is None:
         try:
             _, _, optics = lattice.disable_6d(copy=True).get_optics(refpts=[int(injection)])
         except Exception as error:
-            raise ValueError(
+            raise ShotSetupError(
                 f"the lattice has no periodic optics at element {int(injection)} to match "
                 f"the bunch to: {error}"
             ) from error
@@ -587,8 +608,15 @@ def track_shot(
     ]
     first = pulsed_lattices(rotated, kicks, turns)
     alive, x, y = track_particles(rotated, particles, refpts, turns, first)
+    seen = alive > 0.0  # per monitor in ring order from the injection, and turn
     rows = np.argsort(order)  # each caller's monitor's row in ring order
-    return TurnReading(x=x[rows], y=y[rows], alive=alive[rows])
+    return TurnReading(
+        x=x[rows],
+        y=y[rows],
+        alive=alive[rows],
+        turns_survived=int(np.count_nonzero(seen[-1])) if len(seen) else 0,
+        monitors_reached=int(np.count_nonzero(seen[:, 0])),
+    )
 
 
 def single_particle(

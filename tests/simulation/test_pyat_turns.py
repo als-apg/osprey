@@ -626,3 +626,64 @@ def test_an_element_that_applies_no_kick_angle_is_named(ring: Any) -> None:
     quadrupole = at.Quadrupole("K", 0.3, 0.0)
     assert turns.applies_kick_angle(quadrupole) is True
     assert not hasattr(quadrupole, "KickAngle")
+
+
+# -- how far the beam got -------------------------------------------------------
+
+
+def _reading_of(ring: Any, injection: int, monitors: np.ndarray, alive: list[list[float]], mp):
+    """A shot's reading with the alive shares given per monitor, in ring order from the injection."""
+    shares = np.array(alive, dtype=np.float64)
+    centroid = np.where(shares > 0.0, 0.0, np.nan)
+    mp.setattr(turns, "track_particles", lambda *args: (shares, centroid, centroid))
+    return turns.track_shot(ring, injection, monitors[: len(alive)], LAUNCH, shares.shape[1])
+
+
+@pytest.mark.parametrize(
+    ("alive", "survived", "reached"),
+    [
+        ([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], 3, 3),
+        ([[1.0, 1.0, 0.5], [1.0, 0.5, 0.0], [1.0, 0.5, 0.0]], 2, 3),
+        ([[1.0, 0.0, 0.0], [0.5, 0.0, 0.0], [0.0, 0.0, 0.0]], 0, 2),
+        ([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], 0, 0),
+    ],
+    ids=["kept", "lost on turn 3", "lost on turn 1", "lost at once"],
+)
+def test_a_reading_says_how_far_the_beam_got(
+    ring: Any,
+    injection: int,
+    monitors: np.ndarray,
+    monkeypatch: pytest.MonkeyPatch,
+    alive: list[list[float]],
+    survived: int,
+    reached: int,
+) -> None:
+    reading = _reading_of(ring, injection, monitors, alive, monkeypatch)
+    assert reading.turns_survived == survived
+    assert reading.monitors_reached == reached
+
+
+def test_the_last_monitor_is_the_last_one_from_the_injection(
+    ring: Any, injection: int, monitors: np.ndarray, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The caller's order does not matter: the beam's does."""
+    alive = [[1.0, 1.0], [1.0, 0.0]]
+    two = monitors[:2]
+    forward = _reading_of(ring, injection, two, alive, monkeypatch)
+    backward = _reading_of(ring, injection, two[::-1], alive, monkeypatch)
+    assert forward.turns_survived == backward.turns_survived == 1
+    np.testing.assert_array_equal(forward.alive, backward.alive[::-1])
+
+
+def test_a_tracked_beam_that_is_kept_survives_every_turn(
+    ring: Any, injection: int, monitors: np.ndarray
+) -> None:
+    reading = turns.track_shot(ring, injection, monitors, LAUNCH, 3)
+    assert reading.turns_survived == 3
+    assert reading.monitors_reached == len(monitors)
+
+
+def test_the_bunch_set_up_error_is_a_value_error(ring: Any, injection: int) -> None:
+    assert issubclass(turns.ShotSetupError, ValueError)
+    with pytest.raises(turns.ShotSetupError, match="mismatch factor"):
+        turns.declared_bunch(ring, injection, 4, mismatch=(0.0, 1.0))
