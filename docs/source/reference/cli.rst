@@ -1768,9 +1768,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
    the layout cut to fit. A rack screen numbers every unit, draws a free one as
-   a slot and keeps every list of the rack in one column beside it, never
-   under it: those at no unit as a grid of three columns, then the classes and
-   sources, then those side by side at one unit, level with it. Every widget stands on
+   a slot and keeps every list of the rack in one column beside it: those at no
+   unit as a grid of at least three columns, then the classes and sources, then
+   those side by side at one unit, level with it. The list of those at no unit
+   fills the column down to the rack's foot; what does not fit continues under
+   the rack across the full width under its heading continued, nothing left
+   out, and nothing else stands under the rack. Every widget stands on
    whole pixels, each edge rounded where it is written, and every screen ends
    one margin under its lowest frame. The layout measures text in the viewer's
    own font

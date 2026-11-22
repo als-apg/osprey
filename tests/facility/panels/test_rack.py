@@ -185,3 +185,71 @@ def test_chassis_whose_units_overlap_stand_side_by_side() -> None:
     # U13 to U10 (4 U) against U12 and U11: two lanes; U5 alone: one
     lanes = rack_lanes([unit(10, 4), unit(12), unit(11), unit(5)])
     assert lanes == [(0, 2), (1, 2), (1, 2), (0, 1)]
+
+
+def test_a_list_longer_than_the_rack_continues_under_it_at_the_full_width(panel_graph) -> None:
+    """Three times as many devices at no unit as the column beside the rack holds:
+    the column is filled down to the rack's foot, the rest stands under the rack
+    across the full width under the heading continued; every device is listed
+    once, nothing is folded away, the rack does not grow and the classes and
+    sources stay beside it."""
+    import dataclasses
+
+    from osprey.facility.panels.view import Elevation, Fact
+
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
+    template = elevation.unpositioned[0]
+
+    def render(n: int) -> dict:
+        names = [f"XR01:SPARE{k:03d}" for k in range(n)]
+        units = tuple(dataclasses.replace(template, link=Fact(name, name)) for name in names)
+        sections = tuple(
+            dataclasses.replace(
+                s,
+                items=tuple(
+                    dataclasses.replace(i, unpositioned=units) if isinstance(i, Elevation) else i
+                    for i in s.items
+                ),
+            )
+            for s in view.sections
+        )
+        return stub_render(dataclasses.replace(view, sections=sections), panel_graph)
+
+    def frame(doc: dict) -> dict:
+        (rack,) = [
+            n["geometry"] for n in nodes(doc)
+            if n["type"] == "rectangle" and n["props"].get("lineColor") == layout.PAGE_TEXT
+            and n["geometry"]["width"] == layout.RACK_WIDTH + 2 * layout.RACK_PAD
+        ]  # fmt: skip
+        return rack
+
+    def chips(doc: dict) -> list[dict]:
+        return [
+            n["geometry"] for n in nodes(doc)
+            if n["type"] == "text-label" and n["props"]["text"].startswith("XR01:SPARE")
+        ]  # fmt: skip
+
+    short = render(1)
+    rack = frame(short)
+    foot = rack["y"] + rack["height"]
+    column = layout.MARGIN + layout.RACK_COLUMN
+    # how many the column holds: render one too many for it and count those beside
+    beside = len([g for g in chips(render(200)) if g["x"] >= column and g["y"] < foot])
+    assert beside > 0
+    doc = render(3 * beside)
+    placed = chips(doc)
+    assert frame(doc) == rack  # the rack never grows
+    texts = _texts(doc)
+    assert len(texts) >= 3 * beside and len(placed) == 3 * beside  # each once, none folded
+    over = [g for g in placed if g["x"] >= column and g["y"] < foot]
+    under = [g for g in placed if g["y"] > foot]
+    assert len(over) == beside and len(under) == 2 * beside
+    assert all(g["y"] + layout.CHIP_HEIGHT <= foot for g in over)  # down to the foot
+    assert min(g["x"] for g in under) < column  # under it, from the left margin
+    heading = texts["NOT AT A UNIT (CONTINUED)"]["geometry"]
+    assert foot < heading["y"] < min(g["y"] for g in under)
+    assert texts["BY CLASS"]["geometry"]["y"] < foot  # the reference stays beside it
+    rows_over = len({g["y"] for g in over})
+    rows_under = len({g["y"] for g in under})
+    assert rows_under < 2 * rows_over  # width before height: more to a row under it

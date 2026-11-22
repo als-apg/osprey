@@ -6440,14 +6440,20 @@ class _Page:
         # everything of the rack beside it, in one column from the top: those at no
         # unit, live first; the classes and sources; then each group sharing a unit
         # at the foot of the column, level with its unit or as near under it as the
-        # column allows, joined to it. The column runs on past the rack's foot if
-        # it must; nothing stands under the rack
+        # column allows, joined to it. The list of those at no unit takes the
+        # column down to the rack's foot, less the room the classes and sources
+        # need; what does not fit continues under the rack at the full width,
+        # under its heading continued. Nothing else stands under the rack
         x0, right = self.x0, self.right
         self.x0, self.right = MARGIN + RACK_COLUMN, MARGIN + STRIP_WIDTH
         self.y = top
         frame_right = frame_x + RACK_WIDTH + 2 * RACK_PAD
+        rest: list[RackUnit] = []
         if elevation.unpositioned:
-            self.rack_chips(_NOT_AT_A_UNIT, live_first(elevation.unpositioned))
+            reference = self.measured(partial(self.rack_facts, elevation, height))
+            rest = self.rack_chips(
+                _NOT_AT_A_UNIT, live_first(elevation.unpositioned), until=bottom - reference
+            )
         self.rack_facts(elevation, height)
         for y, members in beside:
             self.y = max(self.y, y)
@@ -6459,6 +6465,11 @@ class _Page:
             self.rack_chips(_SIDE_BY_SIDE, members)
         self.x0, self.right = x0, right
         self.y = max(bottom, self.y) + SECTION_GAP
+        if rest:  # the list continued under the rack, width before height
+            self.right = MARGIN + STRIP_WIDTH
+            self.rack_chips(_CONTINUED.format(_NOT_AT_A_UNIT), rest)
+            self.right = right
+            self.y += SECTION_GAP - GAP
 
     def chassis(self, x: float, y: float, w: float, h: float, unit: RackUnit) -> None:
         """One bar: its name inside, the light at its right end, a link over it."""
@@ -6539,12 +6550,31 @@ class _Page:
                 self.y += SMALL_LINE
             self.y += ROW_GAP
 
-    def rack_chips(self, heading: str, entries: Sequence[RackUnit]) -> None:
-        """Beside the rack, in the column from :attr:`x0` to :attr:`right`: a muted
-        heading, then a grid of even tiles, one per device with its light and the
-        unit a claim gives, filled across, row by row, within the column however
-        far it runs: at least :data:`RACK_GRID` columns, more where the longest
-        tile's text leaves room for them."""
+    def measured(self, draw: Callable[[], None]) -> float:
+        """The height *draw* takes from :attr:`y`, drawn and taken back: the page,
+        its widget and rule counts and its cut labels are as before."""
+        nodes, y = self.s.nodes, self.y
+        first, widgets, rules = len(nodes), self.s._widgets, self.s._rules
+        cuts = _CUTS.get()
+        counted = len(cuts) if cuts is not None else 0
+        draw()
+        height = self.y - y
+        del nodes[first:]
+        if cuts is not None:
+            del cuts[counted:]
+        self.s._widgets, self.s._rules, self.y = widgets, rules, y
+        return height
+
+    def rack_chips(
+        self, heading: str, entries: Sequence[RackUnit], *, until: float | None = None
+    ) -> list[RackUnit]:
+        """In the column from :attr:`x0` to :attr:`right`: a muted heading, then a
+        grid of even tiles, one per device with its light and the unit a claim
+        gives, filled across, row by row: at least :data:`RACK_GRID` columns, more
+        where the longest tile's text leaves room for them. With *until*, only
+        the rows that end above it; returns the entries left over."""
+        if until is not None and self.y + ROW + ROW_GAP + CHIP_HEIGHT > until:
+            return list(entries)  # not one row fits here: all of it goes on
         self.heading(heading)
         room = self.right - self.x0
         labels = []
@@ -6560,6 +6590,11 @@ class _Page:
         )
         per = max(RACK_GRID, int((room + CHIP_GAP) // (need + CHIP_GAP)))
         w = (room - (per - 1) * CHIP_GAP) // per
+        if until is not None:  # whole rows that end above it
+            fit = int((until - self.y + CHIP_GAP) // (CHIP_HEIGHT + CHIP_GAP)) * per
+            entries, labels, rest = entries[:fit], labels[:fit], list(entries[fit:])
+        else:
+            rest = []
         for k, (unit, label) in enumerate(zip(entries, labels, strict=True)):
             mark = _mark_room(unit)
             label = _cut(label, w - CHIP_LIGHT - 2 * GAP - mark, SMALL_SIZE)
@@ -6572,6 +6607,7 @@ class _Page:
             if isinstance(unit.link, Link):
                 self.nav(x, self.y, w, CHIP_HEIGHT, unit.link)
         self.y += CHIP_HEIGHT + GAP
+        return rest
 
 
 def live_first(units: Sequence[RackUnit]) -> list[RackUnit]:
