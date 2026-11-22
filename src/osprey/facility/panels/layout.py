@@ -411,7 +411,7 @@ RACK_WIDTH = 420  # a chassis bar, the rack's inner width
 RACK_LABEL_WIDTH = 40  # the unit numbers, left of the rack
 RACK_PAD = 6  # the rack's frame round its chassis
 RACK_SOURCES = 8  # documents a rack names; the rest are counted
-RACK_GRID = 3  # columns of the tile grid of a rack's lists, beside the rack
+RACK_GRID = 3  # columns of the tile grid of a rack's lists, beside the rack, at the least
 RACK_LANE_LEAST = 120  # the narrowest bar a name is written in; narrower ones are listed
 RACK_COLUMN = RACK_LABEL_WIDTH + RACK_WIDTH + 2 * RACK_PAD + 2 * COLUMN_GAP  # the facts' x
 # The longest expression the formula engine takes. The viewer compiles each rule
@@ -6541,20 +6541,30 @@ class _Page:
 
     def rack_chips(self, heading: str, entries: Sequence[RackUnit]) -> None:
         """Beside the rack, in the column from :attr:`x0` to :attr:`right`: a muted
-        heading, then a grid of :data:`RACK_GRID` even tiles, one per device with
-        its light and the unit a claim gives, filled across, row by row, within
-        the column however far it runs."""
+        heading, then a grid of even tiles, one per device with its light and the
+        unit a claim gives, filled across, row by row, within the column however
+        far it runs: at least :data:`RACK_GRID` columns, more where the longest
+        tile's text leaves room for them."""
         self.heading(heading)
-        w = (self.right - self.x0 - (RACK_GRID - 1) * CHIP_GAP) // RACK_GRID
-        for k, unit in enumerate(entries):
+        room = self.right - self.x0
+        labels = []
+        for unit in entries:
             name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
             label = f"{name} · unit {unit.unit_text}" if unit.unit_text else name
             if unit.position is not None:
                 label = f"{name} · U{unit.position}"
+            labels.append(label)
+        need = max(
+            (text_width(t, SMALL_SIZE) + CHIP_LIGHT + 2 * GAP + _mark_room(u))
+            for t, u in zip(labels, entries, strict=True)
+        )
+        per = max(RACK_GRID, int((room + CHIP_GAP) // (need + CHIP_GAP)))
+        w = (room - (per - 1) * CHIP_GAP) // per
+        for k, (unit, label) in enumerate(zip(entries, labels, strict=True)):
             mark = _mark_room(unit)
             label = _cut(label, w - CHIP_LIGHT - 2 * GAP - mark, SMALL_SIZE)
-            x = self.x0 + (k % RACK_GRID) * (w + CHIP_GAP)
-            if k and not k % RACK_GRID:
+            x = self.x0 + (k % per) * (w + CHIP_GAP)
+            if k and not k % per:
                 self.y += CHIP_HEIGHT + CHIP_GAP
             self.box(x, self.y, w, CHIP_HEIGHT, fill=FIELD_BACKGROUND)
             self.unit_light(x + GAP / 2, self.y + (CHIP_HEIGHT - ROW) / 2, unit)
