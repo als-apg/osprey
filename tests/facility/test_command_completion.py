@@ -15,6 +15,7 @@ import pytest
 
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.pairing import NOT_FOLLOWED, pair_follows
 from osprey.simulation.engines import pyat
 from tests.facility._pyaml_trees import built_document, measured_tree
 from tests.facility._synthetic_trees import plain_tree, write_tree
@@ -222,3 +223,36 @@ def test_confirm_true_on_a_command_with_a_bound_stops_the_build(tmp_path: Path) 
         "facility: command-invalid: limit Q1:ON — `confirm: true` on a command that states "
         "`timeout_s`; fix: remove `confirm`; the wait for Q1:STATE confirms the write"
     )
+
+
+def test_a_status_that_states_idle_is_not_followed(tmp_path: Path) -> None:
+    channels = _channels(_build(tmp_path, _tree()))
+
+    follows = {(f.setpoint, f.readback): (f.follow, f.why) for f in pair_follows(channels)}
+
+    assert follows[(COMMAND, STATUS)] == (NOT_FOLLOWED, "the readback states `idle`")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        pytest.param({}, id="same-type"),
+        pytest.param({"value_type": "int", "options": None}, id="by-index"),
+    ],
+)
+def test_follows_naming_a_setpoint_on_an_idle_status_stops_the_build(
+    tmp_path: Path, command: dict[str, Any]
+) -> None:
+    tree = _tree(**{COMMAND: command, STATUS: {"simulation": {"follows": COMMAND}}})
+
+    assert _stop(tmp_path, tree) == (
+        "facility: command-invalid: channel Q1:STATE — `follows` names Q1:ON on a status that "
+        "states `idle`; a followed status holds each write to Q1:ON and never returns to `idle` "
+        "by itself; fix: remove `follows`; a status that states `idle` is never followed"
+    )
+
+
+def test_follows_none_on_an_idle_status_builds(tmp_path: Path) -> None:
+    channels = _channels(_build(tmp_path, _tree(**{STATUS: {"simulation": {"follows": "none"}}})))
+
+    assert channels[STATUS]["idle"] == "OFF"

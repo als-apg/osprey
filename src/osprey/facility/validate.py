@@ -1245,8 +1245,10 @@ def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     ``timeout_s``. ``idle`` sits only on a readback a command pairs with and is
     typed by that channel; ``timeout_s`` sits only on a command and is a finite
     number > 0. A limits record states no ``confirm: true`` on a command with
-    ``timeout_s``: the wait for its status confirms the write. Runs once
-    commands are marked, so the stop is ``command-invalid`` alone.
+    ``timeout_s``: the wait for its status confirms the write. A status that
+    states ``idle`` states no ``follows`` naming a setpoint; the simulation never
+    follows it. Runs once commands are marked, so the stop is
+    ``command-invalid`` alone.
 
     Args:
         document: The combined document, its commands marked ``command: true``.
@@ -1372,6 +1374,17 @@ class _Records:
         self, address: str, channel: Mapping[str, Any], awaited: set[str]
     ) -> Iterator[FacilityBuildError]:
         """``idle`` sits on a readback a command pairs with, typed by the channel."""
+        follows = seed_follows(channel)
+        if follows is not None and follows != FOLLOWS_NONE:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                self._seed_files(channel),
+                f"`follows` names {follows} on a status that states `idle`; a followed status "
+                f"holds each write to {follows} and never returns to `idle` by itself",
+                "remove `follows`; a status that states `idle` is never followed",
+            )
         files = stating_files(channel, "idle")
         role = channel.get("role", DEFAULT_ROLE)
         if role != "readback":
@@ -1983,6 +1996,10 @@ class _Records:
         for address, channel in sorted(self.index.channels.items()):
             follows = seed_follows(channel)
             if follows is None:
+                continue
+            # A `follows` naming a setpoint on a status that states `idle` is
+            # refused by `check_commands`.
+            if "idle" in channel and follows != FOLLOWS_NONE:
                 continue
             setpoints = sorted(named.get(address, ()))
             problem = remedy = None
