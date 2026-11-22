@@ -344,3 +344,67 @@ def test_a_scenario_write_fires_no_response() -> None:
     model.set_active({MOVE: 1})
 
     assert model.get(STATUS) == "DONE"
+
+
+# ---------------------------------------------------------------------------
+# The command-started echo
+# ---------------------------------------------------------------------------
+
+
+def test_a_target_write_alone_leaves_the_readback() -> None:
+    model, _clock = _clocked()
+
+    model.set({POSITION_SP: 4.0})
+
+    assert model.get(POSITION_SP) == 4.0
+    assert model.get(POSITION_RB) == 1.0
+
+
+def test_the_start_command_moves_the_readback_to_the_target() -> None:
+    model, _clock = _clocked()
+
+    model.set({POSITION_SP: 4.0})
+    model.set({MOVE: 1})
+
+    assert model.get(POSITION_RB) == 4.0
+
+
+@pytest.mark.parametrize(
+    "batch",
+    [{POSITION_SP: 4.0, MOVE: 1}, {MOVE: 1, POSITION_SP: 4.0}],
+    ids=["target-first", "command-first"],
+)
+def test_one_batch_of_target_and_command_moves_to_the_new_target(batch: dict[str, Any]) -> None:
+    model, _clock = _clocked()
+
+    model.set(batch)
+
+    assert model.get(POSITION_RB) == 4.0
+
+
+def test_a_setpoint_without_started_by_echoes_as_before() -> None:
+    model, _clock = _clocked()
+
+    model.set({HEAT_SP: 30.0})
+
+    assert model.get(HEAT_RB) == 30.0
+
+
+def test_a_started_readback_starts_at_its_setpoints_nominal() -> None:
+    model, _clock = _clocked()
+
+    assert model.held([POSITION_RB]) == {POSITION_RB: 1.0}
+
+
+# ---------------------------------------------------------------------------
+# Reach
+# ---------------------------------------------------------------------------
+
+
+def test_a_command_reaches_its_status_and_the_readbacks_it_starts() -> None:
+    reach = _clocked()[0].reach()
+
+    assert reach[MOVE] == {MOVE, STATUS, POSITION_RB}
+    assert reach[POSITION_SP] == {POSITION_SP}
+    assert reach[HEAT_SP] == {HEAT_SP, HEAT_RB}
+    assert reach[INTERLOCK] == {INTERLOCK, STATUS}
