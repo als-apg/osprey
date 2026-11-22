@@ -3623,14 +3623,14 @@ class _Page:
                 self.control_block(group, columns)
                 self.writes_line(group, STRIP_WIDTH - (columns.name - self.x0), columns.name)
                 continue
-            run = [group]  # the short groups that follow it stand beside it
-            while groups and groups[0].kind != "entry" and not self.gridded(groups[0]):
+            run = [group]  # the short groups of its kind that follow it stand beside it
+            while groups and groups[0].kind == group.kind and not self.gridded(groups[0]):
                 run.append(groups.pop(0))
             self.short_groups(run, columns)
 
     def short_groups(self, run: Sequence[ControlGroup], at: _ControlColumns) -> None:
-        """Groups whose rows end at their buttons (actions, choices, read-only values),
-        in cells side by side, row by row: one, two or up to
+        """Groups of one kind whose rows end at their buttons (actions, choices,
+        read-only values), in cells side by side, row by row: one, two or up to
         :data:`CONTROL_COLUMNS_MOST` to a row, whichever makes the run least tall
         (the fewer on a tie). Each cell holds its group's rows on the panel's
         columns moved over, a choice's segments wrapping within the cell, and what
