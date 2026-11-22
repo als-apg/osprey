@@ -3630,32 +3630,56 @@ class _Page:
 
     def short_groups(self, run: Sequence[ControlGroup], at: _ControlColumns) -> None:
         """Groups whose rows end at their buttons (actions, choices, read-only values),
-        in cells as wide as the widest needs, as many side by side as fit the panel,
-        up to :data:`CONTROL_COLUMNS_MOST`, row by row; each cell its group's rows on
-        the panel's columns moved over, and what it writes under them."""
-        cell = max(self.group_width(g, at) for g in run)
-        per = max(
-            1, min(int((STRIP_WIDTH + COLUMN_GAP) // (cell + COLUMN_GAP)), CONTROL_COLUMNS_MOST)
-        )
-        if per == 1 or len(run) == 1:  # one to a row: its rows take the panel's width
-            per, cell = 1, STRIP_WIDTH
+        in cells side by side, row by row: one, two or up to
+        :data:`CONTROL_COLUMNS_MOST` to a row, whichever makes the run least tall
+        (the fewer on a tie). Each cell holds its group's rows on the panel's
+        columns moved over, a choice's segments wrapping within the cell, and what
+        it writes under them."""
+        best: tuple[float, int] | None = None
+        for per in range(1, min(CONTROL_COLUMNS_MOST, len(run)) + 1):
+            cell = (STRIP_WIDTH - (per - 1) * COLUMN_GAP) / per
+            if self.group_width(run[0], at, segments=1) > cell:
+                break  # not even one segment beside the name
+            tall = sum(
+                max(self.group_height(g, at, cell) for g in run[first : first + per])
+                for first in range(0, len(run), per)
+            )
+            if best is None or tall < best[0]:
+                best = (tall, per)
+        per = best[1] if best is not None else 1
+        cell = math.floor((STRIP_WIDTH - (per - 1) * COLUMN_GAP) / per)
         for first in range(0, len(run), per):
             top, foot = self.y, self.y
             for j, group in enumerate(run[first : first + per]):
                 self.y = top
                 dx = j * (cell + COLUMN_GAP)
                 self.control_block(group, _moved(at, dx), room=cell)
-                width = cell - (at.name - at.badge)
-                self.writes_line(group, width, at.name + dx)
+                self.writes_line(group, cell - (at.name - at.badge), at.name + dx)
                 foot = max(foot, self.y)
             self.y = foot
 
-    def group_width(self, group: ControlGroup, at: _ControlColumns) -> float:
+    def group_width(self, group: ControlGroup, at: _ControlColumns, segments: int = 0) -> float:
         """How wide a short group's rows run from the tag: to the end of its button,
-        or of a choice's last segment."""
+        or of a choice's last segment (or of its first *segments*)."""
         if group.kind == "choice":
-            return at.box - at.badge + len(group.controls) * (CONTROL_WIDTH + GAP) - GAP
+            count = segments or len(group.controls)
+            return at.box - at.badge + count * (CONTROL_WIDTH + GAP) - GAP
         return at.hint - at.badge
+
+    def group_height(self, group: ControlGroup, at: _ControlColumns, cell: float) -> float:
+        """How tall a short group stands in a cell *cell* wide: its rows (a choice's
+        segments wrapping within the cell, an action group's rows in columns) and
+        what it writes."""
+        step = CONTROL_HEIGHT + ROW_GAP
+        rows = len(self.control_rows(group))
+        if group.kind == "choice":
+            line = max(1, int((cell - (at.box - at.badge) + GAP) // (CONTROL_WIDTH + GAP)))
+            lines = -(-len(group.controls) // line)
+        else:
+            fit = int((cell + COLUMN_GAP) // (at.hint - at.badge + COLUMN_GAP))
+            lines = -(-rows // max(1, min(fit, CONTROL_COLUMNS_MOST, rows)))
+        writes = len(_prose(group.writes, cell - (at.name - at.badge), SMALL_SIZE))
+        return lines * step + writes * SMALL_LINE + GAP
 
     def control_block(
         self, group: ControlGroup, at: _ControlColumns, room: float = STRIP_WIDTH
@@ -3676,7 +3700,7 @@ class _Page:
             dx = (k // per) * (width + COLUMN_GAP)
             if not k % per:
                 self.y = top
-            self.control_row(group, control, name, _moved(at, dx))
+            self.control_row(group, control, name, _moved(at, dx), right=at.badge + room)
             foot = max(foot, self.y)
         self.y = foot
 
@@ -3747,10 +3771,17 @@ class _Page:
         )
 
     def control_row(
-        self, group: ControlGroup, control: Control | None, name: str, at: _ControlColumns
+        self,
+        group: ControlGroup,
+        control: Control | None,
+        name: str,
+        at: _ControlColumns,
+        right: float | None = None,
     ) -> None:
         """One row on the panel's columns: tag, name, now, the field or the buttons,
-        and for an entry Apply and what it will write."""
+        and for an entry Apply and what it will write; a choice's segments wrap at
+        *right* (the panel's edge)."""
+        right = self.x0 + STRIP_WIDTH if right is None else right
         y = self.y
         mid = y + (CONTROL_HEIGHT - ROW) / 2  # a row of text centred on a button's height
         withheld = group.kind == WITHHELD
@@ -3789,7 +3820,7 @@ class _Page:
         else:  # a choice: its segments side by side, shaded while the status reads them
             x = at.box
             for segment in group.controls:
-                if x > at.box and x + CONTROL_WIDTH > self.x0 + STRIP_WIDTH:
+                if x > at.box and x + CONTROL_WIDTH > right:
                     x = at.box  # a segment past the edge starts a line under the row
                     self.y += CONTROL_HEIGHT + ROW_GAP
                     y = self.y
