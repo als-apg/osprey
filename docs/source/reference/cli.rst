@@ -1771,7 +1771,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the layout cut to fit. Every widget that draws a view item names it in its
    ``meta`` comment, which a viewer does not read: ``item: <kind>``, then
    ``thing: <id>`` where the item stands for one thing and ``order: <n>`` where
-   the view states an order. The kinds are ``rack-unit`` and ``grid-row``,
+   the view states an order (a rack unit's by where it stands in the rack, not
+   by the order its units are listed). The kinds are ``rack-unit`` and ``grid-row``,
    which read down (top to bottom, then on in the next column), and
    ``strip-element``, ``key-tile`` and ``chain-block``, which read across (left
    to right, then on in the next row). The list is complete: a key figure's

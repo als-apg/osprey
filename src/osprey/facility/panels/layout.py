@@ -6432,9 +6432,13 @@ class _Page:
         # and each in a list under the rack with its own light
         crowded: list[RackUnit] = []
         spans: list[list[int]] = []  # the crowded bars' units, lowest and highest
-        for order, (unit, unit_top, (lane, count)) in enumerate(
+        # the units numbered by where they stand: top down, then left to right
+        rank = sorted(range(len(tops)), key=lambda k: (-tops[k], lanes[k][0]))
+        numbered = {k: n for n, k in enumerate(rank)}
+        for k, (unit, unit_top, (lane, count)) in enumerate(
             zip(elevation.units, tops, lanes, strict=True)
         ):
+            order = numbered[k]
             w = RACK_WIDTH / count  # chassis whose units overlap share the rack's width
             x = bars_x + lane * w
             y = rack_top + (height - unit_top) * RACK_U
