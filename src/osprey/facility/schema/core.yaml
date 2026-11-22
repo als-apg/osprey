@@ -492,8 +492,10 @@ classes:
       idle:
         range: Any
         description: >-
-          On a readback a command pairs with: what it reads while no act runs. A
-          label on a bool or enum channel, a number otherwise.
+          On a readback a command pairs with, its status: what it reads while no
+          act runs, typed by the channel: a label on a bool or enum channel, an
+          integer on an int, a number on a float, text on a string; a waveform
+          channel is never a status.
       "on":
         range: OnTarget
         inlined: true

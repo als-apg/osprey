@@ -12,10 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.pairing import NOT_FOLLOWED, pair_follows
+from osprey.facility.schema import core
 from osprey.simulation.engines import pyat
 from tests.facility._pyaml_trees import built_document, measured_tree
 from tests.facility._synthetic_trees import plain_tree, write_tree
@@ -139,6 +141,7 @@ def test_idle_on_a_setpoint_stops_the_build(tmp_path: Path) -> None:
         pytest.param(
             {"value_type": "float", "options": None}, "IDLE", "'IDLE', not a number", id="float"
         ),
+        pytest.param({"value_type": "string", "options": None}, 0, "0, not text", id="string"),
     ],
 )
 def test_idle_of_the_wrong_type_stops_the_build(
@@ -149,9 +152,75 @@ def test_idle_of_the_wrong_type_stops_the_build(
 
     assert _stop(tmp_path, tree) == (
         f"facility: command-invalid: channel Q1:STATE — `idle` of {value_type} channel Q1:STATE "
-        f"is {problem}; fix: type `idle` by the channel: a label on a bool or enum, an integer "
-        "on an int, a number on a float"
+        f"is {problem}; fix: type `idle` by the channel: a label on a bool or enum channel, an "
+        "integer on an int, a number on a float, text on a string; a waveform channel is never a "
+        "status"
     )
+
+
+def test_a_string_status_states_its_idle_text(tmp_path: Path) -> None:
+    tree = _tree(**{STATUS: {"value_type": "string", "options": None, "idle": "IDLE"}})
+
+    assert _channels(_build(tmp_path, tree))[STATUS]["idle"] == "IDLE"
+
+
+#: The status as a waveform channel.
+WAVEFORM = {"value_type": "waveform", "options": None, "shape": [3]}
+
+
+@pytest.mark.parametrize(
+    "idle", [pytest.param([0, 0, 0], id="trace"), pytest.param("IDLE", id="text")]
+)
+def test_idle_on_a_waveform_status_stops_the_build_by_name(tmp_path: Path, idle: Any) -> None:
+    tree = _tree(**{COMMAND: {"timeout_s": None}, STATUS: {**WAVEFORM, "idle": idle}})
+
+    assert _stop(tmp_path, tree) == (
+        "facility: command-invalid: channel Q1:STATE — `idle` on waveform channel Q1:STATE; a "
+        "waveform channel is never a status; fix: type `idle` by the channel: a label on a bool "
+        "or enum channel, an integer on an int, a number on a float, text on a string; a "
+        "waveform channel is never a status"
+    )
+
+
+def test_a_bound_on_a_command_whose_status_is_a_waveform_stops_the_build(tmp_path: Path) -> None:
+    tree = _tree(**{STATUS: {**WAVEFORM, "idle": None}})
+
+    assert _stop(tmp_path, tree) == (
+        "facility: command-invalid: channel Q1:ON — `timeout_s` on a command whose status "
+        "Q1:STATE is a waveform channel; fix: pair Q1:ON with a status that is no waveform, or "
+        "remove `timeout_s`"
+    )
+
+
+#: Where the build's sentence on how ``idle`` is typed is also stated.
+_REPO = Path(__file__).parents[2]
+_CORE_YAML = _REPO / "src" / "osprey" / "facility" / "schema" / "core.yaml"
+_DOCS_PAGE = _REPO / "docs" / "source" / "how-to" / "describe-your-facility.rst"
+_FIX = "type `idle` by the channel: "
+
+
+def _idle_row(page: str) -> str:
+    """The text of the ``idle`` row of the channel slot table, up to the next row."""
+    row = page.split("   * - ``idle``", 1)[1]
+    return row.split("   * - ", 1)[0]
+
+
+def _spaced(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_idle_is_typed_by_one_sentence(tmp_path: Path) -> None:
+    tree = _tree(**{COMMAND: {"timeout_s": None}, STATUS: {**WAVEFORM, "idle": 0}})
+    with pytest.raises(FacilityBuildError) as stopped:
+        _build(tmp_path, tree)
+    remedy = stopped.value.remedy
+    assert remedy.startswith(_FIX)
+    stated = "typed by the channel: " + remedy.removeprefix(_FIX)
+
+    schema = yaml.safe_load(_CORE_YAML.read_text(encoding="utf-8"))
+    assert stated in _spaced(schema["classes"]["Channel"]["attributes"]["idle"]["description"])
+    assert stated in _spaced(core.Channel.model_fields["idle"].description or "")
+    assert stated in _spaced(_idle_row(_DOCS_PAGE.read_text(encoding="utf-8")))
 
 
 def test_idle_on_a_status_no_command_pairs_with_stops_the_build(tmp_path: Path) -> None:
