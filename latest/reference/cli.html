@@ -2090,7 +2090,16 @@ drawing variants (a channel list drawn as a count above its size). Each
 entry also states its own <code class="docutils literal notranslate"><span class="pre">sizes</span></code>, <code class="docutils literal notranslate"><span class="pre">gaps</span></code> (per gap the count, such as
 <code class="docutils literal notranslate"><span class="pre">unit</span></code> or <code class="docutils literal notranslate"><span class="pre">where</span> <span class="pre">without</span> <span class="pre">a</span> <span class="pre">link</span></code>, for a checker to total per class),
 <code class="docutils literal notranslate"><span class="pre">flags</span></code>, its longest <code class="docutils literal notranslate"><span class="pre">label</span></code> in characters, and under <code class="docutils literal notranslate"><span class="pre">cuts</span></code> the labels
-the layout cut to fit. Every widget that draws a view item names it in its
+the layout cut to fit. Frames in a row whose content needs at most half
+the width each stand in two columns when they have one role
+(live values, references, an action block, a picture with its curve; two
+groups of a channel list only as stated groups of one grouping, a group of
+no stated kind alone), read downward, split where the taller column is least
+tall, so short frames stack beside a long one; a frame keeps its own height
+unless matching its neighbour’s foot adds at most a third of it, and the page
+under a shorter column stays plain; content that stretches (a curve’s plot) is drawn
+after the next frame and, where that one takes at most half, fills the other
+half. Every widget that draws a view item names it in its
 <code class="docutils literal notranslate"><span class="pre">meta</span></code> comment, which a viewer does not read: <code class="docutils literal notranslate"><span class="pre">item:</span> <span class="pre">&lt;kind&gt;</span></code>, then
 <code class="docutils literal notranslate"><span class="pre">thing:</span> <span class="pre">&lt;id&gt;</span></code> where the item stands for one thing and <code class="docutils literal notranslate"><span class="pre">order:</span> <span class="pre">&lt;n&gt;</span></code> where
 the view states an order (a rack unit’s by where it stands in the rack, not
