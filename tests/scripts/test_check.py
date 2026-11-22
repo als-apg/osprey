@@ -34,6 +34,7 @@ import pytest
 import yaml
 
 from tests import _canopy_contract, _wallclock_files
+from tests._scoped_stdlib import scoped
 from tests.scripts import _check_script
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -717,9 +718,9 @@ def test_the_need_probes_of_the_new_toolchains_name_their_install(
     """The secret scan needs gitleaks on PATH and the workflow lint needs
     shellcheck in the venv: actionlint passes over every ``run:`` block without
     a word when shellcheck is absent, so its absence is a refusal."""
-    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    scoped(monkeypatch, fw, "shutil", which=lambda name: None)
     assert "brew install gitleaks" in (fw._need_gitleaks() or "")
-    monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, fw, "shutil", which=lambda name: f"/usr/bin/{name}")
     assert fw._need_gitleaks() is None
     monkeypatch.setattr(kit, "capture", lambda argv: (127, ""))
     assert "uv sync --extra dev" in (fw._need_workflow_linters() or "")
@@ -2990,7 +2991,7 @@ def test_a_refusal_names_every_unmet_need(
     monkeypatch.setitem(check.NEED_PROBES, "node", fw._need_node)
     monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
     monkeypatch.setattr(kit, "capture", lambda argv: (1, ""))
-    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    scoped(monkeypatch, fw, "shutil", which=lambda name: None)
     assert check.main(["full"]) == 2
     assert recorder.calls == []
     captured = capsys.readouterr()
@@ -3204,7 +3205,7 @@ def _free(monkeypatch: pytest.MonkeyPatch, **by_place: int) -> list[str]:
         free = by_place["temp"] if str(path) == fw.tempfile.gettempdir() else by_place["root"]
         return shutil._ntuple_diskusage(10**15, 10**15 - free, free)
 
-    monkeypatch.setattr(fw.shutil, "disk_usage", usage)
+    scoped(monkeypatch, fw, "shutil", disk_usage=usage)
     return asked
 
 
@@ -3266,7 +3267,7 @@ class FakeDocker:
         #: The verb (``info``, ``create``, ``rm``) to (status, stderr) or an exception.
         self.answers = answers
         self.timeouts: list[float | None] = []
-        monkeypatch.setattr(fw.shutil, "which", lambda name: f"/stub/{name}")
+        scoped(monkeypatch, fw, "shutil", which=lambda name: f"/stub/{name}")
         monkeypatch.setattr(fw, "_probe", self)
 
     def __call__(self, argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:
@@ -3293,7 +3294,7 @@ def test_docker_storage_creates_and_removes_a_probe_volume(
 
 def test_no_docker_on_the_path_is_met(monkeypatch: pytest.MonkeyPatch) -> None:
     docker = FakeDocker(monkeypatch)
-    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    scoped(monkeypatch, fw, "shutil", which=lambda name: None)
     assert fw._need_docker_storage() is None
     assert docker.calls == []
 
@@ -4119,7 +4120,7 @@ def node_need(recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> Recorder:
     """The real ``node`` need, with ``node`` and ``npm`` found and the recorder
     standing in for npm."""
     monkeypatch.setitem(check.NEED_PROBES, "node", fw._need_node)
-    monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, fw, "shutil", which=lambda name: f"/usr/bin/{name}")
     return recorder
 
 
@@ -4708,11 +4709,11 @@ def test_the_docs_build_refuses_without_graphviz(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setitem(check.NEED_PROBES, "graphviz", fw._need_graphviz)
-    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    scoped(monkeypatch, fw, "shutil", which=lambda name: None)
     assert check.main(["run", "docs"]) == 2
     assert "graphviz is not on PATH" in capsys.readouterr().err
     assert recorder.calls == []
-    monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, fw, "shutil", which=lambda name: f"/usr/bin/{name}")
     assert check.main(["run", "docs"]) == 0
 
 

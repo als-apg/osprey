@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests._scoped_stdlib import scoped
 
 import osprey.integrations.canopy as canopy_package
 from osprey.integrations.canopy import (
@@ -247,7 +248,7 @@ def started_pids(monkeypatch):
                 if role in [str(arg) for arg in args]:
                     pids[role].append(self.pid)
 
-    monkeypatch.setattr(supervised_child.subprocess, "Popen", _Recording)
+    scoped(monkeypatch, supervised_child, "subprocess", Popen=_Recording)
     return pids
 
 

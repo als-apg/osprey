@@ -18,6 +18,7 @@ import pytest
 
 from osprey.agent_runner import launcher
 from osprey.interfaces.web_terminal import app as web_app
+from tests._scoped_stdlib import scoped
 
 PIN = "2.1.300"
 INSTALLED = "/usr/local/bin/claude"
@@ -39,7 +40,7 @@ def installed(monkeypatch):
     """Put a ``claude`` on PATH that reports the given version."""
 
     def install(version, path=INSTALLED):
-        monkeypatch.setattr("shutil.which", lambda *_a, **_k: path)
+        scoped(monkeypatch, "osprey.utils.shell_resolver", "shutil", which=lambda *_a, **_k: path)
         monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: version)
 
     return install

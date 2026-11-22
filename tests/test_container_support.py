@@ -41,6 +41,7 @@ from tests._container_support import (
     start_or_skip,
     wait_until_ready,
 )
+from tests._scoped_stdlib import scoped
 
 # ``docker`` is a ``dev``-extra dependency. Importing it at module scope would
 # make this file ERROR at collection wherever the extra is absent — the very
@@ -232,7 +233,7 @@ def test_image_not_found_skips_without_retry():
 
 
 def _docker_on_path(monkeypatch) -> None:
-    monkeypatch.setattr(_container_support.shutil, "which", lambda _name: "/usr/bin/docker")
+    scoped(monkeypatch, _container_support, "shutil", which=lambda _name: "/usr/bin/docker")
 
 
 def _completed(returncode: int, stderr: str = "") -> subprocess.CompletedProcess:
@@ -240,7 +241,7 @@ def _completed(returncode: int, stderr: str = "") -> subprocess.CompletedProcess
 
 
 def test_docker_probe_names_a_missing_cli(monkeypatch):
-    monkeypatch.setattr(_container_support.shutil, "which", lambda _name: None)
+    scoped(monkeypatch, _container_support, "shutil", which=lambda _name: None)
 
     assert docker_cli_unavailable_reason() == "docker CLI not on PATH"
 
@@ -252,7 +253,7 @@ def test_docker_probe_names_a_timeout_apart_from_an_absent_daemon(monkeypatch):
     def slow_run(argv, **kwargs):
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
-    monkeypatch.setattr(_container_support.subprocess, "run", slow_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=slow_run)
 
     reason = docker_cli_unavailable_reason(timeout=7)
 
@@ -267,8 +268,11 @@ def test_docker_probe_names_an_unreachable_daemon_by_its_last_line(monkeypatch):
         "Client: Docker Engine - Community\n"
         "Cannot connect to the Docker daemon at unix:///var/run/docker.sock\n"
     )
-    monkeypatch.setattr(
-        _container_support.subprocess, "run", lambda argv, **kwargs: _completed(1, stderr)
+    scoped(
+        monkeypatch,
+        _container_support,
+        "subprocess",
+        run=lambda argv, **kwargs: _completed(1, stderr),
     )
 
     reason = docker_cli_unavailable_reason()
@@ -281,7 +285,7 @@ def test_docker_probe_names_an_unreachable_daemon_by_its_last_line(monkeypatch):
 
 def test_docker_probe_is_silent_when_the_cli_works(monkeypatch):
     _docker_on_path(monkeypatch)
-    monkeypatch.setattr(_container_support.subprocess, "run", lambda argv, **kwargs: _completed(0))
+    scoped(monkeypatch, _container_support, "subprocess", run=lambda argv, **kwargs: _completed(0))
 
     assert docker_cli_unavailable_reason() is None
 
@@ -304,7 +308,7 @@ def _runtime_answers(monkeypatch, *answers: bool) -> list[float]:
             return _completed(0)
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
-    monkeypatch.setattr(_container_support.subprocess, "run", run)
+    scoped(monkeypatch, _container_support, "subprocess", run=run)
     return deadlines
 
 
@@ -387,7 +391,7 @@ def _recording_run(monkeypatch, result) -> list[tuple[list[str], dict]]:
             raise result
         return result
 
-    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=fake_run)
     return calls
 
 
@@ -754,7 +758,7 @@ def _fake_runtime(monkeypatch, *, inspect: subprocess.CompletedProcess, logs=Non
             )
         return logs
 
-    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=fake_run)
     return calls
 
 
@@ -786,7 +790,7 @@ def test_a_named_runtime_container_returns_the_whole_merged_log(monkeypatch):
         calls.append((list(argv), kwargs))
         return subprocess.CompletedProcess(argv, 0, stdout=b"booting\nindex failed\n")
 
-    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=fake_run)
 
     assert RuntimeContainer("deploy-qmd").logs() == b"booting\nindex failed\n"
     argv, kwargs = calls[0]

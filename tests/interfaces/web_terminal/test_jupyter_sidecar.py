@@ -41,6 +41,7 @@ from osprey.mcp_server.sandbox_env import ENV_CHAIN_APPLIED_ENV
 from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID, SIDECAR_PANELS
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly, pid_alive, pid_gone
+from tests._scoped_stdlib import scoped
 
 # The budget for a sidecar to start, and for a ready sidecar to answer a request.
 READY_TIMEOUT = 90.0
@@ -1055,7 +1056,7 @@ def _reap_with(monkeypatch, snapshots: list[list[int]]) -> list[tuple[int, int]]
         return list(last[0])
 
     sent: list[tuple[int, int]] = []
-    monkeypatch.setattr(jupyter_sidecar.shutil, "which", lambda _name: "/usr/bin/pgrep")
+    scoped(monkeypatch, jupyter_sidecar, "shutil", which=lambda _name: "/usr/bin/pgrep")
     monkeypatch.setattr(jupyter_sidecar, "_pids_naming", _naming)
     monkeypatch.setattr(jupyter_sidecar, "_signal_pid", lambda pid, sig: sent.append((pid, sig)))
     jupyter_sidecar._reap_stragglers("/tmp/does-not-matter")

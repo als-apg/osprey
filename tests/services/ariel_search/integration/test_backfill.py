@@ -20,6 +20,7 @@ from click.testing import CliRunner
 
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.config import ARIELConfig
+from tests._scoped_stdlib import scoped_patch
 from tests.services.ariel_search.integration._support import migrate
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -241,7 +242,9 @@ class TestBackfillCliOutput:
         asyncio.run(migrate(config_dict))
         _seed_census(scratch_database)
 
-        with patch("shutil.which", return_value=None):
+        with scoped_patch(
+            "osprey.deployment.runtime_helper", "shutil", which=lambda *_a, **_k: None
+        ):
             result = _invoke_cli(
                 config_dict, ["attachments", "backfill", "--dry-run"], project_name="demo"
             )
@@ -287,7 +290,9 @@ class TestBackfillExecLine:
 
     def test_backfill_exec_line_renders_without_any_runtime_on_path(self, monkeypatch):
         monkeypatch.delenv("CONTAINER_RUNTIME", raising=False)
-        with patch("shutil.which", return_value=None):
+        with scoped_patch(
+            "osprey.deployment.runtime_helper", "shutil", which=lambda *_a, **_k: None
+        ):
             line = ops.backfill_exec_line({"project_root": "/srv/als-ops"})
         assert line == "docker exec als-ops-ariel-sync osprey ariel attachments backfill"
 

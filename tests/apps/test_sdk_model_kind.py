@@ -20,6 +20,7 @@ import pytest
 from osprey.apps import sdk
 from osprey.simulation import model_request
 from osprey.simulation.response import RESULT_TAG
+from tests._scoped_stdlib import scoped
 from tests.apps.test_sdk_model import RING, _ring_render
 
 LINE = {"rows": ["BPM_1:X"], "columns": ["COR_1:X:SP"], "matrix": [[1.5]], "missing": {}}
@@ -35,7 +36,7 @@ def _stub(monkeypatch: pytest.MonkeyPatch, seen: dict[str, Any], stdout: str) ->
         seen["argv"] = argv
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(subprocess, "run", run)
+    scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
 
 def test_kind_is_keyword_only_and_defaults_to_orbit():
@@ -74,7 +75,7 @@ def test_an_unknown_kind_is_refused_before_any_child(ring, monkeypatch):
     def run(*args, **kwargs):
         raise AssertionError("no child may start")
 
-    monkeypatch.setattr(subprocess, "run", run)
+    scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
     with pytest.raises(ValueError, match="'trajectory'") as refused:
         sdk.model_response_matrix(RING, render_root=ring, kind="tune")

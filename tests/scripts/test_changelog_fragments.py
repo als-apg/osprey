@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._scoped_stdlib import scoped
 from tests._tree_scan import tracked_files
 
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "changelog_fragments.py"
@@ -2224,7 +2225,7 @@ class TestMain:
             captured.update(kwargs)
             return subprocess.CompletedProcess(argv, 0, "", "")
 
-        monkeypatch.setattr(cf.subprocess, "run", fake_run)
+        scoped(monkeypatch, cf, "subprocess", run=fake_run)
         cf._run(["git", "status"])
         assert captured["encoding"] == "utf-8"
         assert captured["text"] is True

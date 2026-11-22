@@ -22,6 +22,7 @@ from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG
+from tests._scoped_stdlib import scoped
 from tests._simulator_view import view_channel
 
 RING = "RING"
@@ -337,7 +338,7 @@ class TestModelResponseMatrix:
             seen["timeout"] = kwargs["timeout"]
             return _completed(f"noise\n{RESULT_TAG} {json.dumps(line)}\n")
 
-        monkeypatch.setattr(subprocess, "run", run)
+        scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
         result = sdk.model_response_matrix(RING, render_root=ring, timeout_s=7)
 
@@ -362,8 +363,11 @@ class TestModelResponseMatrix:
             "row_positions": [1, 6],
             "column_positions": [4],
         }
-        monkeypatch.setattr(
-            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}")
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}"),
         )
 
         result = sdk.model_response_matrix(RING, render_root=ring, kind="trajectory")
@@ -389,8 +393,11 @@ class TestModelResponseMatrix:
             "missing": {},
             **positions,
         }
-        monkeypatch.setattr(
-            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}")
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}"),
         )
 
         result = sdk.model_response_matrix(RING, render_root=ring)
@@ -418,22 +425,30 @@ class TestModelResponseMatrix:
         def run(argv, **kwargs):
             raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
-        monkeypatch.setattr(subprocess, "run", run)
+        scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
         with pytest.raises(TimeoutError, match=RING):
             sdk.model_response_matrix(RING, render_root=ring, timeout_s=1)
 
     def test_an_engine_refusal_raises(self, ring, monkeypatch):
         refused = {"refused": "no closed orbit", "cause": "request"}
-        monkeypatch.setattr(
-            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(refused)}")
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(refused)}"),
         )
 
         with pytest.raises(ValueError, match="no closed orbit"):
             sdk.model_response_matrix(RING, render_root=ring)
 
     def test_a_child_without_a_result_raises_with_its_stderr(self, ring, monkeypatch):
-        monkeypatch.setattr(subprocess, "run", lambda argv, **kw: _completed("", "Traceback boom"))
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed("", "Traceback boom"),
+        )
 
         with pytest.raises(RuntimeError, match="boom"):
             sdk.model_response_matrix(RING, render_root=ring)
@@ -442,7 +457,7 @@ class TestModelResponseMatrix:
         def run(*args, **kwargs):
             raise AssertionError("no child may start")
 
-        monkeypatch.setattr(subprocess, "run", run)
+        scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
         with pytest.raises(model_request.ModelRequestRefused, match="is no corrector setpoint"):
             sdk.model_response_matrix(RING, ["BPM_1:X"], render_root=ring)

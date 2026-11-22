@@ -1,11 +1,12 @@
 """Tests for the create_document MCP tool."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from osprey.stores.artifact_store import get_artifact_store
+from tests._scoped_stdlib import patch_subprocess, scoped_patch
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
@@ -47,7 +48,9 @@ Welcome to the presentation.
         assert "No LaTeX source" in result["error_message"]
 
     async def test_pdflatex_not_installed(self, tool_fn, simple_latex):
-        with patch("shutil.which", return_value=None):
+        with scoped_patch(
+            "osprey.mcp_server.workspace.tools.create_document", "shutil", which=lambda _name: None
+        ):
             with assert_raises_error(error_type="dependency_missing") as _exc_ctx:
                 await tool_fn(latex_source=simple_latex, title="Test Doc")
         result = _exc_ctx["envelope"]
@@ -65,8 +68,14 @@ Welcome to the presentation.
             return result
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=mock_run),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document", side_effect=mock_run
+            ),
             assert_raises_error(error_type="compilation_error"),
         ):
             await tool_fn(latex_source=bad_latex, title="Bad Doc")
@@ -75,8 +84,15 @@ Welcome to the presentation.
         import subprocess
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("pdflatex", 60)),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document",
+                side_effect=subprocess.TimeoutExpired("pdflatex", 60),
+            ),
         ):
             with assert_raises_error(error_type="execution_error") as _exc_ctx:
                 await tool_fn(latex_source=simple_latex, title="Timeout Doc")
@@ -101,8 +117,14 @@ Welcome to the presentation.
             return result
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=mock_run),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document", side_effect=mock_run
+            ),
         ):
             result = extract_response_dict(
                 await tool_fn(
@@ -132,8 +154,14 @@ Welcome to the presentation.
             return result
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=mock_run),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document", side_effect=mock_run
+            ),
         ):
             result = extract_response_dict(
                 await tool_fn(latex_source=simple_latex, title="Artifacts Test")
@@ -193,8 +221,14 @@ Welcome to the presentation.
         )
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=mock_run),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document", side_effect=mock_run
+            ),
         ):
             result = extract_response_dict(
                 await tool_fn(
@@ -221,8 +255,14 @@ Welcome to the presentation.
             return result
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=mock_run),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document", side_effect=mock_run
+            ),
         ):
             result = extract_response_dict(
                 await tool_fn(

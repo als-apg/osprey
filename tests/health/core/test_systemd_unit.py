@@ -19,6 +19,7 @@ import pytest
 from osprey.health.core import systemd_unit as mod
 from osprey.health.core.systemd_unit import systemd_unit
 from osprey.health.models import Status
+from tests._scoped_stdlib import scoped
 from tests.health._fakes import FakeProc
 
 _UNIT = "osprey.service"
@@ -37,7 +38,7 @@ def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
 
 def _have_systemctl(monkeypatch, present=True):
     """Patch ``shutil.which`` as seen by the module."""
-    monkeypatch.setattr(mod.shutil, "which", lambda name: "/usr/bin/systemctl" if present else None)
+    scoped(monkeypatch, mod, "shutil", which=lambda name: "/usr/bin/systemctl" if present else None)
 
 
 def _repo_with_unit(tmp_path: Path) -> Path:
