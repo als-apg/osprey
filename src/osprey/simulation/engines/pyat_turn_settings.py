@@ -18,9 +18,17 @@ but ``injection_element`` defaulted:
 * ``mismatch`` -- a factor on those beta functions, a map of ``x`` and ``y``;
 * ``jitter`` -- the shot-to-shot centroid jitter, a map of ``x px y py delta
   ct``;
-* ``aperture`` -- the half-axes ``x`` and ``y`` written on every element with a
-  length, and its ``shape`` (``elliptical``, the default, or
-  ``rectangular``); none when unstated;
+* ``aperture`` -- the ring's aperture, written on every element with a length:
+  its ``shape`` (``elliptical``, the default, or ``rectangular``) and its
+  half-axes ``x`` and ``y``, either of which a rectangle may state as a
+  ``[low, high]`` pair of limits instead; none when unstated;
+* ``apertures`` -- the apertures of single elements, a list read in order.
+  Each item states an aperture as ``aperture`` does and selects its elements
+  by exactly one of ``class`` (a pyAT element class; its elements with a
+  length), ``element`` (a deck element name; every element so named) and ``s``
+  (a ``[from, to]`` range in metres from the deck's first element; the
+  elements with a length whose midpoint lies in it). An element takes the
+  last item that selects it, and the ring's aperture where none does;
 * ``sum_per_charge``, ``sum_per_stored``, ``sum_floor``, ``position_noise``,
   ``sum_noise``, ``floor_noise``, ``tone_period``, ``tone_amplitude`` -- the
   monitor readout, in :class:`~osprey.simulation.engines.pyat_turn_readout.TurnReadout`'s
@@ -38,7 +46,8 @@ bunch meets on each turn from the first (``[1.0]`` by default, one turn). A
 shot is kicked at the record's element by what the record holds; the closed
 orbit is not. This module reads
 plain data and imports neither pyAT nor, until a block is normalised, numpy:
-the caller looks the injection element up in its deck.
+the caller looks the injection element and the ``apertures`` selectors up in
+its deck.
 """
 
 from __future__ import annotations
@@ -55,11 +64,13 @@ if TYPE_CHECKING:
     from osprey.simulation.engines.pyat_turn_readout import TurnReadout
 
 __all__ = [
+    "APERTURE_SELECTORS",
     "APERTURE_SHAPES",
     "ARRAY_SIGNALS",
     "Aperture",
     "BEAM_SIGNALS",
     "BLOCK_KEY",
+    "ElementAperture",
     "INPUT_SIGNALS",
     "LAUNCH_KEYS",
     "MISMATCH_SIGNALS",
@@ -89,6 +100,12 @@ LAUNCH_KEYS: tuple[str, ...] = ("x", "px", "y", "py", "delta", "ct")
 
 #: The aperture shapes, the first one the default; each is ``write_apertures``' keyword.
 APERTURE_SHAPES: tuple[str, ...] = ("elliptical", "rectangular")
+
+#: The keys an ``apertures`` item selects its elements by; it states exactly one.
+APERTURE_SELECTORS: tuple[str, ...] = ("class", "element", "s")
+
+#: The keys that state an aperture, on the ring's and on an item alike.
+_APERTURE_KEYS: tuple[str, ...] = ("x", "y", "shape")
 
 DEFAULT_TURNS = 250
 DEFAULT_TRIGGER_SAMPLE = 10
@@ -127,6 +144,7 @@ KEYS: frozenset[str] = frozenset(
         "mismatch",
         "jitter",
         "aperture",
+        "apertures",
         "tone_period",
         *_SIZE_KEYS,
         *_READOUT_DEFAULTS,
@@ -179,16 +197,20 @@ INPUT_SIGNALS: tuple[str, ...] = ("shot", "charge", "stored_current")
 REQUIRED_INPUTS: tuple[str, ...] = ("charge", "shot")
 
 
+#: One plane of an aperture, metres: a half-axis, or a rectangle's ``(low, high)`` limits.
+Extent = float | tuple[float, float]
+
+
 @dataclass(frozen=True)
 class Aperture:
-    """The aperture written on every element with a length: its shape and half-axes, metres."""
+    """An aperture: its shape and, per plane, its half-axis or a rectangle's limits, metres."""
 
     shape: str
-    x: float
-    y: float
+    x: Extent
+    y: Extent
 
     @property
-    def keywords(self) -> dict[str, tuple[float, float]]:
+    def keywords(self) -> dict[str, tuple[Extent, Extent]]:
         """The aperture as :func:`~osprey.simulation.engines.pyat_turns.write_apertures`'s keyword."""
         return {self.shape: (self.x, self.y)}
 
@@ -209,6 +231,14 @@ class InjectedTwiss:
 
 
 @dataclass(frozen=True)
+class ElementAperture:
+    """One ``apertures`` item: an aperture and the deck indexes of the elements it selects."""
+
+    aperture: Aperture
+    indexes: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class TurnSettings:
     """A turn-by-turn ring's settings block, checked and defaulted.
 
@@ -225,7 +255,8 @@ class TurnSettings:
         sigma_z: Bunch length, metres.
         jitter: The centroid jitter's sigma per launch coordinate, in the
             launch's order and units.
-        aperture: The aperture, or ``None`` for none.
+        aperture: The ring's aperture, or ``None`` for none.
+        apertures: The apertures of single elements, in the order stated.
         readout: The monitor readout.
         twiss: The optics the bunch arrives with.
         mismatch: The factor on the arriving beta function in ``x`` and
@@ -244,6 +275,7 @@ class TurnSettings:
     sigma_z: float
     jitter: tuple[float, float, float, float, float, float]
     aperture: Aperture | None
+    apertures: tuple[ElementAperture, ...]
     readout: TurnReadout
     twiss: InjectedTwiss = InjectedTwiss()
     mismatch: tuple[float, float] = (1.0, 1.0)
@@ -275,6 +307,7 @@ def normalise(
     deck: str,
     model_id: str,
     index_of: Callable[[str], int],
+    select: Callable[[str, Any], tuple[int, ...]],
 ) -> TurnSettings | None:
     """Check and default a model's turn-by-turn block.
 
@@ -284,6 +317,9 @@ def normalise(
         model_id: The model the stops name.
         index_of: Returns the injection element's deck index, raising when
             the deck does not hold it exactly once.
+        select: Returns the deck indexes an ``apertures`` item selects, given
+            its selector key and value, raising ``ValueError`` with the reason
+            when the deck cannot answer it.
 
     Returns:
         The block, or ``None`` on a ring that is not a turn-by-turn ring.
@@ -291,8 +327,9 @@ def normalise(
     Raises:
         FacilityBuildError: ``engine-invalid`` naming the model for a block
             that is not a map, carries an unknown key, lacks or misstates
-            ``injection_element``, or states a value of the wrong type or
-            range; whatever ``index_of`` raises.
+            ``injection_element``, states a value of the wrong type or range,
+            or states an ``apertures`` item that selects no element; whatever
+            ``index_of`` raises.
     """
     from osprey.simulation.engines.pyat_turn_readout import TurnReadout
 
@@ -378,28 +415,106 @@ def normalise(
                 f"{where}.twiss.beta is {stated!r}", "give each beta function as metres above 0"
             )
         twiss[key] = numbers
-    aperture = None
-    if "aperture" in block:
-        stated = sub_map("aperture", ("x", "y", "shape"))
+
+    def extent(stated: Mapping[str, Any], axis: str, shape: str, name: str) -> Extent:
+        value = stated[axis]
+        if isinstance(value, list | tuple):
+            if shape != "rectangular":
+                raise stop(
+                    f"{where}.{name}.{axis} states limits on an ellipse",
+                    f"give {name}.{axis} as a half-axis, or set shape to rectangular",
+                )
+            limits = [
+                float(limit)
+                for limit in value
+                if not isinstance(limit, bool)
+                and isinstance(limit, int | float)
+                and math.isfinite(limit)
+            ]
+            if len(value) != 2 or len(limits) != 2 or not limits[0] < limits[1]:
+                raise stop(
+                    f"{where}.{name}.{axis} is {value!r}",
+                    f"give {name}.{axis} as a [low, high] pair of limits in metres, low < high",
+                )
+            return (limits[0], limits[1])
+        half_axis = float(number(stated, axis, 0.0, f"{name}.{axis}"))
+        if half_axis == 0:
+            raise stop(
+                f"{where}.{name}.{axis} is {value!r}",
+                f"give {name}.{axis} as a positive half-axis in metres",
+            )
+        return half_axis
+
+    def stated_aperture(stated: Mapping[str, Any], name: str) -> Aperture:
         for axis in ("x", "y"):
             if axis not in stated:
-                raise stop(f"{where}.aperture lacks {axis}", "state both half-axes x and y")
-        half_axes = []
-        for axis in ("x", "y"):
-            value = number(stated, axis, 0.0, f"aperture.{axis}")
-            if value == 0:
-                raise stop(
-                    f"{where}.aperture.{axis} is {stated[axis]!r}",
-                    f"give aperture.{axis} as a positive half-axis in metres",
-                )
-            half_axes.append(value)
+                raise stop(f"{where}.{name} lacks {axis}", "state both x and y")
         shape = stated.get("shape", APERTURE_SHAPES[0])
         if shape not in APERTURE_SHAPES:
             raise stop(
-                f"{where}.aperture.shape is {shape!r}",
-                f"set aperture.shape to {' or '.join(APERTURE_SHAPES)}",
+                f"{where}.{name}.shape is {shape!r}",
+                f"set {name}.shape to {' or '.join(APERTURE_SHAPES)}",
             )
-        aperture = Aperture(shape, half_axes[0], half_axes[1])
+        return Aperture(shape, extent(stated, "x", shape, name), extent(stated, "y", shape, name))
+
+    def element_aperture(item: Any, name: str) -> ElementAperture:
+        if not isinstance(item, Mapping):
+            raise stop(
+                f"{where}.{name} is not a map",
+                f"state each item as a map of one of {', '.join(APERTURE_SELECTORS)} "
+                f"with {', '.join(_APERTURE_KEYS)}",
+            )
+        _known(item, frozenset((*APERTURE_SELECTORS, *_APERTURE_KEYS)), f"{where}.{name}", stop)
+        named = [key for key in APERTURE_SELECTORS if key in item]
+        if len(named) != 1:
+            stated = " and ".join(named) if named else f"none of {', '.join(APERTURE_SELECTORS)}"
+            raise stop(
+                f"{where}.{name} names {stated}",
+                f"select the item's elements by exactly one of {', '.join(APERTURE_SELECTORS)}",
+            )
+        selector = named[0]
+        value = item[selector]
+        if selector == "s":
+            ends = (
+                [
+                    end
+                    for end in value
+                    if not isinstance(end, bool)
+                    and isinstance(end, int | float)
+                    and math.isfinite(end)
+                ]
+                if isinstance(value, list | tuple)
+                else []
+            )
+            if len(ends) != 2 or len(value) != 2 or not 0 <= ends[0] < ends[1]:
+                raise stop(
+                    f"{where}.{name}.s is {value!r}",
+                    f"give {name}.s as a [from, to] pair of metres along the deck, 0 <= from < to",
+                )
+            value = (float(ends[0]), float(ends[1]))
+        elif not isinstance(value, str) or not value:
+            raise stop(
+                f"{where}.{name}.{selector} is {value!r}", f"give {name}.{selector} as a name"
+            )
+        aperture = stated_aperture(item, name)
+        try:
+            indexes = select(selector, value)
+        except ValueError as error:
+            raise stop(
+                f"{where}.{name}: {error}",
+                "select elements the deck holds, or drop the item",
+            ) from error
+        return ElementAperture(aperture, indexes)
+
+    aperture = None
+    if "aperture" in block:
+        aperture = stated_aperture(sub_map("aperture", _APERTURE_KEYS), "aperture")
+    items = block.get("apertures", [])
+    if not isinstance(items, list | tuple):
+        raise stop(f"{where}.apertures is not a list", "state apertures as a list of items")
+    apertures = tuple(
+        element_aperture(item, f"apertures[{position}]") for position, item in enumerate(items)
+    )
     sizes = {key: number(block, key, 0.0, key) for key in _SIZE_KEYS}
     readout = {key: number(block, key, default, key) for key, default in _READOUT_DEFAULTS.items()}
     return TurnSettings(
@@ -413,6 +528,7 @@ def normalise(
         twiss=InjectedTwiss(**twiss),
         mismatch=mismatch,
         aperture=aperture,
+        apertures=apertures,
         readout=TurnReadout(tone_period=tone_period, **readout),
         **sizes,
     )

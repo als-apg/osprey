@@ -215,6 +215,77 @@ class TestPrepareBlock:
         assert caught.value.record_kind == "model"
         assert detail in caught.value.detail
 
+    def test_an_aperture_may_state_a_rectangles_limits(self, deck: Path) -> None:
+        stated = {"shape": "rectangular", "x": [-0.03, 0.006], "y": 0.01}
+        block = engine.prepare(deck, _settings(aperture=stated)).turn_by_turn
+        assert block.aperture == turn.Aperture("rectangular", (-0.03, 0.006), 0.01)
+        assert block.aperture.keywords == {"rectangular": ((-0.03, 0.006), 0.01)}
+
+    def test_no_apertures_list_is_no_element_aperture(self, deck: Path) -> None:
+        assert engine.prepare(deck, _settings()).turn_by_turn.apertures == ()
+
+    def test_each_apertures_item_selects_its_elements_in_the_deck(self, deck: Path) -> None:
+        # Deck: INJ, D [0, 1], Q [1, 1.2], BPM1, D [1.2, 2.2], BPM2.
+        items = [
+            {"class": "Drift", "x": 0.02, "y": 0.01},
+            {"element": "BPM1", "shape": "rectangular", "x": [-0.03, 0.006], "y": 0.02},
+            {"s": [1.0, 1.5], "x": 0.004, "y": 0.003},
+        ]
+        block = engine.prepare(deck, _settings(apertures=items)).turn_by_turn
+        assert block.apertures == (
+            turn.ElementAperture(turn.Aperture("elliptical", 0.02, 0.01), (1, 4)),
+            turn.ElementAperture(turn.Aperture("rectangular", (-0.03, 0.006), 0.02), (3,)),
+            turn.ElementAperture(turn.Aperture("elliptical", 0.004, 0.003), (2,)),
+        )
+
+    def test_a_class_selects_its_subclasses_with_a_length(self, deck: Path) -> None:
+        items = [{"class": "Element", "x": 0.02, "y": 0.01}]
+        block = engine.prepare(deck, _settings(apertures=items)).turn_by_turn
+        assert block.apertures[0].indexes == (1, 2, 4)
+
+    @pytest.mark.parametrize(
+        ("items", "detail"),
+        [
+            ({"class": "Drift"}, ".apertures is not a list"),
+            (["Drift"], ".apertures[0] is not a map"),
+            ([{"x": 1e-3, "y": 1e-3}], ".apertures[0] names none of class, element, s"),
+            (
+                [{"class": "Drift", "element": "D", "x": 1e-3, "y": 1e-3}],
+                ".apertures[0] names class and element",
+            ),
+            ([{"class": "Drift", "x": 1e-3, "y": 1e-3, "r": 1}], "carries unknown keys r"),
+            ([{"class": "Drift", "x": 1e-3}], ".apertures[0] lacks y"),
+            ([{"class": "Drift", "x": 0, "y": 1e-3}], ".apertures[0].x is 0"),
+            ([{"class": "Drift", "x": [-1e-3, 2e-3], "y": 1e-3}], "limits on an ellipse"),
+            (
+                [{"class": "Drift", "shape": "rectangular", "x": [2e-3, 1e-3], "y": 1e-3}],
+                ".apertures[0].x is [0.002, 0.001]",
+            ),
+            (
+                [{"class": "Drift", "shape": "rectangular", "x": [1e-3], "y": 1e-3}],
+                ".apertures[0].x is [0.001]",
+            ),
+            ([{"class": "Drift", "shape": "round", "x": 1, "y": 1}], ".shape is 'round'"),
+            ([{"class": 3, "x": 1e-3, "y": 1e-3}], ".apertures[0].class is 3"),
+            ([{"class": "Wedge", "x": 1e-3, "y": 1e-3}], "class Wedge is no element class"),
+            ([{"class": "Sextupole", "x": 1e-3, "y": 1e-3}], "selects no element"),
+            ([{"class": "Marker", "x": 1e-3, "y": 1e-3}], "selects no element"),
+            ([{"element": "NOPE", "x": 1e-3, "y": 1e-3}], "selects no element"),
+            ([{"s": [1.0], "x": 1e-3, "y": 1e-3}], ".apertures[0].s is [1.0]"),
+            ([{"s": [1.5, 1.0], "x": 1e-3, "y": 1e-3}], ".apertures[0].s is [1.5, 1.0]"),
+            ([{"s": [-1.0, 1.0], "x": 1e-3, "y": 1e-3}], ".apertures[0].s is [-1.0, 1.0]"),
+            ([{"s": [0.0, 9.0], "x": 1e-3, "y": 1e-3}], "ends beyond the deck"),
+            ([{"s": [0.6, 0.9], "x": 1e-3, "y": 1e-3}], "selects no element"),
+        ],
+        ids=lambda value: str(value)[:48],
+    )
+    def test_apertures_refusals(self, deck: Path, items: Any, detail: str) -> None:
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.prepare(deck, _settings(apertures=items), model="SR")
+        assert caught.value.kind == "engine-invalid"
+        assert caught.value.record_id == "SR"
+        assert detail in caught.value.detail
+
     @pytest.mark.parametrize(("element", "count"), [("NOPE", 0), ("D", 2)])
     def test_injection_element_held_once(self, deck: Path, element: str, count: int) -> None:
         with pytest.raises(engine.ElementStop) as caught:

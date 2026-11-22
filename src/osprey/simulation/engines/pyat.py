@@ -687,7 +687,41 @@ def _turn_block(
             )
         return found[0]
 
-    return turn_settings.normalise(settings, str(deck), model_id, index_of)
+    def select(selector: str, value: Any) -> tuple[int, ...]:
+        import at
+
+        lattice = loaded.lattice
+        lengths = [float(getattr(element, "Length", 0.0)) for element in lattice]
+        if selector == "element":
+            found: tuple[int, ...] = loaded.indices.get(value, ())
+            what = f"element {value}"
+        elif selector == "class":
+            kind = getattr(at, value, None)
+            if not (isinstance(kind, type) and issubclass(kind, at.Element)):
+                raise ValueError(f"class {value} is no element class of pyAT")
+            found = tuple(
+                index
+                for index, element in enumerate(lattice)
+                if isinstance(element, kind) and lengths[index] > 0.0
+            )
+            what = f"class {value}"
+        else:
+            start, end = value
+            if end > loaded.length_m:
+                raise ValueError(
+                    f"s range [{start:g}, {end:g}] ends beyond the deck's {loaded.length_m:g} m"
+                )
+            found = tuple(
+                index
+                for index, length in enumerate(lengths)
+                if length > 0.0 and start <= loaded.s_pos[index] + length / 2.0 <= end
+            )
+            what = f"s range [{start:g}, {end:g}]"
+        if not found:
+            raise ValueError(f"{what} selects no element of the deck")
+        return found
+
+    return turn_settings.normalise(settings, str(deck), model_id, index_of, select)
 
 
 def _check_error_elements(loaded: _Loaded, deck: Deck, settings: Any, model_id: str) -> None:
@@ -1931,10 +1965,9 @@ def response_matrix(
     ]
 
     if trajectory and turns is not None:
-        if turns.aperture is not None:
-            from osprey.simulation.engines.pyat_turns import write_apertures
+        from osprey.simulation.engines.pyat_turns import write_declared_apertures
 
-            write_apertures(lattice, **turns.aperture.keywords)
+        write_declared_apertures(lattice, turns.aperture, turns.apertures)
         simulator = PyATSimulator(lattice)
         turn_places = [(place + origin) % len(lattice) for place, _, _ in turn_rows]
         turn_axes = [axis for _, axis, _ in turn_rows]
