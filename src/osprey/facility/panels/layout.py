@@ -4700,8 +4700,8 @@ class _Page:
             mark = marks[text]
             indent = text_width(mark, SMALL_SIZE) + GAP / 2
             self.small(MARGIN, self.y, mark)
-            titles = ", ".join(r.title for r in table.rows if r.conditions == text)
-            for line in _prose(f"{titles}: {text}", STRIP_WIDTH - indent, SMALL_SIZE):
+            # the mark points at the rows: their titles are not said again
+            for line in _prose(text, STRIP_WIDTH - indent, SMALL_SIZE):
                 self.small(MARGIN + indent, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
             self.y += ROW_GAP

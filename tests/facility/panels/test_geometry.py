@@ -352,10 +352,10 @@ def test_conditions_several_calibration_rows_share_are_stated_once_under_them(pa
     texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
     words = " ".join(n["props"]["text"] for n in texts)
     assert words.count("support frame") == 1  # once, not per row
-    assert "Roll, Yaw: in the support frame" in words
+    assert "Roll, Yaw" not in words  # the marks point at the rows: titles not said again
     assert "at 20 C" in words  # a row's own conditions stay with it
     gain = next(n for n in texts if n["props"]["text"] == "Gain")
-    shared = next(n for n in texts if n["props"]["text"].startswith("Roll, Yaw:"))
+    shared = next(n for n in texts if n["props"]["text"].startswith("in the support frame"))
     assert shared["geometry"]["y"] > gain["geometry"]["y"]  # under the rows
     assert not any(n["props"]["text"].endswith("…") for n in texts if "frame" in n["props"]["text"])
 
@@ -395,8 +395,8 @@ def test_shared_conditions_stand_apart_under_a_rule_tied_to_their_rows_by_a_mark
                 m["geometry"]["y"] == g["y"] and m["geometry"]["x"] > g["x"] for m in marks[mark]
             )
         assert all(m["props"]["fontSize"] >= layout.SMALL_SIZE for m in marks[mark])
-    first = next(n for n in texts if n["props"]["text"].startswith("Roll, Yaw:"))
-    second = next(n for n in texts if n["props"]["text"].startswith("Gain, Offset:"))
+    first = at(frame)  # the text alone: its mark points at its rows
+    second = at(warm)
     assert first["geometry"]["y"] < second["geometry"]["y"]  # in the order the rows state
     line_mark = max(marks["1"], key=lambda m: m["geometry"]["y"])
     assert line_mark["geometry"]["y"] == first["geometry"]["y"]

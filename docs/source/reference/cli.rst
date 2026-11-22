@@ -1777,7 +1777,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    as it needs, conditions that several calibration rows state alike are stated
    once under the rows, set off by half a row of space and a thin rule and
    tied to their rows by a reference mark (1, 2, ...) after each row's title
-   and at the start of the line, a name with no separator breaks where a small letter
+   and at the start of the line, which says the text alone, a name with no separator breaks where a small letter
    meets a capital, and a text still longer than its box is cut there with an
    ellipsis and listed. The engine writes the whole text as a tooltip on a box
    over the cut label (a link over it carries the link's label); a viewer that
