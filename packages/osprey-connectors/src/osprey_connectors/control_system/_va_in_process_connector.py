@@ -342,6 +342,18 @@ def _tell_connection(
         logger.warning(f"In-process connection callback for {address} raised: {exc}")
 
 
+async def _deliver(
+    address: str, callback: Callable[[ChannelValue], object], reading: ChannelValue
+) -> None:
+    """Hand a subscription's callback one reading, awaiting it; a raise is logged."""
+    try:
+        result = callback(reading)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:
+        logger.warning(f"In-process subscription callback for {address} raised: {exc}")
+
+
 class VAInProcessConnector(ControlSystemConnector):
     """Serve the built facility's simulator view in process.
 
@@ -1001,15 +1013,16 @@ class VAInProcessConnector(ControlSystemConnector):
         *,
         on_connection: Callable[[bool], None] | None = None,
     ) -> str:
-        """Subscribe to a channel; the callback fires after a tick or a write.
+        """Subscribe to a channel; the callback fires now, then after a tick or a write.
 
         A channel of the facility is served by this process, so it drops only
         while a scenario's ``stopped_servers`` stops its simulated server, as a
         channel of a stopped server does on the wire: ``on_connection`` is told
         the channel's state before this returns -- ``False`` when its server is
         stopped, and the subscription then waits -- and told again on every
-        stop and restart. The first callback after a restart carries the
-        channel's current value.
+        stop and restart. The callback is given the channel's current value
+        before this returns when the channel is up, and as its first callback
+        after a restart.
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
@@ -1025,6 +1038,8 @@ class VAInProcessConnector(ControlSystemConnector):
             self._last_held[channel_address] = self._held_value(channel_address)
         logger.debug(f"In-process subscription created: {sub_id}")
         _tell_connection(channel_address, on_connection, connected)
+        if connected:
+            await _deliver(channel_address, callback, self._reading(channel_address, held=False))
         return sub_id
 
     @override
@@ -1068,14 +1083,8 @@ class VAInProcessConnector(ControlSystemConnector):
         self._last_held.update(now)
         for subscription in list(self._subscriptions.values()):
             address, callback = subscription.address, subscription.callback
-            if address not in due:
-                continue
-            try:
-                result = callback(self._reading(address, held=False))
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:
-                logger.warning(f"In-process subscription callback for {address} raised: {exc}")
+            if address in due:
+                await _deliver(address, callback, self._reading(address, held=False))
 
     async def _tick(self) -> None:
         """Every ``tick_s``: fire the subscriptions that are due."""
