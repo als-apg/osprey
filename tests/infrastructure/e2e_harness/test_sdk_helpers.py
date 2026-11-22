@@ -23,6 +23,7 @@ from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import baseline_target
+from tests._scoped_stdlib import scoped
 from tests.e2e import _queue_drive, sdk_helpers
 from tests.e2e.sdk_helpers import (
     HOOK_ATTACHMENT_PREFIX,
@@ -379,7 +380,7 @@ def test_run_claude_holds_the_first_turn_for_every_mcp_server(tmp_path, monkeypa
         seen.update(kwargs["env"])
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(integration.subprocess, "run", fake_run)
+    scoped(monkeypatch, integration, "subprocess", run=fake_run)
     integration.run_claude(tmp_path, "hello")
 
     ready_ms = str(int(MCP_READY_TIMEOUT_S * 1000))

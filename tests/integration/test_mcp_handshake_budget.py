@@ -35,6 +35,7 @@ import pytest
 from osprey.deployment import subprocess_capture
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly
+from tests._scoped_stdlib import scoped
 from tests.integration import _mcp_handshake
 from tests.integration._mcp_handshake import MCPHandshakeError, list_mcp_tools
 
@@ -150,7 +151,7 @@ def _on_spawn(monkeypatch: pytest.MonkeyPatch, hook: Callable[[subprocess.Popen]
         hook(process)
         return process
 
-    monkeypatch.setattr(subprocess, "Popen", popen)
+    scoped(monkeypatch, "tests.integration._mcp_handshake", "subprocess", Popen=popen)
 
 
 def _handshake_failure(command: str, args: list[str]) -> str:

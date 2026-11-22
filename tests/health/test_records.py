@@ -28,6 +28,7 @@ from osprey.health.records import (
     load_config,
     skip_record,
 )
+from tests._scoped_stdlib import scoped
 
 _VALID_CONFIG = """\
 project_name: test_project
@@ -421,9 +422,13 @@ class TestBuildRecords:
         from types import SimpleNamespace
 
         gb = 1024**3
-        monkeypatch.setattr(
-            "osprey.health.core.file_system.shutil.disk_usage",
-            lambda _path: SimpleNamespace(total=10_000 * gb, used=9_100 * gb, free=900 * gb),
+        scoped(
+            monkeypatch,
+            "osprey.health.core.file_system",
+            "shutil",
+            disk_usage=lambda _path: SimpleNamespace(
+                total=10_000 * gb, used=9_100 * gb, free=900 * gb
+            ),
         )
         repo = tmp_path / "repo"
         config_path = _write_config(
@@ -459,7 +464,7 @@ class TestBuildRecords:
         # The category is run for real below; without `systemctl` it skips at
         # the install-directory step, so a developer host that happens to have
         # the unit installed never spawns a real `systemctl --user show`.
-        monkeypatch.setattr("osprey.health.core.systemd_unit.shutil.which", lambda _name: None)
+        scoped(monkeypatch, "osprey.health.core.systemd_unit", "shutil", which=lambda _name: None)
 
         repo = tmp_path / "repo"
         build = repo / "build"

@@ -20,6 +20,7 @@ import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests._scoped_stdlib import scoped
 from tests.mcp_server._execute_code import mock_execute_code
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -1105,7 +1106,7 @@ def _fake_enumeration(names, monkeypatch, module):
         calls.append((cmd, kwargs))
         return _subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(names), stderr="")
 
-    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    scoped(monkeypatch, module, "subprocess", run=fake_run)
     return calls
 
 
@@ -1209,7 +1210,7 @@ def test_describe_available_packages_falls_back_on_failure(
     def fail(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
         raise failure
 
-    monkeypatch.setattr(module.subprocess, "run", fail)
+    scoped(monkeypatch, module, "subprocess", run=fail)
 
     description = module.describe_available_packages()
 
@@ -1225,7 +1226,7 @@ def test_describe_available_packages_falls_back_on_garbage_output(clean_package_
     def garbage(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 0, stdout="not json at all", stderr="")
 
-    monkeypatch.setattr(module.subprocess, "run", garbage)
+    scoped(monkeypatch, module, "subprocess", run=garbage)
 
     assert module.describe_available_packages() == module.FALLBACK_DESCRIPTION
 

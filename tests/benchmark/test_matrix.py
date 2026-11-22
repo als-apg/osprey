@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import pytest
+from tests._scoped_stdlib import scoped
 from tests.conftest import GATEWAY_ORIGIN
 
 # import-time required because scripts/ is not a package: matrix.py is loaded
@@ -523,7 +524,7 @@ def test_run_cell_tells_the_worker_where_the_results_go(tmp_path, monkeypatch):
         seen.update(env)
         return 0
 
-    monkeypatch.setattr(matrix.subprocess, "call", fake_call)
+    scoped(monkeypatch, matrix, "subprocess", call=fake_call)
     cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
     results = tmp_path / "smoke"
     results.mkdir()

@@ -27,6 +27,7 @@ from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.agent_runner.tool_policy import make_pretooluse_hook
 from osprey.mcp_server.dispatch_worker import dispatch_api
 from tests._live import wait_until
+from tests._scoped_stdlib import scoped
 from tests.agent_record.fakes import FakeRecordClient
 
 _TOKEN = "test-secret-token"
@@ -1380,7 +1381,12 @@ def pinned_render(monkeypatch, tmp_path, real_agent_cli):  # noqa: ARG001 - opts
     render.mkdir()
     (render / "config.yml").write_text("claude_code:\n  cli_version: '2.1.146'\n")
     monkeypatch.setenv("CONFIG_FILE", str(render / "config.yml"))
-    monkeypatch.setattr("shutil.which", lambda *_a, **_k: "/usr/local/bin/claude")
+    scoped(
+        monkeypatch,
+        "osprey.utils.shell_resolver",
+        "shutil",
+        which=lambda *_a, **_k: "/usr/local/bin/claude",
+    )
     monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: "2.1.146")
     monkeypatch.setattr(dispatch_api, "_inject_provider_env_once", lambda: None)
     return render
@@ -1466,7 +1472,7 @@ async def test_a_worker_whose_pinned_build_is_not_installed_refuses_to_start(
 async def test_a_worker_with_no_claude_at_all_refuses_to_start(monkeypatch):
     from osprey.agent_runner.errors import AgentCliUnavailableError
 
-    monkeypatch.setattr("shutil.which", lambda *_a, **_k: None)
+    scoped(monkeypatch, "osprey.utils.shell_resolver", "shutil", which=lambda *_a, **_k: None)
 
     with pytest.raises(AgentCliUnavailableError, match="no `claude` was found on PATH"):
         async with dispatch_api._lifespan(dispatch_api.app):

@@ -27,6 +27,8 @@ from docs.screenshots.video_encode import (
 )
 from docs.screenshots.video_timeline import Step, Timeline
 
+from tests._scoped_stdlib import scoped
+
 
 def test_the_target_length_lies_inside_the_review_window() -> None:
     from docs.screenshots.videos import video_named
@@ -199,12 +201,12 @@ def test_ffconcat_rejects_empty_input() -> None:
 
 @pytest.fixture
 def fake_which(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(video_encode.shutil, "which", lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, video_encode, "shutil", which=lambda name: f"/usr/bin/{name}")
 
 
 @pytest.fixture
 def no_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(video_encode.shutil, "which", lambda name: None)
+    scoped(monkeypatch, video_encode, "shutil", which=lambda name: None)
 
 
 def _value(cmd: list[str], flag: str) -> str:
@@ -362,7 +364,7 @@ def test_probe_parses_ffprobe_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         calls.append((cmd, kwargs))
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_PROBE_JSON), stderr="")
 
-    monkeypatch.setattr(video_encode.subprocess, "run", fake_run)
+    scoped(monkeypatch, video_encode, "subprocess", run=fake_run)
     out = tmp_path / "out.mp4"
     info = probe(out)
     assert info == {
@@ -392,7 +394,7 @@ def test_probe_fractional_frame_rate_and_missing_range(
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(data), stderr="")
 
-    monkeypatch.setattr(video_encode.subprocess, "run", fake_run)
+    scoped(monkeypatch, video_encode, "subprocess", run=fake_run)
     info = probe(tmp_path / "out.mp4")
     assert info["fps"] == pytest.approx(29.97, abs=1e-2)
     assert info["color_range"] is None
@@ -403,7 +405,7 @@ def test_probe_failure_raises_with_stderr(monkeypatch: pytest.MonkeyPatch, tmp_p
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="junk\nout.mp4: No such file")
 
-    monkeypatch.setattr(video_encode.subprocess, "run", fake_run)
+    scoped(monkeypatch, video_encode, "subprocess", run=fake_run)
     with pytest.raises(RuntimeError, match="No such file"):
         probe(tmp_path / "out.mp4")
 
@@ -413,7 +415,7 @@ def test_probe_missing_ffprobe_skips(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     def fail_run(*args: object, **kwargs: object) -> None:
         raise AssertionError("subprocess.run must not be called without ffprobe")
 
-    monkeypatch.setattr(video_encode.subprocess, "run", fail_run)
+    scoped(monkeypatch, video_encode, "subprocess", run=fail_run)
     with pytest.raises(capture.ScreenshotSkip, match="ffprobe"):
         probe(tmp_path / "out.mp4")
 
