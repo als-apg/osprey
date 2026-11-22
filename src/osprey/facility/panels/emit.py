@@ -170,6 +170,8 @@ class Problem:
             row of a device card names a signal no channel states), ``unbound_picture`` (a note: a
             pictures row's signal resolves to no channel on a device),
             ``ambiguous_picture`` (a note: it matches channels of several devices),
+            ``crossed_word`` (a note: a strip badge's stem runs through another
+            thing's state word),
             ``unset_group`` (a note: a family that is no set only because some of its
             members are no device of a stated class), ``stale_class`` (a screen's
             class or differences, or the class table, in the index other than the
@@ -557,6 +559,7 @@ class _Drawn:
     view: View
     unlinked: tuple[Target, ...]
     sample: screen_classes.Sample
+    crossed: tuple[str, ...] = ()
 
 
 def _without_meta(document: Mapping[str, Any], stamp: str) -> str:
@@ -600,6 +603,7 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
         annotate=draw.annotate,
     )
     cuts: list[str] = []
+    crossed: list[str] = []
     document = layout.render(
         view,
         graph=graph,
@@ -607,6 +611,7 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
         doc_id=own[: -len(SCREEN_SUFFIX)],
         colours=draw.colours,
         cuts=cuts,
+        crossed=crossed,
     )
     unstamped = _without_meta(document, graph.content_hash[: layout.STAMP_DIGITS])
     document["metadata"]["description"] += _stamp(graph, draw)
@@ -627,7 +632,12 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
         drawing=screen_classes.drawing_digest(unstamped),
     )
     return _Drawn(
-        (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked)), sample
+        (text + "\n").encode("utf-8"),
+        view.title,
+        view,
+        tuple(dict.fromkeys(unlinked)),
+        sample,
+        tuple(crossed),
     )
 
 
@@ -1402,6 +1412,9 @@ def _check_file(
     fresh, view, unlinked = drawn.data, drawn.view, drawn.unlinked
     if samples is not None:
         samples.append(drawn.sample)
+    problems.extend(
+        Problem("crossed_word", relative, detail, note=True) for detail in drawn.crossed
+    )
     problems.extend(
         Problem(
             "outside_set",
