@@ -464,7 +464,7 @@ def test_a_conflict_mark_leaves_room_before_the_name(panel_graph) -> None:
             assert name["x"] >= mark["x"] + mark["width"] + layout.GAP - 0.01
 
 
-def test_units_too_many_side_by_side_are_one_bar_and_listed_under_the_rack(panel_graph) -> None:
+def test_units_too_many_side_by_side_are_one_bar_and_listed_beside_the_rack(panel_graph) -> None:
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     (elevation,) = view.sections[0].items
     unit = elevation.units[0]
@@ -475,11 +475,52 @@ def test_units_too_many_side_by_side_are_one_bar_and_listed_under_the_rack(panel
     view = replace(view, sections=(replace(view.sections[0], items=(elevation,)),))
     doc, _ = draw(view, panel_graph)
     texts = _texts(doc)
-    assert "8 devices side by side · listed under the rack" in texts
+    assert "8 devices side by side · listed beside the rack" in texts
     assert "SIDE BY SIDE AT ONE UNIT" in texts
     assert [t for t in texts if t.startswith("XR01:SLOT")] == [
         f"XR01:SLOT{i} · U{unit.position}" for i in range(8)
     ]
+
+
+def test_nothing_of_a_rack_screen_starts_under_the_elevation(panel_graph) -> None:
+    """Everything that belongs to a rack stands in the column beside it, from the
+    top: those not at a unit as a grid of three columns, the classes and the
+    sources under it, the devices side by side at one unit at the column's foot;
+    the column runs on past the rack's foot if it must, never under the rack."""
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    (elevation,) = view.sections[0].items
+    unit = elevation.units[0]
+    crowd = tuple(
+        replace(unit, link=Fact("chassis", f"XR01:SLOT{i}"), conflicting=False) for i in range(8)
+    )
+    loose = tuple(
+        replace(unit, position=None, link=Fact("chassis", f"XR01:LOOSE{i}"), conflicting=False)
+        for i in range(40)
+    )
+    elevation = replace(elevation, units=crowd, unpositioned=loose)
+    view = replace(view, sections=(replace(view.sections[0], items=(elevation,)),))
+    doc, _ = draw(view, panel_graph)
+    frame = max(
+        (n for n in _by_type(doc, "rectangle") if n["props"].get("lineWidth") == layout.AXIS_WIDTH),
+        key=lambda n: n["geometry"]["height"],
+    )["geometry"]
+    foot = frame["y"] + frame["height"]
+    column = layout.MARGIN + layout.RACK_COLUMN
+    under = [
+        n
+        for n in doc["root"]["children"]
+        if n["geometry"]["y"] >= foot and n["geometry"]["x"] < column - layout.GAP
+    ]
+    assert under == []  # the column beside the rack holds it all
+    heads = {
+        t: n["geometry"]["y"] for n in _by_type(doc, "text-label") for t in (n["props"]["text"],)
+    }
+    counts = heads["8 at a stated unit · 40 not at a unit"]  # with the classes and sources
+    assert heads["NOT AT A UNIT"] < counts < heads["SIDE BY SIDE AT ONE UNIT"]
+    tiles = [n["geometry"] for n in _by_type(doc, "text-label")
+             if str(n["props"]["text"]).startswith("XR01:LOOSE")]  # fmt: skip
+    assert len({g["x"] for g in tiles}) == layout.RACK_GRID  # a grid of three columns
+    assert all(g["x"] >= column for g in tiles)
 
 
 def test_a_unit_numbered_zero_stands_inside_the_rack_frame(panel_graph) -> None:
