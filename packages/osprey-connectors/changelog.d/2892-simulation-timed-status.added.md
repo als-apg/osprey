@@ -1,0 +1,1 @@
+The simulator serves a status that reads a stated value for a stated time after a write to its command (`responds`), and moves a readback when its start command is written (`started_by`). The in-process journal records each write's time (#2892, #2893).
