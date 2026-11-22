@@ -30,6 +30,7 @@ from osprey.deployment.runtime_helper import (
     get_runtime_command,
     verify_runtime_is_running,
 )
+from tests._scoped_stdlib import scoped
 
 
 @pytest.fixture(autouse=True)
@@ -90,22 +91,24 @@ def _make_run(exit_map):
 
 class TestGetRuntimeCommandDetection:
     def test_docker_selected_when_compose_and_daemon_ok(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("docker", "compose"): 0, ("docker", "ps"): 0}),
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("docker", "compose"): 0, ("docker", "ps"): 0}),
         )
 
         assert get_runtime_command() == ["docker", "compose"]
 
     def test_falls_through_to_podman_when_docker_daemon_down(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
         # Docker compose works but its daemon (ps) is down; podman is healthy.
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run(
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run(
                 {
                     ("docker", "compose"): 0,
                     ("docker", "ps"): 1,
@@ -118,22 +121,24 @@ class TestGetRuntimeCommandDetection:
         assert get_runtime_command() == ["podman", "compose"]
 
     def test_config_runtime_pins_choice(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
         )
 
         assert get_runtime_command({"container_runtime": "podman"}) == ["podman", "compose"]
 
     def test_env_var_overrides_config(self, monkeypatch):
         monkeypatch.setenv("CONTAINER_RUNTIME", "podman")
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
         )
 
         # Config says docker, env says podman → env wins.
@@ -146,8 +151,8 @@ class TestGetRuntimeCommandDetection:
             calls["n"] += 1
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         first = get_runtime_command()
         after_first = calls["n"]
@@ -158,11 +163,12 @@ class TestGetRuntimeCommandDetection:
         assert calls["n"] == after_first
 
     def test_cached_result_is_a_copy(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("docker", "compose"): 0, ("docker", "ps"): 0}),
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("docker", "compose"): 0, ("docker", "ps"): 0}),
         )
 
         cmd = get_runtime_command()
@@ -171,13 +177,13 @@ class TestGetRuntimeCommandDetection:
         assert get_runtime_command() == ["docker", "compose"]
 
     def test_no_runtime_installed_raises_with_install_hint(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: None)
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: None)
 
         with pytest.raises(RuntimeError, match="No container runtime found"):
             get_runtime_command()
 
     def test_no_runtime_message_names_every_floor(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: None)
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: None)
 
         with pytest.raises(RuntimeError) as excinfo:
             get_runtime_command()
@@ -193,23 +199,24 @@ class TestGetRuntimeCommandDetection:
 
     def test_installed_but_not_running_raises_with_start_hint(self, monkeypatch):
         # docker is on PATH but its compose probe fails → treated as not running.
-        monkeypatch.setattr(
-            runtime_helper.shutil,
-            "which",
-            lambda name: "/usr/bin/docker" if name == "docker" else None,
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "shutil",
+            which=lambda name: "/usr/bin/docker" if name == "docker" else None,
         )
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _make_run({("docker", "compose"): 1}))
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_make_run({("docker", "compose"): 1}))
 
         with pytest.raises(RuntimeError, match="installed but not running"):
             get_runtime_command()
 
     def test_runtimes_that_never_answer_are_refused_as_not_answering(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
 
         def _run(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         # Both runtimes are on PATH and neither answers: the refusal says so,
         # and says nothing about whether either one runs.
@@ -233,7 +240,7 @@ class TestSlowRuntimeIsWaitedFor:
         self, monkeypatch, caplog, notice_seen
     ):
         monkeypatch.setattr(runtime_helper, "_RUNTIME_ANSWER_NOTICE_S", 0)
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
         timeouts: list[object] = []
 
         def _run(cmd, **kwargs):
@@ -247,7 +254,7 @@ class TestSlowRuntimeIsWaitedFor:
                 _await_notice(notice_seen)
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
             assert get_runtime_command() == ["docker", "compose"]
@@ -257,11 +264,12 @@ class TestSlowRuntimeIsWaitedFor:
         assert all(t == runtime_helper._RUNTIME_ANSWER_CEILING_S for t in timeouts)
 
     def test_a_prompt_answer_announces_nothing(self, monkeypatch, caplog):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("docker", "compose"): 0, ("docker", "ps"): 0}),
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("docker", "compose"): 0, ("docker", "ps"): 0}),
         )
 
         with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
@@ -271,14 +279,14 @@ class TestSlowRuntimeIsWaitedFor:
 
     def test_a_pinned_runtime_that_never_answers_is_refused_as_not_answering(self, monkeypatch):
         monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
 
         def _run(cmd, **kwargs):
             if (cmd[0], cmd[1]) == ("docker", "ps"):
                 raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         with pytest.raises(RuntimeError) as excinfo:
             get_runtime_command()
@@ -294,15 +302,17 @@ class TestSlowRuntimeIsWaitedFor:
             assert absent not in message
 
     def test_a_runtime_that_answers_no_is_refused_as_not_running_with_its_reason(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper.shutil,
-            "which",
-            lambda name: "/usr/bin/docker" if name == "docker" else None,
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "shutil",
+            which=lambda name: "/usr/bin/docker" if name == "docker" else None,
         )
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("docker", "compose"): 0, ("docker", "ps"): 1}),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("docker", "compose"): 0, ("docker", "ps"): 1}),
         )
 
         with pytest.raises(RuntimeError) as excinfo:
@@ -314,7 +324,7 @@ class TestSlowRuntimeIsWaitedFor:
         assert runtime_helper._get_docker_not_running_message().splitlines()[0] in message
 
     def test_one_silent_and_one_stopped_runtime_are_each_named_for_what_they_did(self, monkeypatch):
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
 
         def _run(cmd, **kwargs):
             key = (cmd[0], cmd[1])
@@ -323,7 +333,7 @@ class TestSlowRuntimeIsWaitedFor:
             rc = 1 if key == ("podman", "ps") else 0
             return subprocess.CompletedProcess(cmd, rc, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         with pytest.raises(RuntimeError) as excinfo:
             get_runtime_command()
@@ -373,10 +383,11 @@ def _fake_version_probe(stdout="", stderr="", returncode=0, calls=None):
 
 class TestDetectComposeProvider:
     def test_podman_compose_banner_detected_with_version(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(
                 stdout="podman-compose version 1.0.6\npodman version 4.9.4-rhel\n",
                 stderr=_PODMAN_DISPATCH_NOTICE,
             ),
@@ -389,10 +400,11 @@ class TestDetectComposeProvider:
         assert info.version_text == "1.0.6"
 
     def test_docker_compose_v2_banner_detected(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="Docker Compose version v2.24.5\n"),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="Docker Compose version v2.24.5\n"),
         )
 
         info = detect_compose_provider(["docker", "compose"])
@@ -403,10 +415,11 @@ class TestDetectComposeProvider:
     def test_podman_delegating_to_docker_reports_docker_v2(self, monkeypatch):
         # The binary is podman, but Docker Compose v2 is what parses the argv —
         # the shape must follow the provider, not cmd[0].
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(
                 stdout="Docker Compose version v2.29.1\n", stderr=_DOCKER_DISPATCH_NOTICE
             ),
         )
@@ -417,10 +430,11 @@ class TestDetectComposeProvider:
         assert info.version_text == "2.29.1"
 
     def test_podman_compose_below_floor_fails_closed(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="podman-compose version 1.0.3\n"),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="podman-compose version 1.0.3\n"),
         )
 
         with pytest.raises(UnsupportedComposeProviderError) as excinfo:
@@ -435,10 +449,11 @@ class TestDetectComposeProvider:
 
     def test_podman_compose_at_floor_is_accepted(self, monkeypatch):
         floor = ".".join(str(part) for part in RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE])
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout=f"podman-compose version {floor}\n"),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout=f"podman-compose version {floor}\n"),
         )
 
         info = detect_compose_provider(["podman", "compose"])
@@ -447,10 +462,11 @@ class TestDetectComposeProvider:
         assert info.version == RUNTIME_FLOORS[RuntimeProduct.PODMAN_COMPOSE]
 
     def test_unrecognized_banner_fails_closed_citing_supported_providers(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="some-other-compose 0.4.2\n"),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="some-other-compose 0.4.2\n"),
         )
 
         with pytest.raises(UnsupportedComposeProviderError) as excinfo:
@@ -464,10 +480,11 @@ class TestDetectComposeProvider:
         assert "some-other-compose 0.4.2" in message
 
     def test_compose_v1_banner_is_not_read_as_v2(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="docker-compose version 1.29.2, build 5becea4c\n"),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="docker-compose version 1.29.2, build 5becea4c\n"),
         )
 
         with pytest.raises(UnsupportedComposeProviderError):
@@ -476,10 +493,11 @@ class TestDetectComposeProvider:
     def test_podman_compose_without_parseable_version_fails_closed(self, monkeypatch):
         # The dispatcher named podman-compose but no banner followed, so the
         # floor cannot be checked.
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stderr=_PODMAN_DISPATCH_NOTICE),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stderr=_PODMAN_DISPATCH_NOTICE),
         )
 
         with pytest.raises(UnsupportedComposeProviderError, match="no parseable version"):
@@ -487,10 +505,11 @@ class TestDetectComposeProvider:
 
     def test_probe_runs_version_against_the_given_base(self, monkeypatch):
         calls: list[list[str]] = []
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="Docker Compose version v2.24.5\n", calls=calls),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="Docker Compose version v2.24.5\n", calls=calls),
         )
 
         detect_compose_provider(["docker", "compose"])
@@ -502,10 +521,11 @@ class TestDetectComposeProvider:
             runtime_helper, "get_runtime_command", lambda config=None: ["podman", "compose"]
         )
         calls: list[list[str]] = []
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="podman-compose version 1.5.0\n", calls=calls),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="podman-compose version 1.5.0\n", calls=calls),
         )
 
         info = detect_compose_provider()
@@ -515,10 +535,11 @@ class TestDetectComposeProvider:
 
     def test_result_is_memoized_per_base(self, monkeypatch):
         calls: list[list[str]] = []
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="podman-compose version 1.0.6\n", calls=calls),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="podman-compose version 1.0.6\n", calls=calls),
         )
 
         first = detect_compose_provider(["podman", "compose"])
@@ -533,10 +554,11 @@ class TestDetectComposeProvider:
 
     def test_reset_runtime_cache_clears_the_provider_memo(self, monkeypatch):
         calls: list[list[str]] = []
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="podman-compose version 1.0.6\n", calls=calls),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="podman-compose version 1.0.6\n", calls=calls),
         )
 
         detect_compose_provider(["podman", "compose"])
@@ -546,17 +568,21 @@ class TestDetectComposeProvider:
         assert len(calls) == 2
 
     def test_failed_probe_is_not_cached(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper.subprocess, "run", _fake_version_probe(stdout="mystery-compose 9\n")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="mystery-compose 9\n"),
         )
         with pytest.raises(UnsupportedComposeProviderError):
             detect_compose_provider(["podman", "compose"])
 
         # Host fixed, same process: the refusal must not have been pinned.
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _fake_version_probe(stdout="podman-compose version 1.5.0\n"),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_fake_version_probe(stdout="podman-compose version 1.5.0\n"),
         )
         assert detect_compose_provider(["podman", "compose"]).version == (1, 5, 0)
 
@@ -564,7 +590,7 @@ class TestDetectComposeProvider:
         def _run(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         with pytest.raises(UnsupportedComposeProviderError, match="did not answer"):
             detect_compose_provider(["podman", "compose"])
@@ -578,7 +604,7 @@ class TestDetectComposeProvider:
             assert kwargs["timeout"] == runtime_helper._RUNTIME_ANSWER_CEILING_S
             return answer(cmd, **kwargs)
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         assert detect_compose_provider(["podman", "compose"]).version == (1, 5, 0)
 
@@ -586,7 +612,7 @@ class TestDetectComposeProvider:
         def _run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
             raise FileNotFoundError("podman")
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         with pytest.raises(UnsupportedComposeProviderError, match="could not run"):
             detect_compose_provider(["podman", "compose"])
@@ -600,10 +626,11 @@ class TestVerifyRuntimeIsRunning:
         monkeypatch.setattr(
             runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
         )
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""),
         )
 
         assert verify_runtime_is_running() == (True, "")
@@ -635,10 +662,11 @@ class TestVerifyRuntimeIsRunning:
         self, monkeypatch, runtime, stderr, expected
     ):
         monkeypatch.setattr(runtime_helper, "get_runtime_command", lambda config=None: runtime)
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr),
         )
 
         ok, msg = verify_runtime_is_running()
@@ -653,7 +681,7 @@ class TestVerifyRuntimeIsRunning:
         def _run(cmd, **kw):
             raise subprocess.TimeoutExpired(cmd, kw["timeout"])
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         ok, msg = verify_runtime_is_running()
         assert ok is False
@@ -671,7 +699,7 @@ class TestVerifyRuntimeIsRunning:
             assert kwargs["timeout"] == runtime_helper._RUNTIME_ANSWER_CEILING_S
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         assert verify_runtime_is_running() == (True, "")
 
@@ -748,11 +776,12 @@ class TestFallThroughIsAnnounced:
     ):
         import logging
 
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run(
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run(
                 {
                     ("docker", "compose"): 0,
                     ("docker", "ps"): 1,
@@ -778,8 +807,8 @@ class TestFallThroughIsAnnounced:
                 raise subprocess.TimeoutExpired(cmd, 5)
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
 
         with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
             assert get_runtime_command() == ["podman", "compose"]
@@ -792,15 +821,17 @@ class TestFallThroughIsAnnounced:
         """Only docker on PATH is not a choice between two; nothing is warned."""
         import logging
 
-        monkeypatch.setattr(
-            runtime_helper.shutil,
-            "which",
-            lambda name: f"/usr/bin/{name}" if name == "podman" else None,
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "shutil",
+            which=lambda name: f"/usr/bin/{name}" if name == "podman" else None,
         )
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
         )
 
         with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
@@ -812,11 +843,12 @@ class TestFallThroughIsAnnounced:
         """The pin narrows the candidates to one; nothing is skipped, so nothing is warned."""
         import logging
 
-        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            _make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
+        scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+        scoped(
+            monkeypatch,
+            runtime_helper,
+            "subprocess",
+            run=_make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
         )
 
         with caplog.at_level(logging.WARNING, logger="deployment.runtime"):

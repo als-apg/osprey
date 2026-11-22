@@ -22,6 +22,7 @@ from osprey.deployment.wheel_build import (
     _reset_wheel_build_cache,
     preflight_dev_mode,
 )
+from tests._scoped_stdlib import scoped
 
 
 @pytest.fixture(autouse=True)
@@ -153,7 +154,7 @@ class TestPreflightDevMode:
         def _explode(*args, **kwargs):
             raise AssertionError("preflight must not spawn a subprocess")
 
-        monkeypatch.setattr(subprocess, "run", _explode)
+        scoped(monkeypatch, "osprey.deployment.wheel_build", "subprocess", run=_explode)
 
         preflight_dev_mode()
 
@@ -171,10 +172,13 @@ class TestWheelBuildFailuresRaise:
     def test_a_build_that_yields_no_wheel_raises(
         self, editable_checkout, monkeypatch, returncode, stderr
     ):
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], returncode, "", stderr),
+        scoped(
+            monkeypatch,
+            "osprey.deployment.wheel_build",
+            "subprocess",
+            run=lambda *a, **k: subprocess.CompletedProcess(
+                a[0] if a else [], returncode, "", stderr
+            ),
         )
 
         with pytest.raises(DevModeUnavailableError):
@@ -182,10 +186,11 @@ class TestWheelBuildFailuresRaise:
 
     def test_broken_local_source_raises_and_surfaces_stderr(self, editable_checkout, monkeypatch):
         """The most dangerous case: local code is broken, so it must not be hidden."""
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            lambda *a, **k: subprocess.CompletedProcess(
+        scoped(
+            monkeypatch,
+            "osprey.deployment.wheel_build",
+            "subprocess",
+            run=lambda *a, **k: subprocess.CompletedProcess(
                 a[0] if a else [], 1, "", "SyntaxError: invalid syntax in osprey/foo.py"
             ),
         )
@@ -203,7 +208,7 @@ class TestWheelBuildFailuresRaise:
             calls.append(1)
             return subprocess.CompletedProcess(a[0] if a else [], 1, "", "boom")
 
-        monkeypatch.setattr(subprocess, "run", _fail)
+        scoped(monkeypatch, "osprey.deployment.wheel_build", "subprocess", run=_fail)
 
         for _ in range(2):
             with pytest.raises(DevModeUnavailableError):

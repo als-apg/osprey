@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 from osprey.deployment.container_lifecycle import _refuse_invented_history
+from tests._scoped_stdlib import scoped
 
 VA_MOCK_NESTED = {
     "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
@@ -193,10 +194,11 @@ def lying_project(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, env=None, check=False: reached.append(cmd),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, env=None, check=False: reached.append(cmd),
     )
     return container_lifecycle, reached, tmp_path
 

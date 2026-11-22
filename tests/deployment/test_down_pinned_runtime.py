@@ -18,6 +18,7 @@ import pytest
 from osprey.deployment import container_lifecycle, runtime_helper
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+from tests._scoped_stdlib import scoped
 
 _RENDERED_CONFIG = """\
 project_name: pinned
@@ -58,8 +59,8 @@ def _host_where_docker_hangs_and_podman_answers(monkeypatch: pytest.MonkeyPatch)
             raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 5))
         return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
-    monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+    scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
     monkeypatch.delenv("CONTAINER_RUNTIME", raising=False)
     return probed
 

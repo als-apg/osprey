@@ -12,6 +12,7 @@ from osprey.cli.users_cmd import users
 from osprey.deployment.web_terminals import roster_report
 from osprey.deployment.web_terminals.roster_report import build_roster_report, last_sign_ins
 from osprey_connectors.config import load_project_config
+from tests._scoped_stdlib import scoped
 
 CONFIG = textwrap.dedent(
     """
@@ -204,7 +205,7 @@ def test_live_inspects_with_the_runtime_and_not_its_compose_command(repo, monkey
         return Done()
 
     monkeypatch.setattr(roster_report, "get_runtime_command", lambda _c: ["podman", "compose"])
-    monkeypatch.setattr(roster_report.subprocess, "run", run)
+    scoped(monkeypatch, roster_report, "subprocess", run=run)
     report = _report(repo)
     roster_report.attach_live(report, {}, repo)
     assert seen[0][:2] == ["podman", "inspect"]

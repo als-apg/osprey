@@ -54,6 +54,7 @@ from osprey.deployment.deployment_record import (
 from osprey.deployment.web_terminals import provision
 from osprey.utils.workspace import container_image_context
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -188,7 +189,8 @@ def started(monkeypatch):
         # whole process, and any reader that strips its stdout must not meet None.
         return subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     def _fake_image_build(_config, _dev_mode, _env, build_context=None, **_kwargs):
         record["build_context"] = build_context

@@ -71,6 +71,7 @@ from osprey.deployment.container_lifecycle import (
     _report_chain_overrides,
 )
 from osprey.deployment.runtime_helper import ComposeProvider
+from tests._scoped_stdlib import scoped
 
 _PINNED = "p1nnedvaluefromtherepostore"
 _EXPORTED = "d1vergentexportvaluenotfromthisrepo"
@@ -463,10 +464,17 @@ def test_the_start_sequence_runs_the_preflight_before_the_image_build(tmp_path, 
         "_build_project_image",
         lambda config, dev, env, ctx=None, compose_files=None: order.append("image"),
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
     )
 
     container_lifecycle._start_stack(
@@ -506,10 +514,17 @@ def test_a_divergent_export_warns_but_still_starts_the_stack(tmp_path, monkeypat
         "_build_project_image",
         lambda config, dev, env, ctx=None, compose_files=None: None,
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, **k: ran.append(list(cmd)) or subprocess.CompletedProcess(list(cmd), 0),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, **k: ran.append(list(cmd)) or subprocess.CompletedProcess(list(cmd), 0),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda cmd, **k: ran.append(list(cmd)) or subprocess.CompletedProcess(list(cmd), 0),
     )
 
     with caplog.at_level(logging.WARNING):
@@ -1076,7 +1091,8 @@ def _stub_runtime(monkeypatch, order: list[str]) -> list[list[str]]:
         ran.append(list(cmd))
         return subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
     return ran
 
 
