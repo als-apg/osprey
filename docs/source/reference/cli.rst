@@ -1652,15 +1652,18 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    channel of the role on the device ``count_true``, ``max``, ``min`` or
    ``sum``. A count reads "k of N", "of N" on the figure's baseline right after
    it, and under it a row of small lamps, one per member in order, where they
-   fit the tile, each filled while its member is counted and an outline while
-   it is not, its tooltip the member's name; the highest's or the lowest's line under the figure names the
+   fit the tile, each filled while its member is counted, an outline while it
+   is zero and a dashed outline while it has no value, its tooltip the member's
+   name, and a member with no value is not counted, so the figure is the lit
+   lamps; the highest's or the lowest's line under the figure names the
    member that holds it ("highest of N · <name>", the first such member, its
-   name short of the device's id), from one label per member hidden by a
-   ``visible`` rule, up to 32 members, past which it says "highest of N" and ``check``
+   name short of the device's id), from one label per member parked off the
+   page and moved into the line by a rule while its member holds the extreme,
+   so a page whose channels have not answered shows none, up to 32 members, past which it says "highest of N" and ``check``
    names the tile; the figure's tooltip names what it is over, member by
    member; while any member has no value the figure is
    a dash and the line says "one of N has no value", or each lamp shows its
-   no-value mark), its relations as
+   dashed outline), its relations as
    a chain of blocks (the device's own block showing only roles one channel of
    it plays: a role played per connector or member is not rows there), its
    drawings (a drawing none of whose parts has a place is a compact row of

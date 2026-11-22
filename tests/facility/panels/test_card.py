@@ -321,7 +321,7 @@ def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_pat
         assert node["props"]["text"] == rule["default"] == layout.NO_VALUE  # no partial figure
         assert len(formulas[rule["formula"]]["bindings"]) == 3  # every member
     count = formulas[figures[0]["rules"][0]["formula"]]["expression"]
-    assert count.count("!= 0") == 3
+    assert count.count("abs(") == 3  # a member with no value is not counted
     assert "+" in formulas[figures[2]["rules"][0]["formula"]]["expression"]
     assert "max((" in formulas[figures[1]["rules"][0]["formula"]]["expression"]
     assert _text(doc, "of 3")
@@ -470,28 +470,32 @@ def _holds(test: str, values: list[float]) -> bool:
 
 
 def _slot(doc, figure) -> list[dict]:
+    """The labels of the line under *figure*: those drawn there, and those parked
+    off the canvas whose rule moves them there."""
+    from tests.facility.panels.test_geometry import _hidden, _placed
+
     g = figure["geometry"]
     return [
         n for n in _by_type(doc, "text-label")
-        if n["geometry"]["x"] == g["x"] and n["geometry"]["y"] == g["y"] + g["height"]
+        if (_placed(n) if _hidden(n) else n["geometry"]["x"]) == g["x"]
+        and n["geometry"]["y"] == g["y"] + g["height"]
     ]  # fmt: skip
 
 
 def _hidden(node: dict) -> bool:
-    """Hidden until a rule shows it: a ``visible`` rule whose default is false."""
-    return any(
-        r["targetProperty"] == "visible" and r["default"] is False for r in node.get("rules") or ()
-    )
+    """Out of sight until a rule shows it: parked off the canvas."""
+    from tests.facility.panels.test_geometry import _hidden as parked
+
+    return parked(node)
 
 
 def _shown(lines: list[dict], values: list[float]) -> list[str]:
-    """The texts of the hidden *lines* whose rule shows them for *values*."""
+    """The texts of the parked *lines* whose rule moves them in for *values*."""
     return [
         line["props"]["text"]
         for line in lines
         for rule in line["rules"]
-        if rule["targetProperty"] == "visible"
-        and _holds(rule["conditions"][0]["expression"], values)
+        if rule["targetProperty"] == "x" and _holds(rule["conditions"][0]["expression"], values)
     ]
 
 
@@ -593,9 +597,37 @@ def test_a_count_s_slot_is_a_row_of_lamps_one_per_member(tmp_path):
 
     for lamp, member in zip(lamps, tile.channels, strict=True):
         assert {r["targetProperty"] for r in lamp["rules"]} == set(symbols.LIGHT_PROPS)
-        for value, state in ((1.0, "normal"), (0.0, symbols.NONE), (float("nan"), "unknown")):
-            want = symbols.look(state)
+        for value, want in (
+            (1.0, layout.COUNTED_LAMP),
+            (0.0, symbols.look(symbols.NONE)),
+            (float("nan"), symbols.look("unknown")),
+        ):
             assert look(lamp, member, value) == {p: want[p] for p in symbols.LIGHT_PROPS}
+    # a counted lamp is filled in the page's text, the strongest fill that is no alarm
+    assert layout.COUNTED_LAMP["fillColor"] == symbols.PAGE_TEXT
+    # the lamp is smaller than the least text's line, so it carries no mark
+    marks = [
+        n for n in _by_type(doc, "text-label")
+        if any(n["geometry"]["x"] <= lamp["geometry"]["x"] < n["geometry"]["x"] + n["geometry"]["width"]
+               and abs(n["geometry"]["y"] - lamp["geometry"]["y"]) < layout.SMALL_LINE
+               for lamp in lamps)
+        and n["props"]["text"] == symbols.UNKNOWN_MARK
+    ]  # fmt: skip
+    assert marks == []
+    # the figure counts what the lamps light: a member with no value is not counted
+    (formula,) = [f for f in doc["formulas"] if set(f["bindings"].values()) == set(tile.channels)
+                  and "abs(" in f["expression"]]  # fmt: skip
+    values = [1.0, float("nan"), 0.0]
+    lit_look = {p: layout.COUNTED_LAMP[p] for p in symbols.LIGHT_PROPS}
+    lit = sum(
+        look(lamp, member, v) == lit_look
+        for lamp, member, v in zip(lamps, tile.channels, values, strict=True)
+    )
+    expression = formula["expression"]
+    for key, member in formula["bindings"].items():
+        expression = expression.replace(f"{{{key}}}", repr(values[tile.channels.index(member)]))
+    counted = eval(expression, {"__builtins__": {}, "abs": abs, "nan": float("nan")})
+    assert counted == lit == 1
 
 
 def test_a_count_whose_lamps_do_not_fit_keeps_the_note(tmp_path):

@@ -327,7 +327,7 @@ _TYPE_FIRST = "type a value first"
 _WILL_WRITE = "will write"
 #: An entry's Apply button's press value until a number is entered, and its rule's
 #: default: text, never a number, so no state of the button writes a number nobody
-#: typed. The button is off the canvas in that state (see APPLY_AWAY).
+#: typed. The button is off the canvas in that state (see AWAY).
 NOTHING_ENTERED = "nothing entered"
 #: The rule condition that holds only for a finite number: text fails the product
 #: (the viewer's evaluator refuses text in arithmetic and gives no output), an
@@ -495,6 +495,12 @@ RULE_TARGETS: Mapping[str, frozenset[str]] = MappingProxyType(
 TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
+#: A count's lamp while its member is counted: filled in the page's text colour,
+#: the strongest fill a tile holds that is no alarm, so "k of N" reads in the lit
+#: lamps; a zero is the outline of no state, no value the dashed unknown.
+COUNTED_LAMP: Mapping[str, Any] = MappingProxyType(
+    {**symbols.look("normal"), "fillColor": PAGE_TEXT, "lineColor": PAGE_TEXT}
+)
 MAX_TABLE_ROWS = 400  # rows of one table drawn; the rest are counted under it
 PROBE_BORE = 240  # the bore's width across a probe picture, in px
 PROBE_PAD = 32  # round the bore, for the buttons that stand out of it
@@ -508,12 +514,14 @@ PROBE_READOUT_WIDTH = 96
 WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
 COMMAND_VALUE = 1  # what pressing a command's button writes
-#: Where an entry's Apply button waits while nothing is entered: off the canvas, so
-#: there is nothing to click. The viewer's visible rules cannot hold it hidden: a
-#: rule has no output until its local first reports, and visible composes by AND
-#: with a base that must be true for the button ever to show. A geometry rule moves
-#: it in once the local holds a finite number.
-APPLY_AWAY = -10_000
+#: Where a widget waits, off the canvas, while a rule has not placed it: an entry's
+#: Apply button while nothing is entered, a key figure's holder line while its
+#: member does not hold the extreme. The viewer applies no rule before its channels
+#: answer, so a widget is drawn in its rest state until then (no data, a lost
+#: link): a ``visible`` rule whose default is false hides nothing in that state.
+#: Parked here, a widget is out of sight with no rule applied, and a geometry rule
+#: moves it in while its condition holds.
+AWAY = -10_000
 # What one screen may bind. The formula engine allows 1,000 subscriptions per
 # client (``max_subscriptions_per_client``, canopy/formula_engine/config.py at
 # 166989aa), and the viewer subscribes once per rule with a condition; a
@@ -2562,13 +2570,14 @@ class _Page:
         slot names the member that holds it, or says "highest of N" past
         :data:`.describe.HOLDER_MAX` members. A count's slot is a row of small
         lamps, one per member in order, where they fit; each shows its own
-        no-value mark, so the row needs no note."""
+        no value by a dashed outline, so the row needs no note, and a member
+        with no value is not counted, so the figure is the lit lamps."""
         members = tile.channels
         keys = [f"c{i}" for i in range(len(members))]
         tokens = [f"{{{key}}}" for key in keys]
         counted = tile.shown_as == "count_true"
         if counted:
-            figure = " + ".join(f"1 * ({t} != 0)" for t in tokens)
+            figure = "+".join(f"1*(abs({t})>0)" for t in tokens)  # no value: no count
         elif tile.shown_as == "sum":
             figure = " + ".join(tokens)
         else:  # max or min: a reduction over one tuple
@@ -2670,7 +2679,7 @@ class _Page:
         step = MOSAIC_LIGHT + MOSAIC_GAP
         if len(members) * step - MOSAIC_GAP > w:
             return False
-        props = (*symbols.LIGHT_PROPS, symbols.MARK_PROP)
+        props = symbols.LIGHT_PROPS
         if not self.budget.take([(len(props), frozenset({m})) for m in members]):
             return False
         top = y + (SMALL_LINE - MOSAIC_LIGHT) / 2
@@ -2680,15 +2689,14 @@ class _Page:
         return True
 
     def count_lamp(self, x: float, top: float, channel: str, name: str) -> None:
-        """One lamp of a count's row at ``(x, top)``: its shape and mark drawn
-        unknown, with a rule per prop over *channel*: counted (not zero) the
-        normal look, zero the look of no state, no value unknown's."""
-        counted, zero, unknown = (
-            symbols.look("normal"),
-            symbols.look(symbols.NONE),
-            symbols.look("unknown"),
-        )
-        shape, mark = symbols.light(x, top, MOSAIC_LIGHT, "unknown")
+        """One lamp of a count's row at ``(x, top)``: its shape drawn unknown,
+        with a rule per prop over *channel*: counted (not zero) filled in the
+        page's text colour, zero an outline, no value unknown's dashed outline.
+        The lamp is smaller than a line of the least text, so it carries no
+        mark: its outline says unknown (:data:`COUNTED_LAMP`)."""
+        looks = (COUNTED_LAMP, symbols.look(symbols.NONE), symbols.look("unknown"))
+        counted, zero, unknown = looks
+        shape, _mark = symbols.light(x, top, MOSAIC_LIGHT, "unknown")
         shape["props"][_TOOLTIP] = name
 
         def rule(prop: str) -> dict[str, Any]:
@@ -2710,15 +2718,15 @@ class _Page:
             }
 
         self.s.add(shape, rules=[rule(p) for p in symbols.LIGHT_PROPS], tags=[_need("state light")])
-        self.s.add(mark, rules=[rule(symbols.MARK_PROP)], tags=[_need("hatched fill")])
 
     def holder_lines(self, x: float, y: float, w: float, tile: KeyTile) -> None:
         """Under a largest or smallest figure, the member that holds it: one line
-        per member in the one slot, each hidden by a ``visible`` rule but while its
-        member is the first that holds the extreme (:func:`holder_condition`), so
-        one shows at a time,
-        and none while any has no value (the extreme is then no number). Left out
-        when the screen's rules do not fit."""
+        per member, each parked at :data:`AWAY` and moved into the slot by an
+        ``x`` rule while its member is the first that holds the extreme
+        (:func:`holder_condition`). So one shows at a time, none while any member
+        has no value (the extreme is then no number), and none before the
+        channels answer, when the viewer applies no rule. Left out when the
+        screen's rules do not fit."""
         members = tile.channels
         lines: list[tuple[str, str]] = []
         for k, short in enumerate(tile.names):
@@ -2735,10 +2743,10 @@ class _Page:
             rule = {
                 "id": f"r-{self.s._rules:04d}",
                 "name": f"{tile.title} held by {members[k]}",
-                "targetProperty": "visible",  # the one hide every widget type honours
+                "targetProperty": "x",  # geometry: every widget type honours it
                 "pvs": pvs,
-                "conditions": [{"expression": test, "value": True}],
-                "default": False,
+                "conditions": [{"expression": test, "value": _n(x)}],
+                "default": AWAY,
             }
             props = {
                 "text": text,
@@ -2747,7 +2755,7 @@ class _Page:
                 "backgroundColor": TRANSPARENT,
                 "align": "left",
             }
-            self.s.widget("text-label", x, y, w, SMALL_LINE, props, rules=[rule])
+            self.s.widget("text-label", AWAY, y, w, SMALL_LINE, props, rules=[rule])
 
     def shown_value(
         self,
@@ -4021,7 +4029,7 @@ class _Page:
                 "targetProperty": "x",
                 "pvs": [{"name": local, "trigger": True}],
                 "conditions": [{"expression": _ENTERED, "value": x}],
-                "default": APPLY_AWAY,
+                "default": AWAY,
             },
             {
                 "id": f"r-{first + 1:04d}",
@@ -4050,7 +4058,7 @@ class _Page:
             "foregroundColor": symbols.CONTROL_ACTION_TEXT,
             _TOOLTIP: f"writes the new value to {target}",
         }
-        self.s.widget("pv-button", APPLY_AWAY, y, width, ROW, button, rules=rules)
+        self.s.widget("pv-button", AWAY, y, width, ROW, button, rules=rules)
         # what Apply writes, from the same formula as its press value: when the
         # field's text is no number, both keep the last number, so the line still
         # says what a press writes
@@ -7401,7 +7409,7 @@ def metric_formula(name: str, item: Tile) -> dict[str, Any]:
         bindings = dict(zip(keys, item.channels, strict=True))
         tokens = [f"{{{key}}}" for key in keys]
         if item.measure == "count_true":
-            expression = " + ".join(f"1 * ({t} != 0)" for t in tokens)
+            expression = "+".join(f"1*(abs({t})>0)" for t in tokens)  # no value: no count
         elif item.measure == "count_false":
             expression = " + ".join(f"1 * ({t} == 0)" for t in tokens)
         elif item.measure == "rms":

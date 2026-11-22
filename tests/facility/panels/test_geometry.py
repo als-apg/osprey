@@ -6,7 +6,7 @@ the layout measures it. Every screen of the fixture facility is checked:
 - a text label's text fits its box, in width and in line height, so the viewer
   never shrinks or clips it;
 - no widget reaches outside the canvas, but the Apply buttons parked away by
-  design (:data:`layout.APPLY_AWAY`);
+  design (:data:`layout.AWAY`);
 - no two text labels draw over each other;
 - the page never asks for a face the viewer's font set lacks: a plot carries no
   title of its own.
@@ -62,11 +62,16 @@ def screens(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any
 
 
 def _hidden(node: dict[str, Any]) -> bool:
-    """Whether *node* is hidden until a rule shows it: a ``visible`` rule whose
-    default is false."""
-    return any(
-        r["targetProperty"] == "visible" and r["default"] is False for r in node.get("rules") or ()
-    )
+    """Whether *node* is out of sight until a rule shows it: parked off the
+    canvas at :data:`layout.AWAY`, its ``x`` rule's default."""
+    return node["geometry"]["x"] == layout.AWAY
+
+
+def _placed(node: dict[str, Any]) -> float:
+    """Where a parked *node*'s ``x`` rule moves it while its condition holds."""
+    (moves,) = [r for r in node["rules"] if r["targetProperty"] == "x"]
+    (condition,) = moves["conditions"]
+    return condition["value"]
 
 
 def _texts(doc: dict[str, Any]) -> list[tuple[str, str, float, float, float, float]]:
@@ -76,7 +81,7 @@ def _texts(doc: dict[str, Any]) -> list[tuple[str, str, float, float, float, flo
         props, g = node["props"], node["geometry"]
         if node["type"] != "text-label" or not str(props.get("text", "")).strip():
             continue
-        if _hidden(node):  # hidden until a rule shows it: see the layer test
+        if _hidden(node):  # parked until a rule shows it: see the shared-box test
             continue
         size = props.get("fontSize", layout.TEXT_SIZE)
         w = min(_ink(props["text"], size), g["width"])
@@ -134,7 +139,7 @@ def test_no_widget_reaches_outside_the_canvas(screens):
         size = doc["metadata"]["size"]
         for node in _nodes(doc["root"]):
             g = node["geometry"]
-            if node["type"] == "absolute-canvas" or g["x"] == layout.APPLY_AWAY:
+            if node["type"] == "absolute-canvas" or g["x"] == layout.AWAY:
                 continue
             if (
                 g["width"] < 0
@@ -170,10 +175,10 @@ def test_no_text_lies_under_a_value(screens):
 
 
 def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_graph):
-    """Labels hidden until a rule shows them may share a box only when their rules
-    prove that at most one shows: each is the first-holder condition of its own
+    """Labels parked until a rule moves them in may share a box only when their
+    rules prove that at most one shows: each is the first-holder condition of its own
     member over the same members (:func:`layout.holder_condition`), whose form
-    admits no two at once. The static check leaves hidden labels out; this is
+    admits no two at once. The static check leaves parked labels out; this is
     what lets it."""
     import re
 
@@ -199,7 +204,8 @@ def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_grap
             if node["type"] != "text-label" or not _hidden(node):
                 continue
             g = node["geometry"]
-            groups.setdefault((name, (g["x"], g["y"], g["width"], g["height"])), []).append(node)
+            box = (_placed(node), g["y"], g["width"], g["height"])
+            groups.setdefault((name, box), []).append(node)
     shared = [group for group in groups.values() if len(group) > 1]
     assert len(shared) >= len(drawn)  # the extreme tiles drawn here, and any the set has
     unproved = []
@@ -215,9 +221,8 @@ def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_grap
             k = int(match.group(1)) if match else -1
             proved = (
                 match is not None
-                and rule["targetProperty"] == "visible"
-                and condition["value"] is True
-                and rule["default"] is False
+                and rule["targetProperty"] == "x"
+                and rule["default"] == layout.AWAY
                 and test == layout.holder_condition(match.group(2), k, len(pvs))
                 and (held is None or pvs == held)
                 and k not in seen
@@ -245,6 +250,23 @@ def test_every_rule_sets_a_prop_its_widget_honours(screens):
     a word; so the generator writes none (:data:`layout.RULE_TARGETS`)."""
     off = {name: found for name, doc in screens.items() if (found := _off_targets(doc))}
     assert off == {}
+
+
+def test_with_no_rule_applied_nothing_a_rule_hides_is_on_the_canvas(screens):
+    """The viewer applies no rule before a rule's channels answer (no data, a lost
+    link), so a widget is drawn in its rest state then: a widget a rule hides
+    must rest out of sight without it. A ``visible`` rule whose default is false
+    leaves its widget on the canvas in that state; a rule that parks a widget
+    at :data:`layout.AWAY` by default must find it parked there."""
+    shown = [
+        (name, node["id"], rule["targetProperty"])
+        for name, doc in screens.items()
+        for node in _nodes(doc["root"])
+        for rule in node.get("rules") or ()
+        if (rule["targetProperty"] == "visible" and rule["default"] is False)
+        or (rule["targetProperty"] == "x" and rule["default"] == layout.AWAY and not _hidden(node))
+    ]
+    assert shown == []
 
 
 def test_no_text_lies_over_another(screens):
