@@ -27,6 +27,7 @@
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { icon } from '/design-system/js/icons.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { showToast } from '/design-system/js/toast.js';
 import {
@@ -85,9 +86,9 @@ const SIDEBAR_KEY = 'cf-alarms-tree';
  *   valuesPending: string|null,
  *   facts: Map<string, ChannelFacts|string>,
  *   factsPending: Set<string>,
- *   pollSeq: number,
+ *   polls: ReturnType<typeof createLatestRequest>,
  *   reading: number,
- *   valuesSeq: number,
+ *   valueReads: ReturnType<typeof createLatestRequest>,
  *   canPlot: boolean,
  *   sidebar: PanelSidebarApi|null,
  *   timer: number|undefined,
@@ -163,9 +164,9 @@ export function mountAlarms(container) {
     valuesPending: null,
     facts: new Map(),
     factsPending: new Set(),
-    pollSeq: 0,
+    polls: createLatestRequest(),
     reading: 0,
-    valuesSeq: 0,
+    valueReads: createLatestRequest(),
     canPlot: false,
     sidebar: null,
     timer: undefined,
@@ -216,21 +217,21 @@ export function unmountAlarms() {
 async function poll() {
   if (!view) return;
   const current = view;
-  const seq = ++current.pollSeq;
+  const token = current.polls.begin();
   /** @type {ActiveAlarms} */
   let answer;
   current.reading += 1;
   try {
     answer = await fetchActiveAlarms({}, current.controller.signal);
   } catch (err) {
-    if (view !== current || seq !== current.pollSeq) return;
+    if (view !== current || !token.isCurrent()) return;
     current.answer = null;
     showFailure(`Alarm feed did not answer: ${messageOf(err)}`, true);
     return;
   } finally {
     current.reading -= 1;
   }
-  if (view !== current || seq !== current.pollSeq) return;
+  if (view !== current || !token.isCurrent()) return;
   state.emit('alarmCounts', answer);
   if (answer.outcome !== 'found') {
     current.answer = null;
@@ -257,16 +258,16 @@ async function readShownValues(force = false) {
   const key = names.join('\n');
   if (!force && (key === current.valuesKey || key === current.valuesPending)) return;
   current.valuesPending = key;
-  const seq = ++current.valuesSeq;
+  const token = current.valueReads.begin();
   /** @type {ValueRow[]} */
   let rows;
   try {
     rows = await readValues(names, current.controller.signal);
   } catch {
-    if (view === current && seq === current.valuesSeq) current.valuesPending = null;
+    if (view === current && token.isCurrent()) current.valuesPending = null;
     return;
   }
-  if (view !== current || seq !== current.valuesSeq) return;
+  if (view !== current || !token.isCurrent()) return;
   current.valuesPending = null;
   current.valuesKey = key;
   const values = new Map(current.values ?? []);

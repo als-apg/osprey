@@ -57,6 +57,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MOVABLE_ROLE,
     READABLE_ROLE,
 )
+from osprey.services.bluesky_bridge.plan_metadata import PlanMetadata
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.queue_backend import (
     REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
@@ -88,6 +89,11 @@ def _grid_scan_args(num_points: int = 3) -> dict[str, Any]:
         "readbacks": ["BPM1"],
         "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": num_points}],
     }
+
+
+def _queued_grid_scan_args() -> dict[str, Any]:
+    """The complete set that draft is queued with: every field ``grid_scan`` declares."""
+    return {**_grid_scan_args(), "snake_axes": False}
 
 
 def _session_plan_source(name: str) -> str:
@@ -519,9 +525,9 @@ def _write_session_plan(name: str = _SESSION_PLAN_NAME, *, validated: bool = Tru
 # ---------------------------------------------------------------------------
 
 
-def test_the_catalog_entry_is_five_keys_with_three_field_metadata(client: TestClient) -> None:
+def test_the_catalog_entry_is_five_keys_with_the_declared_metadata(client: TestClient) -> None:
     """`GET /plans` publishes exactly five keys per entry, and a plan's metadata
-    is exactly ``name``/``description``/``writes``.
+    is exactly the fields `PlanMetadata` declares.
 
     This is the wire half of the metadata contract: the model forbids extras
     in-process, but what a panel, the MCP tools and the approval hook actually
@@ -533,12 +539,14 @@ def test_the_catalog_entry_is_five_keys_with_three_field_metadata(client: TestCl
     by_name = {entry["name"]: entry for entry in body}
     assert {"orm", "grid_scan"} <= set(by_name), f"shipped plans missing: {sorted(by_name)}"
 
+    declared = set(PlanMetadata.model_fields)
+    assert {"name", "description", "writes"} <= declared
     for name, entry in by_name.items():
         assert set(entry) == {"name", "description", "schema", "metadata", "provenance"}, (
             f"{name}: unexpected catalog entry keys: {sorted(entry)}"
         )
-        assert set(entry["metadata"]) == {"name", "description", "writes"}, (
-            f"{name}: plan metadata is no longer the three declared fields: {entry['metadata']}"
+        assert set(entry["metadata"]) == declared, (
+            f"{name}: plan metadata is not the declared fields: {entry['metadata']}"
         )
 
 
@@ -638,10 +646,10 @@ def test_enqueue_puts_the_pinned_draft_in_the_managers_queue(
     # only the run id (`queue._public_item`).
     (item,) = manager.items
     assert item["name"] == "grid_scan"
-    assert item["kwargs"] == _grid_scan_args()
+    assert item["kwargs"] == _queued_grid_scan_args()
     assert item["meta"] == {
         qb.RUN_ID_META_KEY: body["run_id"],
-        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _grid_scan_args()},
+        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _queued_grid_scan_args()},
     }
 
 
@@ -1952,7 +1960,7 @@ def test_an_owner_claim_is_trusted_on_its_own_and_gates_nothing(
     (item,) = manager.items
     assert item["kwargs"][RESERVED_OWNER_KWARG] == "bob"
     assert item["meta"][qb.OWNER_META_KEY] == "bob"
-    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _grid_scan_args()
+    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _queued_grid_scan_args()
 
 
 def test_an_owner_claim_the_guard_refuses_costs_the_attribution_not_the_add(
@@ -1975,7 +1983,7 @@ def test_an_owner_claim_the_guard_refuses_costs_the_attribution_not_the_add(
 
     assert resp.status_code == 200, resp.text
     (item,) = manager.items
-    assert item["kwargs"] == _grid_scan_args()
+    assert item["kwargs"] == _queued_grid_scan_args()
     assert qb.OWNER_META_KEY not in item["meta"]
 
 
@@ -2006,7 +2014,7 @@ def test_every_queue_read_surface_names_the_owner_and_never_the_reserved_kwarg(
     assert added.json()["item"]["owner"] == "bob"
     (row,) = listed.json()["items"]
     assert row["owner"] == "bob"
-    assert row["kwargs"] == _grid_scan_args()
+    assert row["kwargs"] == _queued_grid_scan_args()
     assert removed.json()["item"]["owner"] == "bob"
     for body in (added.text, listed.text, removed.text):
         assert RESERVED_OWNER_KWARG not in body, body
@@ -2059,7 +2067,7 @@ async def test_the_event_stream_names_the_owner_of_the_items_it_carries(
     _assert_snapshot_frame(hello)
     (streamed,) = hello["items"]
     assert streamed["owner"] == "bob"
-    assert streamed["kwargs"] == _grid_scan_args()
+    assert streamed["kwargs"] == _queued_grid_scan_args()
     assert RESERVED_OWNER_KWARG not in json.dumps(hello)
 
 
@@ -2082,7 +2090,7 @@ def test_an_owner_named_in_the_request_body_is_not_an_owner(
 
     assert resp.status_code == 200, resp.text
     (item,) = manager.items
-    assert item["kwargs"] == _grid_scan_args()
+    assert item["kwargs"] == _queued_grid_scan_args()
     assert qb.OWNER_META_KEY not in item["meta"]
     assert "owner" not in resp.json()["item"]
 

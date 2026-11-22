@@ -29,13 +29,14 @@ from osprey.deployment.web_terminals.artifacts import (
     OpenModeEgressError,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
-from osprey.deployment.web_terminals.provision import AUTH_SERVICE_NAME
+from osprey.deployment.web_terminals.render import AUTH_SERVICE_NAME
 from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.services.auth_sidecar.passwords import verify_password
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils import config_writer
 from osprey_connectors.dotenv import parse_dotenv_file
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 
 _FORBIDDEN_ARGV_TOKENS = {"prune", "-a", "--all", "system", "network"}
 _GLOB_METACHARACTERS = set("*?[")
@@ -194,7 +195,9 @@ def _install_fake_runtime(monkeypatch, *, image_labels=None, down_result=None):
             )
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.web_terminals.postup_hooks", "subprocess", run=_fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls, listing
@@ -326,7 +329,7 @@ def test_removing_a_volume_the_archive_holds_runs_a_last_pass_and_removes_it(
         stdout = "true\n" if argv[1] == "inspect" else ""
         return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_run)
 
     lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
 
@@ -356,7 +359,7 @@ def test_a_stopped_archive_container_is_removed_without_a_last_pass(
         stdout = "false\n" if argv[1] == "inspect" else ""
         return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_run)
 
     lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
 
@@ -572,7 +575,7 @@ def test_downed_runtime_raises_instead_of_touching_anything(tmp_path, monkeypatc
         calls.append(list(argv))
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(
         lifecycle, "verify_runtime_is_running", lambda config=None, **_: (False, "daemon is down")
@@ -1021,7 +1024,7 @@ def test_nuke_compose_down_emits_the_podman_shape_on_a_podman_host(
             down_envs.append(dict(env or {}))
         return fixture_run(argv, capture_output=capture_output, text=text, env=env, **kwargs)
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _spy)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_spy)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
@@ -2762,7 +2765,7 @@ def test_up_reconcile_ignores_a_project_container_whose_name_merely_looks_like_a
         stdout = json.dumps(row) if argv[1:3] == ["ps", "-a"] else ""
         return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_run)
 
     assert lifecycle.remove_orphan_terminals(config) == {}
     assert [c for c in calls if c[1] == "rm"] == []
@@ -2789,7 +2792,7 @@ def test_up_reconcile_reads_podman_shaped_rows(tmp_path, monkeypatch, fake_runti
         stdout = json.dumps(rows) if argv[1:3] == ["ps", "-a"] else ""
         return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_run)
 
     assert lifecycle.remove_orphan_terminals(config) == {"eve": "dls-web-eve"}
 
@@ -2822,7 +2825,7 @@ def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
             )
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _refusing_run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_refusing_run)
 
     assert lifecycle.remove_orphan_terminals(config) == {}
     assert "demo-project-web-eve" in caplog.text
@@ -2878,7 +2881,8 @@ def _refuse_removals(monkeypatch, removals: dict[str, str], archives: dict[str, 
                         raise subprocess.CalledProcessError(1, argv, "", archives[name])
         return result
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_run)
+    scoped(monkeypatch, "osprey.deployment.web_terminals.postup_hooks", "subprocess", run=_run)
 
 
 def _in_use(volume: str) -> str:

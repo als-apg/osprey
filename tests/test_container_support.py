@@ -8,7 +8,12 @@ A test that merely *calls* code raising ``Skipped`` reports SKIPPED with exit 0
 and executes none of its assertions: it looks green while proving nothing.
 """
 
+import socket
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from types import SimpleNamespace
 
 import pytest
@@ -18,18 +23,25 @@ from tests import _container_support
 from tests._container_support import (
     CONTAINER_STATE_TIMEOUT,
     DOCKER_CLI_PROBE_TIMEOUT,
+    PUBLISHED_PORT_SETTLE_S,
     ContainerExitedError,
     ContainerRuntimeNotAnswering,
     ForeignListenerError,
+    PortAnswer,
+    PublishedPortContradiction,
+    PublishedPortWatch,
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
     ensure_image,
+    probe_published_port,
+    published_port_contradiction,
     require_container_runtime,
     runtime_command,
     start_or_skip,
     wait_until_ready,
 )
+from tests._scoped_stdlib import scoped
 
 # ``docker`` is a ``dev``-extra dependency. Importing it at module scope would
 # make this file ERROR at collection wherever the extra is absent — the very
@@ -221,7 +233,7 @@ def test_image_not_found_skips_without_retry():
 
 
 def _docker_on_path(monkeypatch) -> None:
-    monkeypatch.setattr(_container_support.shutil, "which", lambda _name: "/usr/bin/docker")
+    scoped(monkeypatch, _container_support, "shutil", which=lambda _name: "/usr/bin/docker")
 
 
 def _completed(returncode: int, stderr: str = "") -> subprocess.CompletedProcess:
@@ -229,7 +241,7 @@ def _completed(returncode: int, stderr: str = "") -> subprocess.CompletedProcess
 
 
 def test_docker_probe_names_a_missing_cli(monkeypatch):
-    monkeypatch.setattr(_container_support.shutil, "which", lambda _name: None)
+    scoped(monkeypatch, _container_support, "shutil", which=lambda _name: None)
 
     assert docker_cli_unavailable_reason() == "docker CLI not on PATH"
 
@@ -241,7 +253,7 @@ def test_docker_probe_names_a_timeout_apart_from_an_absent_daemon(monkeypatch):
     def slow_run(argv, **kwargs):
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
-    monkeypatch.setattr(_container_support.subprocess, "run", slow_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=slow_run)
 
     reason = docker_cli_unavailable_reason(timeout=7)
 
@@ -256,8 +268,11 @@ def test_docker_probe_names_an_unreachable_daemon_by_its_last_line(monkeypatch):
         "Client: Docker Engine - Community\n"
         "Cannot connect to the Docker daemon at unix:///var/run/docker.sock\n"
     )
-    monkeypatch.setattr(
-        _container_support.subprocess, "run", lambda argv, **kwargs: _completed(1, stderr)
+    scoped(
+        monkeypatch,
+        _container_support,
+        "subprocess",
+        run=lambda argv, **kwargs: _completed(1, stderr),
     )
 
     reason = docker_cli_unavailable_reason()
@@ -270,7 +285,7 @@ def test_docker_probe_names_an_unreachable_daemon_by_its_last_line(monkeypatch):
 
 def test_docker_probe_is_silent_when_the_cli_works(monkeypatch):
     _docker_on_path(monkeypatch)
-    monkeypatch.setattr(_container_support.subprocess, "run", lambda argv, **kwargs: _completed(0))
+    scoped(monkeypatch, _container_support, "subprocess", run=lambda argv, **kwargs: _completed(0))
 
     assert docker_cli_unavailable_reason() is None
 
@@ -293,7 +308,7 @@ def _runtime_answers(monkeypatch, *answers: bool) -> list[float]:
             return _completed(0)
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
-    monkeypatch.setattr(_container_support.subprocess, "run", run)
+    scoped(monkeypatch, _container_support, "subprocess", run=run)
     return deadlines
 
 
@@ -376,7 +391,7 @@ def _recording_run(monkeypatch, result) -> list[tuple[list[str], dict]]:
             raise result
         return result
 
-    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=fake_run)
     return calls
 
 
@@ -681,6 +696,33 @@ def test_a_foreign_listener_on_the_port_ends_the_wait_at_once_as_its_own_type(st
     assert not isinstance(caught.value, ContainerExitedError)
 
 
+def test_a_refused_while_ready_contradiction_ends_the_wait_at_once_as_its_own_type(
+    started_daemon,
+):
+    """The subject logged ready and its port refuses: the wait names that, not a stall."""
+    contradiction = PublishedPortContradiction(
+        "started and logged ready, but the published port 127.0.0.1:8181 still refused "
+        "connections 12.0s after a probe first saw the ready line"
+    )
+    probe = CountingProbe(failures=None, error=contradiction)
+    container = started_daemon(FakeStartedContainer([f"line {n}".encode() for n in range(20)]))
+
+    with pytest.raises(PublishedPortContradiction) as caught:
+        wait_until_ready(probe, "qmd sidecar", timeout=30.0, interval=0.0, container=container)
+
+    message = str(caught.value)
+    assert type(caught.value) is PublishedPortContradiction
+    assert "still refused connections" in message
+    assert "127.0.0.1:8181" in message
+    assert "nothing ever listened on the port" not in message
+    assert probe.calls == 1
+    assert not isinstance(caught.value, ForeignListenerError | ContainerExitedError)
+
+
+def test_a_foreign_listener_is_a_published_port_contradiction():
+    assert issubclass(ForeignListenerError, PublishedPortContradiction)
+
+
 def test_an_unreadable_container_leaves_the_wait_on_the_probe_alone():
     """A daemon too busy to answer is the condition this wait sits through."""
 
@@ -716,7 +758,7 @@ def _fake_runtime(monkeypatch, *, inspect: subprocess.CompletedProcess, logs=Non
             )
         return logs
 
-    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=fake_run)
     return calls
 
 
@@ -748,7 +790,7 @@ def test_a_named_runtime_container_returns_the_whole_merged_log(monkeypatch):
         calls.append((list(argv), kwargs))
         return subprocess.CompletedProcess(argv, 0, stdout=b"booting\nindex failed\n")
 
-    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    scoped(monkeypatch, _container_support, "subprocess", run=fake_run)
 
     assert RuntimeContainer("deploy-qmd").logs() == b"booting\nindex failed\n"
     argv, kwargs = calls[0]
@@ -863,3 +905,249 @@ def test_a_liveness_read_is_bounded_by_the_state_timeout(monkeypatch):
     assert timeouts == [CONTAINER_STATE_TIMEOUT]
     assert client.asked == ["c0ffee", "c0ffee"]
     assert client.closed
+
+
+# ---------------------------------------------------------------------------
+# probe_published_port — what answers on a published port
+# ---------------------------------------------------------------------------
+
+#: A hang ceiling for one probe of a loopback listener this module started; a
+#: probe that answers takes a fraction of it.
+_PORT_PROBE_CEILING = CONTAINER_STATE_TIMEOUT
+
+
+@contextmanager
+def _raw_listener(reply: bytes) -> Iterator[int]:
+    """A loopback listener that reads each request, writes *reply* and closes."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+
+    def serve() -> None:
+        with suppress(OSError):
+            while True:
+                conn, _ = server.accept()
+                with conn:
+                    conn.recv(1024)
+                    conn.sendall(reply)
+
+    thread = Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield server.getsockname()[1]
+    finally:
+        with suppress(OSError):
+            server.shutdown(socket.SHUT_RDWR)
+        server.close()
+        thread.join(timeout=_PORT_PROBE_CEILING)
+        assert not thread.is_alive()
+
+
+@contextmanager
+def _held_listener(reply: bytes) -> Iterator[int]:
+    """A loopback listener that writes *reply* and keeps the connection open."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    held: list[socket.socket] = []
+
+    def serve() -> None:
+        with suppress(OSError):
+            while True:
+                conn, _ = server.accept()
+                held.append(conn)
+                conn.recv(1024)
+                conn.sendall(reply)
+
+    thread = Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield server.getsockname()[1]
+    finally:
+        with suppress(OSError):
+            server.shutdown(socket.SHUT_RDWR)
+        server.close()
+        for conn in held:
+            conn.close()
+        thread.join(timeout=_PORT_PROBE_CEILING)
+        assert not thread.is_alive()
+
+
+#: The read timeout given a probe whose expiry is the test's subject: a small
+#: fraction of the hang ceiling, so the test spends little of it.
+_HELD_READ_TIMEOUT = _PORT_PROBE_CEILING / 20
+
+
+@contextmanager
+def _http_server(handler: type[BaseHTTPRequestHandler]) -> Iterator[int]:
+    """An HTTP server on a loopback port, answering with *handler*."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+    thread.start()
+    try:
+        yield server.server_port
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=_PORT_PROBE_CEILING)
+
+
+class _SilentHandler(BaseHTTPRequestHandler):
+    """Implements no method, so every request is answered ``501``."""
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+class _OkHandler(_SilentHandler):
+    def do_GET(self) -> None:
+        body = b'{"status": "ok"}'
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def test_a_closed_port_is_read_as_refused(reserve_port):
+    answer = probe_published_port(reserve_port(), timeout=_PORT_PROBE_CEILING)
+
+    assert answer == PortAnswer(kind="refused", status=None, head=b"")
+
+
+def test_a_listener_that_is_not_http_is_read_as_foreign_and_quoted():
+    with _raw_listener(b"ACK\n") as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer == PortAnswer(kind="foreign", status=None, head=b"ACK\n")
+
+
+def test_a_foreign_line_on_a_held_connection_is_read_as_foreign_and_quoted():
+    with _held_listener(b"ACK\n") as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer == PortAnswer(kind="foreign", status=None, head=b"ACK\n")
+
+
+def test_bytes_read_before_a_held_connection_times_out_are_classified():
+    with _held_listener(b"ACK") as port:
+        answer = probe_published_port(port, timeout=_HELD_READ_TIMEOUT)
+
+    assert answer == PortAnswer(kind="foreign", status=None, head=b"ACK")
+
+
+def test_a_held_connection_that_writes_nothing_times_out():
+    with _held_listener(b"") as port, pytest.raises(TimeoutError):
+        probe_published_port(port, timeout=_HELD_READ_TIMEOUT)
+
+
+def test_a_listener_that_closes_without_a_byte_is_read_as_refused():
+    with _raw_listener(b"") as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer.kind == "refused"
+
+
+@pytest.mark.parametrize(
+    ("handler", "status"),
+    [
+        pytest.param(_SilentHandler, 501, id="no-such-method"),
+        pytest.param(_OkHandler, 200, id="healthy"),
+    ],
+)
+def test_an_http_listener_is_read_as_http_with_its_status(handler, status):
+    with _http_server(handler) as port:
+        answer = probe_published_port(port, timeout=_PORT_PROBE_CEILING)
+
+    assert answer.kind == "http"
+    assert answer.status == status
+    assert answer.head.startswith(b"HTTP/")
+
+
+# ---------------------------------------------------------------------------
+# published_port_contradiction — an answer read against the ready line
+# ---------------------------------------------------------------------------
+
+_REFUSED = PortAnswer(kind="refused")
+_FOREIGN = PortAnswer(kind="foreign", head=b"ACK\n")
+_HTTP = PortAnswer(kind="http", status=503, head=b"HTTP/1.1 503 Service Unavailable\r\n")
+
+#: Seconds since the first probe that saw the ready line: not logged yet, just
+#: logged, half the settle window, and the whole of it.
+_NOT_READY = None
+_JUST_READY = 0.0
+_SETTLING = PUBLISHED_PORT_SETTLE_S / 2
+_SETTLED = PUBLISHED_PORT_SETTLE_S
+
+
+@pytest.mark.parametrize(
+    ("answer", "ready_for", "expected"),
+    [
+        pytest.param(_REFUSED, _NOT_READY, None, id="refused-before-ready"),
+        pytest.param(_REFUSED, _JUST_READY, None, id="refused-as-ready-is-logged"),
+        pytest.param(_REFUSED, _SETTLING, None, id="refused-inside-the-settle-window"),
+        pytest.param(
+            _REFUSED, _SETTLED, PublishedPortContradiction, id="refused-past-the-settle-window"
+        ),
+        pytest.param(_FOREIGN, _NOT_READY, ForeignListenerError, id="foreign-before-ready"),
+        pytest.param(_FOREIGN, _JUST_READY, ForeignListenerError, id="foreign-after-ready"),
+        pytest.param(_HTTP, _NOT_READY, None, id="http-before-ready"),
+        pytest.param(_HTTP, _SETTLED, None, id="http-after-ready"),
+    ],
+)
+def test_an_answer_contradicts_the_subject_only_when_it_cannot_be_the_subject(
+    answer, ready_for, expected
+):
+    contradiction = published_port_contradiction(
+        answer, host="127.0.0.1", port=8181, ready_for=ready_for
+    )
+
+    if expected is None:
+        assert contradiction is None
+    else:
+        assert type(contradiction) is expected
+        assert "127.0.0.1:8181" in str(contradiction)
+
+
+def test_a_foreign_answer_is_quoted():
+    contradiction = published_port_contradiction(
+        _FOREIGN, host="127.0.0.1", port=8181, ready_for=_NOT_READY
+    )
+
+    assert repr(b"ACK\n") in str(contradiction)
+
+
+def test_a_settled_refusal_says_the_subject_logged_ready():
+    contradiction = published_port_contradiction(
+        _REFUSED, host="127.0.0.1", port=8181, ready_for=_SETTLED
+    )
+
+    message = str(contradiction)
+    assert "logged ready" in message
+    assert "still refused connections" in message
+
+
+class _SteppedClock:
+    """A clock that reads the next of *readings* each time it is asked."""
+
+    def __init__(self, readings: list[float]) -> None:
+        self._readings = list(readings)
+
+    def __call__(self) -> float:
+        return self._readings.pop(0)
+
+
+def test_a_watch_measures_the_refusal_from_the_first_probe_that_saw_the_ready_line(
+    reserve_port,
+):
+    port = reserve_port()
+    first_ready = 100.0
+    clock = _SteppedClock([50.0, first_ready, first_ready + _SETTLING, first_ready + _SETTLED])
+    watch = PublishedPortWatch(port, timeout=_PORT_PROBE_CEILING, clock=clock)
+
+    assert watch.contradiction(logged_ready=False) is None
+    assert watch.contradiction(logged_ready=True) is None
+    assert watch.contradiction(logged_ready=True) is None
+    contradiction = watch.contradiction(logged_ready=True)
+
+    assert type(contradiction) is PublishedPortContradiction
+    assert f"127.0.0.1:{port}" in str(contradiction)

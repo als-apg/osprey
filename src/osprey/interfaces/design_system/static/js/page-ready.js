@@ -13,11 +13,13 @@
  *     `DOMContentLoaded` handlers have run;
  *   - late dressing: a page whose start-up runs past that point (it fetches,
  *     draws a first state, builds a dock) carries
- *     `<html data-page-ready="pending">` in its markup, and calls
- *     `markPageReady()` itself when it is dressed, on its failure path too: a
- *     page that drew its error state is ready; a pending page that throws an
- *     uncaught error, or leaves a rejection unhandled, before that call is
- *     marked `failed` by this module, and stays failed;
+ *     `<html data-page-ready="pending">` in its markup, loads this module by
+ *     its own `<script type="module">` tag ahead of every module and deferred
+ *     script, so the listeners below are in place before any of them runs, and
+ *     calls `markPageReady()` itself when it is dressed, on its failure path too: a page that drew its error state is
+ *     ready; a pending page that, before that call, throws an uncaught error,
+ *     leaves a rejection unhandled, or has one of its own scripts fail to load
+ *     is marked `failed` by this module, and stays failed;
  *   - a page with no script at all carries `data-page-ready="true"` literally.
  *
  * `pending` lives in the markup, never in a call, because only the markup is
@@ -36,7 +38,7 @@ export const PAGE_READY_ATTRIBUTE = 'data-page-ready';
 /** The value a late page declares in its markup until it marks itself. */
 const PENDING = 'pending';
 
-/** The value the writer sets when a pending page threw before it marked itself. */
+/** The value the writer sets when a pending page failed before it marked itself. */
 const FAILED = 'failed';
 
 /**
@@ -52,7 +54,8 @@ export function markPageReady(doc = document) {
 }
 
 /**
- * Mark a pending page failed when its running script throws. The attribute is
+ * Mark a pending page failed when its running script throws or one of its own
+ * scripts fails to load. The attribute is
  * the only state: two loaded copies of this module read and write the same
  * mark and agree. A page that is not pending is never attested.
  */
@@ -62,13 +65,35 @@ function attestFailure() {
   root.setAttribute(PAGE_READY_ATTRIBUTE, FAILED);
 }
 
-// Neither listener captures: a resource that fails to load (a script, a
-// stylesheet, an image) reports on its own element and does not bubble, so
-// only an error thrown by running script, or a rejection nobody handled,
-// reaches them.
+/**
+ * Whether *script* is one of the page's own: it has no `src` (an inline module,
+ * whose imports failed), or its `src` has the page's origin and no `/vendor/`
+ * in its path. Anything else is a vendor bundle, from a CDN or a `/vendor/`
+ * directory.
+ * @param {HTMLScriptElement} script
+ * @returns {boolean}
+ */
+function ownScript(script) {
+  if (!script.src) return true;
+  const file = new URL(script.src, window.location.href);
+  return file.origin === window.location.origin && !file.pathname.includes('/vendor/');
+}
+
+// An error thrown by running script and a rejection nobody handled reach
+// `window` without capture. A script that fails to load reports on its own
+// element and does not bubble, so it is heard on the way down. Only an own
+// script counts: a vendor bundle has its own report where it is used. A
+// stylesheet or an image never fails a page.
 if (typeof window !== 'undefined') {
   window.addEventListener('error', attestFailure);
   window.addEventListener('unhandledrejection', attestFailure);
+  window.addEventListener(
+    'error',
+    (event) => {
+      if (event.target instanceof HTMLScriptElement && ownScript(event.target)) attestFailure();
+    },
+    true
+  );
 }
 
 /**

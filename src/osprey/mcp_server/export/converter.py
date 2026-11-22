@@ -1,30 +1,21 @@
 """Convert HTML files to images using Playwright (headless Chromium).
 
-Chromium is installed on demand, but only ever in *reaction* to a launch that
-failed because the binary is genuinely absent — the launch itself is the
-availability check, so there is no second, weaker check that can disagree with
-it. The install is attempted at most once per process and its verdict is cached,
-so a host that cannot reach the browser CDN pays for one failed attempt rather
-than one per conversion.
-
-Raises ``PlaywrightNotInstalledError`` instead of a raw ``ImportError`` when
-Playwright itself is missing. A launch that fails for any other reason (missing
-system libraries, a sandbox denial) propagates unchanged rather than being
-reported as a missing browser.
-
-An image built with ``images.skip_browser`` has no browser; the error raised
-then names it as missing.
+The launch is the availability check, so there is no second, weaker check
+that can disagree with it. The converter never installs a browser: the image
+build installs it, or whoever sets up a bare host installs it once. A launch
+that failed because the browser binary is absent raises
+``PlaywrightNotInstalledError`` with a message that names the install command;
+a launch that fails for any other reason (missing system libraries, a sandbox
+denial) propagates unchanged.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
-import subprocess
+import shlex
 import sys
 import tempfile
-import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -36,24 +27,24 @@ SUPPORTED_FORMATS = {"png", "jpeg"}
 # The only launch-error text that means the browser binary is not there —
 # Playwright raises "browserType.launch: Executable doesn't exist at <path>".
 # Matching this and nothing else keeps a launch that failed for an unrelated
-# reason from being misread as a missing browser (and from triggering a pointless
-# network install).
+# reason from being misread as a missing browser.
 _MISSING_BROWSER_MARKER = "Executable doesn't exist"
 
-# What every absent-browser error opens with, whatever the install then did.
+# What every absent-browser error opens with.
 _BROWSER_MISSING = "Headless Chromium is not installed, so the page cannot be rendered to an image"
 
-# Run through the *current* interpreter rather than a bare "playwright" console
-# script, which need not be on PATH in a container or in a venv the server was
-# not launched from.
-_INSTALL_CMD = [sys.executable, "-m", "playwright", "install", "chromium"]
+# The interpreter this server runs under, because a bare ``python`` or
+# ``playwright`` on PATH need not be OSPREY's; the headless shell is the browser
+# the image build installs.
+BROWSER_INSTALL_COMMAND = shlex.join(
+    [sys.executable, "-m", "playwright", "install", "--only-shell", "chromium"]
+)
 
-# At-most-once-per-process install, and its cached verdict. Guarded by a plain
-# threading lock (not asyncio) so the state stays correct across event loops and
-# across threads; it is only ever held inside a worker thread.
-_install_lock = threading.Lock()
-_install_attempted = False
-_install_error: str | None = None
+# The one sentence every surface relays when the browser is missing.
+BROWSER_MISSING_MESSAGE = (
+    f"{_BROWSER_MISSING}: install it once with {BROWSER_INSTALL_COMMAND}, or, in a "
+    "container, rebuild the image without images.skip_browser."
+)
 
 
 # The Plotly bundle exists only where ``osprey vendor fetch`` wrote it. Its
@@ -117,7 +108,7 @@ def _inject_plotly(html: bytes, base_href: str, script_src: str) -> bytes:
 
 
 class PlaywrightNotInstalledError(Exception):
-    """Raised when Playwright or its browsers are not available."""
+    """Raised when the headless browser is not installed."""
 
 
 class ExportDeadlineError(Exception):
@@ -151,39 +142,6 @@ class PlotNotDrawnError(ExportDeadlineError):
 def _is_missing_browser(exc: BaseException) -> bool:
     """Whether *exc* is Playwright reporting an absent browser binary."""
     return _MISSING_BROWSER_MARKER in str(exc)
-
-
-def _run_install() -> str | None:
-    """Run the Chromium install; return an error message, or ``None`` on success."""
-    logger.info("Chromium not found — installing via '%s'...", " ".join(_INSTALL_CMD))
-    try:
-        proc = subprocess.run(_INSTALL_CMD, capture_output=True, text=True)
-    except OSError as exc:
-        return f"{_BROWSER_MISSING}; installing it failed: {exc}"
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()[-500:]
-        return f"{_BROWSER_MISSING}; installing it failed (exit {proc.returncode}).\n{detail}"
-    logger.info("Chromium installed successfully.")
-    return None
-
-
-def _install_chromium() -> None:
-    """Install Chromium once per process; re-raise the cached failure thereafter.
-
-    Blocking — call it via :func:`asyncio.to_thread` so a conversion running on an
-    event loop does not stall it for the length of a browser download.
-
-    Raises:
-        PlaywrightNotInstalledError: The install failed, now or on the earlier
-            attempt whose verdict is cached.
-    """
-    global _install_attempted, _install_error
-    with _install_lock:
-        if not _install_attempted:
-            _install_attempted = True
-            _install_error = _run_install()
-        if _install_error is not None:
-            raise PlaywrightNotInstalledError(_install_error)
 
 
 async def _render(
@@ -262,9 +220,7 @@ async def convert_html_to_image(
 ) -> Path:
     """Render an HTML file to an image via headless Chromium.
 
-    If the browser binary is missing it is installed (once per process) and the
-    render retried. A browser that launches is never re-checked and never
-    re-installed.
+    A browser binary that is missing is reported, never installed.
 
     Args:
         html_path: Path to the source HTML file.
@@ -277,8 +233,8 @@ async def convert_html_to_image(
         Resolved ``Path`` of the written image file.
 
     Raises:
-        PlaywrightNotInstalledError: Playwright is not importable, or Chromium is
-            absent and could not be installed.
+        PlaywrightNotInstalledError: The headless browser is not installed; the
+            message names the command that installs it.
         PageNotLoadedError: The page did not load within the export deadline.
         PlotNotDrawnError: The page's Plotly plot did not draw in time.
         FileNotFoundError: *html_path* does not exist.
@@ -293,27 +249,14 @@ async def convert_html_to_image(
 
     dest = Path(output_path)
 
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError as exc:
-        raise PlaywrightNotInstalledError(
-            "Playwright is not installed. Run: pip install playwright && playwright install chromium"
-        ) from exc
+    from playwright.async_api import async_playwright
 
     try:
         await _render(async_playwright, source, dest, fmt, width, height)
     except Exception as exc:
-        if not _is_missing_browser(exc):
-            raise
-        # The launch is the availability check, so only a genuinely absent binary
-        # reaches here: install it and retry exactly once.
-        await asyncio.to_thread(_install_chromium)
-        try:
-            await _render(async_playwright, source, dest, fmt, width, height)
-        except Exception as retry_exc:
-            if _is_missing_browser(retry_exc):
-                raise PlaywrightNotInstalledError(f"{_BROWSER_MISSING}.") from retry_exc
-            raise
+        if _is_missing_browser(exc):
+            raise PlaywrightNotInstalledError(BROWSER_MISSING_MESSAGE) from exc
+        raise
 
     logger.info("Converted %s → %s (%s)", source.name, dest.name, fmt)
     return dest.resolve()

@@ -74,6 +74,7 @@ PLAN_METADATA = {
         "orbit-response matrix. Every corrector is put back where it was."
     ),
     "writes": True,
+    "layout": [["correctors", "readbacks"], ["span", "num"], ["sweep"]],
 }
 
 

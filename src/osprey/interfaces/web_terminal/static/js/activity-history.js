@@ -23,6 +23,7 @@
  * textContent, never innerHTML.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { withPrefix } from './api.js';
 import { formatActivity, formatRelativeTime } from './activity-format.js';
 
@@ -72,8 +73,8 @@ export function createActivityHistory({ mount, labelOf: panelLabel }) {
   /** @type {HTMLElement | null} */
   let popoverEl = null;
   let historyOpen = false;
-  /** Bumped on every open and close, so a fetch from a stale open is dropped. */
-  let historyGeneration = 0;
+  /** The opens: a newer open or a close retires this one, so its fetch is dropped. */
+  const opens = createLatestRequest();
 
   function ensurePopover() {
     if (popoverEl) return popoverEl;
@@ -203,7 +204,7 @@ export function createActivityHistory({ mount, labelOf: panelLabel }) {
   async function openHistory() {
     if (historyOpen) return;
     historyOpen = true;
-    const generation = ++historyGeneration;
+    const token = opens.begin();
 
     const el = ensurePopover();
     showHistoryMessage('Loading…');
@@ -224,7 +225,7 @@ export function createActivityHistory({ mount, labelOf: panelLabel }) {
       events = null;
     }
     // Closed (or closed and reopened) while the request was in flight.
-    if (generation !== historyGeneration) return;
+    if (!token.isCurrent()) return;
     if (events == null) showHistoryMessage('Could not load recent activity');
     else renderHistory(events);
     placeHistory();
@@ -233,7 +234,7 @@ export function createActivityHistory({ mount, labelOf: panelLabel }) {
   function closeHistory() {
     if (!historyOpen) return;
     historyOpen = false;
-    historyGeneration++;
+    opens.cancel();
     popoverEl?.remove();
     mount.setAttribute('aria-expanded', 'false');
     document.removeEventListener('click', onDocumentClick, true);

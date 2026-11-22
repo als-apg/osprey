@@ -491,7 +491,7 @@ class TestStatusCas:
         """Clear the global active-job pointer around every test in this class.
 
         ``cancel_with_reread`` claims the single active slot via the tracker; on
-        the 409 (race-loser) path it raises before ``mark_completed`` runs, so the
+        the 409 (race-loser) path it raises before ``end_job`` runs, so the
         ``api:active_job`` pointer (which lives outside the job prefix ``_make_writer``
         flushes) would otherwise leak into the session-scoped Redis and make
         ``get_active_job`` self-heal to a phantom RUNNING job for later real-Redis

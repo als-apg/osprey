@@ -1,48 +1,25 @@
 // @ts-check
 /**
- * Per-plan presentation for the shipped plans: how their parameter form is
- * laid out, and what the live readout above the footer says.
+ * The live readout above the plan form's footer: what the plan's collected
+ * args amount to, recomputed on every edit.
  *
- * Both tables are keyed by plan name and both are OPTIONAL. A plan with no
- * entry still renders and still reads out — `planLayout` returns `undefined`,
- * which auto-flows every schema field, and `summarizePlanArgs` falls back to a
- * plain field count. That is what lets a facility or session plan be usable
- * with no panel-side code at all, so nothing here may ever become a gate on
- * whether a plan can be composed or queued.
+ * A plan states its readout in its metadata `summary`: a list of parts with
+ * `{parameter}` placeholders, filled by `fillSummary`. The shipped plans whose
+ * readouts compute (products, plurals, a sweep's doubled points) keep them in
+ * `PLAN_SUMMARIES`. A stated summary wins over that table; a plan with
+ * neither reads out a plain field count. The readout never gates anything,
+ * and every line it returns is text, never markup.
  *
- * Kept separate from plans-view.js because these are pure data and pure functions
- * over collected `plan_args` — no DOM, no fetches, no panel state — and because
- * adding a plan should mean adding an entry here, not editing the panel.
+ * Pure functions over a catalog entry and collected `plan_args` — no DOM, no
+ * fetches, no panel state.
  *
  * @module plan-presentation
  */
 
 /**
- * Per-plan 2-D field placement: rows of side-by-side field names, passed to
- * renderSchemaForm as its layout option. Names not in the plan's schema are
- * ignored; schema fields missing here are auto-flowed after these rows —
- * so this is a presentation hint, never a gate.
- *
- * @type {Record<string, string[][]>}
- */
-const PLAN_LAYOUTS = {
-  orm: [['correctors', 'readbacks'], ['span', 'num'], ['sweep']],
-  grid_scan: [['axes'], ['readbacks', 'snake_axes']],
-  orbit_bump_sweep: [
-    ['correctors'],
-    ['targets'],
-    ['closure_readbacks', 'readbacks'],
-    ['mode', 'sweep', 'num'],
-    ['tolerance', 'probe_amplitude', 'settle_s'],
-    ['beam_current_readback', 'min_beam_current'],
-    ['best_effort', 'max_trim_iterations', 'baseline_reads'],
-    ['monitors'],
-  ],
-};
-
-/**
- * Per-plan live readout, computed from the currently-collected plan_args on
- * every edit. Returns '' when there is nothing meaningful to show yet.
+ * The shipped plans' computed readouts, by plan name: interim until a plan
+ * file can compute its own line, when this table goes. Each returns '' when
+ * there is nothing meaningful to show yet.
  *
  * @type {Record<string, (args: Record<string, any>) => string>}
  */
@@ -103,31 +80,65 @@ const PLAN_SUMMARIES = {
   },
 };
 
+/** A literal brace pair, or a `{name}` placeholder (group 1). */
+const SUMMARY_TOKEN = /\{\{|\}\}|\{([^{}]*)\}/g;
+
 /**
- * The 2-D field placement for a plan, or `undefined` to auto-flow every field.
+ * What one argument shows as inside a summary part, or `null` when the part
+ * has no value to show for it: absent, null, an object or an empty list.
  *
- * @param {string} planName
- * @returns {string[][]|undefined}
+ * @param {unknown} value
+ * @returns {string|null}
  */
-export function planLayout(planName) {
-  return PLAN_LAYOUTS[planName];
+function summaryValue(value) {
+  if (Array.isArray(value)) return value.length > 0 ? String(value.length) : null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return null;
+}
+
+/**
+ * Fill a stated summary from collected args: each part with every parameter
+ * it names set is shown, `{{` and `}}` read as literal braces, a list as its
+ * count; the shown parts are joined with ' · '. '' when no part is shown.
+ *
+ * @param {string[]} parts
+ * @param {Record<string, any>} args
+ * @returns {string}
+ */
+export function fillSummary(parts, args) {
+  /** @type {string[]} */
+  const shown = [];
+  for (const part of parts) {
+    let complete = true;
+    const text = part.replace(SUMMARY_TOKEN, (token, /** @type {string|undefined} */ name) => {
+      if (name === undefined) return token[0];
+      const value = Object.hasOwn(args, name) ? summaryValue(args[name]) : null;
+      if (value === null) complete = false;
+      return value ?? '';
+    });
+    if (complete) shown.push(text);
+  }
+  return shown.join(' · ');
 }
 
 /**
  * The live readout line for a plan's currently-collected args, or '' when
- * there is nothing worth showing yet.
+ * there is nothing worth showing yet: the plan's stated summary, else its
+ * shipped computed readout, else a field count.
  *
- * A plan with its own summary gets it (e.g. "2 correctors · ±5 · 2 × 7 = 14
- * sweep points"); anything else — and any plan whose own summary has nothing to
- * say for these args — falls back to a field count.
- *
- * @param {string} planName
+ * @param {import('./plan-browser.js').PlanSummary|undefined} plan
  * @param {Record<string, any>} args
  * @returns {string}
  */
-export function summarizePlanArgs(planName, args) {
-  const custom = PLAN_SUMMARIES[planName];
-  const text = custom ? custom(args) : '';
+export function summarizePlanArgs(plan, args) {
+  const stated = plan?.metadata?.summary;
+  let text = stated ? fillSummary(stated, args) : '';
+  if (!text && !stated && plan) {
+    const computed = PLAN_SUMMARIES[plan.name];
+    text = computed ? computed(args) : '';
+  }
   if (text) return text;
   const count = Object.keys(args).length;
   return count > 0 ? `${count} parameter${count === 1 ? '' : 's'} set` : '';

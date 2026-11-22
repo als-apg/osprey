@@ -26,6 +26,7 @@ from docs.screenshots.recipes import DocShot
 from PIL import Image
 
 from osprey.cli.build_profile_resolve import preset_authored_config
+from tests._scoped_stdlib import scoped
 
 # Tokens that must NEVER appear in any assembled command — a destructive or
 # system-wide container operation would violate the project-scoped safety rule.
@@ -59,13 +60,16 @@ def _drive_stack(monkeypatch, tmp_path, *, run):
     rmtree = Mock()
     parent.attach_mock(rmtree, "rmtree")
 
-    monkeypatch.setattr(capture.subprocess, "run", run)
+    scoped(monkeypatch, capture, "subprocess", run=run)
     monkeypatch.setattr(capture, "wait_for_port", wait)
     monkeypatch.setattr(capture.tempfile, "mkdtemp", lambda *a, **k: str(tmp_path))
-    monkeypatch.setattr(capture.shutil, "rmtree", rmtree)
+    scoped(monkeypatch, capture, "shutil", rmtree=rmtree)
     monkeypatch.setattr(capture, "_opus_model_id", lambda project_dir: _OPUS_ID)
-    monkeypatch.setattr(
-        capture.subprocess, "Popen", Mock(side_effect=AssertionError("Popen not expected"))
+    scoped(
+        monkeypatch,
+        capture,
+        "subprocess",
+        Popen=Mock(side_effect=AssertionError("Popen not expected")),
     )
     return parent
 

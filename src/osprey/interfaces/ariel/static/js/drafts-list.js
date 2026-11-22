@@ -27,6 +27,7 @@ import {
   stagedByText,
 } from './components.js';
 import { getState, setState, subscribe } from './store.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /** @typedef {import('./store.js').State} State */
 
@@ -53,8 +54,8 @@ let host = null;
 /** @type {() => boolean} Whether the list run that handed over the body is still current. */
 let listCurrent = () => false;
 
-// Monotonic id of the newest drafts fetch; an older response paints nothing.
-let fetchSeq = 0;
+// The drafts fetches: a newer fetch retires this one, and a retired response paints nothing.
+const fetches = createLatestRequest();
 
 /** @type {(() => void)|null} The draftsRev subscription, installed once. */
 let unsubscribe = null;
@@ -100,27 +101,30 @@ export function newestFirst(drafts) {
   return [...drafts].sort((a, b) => time(b) - time(a));
 }
 
-/** Whether a drafts response may still paint. */
-function mayPaint(/** @type {number} */ seq) {
-  return seq === fetchSeq && host !== null && getState().mailbox === 'drafts' && listCurrent();
+/**
+ * Whether a drafts response may still paint.
+ * @param {import('/design-system/js/latest-request.js').LatestToken} token
+ */
+function mayPaint(token) {
+  return token.isCurrent() && host !== null && getState().mailbox === 'drafts' && listCurrent();
 }
 
 /** Fetch the drafts and paint them, under the guard. */
 async function load() {
-  const seq = ++fetchSeq;
+  const token = fetches.begin();
   const target = host;
   if (!target) return;
   target.setAttribute('aria-busy', 'true');
   try {
     const body = await draftsApi.list();
-    if (!mayPaint(seq)) return;
+    if (!mayPaint(token)) return;
     const drafts = newestFirst(Array.isArray(body?.drafts) ? body.drafts : []);
     const open = getState().compose?.draft ?? null;
     target.innerHTML = drafts.length
       ? drafts.map((d) => renderDraftRow(d, open)).join('')
       : renderEmptyState(DRAFTS_NONE.title, DRAFTS_NONE.text);
   } catch (error) {
-    if (!mayPaint(seq)) return;
+    if (!mayPaint(token)) return;
     console.error('Drafts failed:', error);
     target.innerHTML = renderErrorState('Drafts Failed', error);
   }

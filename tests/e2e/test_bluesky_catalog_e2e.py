@@ -64,6 +64,8 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MOVABLE_ROLE,
     READABLE_ROLE,
 )
+from osprey.services.bluesky_bridge.plan_metadata import PlanMetadata
+from osprey.services.bluesky_bridge.plans_core import grid_scan, orbit_bump_sweep, orm
 from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
@@ -78,7 +80,7 @@ from tests.e2e._volumes import remove_project_volumes
 # approval prompt branches on these exact literals.
 _PREVIEW_REASONS = PREVIEW_REASONS | set(REFUSAL_REASONS)
 
-# The ten keys every pre-flight answer carries, success or not.
+# The eleven keys every pre-flight answer carries, success or not.
 _PREVIEW_KEYS = {
     "ok",
     "plan",
@@ -90,6 +92,7 @@ _PREVIEW_KEYS = {
     "reason",
     "detail",
     "retryable",
+    "plan_args",
 }
 
 pytestmark = [
@@ -337,8 +340,10 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance() -> None:
       ``provenance == "facility"`` and its authored metadata round-tripped
       byte-for-byte through the loader's ``PLAN_METADATA`` parser.
 
-    Every entry's metadata is asserted to be EXACTLY the three declared fields.
-    That is the contract a consumer reads: ``category`` and ``required_devices``
+    Every entry's metadata is asserted to be EXACTLY the fields ``PlanMetadata``
+    declares, and each shipped plan's optional ``layout``/``summary`` is served
+    as its plan file states it (``None`` where it states neither). That is the
+    contract a consumer reads: ``category`` and ``required_devices``
     are retired, and a deployed container still publishing either would have a
     panel or an approval prompt telling an operator about a declaration nothing
     behind it honours any more.
@@ -347,7 +352,9 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance() -> None:
     assert status == 200, f"GET /plans failed: {status} {plans}"
     by_name = {p["name"]: p for p in plans}
 
-    for shipped_name in ("orm", "grid_scan", "orbit_bump_sweep"):
+    declared = set(PlanMetadata.model_fields)
+    shipped_modules = {"orm": orm, "grid_scan": grid_scan, "orbit_bump_sweep": orbit_bump_sweep}
+    for shipped_name, module in shipped_modules.items():
         assert shipped_name in by_name, (
             f"{shipped_name!r} missing from GET /plans: {sorted(by_name)}"
         )
@@ -356,10 +363,14 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance() -> None:
             f"{shipped_name!r}: expected provenance 'shipped', got {entry['provenance']!r}"
         )
         assert entry["metadata"] is not None, f"{shipped_name!r}: metadata is None"
-        assert set(entry["metadata"]) == {"name", "description", "writes"}, (
-            f"{shipped_name!r}: a deployed container is still publishing retired metadata "
-            f"fields: {entry['metadata']}"
+        assert set(entry["metadata"]) == declared, (
+            f"{shipped_name!r}: a deployed container is not publishing exactly the declared "
+            f"metadata fields: {entry['metadata']}"
         )
+        for key in ("layout", "summary"):
+            assert entry["metadata"][key] == module.PLAN_METADATA.get(key), (
+                f"{shipped_name!r}: served {key} differs from the plan file: {entry['metadata']}"
+            )
 
     assert "facility_probe" in by_name, f"facility_probe missing from GET /plans: {sorted(by_name)}"
     facility_entry = by_name["facility_probe"]
@@ -371,7 +382,11 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance() -> None:
     assert metadata is not None, "facility_probe: metadata is None"
     assert metadata["name"] == "facility_probe"
     assert metadata["writes"] is True
-    assert set(metadata) == {"name", "description", "writes"}
+    assert set(metadata) == declared, (
+        f"facility_probe: not exactly the declared metadata fields: {metadata}"
+    )
+    assert metadata["layout"] is None
+    assert metadata["summary"] is None
 
 
 @pytest.mark.usefixtures("deployed_catalog_stack")

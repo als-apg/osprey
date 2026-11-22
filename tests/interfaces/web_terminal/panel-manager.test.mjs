@@ -580,7 +580,7 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
 
     // Retiring a tile is LOCAL layout state: nothing is sent to the server,
     // and the panel keeps its rail membership so a second click brings it back.
-    expect(calls.filter((c) => c.opts?.method === 'POST')).toEqual([]);
+    expect(posts(calls).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual([]);
     expect(document.querySelector('[data-panel-id="okf"]')).toBe(tab);
   });
 });
@@ -1564,7 +1564,15 @@ async function bootWorkspace({
   return { api, emit, mod, calls, releaseHealth, holder, op };
 }
 
-/** POSTs the client sent — an applied SSE frame must never re-report focus. */
+/**
+ * POSTs the client sent — an applied SSE frame must never re-report focus.
+ *
+ * A page whose dock shell never wires keeps polling for it and, once its fast
+ * budget runs out, sends one dock-less /api/panel-layout capability report.
+ * The module graph of every earlier test in this file keeps that poll on the
+ * real clock and posts through whichever fetch stub is installed then, so an
+ * assertion that a gesture sends nothing leaves /api/panel-layout out.
+ */
 const posts = (/** @type {{url: string, opts: any}[]} */ calls) =>
   calls.filter((c) => c.opts?.method === 'POST').map((c) => c.url);
 
@@ -3255,7 +3263,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(dockedTiles(api)).toEqual(['okf']);
     expect(entry('ariel')).not.toBeNull();
     expect(entry('ariel').classList.contains('detached')).toBe(true);
-    expect(posts(calls)).toEqual([]);
+    expect(posts(calls).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual([]);
     // The menu now offers the way back; the palette's rows skip it.
     rightClick(entry('ariel'));
     expect(menuLabels()).toContain('Reattach');
@@ -3403,7 +3411,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // The landing is a surfacing nobody asked for, so nothing is reported.
     expect(entry('okf').getAttribute('aria-current')).toBe('page');
     expect(entry('ariel').getAttribute('aria-current')).toBeNull();
-    expect(posts(calls)).toEqual([]);
+    expect(posts(calls).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual([]);
   });
 
   test('a detached panel’s restored placeholder is pruned, and its frame stays in the window', async () => {
@@ -3884,7 +3892,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
     const stored = JSON.parse(localStorage.getItem('osprey-sidebar-groups') ?? '{}');
     expect(stored.placement).toEqual({ ariel: 'workspace' });
     // The groups are the operator's own: nothing reaches the server.
-    expect(posts(calls)).toEqual([]);
+    expect(posts(calls).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual([]);
 
     // The moved row offers the way back.
     rightClick(entry('ariel'));
@@ -4020,7 +4028,9 @@ describe('sidecar start failure and retry', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(starts()).toHaveLength(1);
-    expect(calls.slice(before).filter((c) => c.opts?.method === 'POST')).toEqual([]);
+    expect(posts(calls.slice(before)).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual(
+      []
+    );
   });
 
   test('a start that settles running enables and activates the panel', async () => {

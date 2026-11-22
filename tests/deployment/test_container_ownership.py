@@ -19,6 +19,7 @@ from osprey.deployment.compose_generator import PROJECT_LABEL, REPO_ID_LABEL
 from osprey.deployment.container_ownership import (
     COMPOSE_PROJECT_LABEL,
     COMPOSE_SERVICE_LABEL,
+    DOWN_REFUSAL,
     START_REFUSAL,
     ClaimBasis,
     ForeignCheckoutError,
@@ -308,6 +309,30 @@ def test_the_start_refusal_after_a_move_names_the_one_command_that_clears_it():
 
     assert claim_gone(probe)
     assert "no such directory on this host now" in error.cause
+    assert error.remedy == (
+        "the copy they came from is no longer on this host, so remove its containers: "
+        "`docker rm -f mine-a`. The project's volumes are untouched and keep their data."
+    )
+
+
+def test_the_stop_refusal_names_the_other_copy_and_where_to_stop_it(tmp_path):
+    other = tmp_path / "mine"
+    other.mkdir()
+    probe = _ListingProbe([_container("mine-a", OTHER_ID, str(other))])
+
+    error = host_claim(PROJECT, THIS_ID, probe=probe).refusal(DOWN_REFUSAL)
+
+    assert error.summary("osprey down") == (
+        "osprey down will not stop containers from another copy of this repo"
+    )
+    assert f"{other} (still on disk)" in " ".join(error.cause.split())
+    assert error.remedy == f"stop that deployment where it lives: `osprey down --repo {other}`"
+
+
+def test_the_stop_refusal_after_a_move_names_the_one_command_that_clears_it():
+    probe = _ListingProbe([_container("mine-a", OTHER_ID, "/nowhere/mine")])
+    error = host_claim(PROJECT, THIS_ID, probe=probe).refusal(DOWN_REFUSAL)
+
     assert error.remedy == (
         "the copy they came from is no longer on this host, so remove its containers: "
         "`docker rm -f mine-a`. The project's volumes are untouched and keep their data."

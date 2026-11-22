@@ -24,6 +24,7 @@ from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
 from tests._builds import BuiltProject
 from tests._preset_data import bundle_data_root
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build
 
 # ---------------------------------------------------------------------------
@@ -1047,7 +1048,8 @@ class TestProjectPyproject:
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
+        scoped(monkeypatch, "osprey.deployment.lock_constraints", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         _create_project_venv(project_path, _plan_project_venv(profile, install=True))
@@ -1276,7 +1278,7 @@ class TestCreateProjectVenv:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
         _create_project_venv(
@@ -1309,9 +1311,9 @@ class TestCreateProjectVenv:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.delenv("UV", raising=False)
-        monkeypatch.setattr("shutil.which", lambda name: None)
+        scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda name: None)
 
         _create_project_venv(
             tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"]), install=True)
@@ -1336,7 +1338,7 @@ class TestCreateProjectVenv:
                 args=cmd, returncode=1, stdout="", stderr="venv error"
             )
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
@@ -1361,7 +1363,7 @@ class TestCreateProjectVenv:
                 args=cmd, returncode=1, stdout="", stderr="ERROR: No matching distribution"
             )
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
@@ -1435,7 +1437,7 @@ class TestSourceLockConstraints:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setattr(
             "osprey.cli.build_environment.source_lock_constraints", lambda spec: self.LOCK
         )
@@ -1443,7 +1445,7 @@ class TestSourceLockConstraints:
             monkeypatch.setenv("UV", "/usr/bin/uv")
         else:
             monkeypatch.delenv("UV", raising=False)
-            monkeypatch.setattr("shutil.which", lambda name: None)
+            scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda name: None)
             monkeypatch.setattr(
                 "osprey.cli.build_environment._pip_member_requirements", lambda spec: []
             )

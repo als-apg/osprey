@@ -74,11 +74,13 @@ from osprey.deployment.web_terminals.artifacts import (
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+from osprey.deployment.web_terminals.render import AUTH_SERVICE_NAME
 from osprey.services.auth_sidecar.passwords import verify_password
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -466,10 +468,29 @@ def _podman_host(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, env=None, **kwargs: (
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, env=None, **kwargs: (
+            runs.append({"cmd": list(cmd), "env": dict(env or {})})
+            or subprocess.CompletedProcess(list(cmd), 0, "", "")
+        ),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda cmd, env=None, **kwargs: (
+            runs.append({"cmd": list(cmd), "env": dict(env or {})})
+            or subprocess.CompletedProcess(list(cmd), 0, "", "")
+        ),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.web_terminals.provision",
+        "subprocess",
+        run=lambda cmd, env=None, **kwargs: (
             runs.append({"cmd": list(cmd), "env": dict(env or {})})
             or subprocess.CompletedProcess(list(cmd), 0, "", "")
         ),
@@ -856,7 +877,7 @@ def test_a_roster_verb_probes_for_the_shape_nobody_handed_it(
 
     assert len(runs) == 1, runs
     _assert_podman_shaped(runs[0], repo)
-    assert runs[0]["cmd"][-1] == provision.AUTH_SERVICE_NAME
+    assert runs[0]["cmd"][-1] == AUTH_SERVICE_NAME
 
 
 def test_the_roster_verbs_nginx_reload_carries_both_halves_of_the_shape(
@@ -1174,10 +1195,17 @@ def test_passwd_rotation_recreates_the_sidecar_against_the_rendered_build_file(
     argv: list[list[str]] = []
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(lifecycle, "_require_running_runtime", lambda config: None)
-    monkeypatch.setattr(
-        provision.subprocess,
-        "run",
-        lambda cmd, **kwargs: argv.append(list(cmd)) or _completed(),
+    scoped(
+        monkeypatch,
+        provision,
+        "subprocess",
+        run=lambda cmd, **kwargs: argv.append(list(cmd)) or _completed(),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda cmd, **kwargs: argv.append(list(cmd)) or _completed(),
     )
 
     lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
@@ -1215,10 +1243,11 @@ def test_passwd_rotation_ignores_a_stray_root_level_compose_file(
     argv: list[list[str]] = []
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(lifecycle, "_require_running_runtime", lambda config: None)
-    monkeypatch.setattr(
-        provision.subprocess,
-        "run",
-        lambda cmd, **kwargs: argv.append(list(cmd)) or _completed(),
+    scoped(
+        monkeypatch,
+        provision,
+        "subprocess",
+        run=lambda cmd, **kwargs: argv.append(list(cmd)) or _completed(),
     )
 
     lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")

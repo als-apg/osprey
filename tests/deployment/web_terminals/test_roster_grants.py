@@ -28,8 +28,8 @@ from osprey.deployment.web_terminals.roster import (
 from tests._renders import tier_render
 
 
-def _projected(panel_id: str = "knob-demo", single_user_alias: object = False) -> dict:
-    return {"roster_grant": {"panel_id": panel_id, "single_user_alias": single_user_alias}}
+def _projected(panel_id: str = "knob-demo") -> dict:
+    return {"roster_grant": {"panel_id": panel_id}}
 
 
 # ---------------------------------------------------------------------------
@@ -40,23 +40,28 @@ def _projected(panel_id: str = "knob-demo", single_user_alias: object = False) -
 def test_the_bluesky_and_optimizer_rows_are_built_in() -> None:
     assert panel_roster_grant_table({}) == {
         BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
-        OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", single_user_alias=True),
+        OPTIMIZER_PANEL_ID: PanelRosterGrant(
+            service="optimizer_web", names_single_user_operator=True
+        ),
     }
 
 
 def test_a_projected_row_is_read_off_the_rendered_service_block() -> None:
-    config = {"services": {"knob-demo": _projected(single_user_alias=True), "plain": {}}}
+    config = {"services": {"knob-demo": _projected(), "plain": {}}}
     table = panel_roster_grant_table(config)
     assert table["knob-demo"] == PanelRosterGrant(
-        service="knob-demo", single_user_alias=True, loopback_only=True
+        service="knob-demo", names_single_user_operator=True, loopback_only=True
     )
     assert set(table) == {BLUESKY_PANEL_ID, OPTIMIZER_PANEL_ID, "knob-demo"}
 
 
-@pytest.mark.parametrize("value", ["true", 1, None])
-def test_single_user_alias_holds_only_for_the_literal_true(value: object) -> None:
-    config = {"services": {"knob": _projected(single_user_alias=value)}}
-    assert panel_roster_grant_table(config)["knob-demo"].single_user_alias is False
+@pytest.mark.parametrize(
+    "row",
+    [{"panel_id": "knob-demo"}, {"panel_id": "knob-demo", "single_user_alias": False}],
+)
+def test_every_application_row_names_the_single_user_operator(row: dict) -> None:
+    config = {"services": {"knob": {"roster_grant": row}}}
+    assert panel_roster_grant_table(config)["knob-demo"].names_single_user_operator is True
 
 
 @pytest.mark.parametrize("panel_id", [BLUESKY_PANEL_ID, "knob-demo"])
@@ -182,22 +187,31 @@ def test_the_bluesky_grant_is_the_tables_row(tmp_path: Path) -> None:
 _EMPTY = {"credentials": []}
 
 
-def test_a_deployment_with_no_roster_grants_nothing(tmp_path: Path) -> None:
-    config = {"services": {"knob-demo": _projected(single_user_alias=False)}}
-    assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops") == (
-        _EMPTY
-    )
+def _alias_credential(account: str) -> dict:
+    return {
+        "var": terminal_secret_var(account),
+        "source": "OSPREY_TERMINAL_SECRET",
+        "owner": account,
+        "required": True,
+    }
+
+
+def test_an_application_panel_with_no_roster_names_the_build_account(tmp_path: Path) -> None:
+    config = {"services": {"knob-demo": {"roster_grant": {"panel_id": "knob-demo"}}}}
+    assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops") == {
+        "credentials": [_alias_credential("ops")]
+    }
 
 
 # ---------------------------------------------------------------------------
-# (3) the single-user alias
+# (3) the single-user operator
 # ---------------------------------------------------------------------------
 
 
-def test_an_alias_panel_with_no_roster_accepts_the_deployment_secret_as_the_build_account(
+def test_an_application_panel_with_no_roster_accepts_the_deployment_secret_as_the_build_account(
     tmp_path: Path,
 ) -> None:
-    config = {"services": {"knob-demo": _projected(single_user_alias=True)}}
+    config = {"services": {"knob-demo": _projected()}}
     var = terminal_secret_var("ops")
     assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops") == {
         "credentials": [
@@ -206,9 +220,9 @@ def test_an_alias_panel_with_no_roster_accepts_the_deployment_secret_as_the_buil
     }
 
 
-def test_an_alias_panel_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -> None:
+def test_an_application_panel_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -> None:
     config = _deployment(tmp_path, {"operator": ("knob-demo",)})
-    config["services"]["knob-demo"] = _projected(single_user_alias=True)
+    config["services"]["knob-demo"] = _projected()
     grant = service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops")
     alice = terminal_secret_var("alice")
     assert grant["credentials"] == [
@@ -216,7 +230,7 @@ def test_an_alias_panel_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -
     ]
 
 
-def test_an_alias_panel_on_a_roster_of_shared_cards_alone_gets_the_roster_grant(
+def test_an_application_panel_on_a_roster_of_shared_cards_alone_gets_the_roster_grant(
     tmp_path: Path,
 ) -> None:
     """A roster with no people is still a roster: the card holds its own secret, not the deployment's."""
@@ -227,7 +241,7 @@ def test_an_alias_panel_on_a_roster_of_shared_cards_alone_gets_the_roster_grant(
         encoding="utf-8",
     )
     config = {
-        "services": {"knob-demo": _projected(single_user_alias=True)},
+        "services": {"knob-demo": _projected()},
         "modules": {
             "web_terminals": {
                 "renders": {
@@ -248,12 +262,12 @@ def test_an_alias_panel_on_a_roster_of_shared_cards_alone_gets_the_roster_grant(
     ]
 
 
-def test_an_alias_panel_on_a_disabled_roster_accepts_the_deployment_secret(
+def test_an_application_panel_on_a_disabled_roster_accepts_the_deployment_secret(
     tmp_path: Path,
 ) -> None:
     """Switched-off per-user terminals hold no secret; the one terminal holds the deployment's."""
     config = _deployment(tmp_path, {"operator": ("knob-demo",)})
-    config["services"]["knob-demo"] = _projected(single_user_alias=True)
+    config["services"]["knob-demo"] = _projected()
     config["modules"]["web_terminals"]["enabled"] = False
     var = terminal_secret_var("ops")
     assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops") == {
@@ -264,21 +278,21 @@ def test_an_alias_panel_on_a_disabled_roster_accepts_the_deployment_secret(
 
 
 def test_no_alias_without_a_build_account_that_names_a_directory(tmp_path: Path) -> None:
-    config = {"services": {"knob-demo": _projected(single_user_alias=True)}}
+    config = {"services": {"knob-demo": _projected()}}
     assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: None) == (
         _EMPTY
     )
     assert service_panel_grant(config, tmp_path, "knob-demo") == _EMPTY
 
 
-def test_the_build_account_is_asked_only_for_an_alias_panel_with_no_roster(
+def test_the_build_account_is_asked_only_for_an_application_panel_with_no_roster(
     tmp_path: Path,
 ) -> None:
     def refuse() -> str:
         raise AssertionError("build account asked for")
 
     config = _deployment(tmp_path, {"operator": ("knob-demo",)})
-    config["services"]["knob-demo"] = _projected(single_user_alias=True)
+    config["services"]["knob-demo"] = _projected()
     service_panel_grant(config, tmp_path, "knob-demo", build_account=refuse)
     service_panel_grant({"services": {}}, tmp_path, "plain", build_account=refuse)
 
@@ -286,15 +300,6 @@ def test_the_build_account_is_asked_only_for_an_alias_panel_with_no_roster(
 # ---------------------------------------------------------------------------
 # (4) the optimizer panel's alias, and the loopback precondition
 # ---------------------------------------------------------------------------
-
-
-def _alias_credential(account: str) -> dict:
-    return {
-        "var": terminal_secret_var(account),
-        "source": "OSPREY_TERMINAL_SECRET",
-        "owner": account,
-        "required": True,
-    }
 
 
 @pytest.mark.parametrize("bind", [None, "127.0.0.1", "::1", "localhost"])
@@ -325,10 +330,10 @@ def test_the_optimizer_sidecar_names_nobody_off_loopback(tmp_path: Path, bind: s
     assert service_panel_grant(config, tmp_path, "optimizer_web", build_account=refuse) == _EMPTY
 
 
-def test_an_application_alias_holds_whatever_the_bind_address(tmp_path: Path) -> None:
+def test_an_application_panel_names_the_operator_whatever_the_bind_address(tmp_path: Path) -> None:
     """An application container publishes on loopback alone, so a network bind changes nothing."""
     config = {
-        "services": {"knob-demo": _projected(single_user_alias=True)},
+        "services": {"knob-demo": _projected()},
         "deployment": {"bind_address": "0.0.0.0"},
     }
     grant = service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops")

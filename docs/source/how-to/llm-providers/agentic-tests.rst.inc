@@ -45,7 +45,7 @@
 
    **Look up BPM addresses**
       | *Asks:* What are the PV addresses of the horizontal BPMs in the storage ring?
-      | *Passes if:* the channel-finder subagent looks them up; no invented addresses
+      | *Passes if:* the channel-finder subagent looks them up; the answer names every storage-ring horizontal BPM address and no other; a refused options request is corrected and repeated
 
    **Machine health**
       | *Asks:* Is the machine healthy right now?

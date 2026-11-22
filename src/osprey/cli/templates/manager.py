@@ -12,6 +12,7 @@ from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
+from osprey.facility.views.channel_finder import ABSENT
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey_connectors import yaml_loader
@@ -82,6 +83,7 @@ class TemplateManager:
             keep_trailing_newline=True,
         )
         self.jinja_env.globals["fail"] = _fail
+        self.jinja_env.globals["absent_node"] = ABSENT
 
     def _get_template_root(self) -> Path:
         """Get path to osprey templates directory.

@@ -21,6 +21,7 @@ from unittest import mock
 import pytest
 
 import osprey.templates.claude_code.claude.statusline as statusline
+from tests._scoped_stdlib import scoped
 
 STATUSLINE_SCRIPT = (
     Path(__file__).parents[2]
@@ -81,7 +82,7 @@ def answering_git(monkeypatch):
         calls.append(list(argv))
         return subprocess.CompletedProcess(argv, 0, stdout=f"{_STUB_BRANCH}\n", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    scoped(monkeypatch, statusline, "subprocess", run=fake_run)
     return calls
 
 

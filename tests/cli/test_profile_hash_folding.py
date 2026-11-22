@@ -1,6 +1,6 @@
 """The profile hash covers every file the build reads, and renders resolve their root.
 
-``compute_profile_hash`` is what the deploy-side staleness advisory compares
+``compute_profile_hash`` is what the drift check (``check_drift``) compares
 against, so anything a build consumes has to be inside it. Beyond the ``data:``
 tree and ``overlay:`` sources pinned in ``test_profile_material_hash.py``, that
 means the profile's convention directories (``rules/``, ``skills/`` and the rest

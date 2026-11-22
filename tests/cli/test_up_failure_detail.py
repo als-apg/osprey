@@ -16,6 +16,7 @@ from click.testing import CliRunner
 from osprey.cli.main import cli
 from osprey.deployment import runtime_helper
 from osprey.deployment.errors import CapturedProcessError
+from tests._scoped_stdlib import scoped
 
 ABORT = "dependency failed to start: container demo-bluesky-bridge is unhealthy\n"
 TAIL = "RuntimeError: refusing to start writable: the limits database could not be parsed\n"
@@ -71,7 +72,7 @@ def test_the_failure_block_carries_the_containers_log(
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0, stdout=TAIL)
 
-    monkeypatch.setattr(runtime_helper.subprocess, "run", fake_logs)
+    scoped(monkeypatch, runtime_helper, "subprocess", run=fake_logs)
 
     result = CliRunner().invoke(cli, ["up", "-d"])
 
@@ -93,7 +94,7 @@ def test_a_failure_that_blames_no_container_is_reported_as_before(
     def never(cmd, **kwargs):
         raise AssertionError(f"no log should be read: {cmd}")
 
-    monkeypatch.setattr(runtime_helper.subprocess, "run", never)
+    scoped(monkeypatch, runtime_helper, "subprocess", run=never)
 
     result = CliRunner().invoke(cli, ["up", "-d"])
 

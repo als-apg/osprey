@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey.agent_record.client import ClientAnswer
+from tests._scoped_stdlib import patch_subprocess
 from tests.agent_record.fakes import FakeRecordClient
 
 #: The session's first time as the agent record holds it.
@@ -100,7 +101,7 @@ class TestGatherSessionMetadata:
         """created_via matches the argument regardless of other failures."""
         from osprey.mcp_server.session import gather_session_metadata
 
-        with patch("subprocess.run", side_effect=_make_subprocess_raise):
+        with patch_subprocess("osprey.mcp_server.session", side_effect=_make_subprocess_raise):
             result = gather_session_metadata("my-caller-id")
 
         assert result["created_via"] == "my-caller-id"
@@ -110,7 +111,7 @@ class TestGatherSessionMetadata:
         """git_branch and git_commit_short are None when git fails."""
         from osprey.mcp_server.session import gather_session_metadata
 
-        with patch("subprocess.run", side_effect=_make_subprocess_raise):
+        with patch_subprocess("osprey.mcp_server.session", side_effect=_make_subprocess_raise):
             result = gather_session_metadata("test")
 
         assert result["git_branch"] is None

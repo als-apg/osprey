@@ -18,6 +18,7 @@ it would have to parse.
 
 from __future__ import annotations
 
+import io
 from dataclasses import MISSING, fields
 
 import pytest
@@ -342,9 +343,67 @@ def test_every_key_an_active_block_writes_has_a_note(block: str) -> None:
     assert not {"host", "freshness_channel"} & set(written)
 
 
+@pytest.mark.parametrize(
+    ("block", "edit"),
+    [("dispatch", "dispatch.triggers=x"), ("va_archiver", "va_archiver.retention_days=3")],
+)
+def test_a_set_created_block_lands_under_its_section_header(block: str, edit: str) -> None:
+    """A block the command line adds is written in its own slot: under its
+    section header and prose, between the neighbouring slots, in place of its
+    commented example — with the same content and the same notes as before."""
+    text = emit_standalone_profile_yaml("hello-world", (edit,), "Emitted", project_name="emitted")
+    lines = text.splitlines()
+    templates = build_profile_emit._COMMENTED_TEMPLATES
+    header = templates[block][0].splitlines()
+
+    # (a) the header once, its prose, then the live block.
+    assert lines.count(header[0]) == 1
+    start = lines.index(header[0])
+    assert lines[start : start + len(header)] == header
+    assert lines[start + len(header)] == f"{block}:"
+
+    # (b) between the nearest written slot headers before and after it.
+    order = build_profile_emit._COMMENTED_TEMPLATE_ORDER
+    written = [
+        lines.index(rule)
+        for rule in (templates[field][0].splitlines()[0] for field in order)
+        if rule in lines
+    ]
+    assert written == sorted(written)
+    position = written.index(start)
+    assert 0 < position < len(written) - 1
+    assert written[position - 1] < start < written[position + 1]
+
+    # (c) the commented example is gone.
+    assert not [line for line in lines if line.startswith(f"# {block}:")]
+
+    # (d) the content is the stated key plus every written default.
+    stated, _sep, value = edit.removeprefix(f"{block}.").partition("=")
+    cls, notes = build_profile_emit._BLOCK_KEY_NOTES[block]
+    assert yaml.safe_load(text)[block] == {
+        **build_profile_emit._written_defaults(cls),
+        stated: yaml.safe_load(value),
+    }
+
+    # (e) every written default keeps its note; the stated value carries none.
+    body = lines[start + len(header) + 1 :]
+    for key in notes:
+        line = next(line for line in body if line.startswith(f"  {key}:"))
+        if key == stated:
+            assert "#" not in line, line
+        else:
+            assert line.endswith(f"# {notes[key]}"), line
+
+    # The text round-trips through the emitter's own YAML unchanged.
+    buffer = io.StringIO()
+    build_profile_emit._yaml.dump(build_profile_emit._yaml.load(text), buffer)
+    assert buffer.getvalue() == text
+
+
 def test_the_archiver_example_states_the_dataclass_defaults() -> None:
     """The commented ``va_archiver:`` example shows each knob at the value it builds with."""
-    lines = build_profile_emit._COMMENTED_TEMPLATES["va_archiver"].splitlines()
+    _header, example = build_profile_emit._COMMENTED_TEMPLATES["va_archiver"]
+    lines = example.splitlines()
     start = lines.index("# va_archiver:")
     body = "\n".join(line.removeprefix("#").removeprefix(" ") for line in lines[start:])
     example = yaml.safe_load(body)["va_archiver"]

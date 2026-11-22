@@ -1,20 +1,26 @@
-"""Run Dockerfile RUN bodies under a real ``sh`` with stub tools on ``PATH``.
+"""Run Dockerfile RUN bodies under ``dash`` with stub tools on ``PATH``.
 
 The shipped image recipes install the pinned framework with plain ``pip`` in
 one long ``RUN``. What that ``pip`` is invoked with, and whether a failing
 install fails the layer, is a property of the shell body, not of any rendered
-string, so the tests here execute the body under a real ``sh`` with ``pip``,
-``uv`` and ``apt-get`` shadowed on ``PATH``. Both the shipped service recipes
-(:mod:`tests.deployment.test_service_dockerfiles`) and the rendered project
-template (:mod:`tests.cli.test_dockerfile_template`) probe their bodies here.
+string, so the tests here execute the body under ``dash`` with ``pip``,
+``uv`` and ``apt-get`` shadowed on ``PATH``. ``dash`` is the shell ``docker
+build`` runs a RUN body under: it is ``/bin/sh`` on the Debian bases every
+template builds on, and no template sets ``SHELL``. Both the shipped service
+recipes (:mod:`tests.deployment.test_service_dockerfiles`) and the rendered
+project template (:mod:`tests.cli.test_dockerfile_template`) probe their bodies
+here.
 """
 
 from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 #: A no-op ``apt-get``.
 APT_NOOP = "#!/bin/sh\nexit 0\n"
@@ -39,13 +45,22 @@ def stubbed_env(tmp_path: Path, stubs: dict[str, str], **extra: str) -> dict[str
 
 
 def run_body(body: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    """Run a RUN body under ``sh -c`` with *env*.
+    """Run a RUN body under ``dash -c`` with *env*, as ``docker build`` runs it.
 
-    Waited on until the body exits, with no wall-clock budget: every tool it
-    calls is a stub, so it ends on its own however slowly a loaded host starts
-    them, and the per-test timeout is the hang breaker.
+    ``dash`` is ``/bin/sh`` on the Debian bases every template Dockerfile
+    builds on, and no template sets ``SHELL``, so a bashism that a host's
+    ``sh`` forgives fails here as it fails in the image. Waited on until the
+    body exits, with no wall-clock budget: every tool it calls is a stub, so it
+    ends on its own however slowly a loaded host starts them, and the per-test
+    timeout is the hang breaker.
     """
-    return subprocess.run(["sh", "-c", body], capture_output=True, text=True, env=env)
+    dash = shutil.which("dash")
+    if dash is None:
+        pytest.skip(
+            "dash, the /bin/sh of the Debian bases every template Dockerfile builds on, "
+            "is not on PATH"
+        )
+    return subprocess.run([dash, "-c", body], capture_output=True, text=True, env=env)
 
 
 def deps_sandbox(

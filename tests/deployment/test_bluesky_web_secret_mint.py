@@ -33,9 +33,9 @@ from tests.deployment._dotenv import project_env
 
 
 @pytest.fixture
-def captured_argv(stub_deploy_up):
-    """Patch deploy_up's collaborators for a project with only 'bluesky_web' deployed."""
-    return stub_deploy_up({"deployed_services": ["bluesky_web"]})
+def captured_argv(stub_start_stack):
+    """Stub the start's host for a project with only 'bluesky_web' deployed."""
+    return stub_start_stack({"deployed_services": ["bluesky_web"]})
 
 
 @pytest.fixture
@@ -45,20 +45,20 @@ def _clean_secret_env(monkeypatch):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_bluesky_web_deploy_mints_the_operator_secret(_clean_secret_env, tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+def test_bluesky_web_deploy_mints_the_operator_secret(stubbed_start, _clean_secret_env, tmp_path):
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     secret = env.get("OSPREY_TERMINAL_SECRET")
-    assert secret, "deploy_up did not mint OSPREY_TERMINAL_SECRET for a bluesky_web deploy"
+    assert secret, "the start did not mint OSPREY_TERMINAL_SECRET for a bluesky_web deploy"
     assert len(secret) >= 32, f"minted secret is implausibly short: {len(secret)} chars"
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_bluesky_web_existing_secret_is_preserved(_clean_secret_env, tmp_path):
+def test_bluesky_web_existing_secret_is_preserved(stubbed_start, _clean_secret_env, tmp_path):
     (tmp_path / ".env").write_text("OSPREY_TERMINAL_SECRET=operator-chose-this\n", encoding="utf-8")
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("OSPREY_TERMINAL_SECRET") == "operator-chose-this", (

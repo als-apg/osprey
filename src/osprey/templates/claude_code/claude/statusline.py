@@ -14,6 +14,7 @@ Design notes:
 """
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -57,8 +58,6 @@ def _dir_and_branch(data: dict) -> tuple[str, str]:
     cwd = Path(cwd_full).name or cwd_full
     branch = ""
     if cwd_full:
-        import subprocess
-
         try:
             r = subprocess.run(
                 ["git", "-C", cwd_full, "rev-parse", "--abbrev-ref", "HEAD"],

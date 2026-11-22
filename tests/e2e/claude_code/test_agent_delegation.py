@@ -35,14 +35,21 @@ from __future__ import annotations
 
 import pytest
 
+from osprey.facility import FACILITY_FILE
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.channel_finder import HIERARCHICAL_FILE
+from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from tests.e2e.ariel_picture import absent_qmd_sidecar
+from tests.e2e.channel_finder_judge import expected_horizontal_bpms, judge_channel_finder_run
 from tests.e2e.sdk_helpers import (
     ariel_db_skip_reason,
     e2e_budget_scale,
     init_project,
     print_run_summary,
+    render_dir,
     run_sdk_query,
 )
+from tests.e2e.tool_errors import assert_no_tool_errors
 
 # ---------------------------------------------------------------------------
 # Service availability helpers (evaluated at collection time)
@@ -97,24 +104,6 @@ def delegation_project(tmp_path_factory):
 def sub_agent_traces(result):
     """Return tool traces that belong to a sub-agent (have parent_tool_use_id)."""
     return [t for t in result.tool_traces if t.parent_tool_use_id is not None]
-
-
-def assert_no_tool_errors(result, exclude_patterns=None, exempt=None):
-    """Assert no tool traces have is_error=True, optionally excluding patterns.
-
-    ``exempt`` is a predicate over one trace; a trace it accepts is not counted.
-    """
-    exclude_patterns = exclude_patterns or []
-    errors = [
-        t
-        for t in result.tool_traces
-        if t.is_error
-        and not any(pat in t.name for pat in exclude_patterns)
-        and not (exempt is not None and exempt(t))
-    ]
-    assert len(errors) == 0, f"{len(errors)} tool error(s): " + "; ".join(
-        f"{t.name}: {t.result[:200] if t.result else 'N/A'}" for t in errors
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +220,11 @@ class TestAgentDelegation:
         tier=1,
         title="Look up BPM addresses",
         asks="What are the PV addresses of the horizontal BPMs in the storage ring?",
-        passes_if="the channel-finder subagent looks them up; no invented addresses",
+        passes_if=(
+            "the channel-finder subagent looks them up; the answer names every "
+            "storage-ring horizontal BPM address and no other; a refused options "
+            "request is corrected and repeated"
+        ),
     )
     @pytest.mark.asyncio
     @pytest.mark.flaky(reruns=2)
@@ -246,9 +239,14 @@ class TestAgentDelegation:
         tools (which means real channel database traversal happened).
 
         Channel-finder needs no external backend — its database ships with
-        the deployment — so this is an unconditional always-run test. The
-        ``test_channel_finder_mcp_benchmarks.py`` suite covers retrieval
-        accuracy; this one only validates the delegation handoff.
+        the deployment — so this is an unconditional always-run test.
+
+        The run is then judged by :func:`judge_channel_finder_run` against the
+        render's own facility file and index: the final answer names every
+        storage-ring horizontal BPM address and no other facility address, and
+        no tool erred save the hierarchical finder's level-order refusal, which
+        passes only when the repaired options request and a successful
+        ``build_channels`` follow it.
         """
         prompt = (
             "What's the PV address for the horizontal beam position monitors "
@@ -293,9 +291,16 @@ class TestAgentDelegation:
             f"directive was ignored. Names: {[t.name for t in direct_cf_calls]}"
         )
 
-        # No tool errors — the database ships with the build so retrieval
-        # should always succeed.
-        assert_no_tool_errors(result)
+        build = render_dir(delegation_project)
+        database = HierarchicalChannelDatabase(
+            str(build / "data" / "channel_finder" / HIERARCHICAL_FILE)
+        )
+        records = FacilityRecords.from_file(build / FACILITY_FILE)
+        assert records is not None, f"the render holds no {FACILITY_FILE}"
+        failures = judge_channel_finder_run(
+            result, database, records, expected_horizontal_bpms(records)
+        )
+        assert not failures, "\n".join(failures)
 
         # Cost under budget.
         if result.cost_usd is not None:

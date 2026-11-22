@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 
 from osprey.agent_runner import artifact_resolve as resolve_mod
 from osprey.stores.artifact_store import ArtifactStore
+from tests._scoped_stdlib import patch_subprocess, scoped_patch
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
 PDF_BYTES = b"%PDF-1.4\nfake-pdf-body\n%%EOF"
@@ -518,7 +519,7 @@ class TestOnlyWhatIsForThePersonIsListed:
         assert _listed("run-1") == []
 
     def test_a_document_lists_its_pdf_and_not_its_source(self, tmp_path, monkeypatch):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         from osprey.mcp_server.workspace.tools.create_document import create_document
 
@@ -529,8 +530,14 @@ class TestOnlyWhatIsForThePersonIsListed:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=pdflatex),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document", side_effect=pdflatex
+            ),
         ):
             reply = _call_tool(
                 store,

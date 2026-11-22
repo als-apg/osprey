@@ -19,6 +19,7 @@ from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+from tests._scoped_stdlib import scoped
 
 _CONFIGS: dict[str, dict] = {}
 
@@ -146,7 +147,7 @@ def runtime_calls(monkeypatch):
             return _Result(calls["volume_stdout"])
         raise AssertionError(f"unexpected command: {cmd}")
 
-    monkeypatch.setattr(status_display.subprocess, "run", _fake_run)
+    scoped(monkeypatch, status_display, "subprocess", run=_fake_run)
     return calls
 
 

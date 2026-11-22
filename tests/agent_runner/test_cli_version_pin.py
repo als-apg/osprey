@@ -23,6 +23,7 @@ from osprey.deployment.container_lifecycle import _resolve_claude_cli_version
 from osprey.deployment.web_terminals.render_images import _resolve_render_claude_cli_version
 from osprey.health.core.claude_cli import claude_cli_pinned
 from osprey.health.models import Status
+from tests._scoped_stdlib import scoped
 
 BAD_PINS = [
     # another package source
@@ -209,7 +210,7 @@ def test_the_health_check_reports_a_bad_pin_and_runs_nothing(monkeypatch, pin):
         raise AssertionError("a bad pin must reach no command line")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", refuse)
-    monkeypatch.setattr(launcher.subprocess, "run", refuse)
+    scoped(monkeypatch, launcher, "subprocess", run=refuse)
 
     (row,) = asyncio.run(claude_cli_pinned({"claude_code": {"cli_version": pin}})())
 

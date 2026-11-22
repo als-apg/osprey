@@ -179,8 +179,9 @@ shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
        from its CDN.
    * - ``OSPREY_SKIP_BROWSER``
      - ``""``
-     - ``"1"`` builds without the headless browser; artifact-to-image export
-       and CANOPY screenshots then report it missing.
+     - ``"1"`` builds without the headless browser; ``artifact_export`` (an
+       HTML artifact saved as a PNG or JPEG) and CANOPY screenshots then
+       report it missing.
    * - ``OSPREY_OFFLINE``
      - ``"0"``
      - ``"1"`` vendors web assets (JS/CSS/fonts) into the image via

@@ -511,8 +511,8 @@ import threading
 import traceback
 from pathlib import Path
 
-_PLAN_PATH = Path(r"{plan_path}")
-_RESULT_PATH = Path(r"{result_path}")
+_PLAN_PATH = Path({str(plan_path)!r})
+_RESULT_PATH = Path({str(result_path)!r})
 _PLAN_NAME = {plan_name!r}
 _SAMPLE_ARGS = {sample_args!r}
 _FALLBACK_MOVABLE = {fallback_movable_names!r}

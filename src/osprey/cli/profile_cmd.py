@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import re
+import shutil
 from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -1566,8 +1567,6 @@ def _cleanup(target: Path, seeded: tuple[str, ...] = ()) -> str:
         A sentence for the refusal it is appended to, naming anything that could
         not be removed so the operator knows a retry will refuse too.
     """
-    import shutil
-
     owned = (*MATERIALIZED_SOURCE_ENTRIES, *seeded)
     for name in owned:
         entry = target / name
@@ -1791,8 +1790,6 @@ def _materialize_profile_directory(
             invalid profile.
         BuildProfileError: For packaging problems (missing seed or data tree).
     """
-    import shutil
-
     from osprey.deployment.dotenv import env_lock_path
 
     from .build_profile import (

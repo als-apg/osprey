@@ -51,6 +51,7 @@ from osprey.cli.init_cmd import (
     WRITE_ONCE_DIRS,
     WRITE_ONCE_FILES,
     _source_zone_prose,
+    _surviving_project_resources,
     init,
 )
 from osprey.cli.main import cli
@@ -58,6 +59,7 @@ from osprey.cli.phase_reporter import PhaseReporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests._scoped_stdlib import scoped
 from tests.cli._reporters import installed
 from tests.fixtures.lifecycle_repo import (
     ENABLE_ORBIT_BUMP,
@@ -546,10 +548,7 @@ def test_a_machine_without_git_still_gets_a_complete_repo(
     def no_git(*args: object, **kwargs: object):
         raise FileNotFoundError(2, "No such file or directory: 'git'")
 
-    # `init_cmd` imports subprocess inside the function, so the name resolves
-    # off the stdlib module at call time — patching it there is what the code
-    # actually reads; there is no module attribute on init_cmd to patch.
-    monkeypatch.setattr(subprocess, "run", no_git)
+    scoped(monkeypatch, "osprey.cli.init_cmd", "subprocess", run=no_git)
     target = tmp_path / EXEMPLAR_DIRNAME
 
     result = init_exemplar(runner, target)
@@ -571,7 +570,7 @@ def test_a_git_that_fails_mid_sequence_degrades_to_a_note(
             return subprocess.CompletedProcess(args, 128, "", "Author identity unknown\n")
         return real_run(args, **kwargs)
 
-    monkeypatch.setattr(subprocess, "run", failing_commit)
+    scoped(monkeypatch, "osprey.cli.init_cmd", "subprocess", run=failing_commit)
     target = tmp_path / EXEMPLAR_DIRNAME
 
     result = init_exemplar(runner, target)
@@ -1596,6 +1595,10 @@ class TestResetFlag:
                 return []
 
         monkeypatch.setattr(reset_mod, "RuntimeProbe", _Probe)
+        # The sweep itself is under test; the host it lists is the probe above.
+        monkeypatch.setattr(
+            "osprey.cli.init_cmd._surviving_project_resources", _surviving_project_resources
+        )
 
         result = init_exemplar(runner, exemplar_repo, "--reset")
 

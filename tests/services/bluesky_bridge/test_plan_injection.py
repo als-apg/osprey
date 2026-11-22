@@ -240,6 +240,8 @@ def test_get_plans_serves_directory_layer_metadata_via_http(
         "name": "sniff",
         "description": "A directory-layer test plan.",
         "writes": False,
+        "layout": None,
+        "summary": None,
     }
 
 

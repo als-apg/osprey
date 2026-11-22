@@ -501,6 +501,4 @@ def audit(
         finally:
             # Clean up temp dir if we created one
             if tmpdir is not None:
-                import shutil
-
                 shutil.rmtree(tmpdir, ignore_errors=True)

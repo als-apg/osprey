@@ -30,6 +30,7 @@
 
 import { worstStatus } from '/design-system/js/check-status.js';
 import { icon } from '/design-system/js/icons.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { withPrefix } from './api.js';
 import { whilePanelServed } from './panel-availability.js';
 import { getChipElement, subscribe, targetReading } from './control-target-chip.js';
@@ -96,8 +97,12 @@ let healthReport = null;
 let healthServed = false;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let healthTimer = null;
-/** Bumped by teardown, so a read still in flight then lands nowhere. */
-let healthEpoch = 0;
+/**
+ * The reading's lives: a start begins one and a stop aborts and retires it, so
+ * a read still in flight then lands nowhere.
+ */
+const healthLives = createLatestRequest();
+let healthLife = healthLives.begin();
 /** @type {(() => void) | null} */
 let unsubscribeChip = null;
 /** @type {(() => void) | null} */
@@ -173,19 +178,22 @@ function nextHealthDelayS() {
 
 /** Read the report once, repaint, and schedule the next read. */
 async function pollHealth() {
-  const epoch = healthEpoch;
+  const mine = healthLife;
   healthTimer = null;
   /** @type {unknown} */
   let report;
   try {
-    const response = await fetch(withPrefix(HEALTH_API), { cache: 'no-store' });
-    if (epoch !== healthEpoch) return;
+    const response = await fetch(withPrefix(HEALTH_API), {
+      cache: 'no-store',
+      signal: mine.signal,
+    });
+    if (!mine.isCurrent()) return;
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     report = await response.json();
   } catch {
     report = undefined;
   }
-  if (epoch !== healthEpoch) return;
+  if (!mine.isCurrent()) return;
   healthReport = report;
   paintHealth();
   healthTimer = setTimeout(pollHealth, nextHealthDelayS() * 1000);
@@ -194,13 +202,14 @@ async function pollHealth() {
 /** The Health panel is served: show the dot and start reading. */
 function startHealth() {
   healthServed = true;
+  healthLife = healthLives.begin();
   paintHealth();
   void pollHealth();
 }
 
 /** The Health panel is not served: hide the dot and stop reading. */
 function stopHealth() {
-  healthEpoch += 1;
+  healthLives.cancel();
   clearTimeout(healthTimer ?? undefined);
   healthTimer = null;
   healthReport = null;

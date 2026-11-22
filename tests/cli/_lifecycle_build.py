@@ -22,7 +22,7 @@ application SDK's test support runs, named here for OSPREY's own tests),
 
 Lives in a ``_``-prefixed module rather than ``conftest.py`` because these are
 plain functions, not fixtures — callers want them inside a test body, often more
-than once per test. Same convention as :mod:`tests.cli._scoped_subprocess`.
+than once per test. Same convention as :mod:`tests._scoped_stdlib`.
 """
 
 from __future__ import annotations

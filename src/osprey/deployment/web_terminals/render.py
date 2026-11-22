@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
@@ -68,6 +68,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
 )
+from osprey.deployment.web_terminals.naming import WEB_SERVICE_PREFIX
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
@@ -853,6 +854,60 @@ def _launch_token_env_vars(
     return [*lane_tokens, *application_tokens]
 
 
+#: The auth sidecar's compose service key in ``docker-compose.web.yml``. Every
+#: invocation that addresses the sidecar by name reads it from here.
+AUTH_SERVICE_NAME = "auth"
+
+#: The reverse proxy's compose service key in ``docker-compose.web.yml``; read
+#: wherever the proxy is addressed by name.
+NGINX_SERVICE_NAME = "nginx"
+
+
+class WebStackServiceNames(NamedTuple):
+    """The compose service keys ``docker-compose.web.yml`` renders, by what each serves.
+
+    Attributes:
+        proxy: The reverse proxy's key.
+        auth: The auth sidecar's key, or ``None`` when the auth method runs none.
+        terminals: Each roster card's name to its terminal's key, in roster order.
+    """
+
+    proxy: str
+    auth: str | None
+    terminals: dict[str, str]
+
+    def names(self) -> list[str]:
+        """Every key: the proxy, the sidecar if any, then the terminals."""
+        return [self.proxy, *([self.auth] if self.auth else []), *self.terminals.values()]
+
+
+def web_stack_service_names(config: Any) -> WebStackServiceNames:
+    """The service keys ``docker-compose.web.yml`` renders for *config*.
+
+    The overlay's template keys every service it renders by this answer: the
+    reverse proxy always, the auth sidecar when the auth method runs one, and
+    one terminal per roster card. The roster is resolved with ``strict=False``,
+    so this never refuses a roster: wherever :func:`render_web_terminals`
+    renders, the strict resolve it runs names the same cards, and wherever that
+    resolve refuses, nothing is rendered and the refusal is its own. It reads
+    the config alone, so the keys are known before any of the overlay's disk
+    inputs are provisioned.
+
+    :param config: The deployment configuration
+    :return: The proxy's, the sidecar's and each terminal's key
+    :raises ValueError: ``auth.method`` names a method that does not exist
+        (:func:`_auth_tls_context`).
+    """
+    root = as_dict(config)
+    web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
+    cards = resolve_cards(web_terminals, as_dict(root.get("registry")), strict=False)
+    return WebStackServiceNames(
+        proxy=NGINX_SERVICE_NAME,
+        auth=AUTH_SERVICE_NAME if _auth_tls_context(web_terminals)["sidecar_active"] else None,
+        terminals={card["name"]: WEB_SERVICE_PREFIX + card["name"] for card in cards},
+    )
+
+
 def render_web_terminals(
     config: Any,
     auth_env_digest: str | None = None,
@@ -1178,6 +1233,7 @@ def render_web_terminals(
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
     channel_catalog_mounts = _channel_catalog_mounts(root)
     record_digests = dict(agent_record_login_digests or {})
+    service_names = web_stack_service_names(root)
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
@@ -1191,6 +1247,7 @@ def render_web_terminals(
         services.append(
             {
                 "user": entry["name"],
+                "service": service_names.terminals[entry["name"]],
                 "image": entry["image"],
                 "project": entry["project"],
                 "container_project_dir": entry["container_project_dir"],
@@ -1617,6 +1674,8 @@ def render_web_terminals(
 
     compose_ctx = {
         "project_name": project_name,
+        "proxy_service": service_names.proxy,
+        "auth_service": service_names.auth,
         "registry_url": registry.get("url") or "",
         "image_source": image_source,
         "services": services,

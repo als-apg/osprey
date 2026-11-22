@@ -116,7 +116,7 @@ def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):
 def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch):
     """The typed string is kept as a record; the resolved path is kept for reuse.
 
-    Every later reader — the deploy-side staleness advisory above all — needs a
+    Every later reader — the repo's profile resolution above all — needs a
     path that still resolves from somewhere other than the build's working
     directory, so the two forms are recorded separately rather than one being
     re-derived from the other.

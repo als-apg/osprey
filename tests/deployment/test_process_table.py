@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 import psutil
 import pytest
 
 from osprey.deployment import process_table
+from tests._scoped_stdlib import no_child_process
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
@@ -131,11 +131,12 @@ def test_reading_the_table_never_forks(monkeypatch):
     def no_fork(*args, **kwargs):
         raise AssertionError("reading the process table forked")
 
-    monkeypatch.setattr(subprocess, "Popen", no_fork)
     monkeypatch.setattr(os, "fork", no_fork)
 
-    rows = process_table.snapshot()
+    with no_child_process() as started:
+        rows = process_table.snapshot()
 
+    assert started == []
     assert rows[os.getpid()].pgid == os.getpgrp()
 
 

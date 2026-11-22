@@ -18,7 +18,6 @@ services:
     launch_token_env: ORBIT_BUMP_LAUNCH_TOKEN
     roster_grant:
       panel_id: orbit-bump
-      single_user_alias: true
 deployed_services:
 - orbit-bump
 compose:
@@ -76,7 +75,7 @@ compose:
 app-config.yml: {}
 roster_grant:
   service: orbit-bump
-  single_user_alias: true
+  names_single_user_operator: true
 reach_contract:
   service: orbit-bump
   consumers:

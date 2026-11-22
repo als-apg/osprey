@@ -15,6 +15,7 @@ import pytest
 from osprey.agent_record.backends import clickhouse_ddl as ddl
 from osprey.agent_record.backends import clickhouse_stage as stage
 from osprey.agent_record.credentials import CLICKHOUSE_USER
+from tests._scoped_stdlib import scoped
 from tests.agent_record.contract_suite.conftest import clickhouse_store  # noqa: F401
 
 # --- render and fingerprint -------------------------------------------------------------------
@@ -285,7 +286,7 @@ def test_the_compose_executor_execs_the_client_in_the_record_store(monkeypatch):
         seen["cmd"] = cmd
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(stage.subprocess, "run", fake_run)
+    scoped(monkeypatch, stage, "subprocess", run=fake_run)
     stage.compose_executor(["docker", "compose"], {})(["--query", "SELECT 1"], None)
     assert seen["cmd"] == [
         "docker",

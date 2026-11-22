@@ -1,0 +1,1 @@
+The hierarchical channel finder refuses an undefined level, a selection key that is no level, and a selected value that names no node, naming the mistake and the defined choices; the Explore page's options and build requests answer 422 for them instead of 500, and the agent's tools answer a validation error instead of an internal error or an empty list.

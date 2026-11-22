@@ -16,8 +16,7 @@ panel:
   agent_routes:
     - [GET, /api/state]
     - [POST, /api/set]
-  roster_grant:
-    single_user_alias: true
+  roster_grant: {}
 tools:
   module: gauge_app.tools
   shown_when: panel

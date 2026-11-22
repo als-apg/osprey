@@ -40,7 +40,7 @@ from docs.screenshots.contact_sheet import (
     hermetic_hub,
 )
 
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import wait_for_last_active, wait_for_page_ready
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -186,6 +186,36 @@ def _group_count(page: Page, sid: str, form: str):
     return page.locator(f'{_TREE} [data-group-head="{sid}:{form}"] .osprey-tree-n')
 
 
+def _expect_runs_count(page: Page, sid: str, n: int) -> None:
+    """The session's Runs head reads *n*; a failure lists every run row the tree shows."""
+    head = _group_count(page, sid, "runs")
+    try:
+        expect(head).to_have_text(str(n))
+    except AssertionError as exc:
+        rows = page.evaluate(
+            """(tree) => [...document.querySelectorAll(`${tree} .osprey-tree-run`)].map((r) => ({
+              run: r.dataset.run ?? null,
+              id: r.dataset.id ?? null,
+              status: r.dataset.runStatus ?? null,
+              label: r.querySelector('.osprey-list-title')?.textContent ?? null,
+            }))""",
+            _TREE,
+        )
+        shown = head.text_content()
+        runs = [row["run"] for row in rows]
+        twice = sorted({run for run in runs if runs.count(run) > 1})
+        lines = [
+            f"Runs head reads {shown!r}, expected {n}; {len(rows)} run rows",
+            f"head equals row count: {shown == str(len(rows))}",
+            f"runs shown twice: {twice or 'none'}",
+            *(
+                f"run={row['run']} id={row['id']} status={row['status']} label={row['label']}"
+                for row in rows
+            ),
+        ]
+        raise AssertionError("\n".join(lines)) from exc
+
+
 def _menu(page: Page, row, item: str) -> None:
     row.click(button="right")
     page.get_by_role("menuitem", name=item).click()
@@ -193,11 +223,6 @@ def _menu(page: Page, row, item: str) -> None:
 
 def _pointer(page: Page) -> str:
     return page.evaluate("() => localStorage.getItem('osprey-pty-session')")
-
-
-def _settle_pointer(page: Page) -> None:
-    """Outwait the page's debounced last-active write (300 ms)."""
-    page.wait_for_timeout(700)
 
 
 def _send(page: Page, prompt: str) -> None:
@@ -332,7 +357,7 @@ def test_every_run_is_one_runs_row_and_an_awaited_one_settles_live(hub, page):
     _boot(page, hub)
     _open_session(page, sid)
     _open_group(page, sid, "runs")
-    expect(_group_count(page, sid, "runs")).to_have_text("7")
+    _expect_runs_count(page, sid, 7)
     expected = {
         "approved": "succeeded",
         "failed": "failed",
@@ -363,7 +388,7 @@ def test_every_run_is_one_runs_row_and_an_awaited_one_settles_live(hub, page):
     expect(_run_row(page, calls["waiting"])).to_have_attribute(
         "data-run-status", "succeeded", timeout=_TIMEOUT_MS
     )
-    expect(_group_count(page, sid, "runs")).to_have_text("7")
+    _expect_runs_count(page, sid, 7)
 
 
 # --- /clear -------------------------------------------------------------------------
@@ -415,7 +440,7 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
     expect(_session(page, new_tid)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
 
-    _settle_pointer(page)
+    wait_for_last_active(page, _pointer(page))
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
@@ -581,7 +606,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     expect(_row(page, profile.id)).to_have_attribute("aria-selected", "true", timeout=_TIMEOUT_MS)
 
     # Reload: the same session, the artifact shown in the docked panel.
-    _settle_pointer(page)
+    wait_for_last_active(page, _pointer(page))
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
@@ -619,7 +644,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
         "data-session-id", f"key:{_pointer(page)}", timeout=_TIMEOUT_MS
     )
     minted = _pointer(page)
-    _settle_pointer(page)
+    wait_for_last_active(page, minted)
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", f"key:{minted}", timeout=_TIMEOUT_MS)
@@ -1025,7 +1050,7 @@ def test_deleting_a_past_session_drops_its_row_and_its_artifacts(hub, page):
     expect(_active(page)).to_have_attribute(
         "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
     )
-    _settle_pointer(page)
+    wait_for_last_active(page, _pointer(page))
 
     # The session the Agent is on offers Delete… disabled.
     current.click(button="right")

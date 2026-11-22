@@ -11,6 +11,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -43,7 +44,6 @@ from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     configured_ariel_mirror_path,
-    prepare_compose_files,
     rendered_checkout,
     repo_identity,
     resolve_image_defaults,
@@ -121,18 +121,16 @@ from osprey.deployment.service_tokens import (
     _raise_invalid_var,
     _validate_var,
 )
-from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
+from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.subprocess_capture import run_captured
-from osprey.deployment.web_terminals.artifacts import web_compose_file
 from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
     preflight_web_terminals,
-    web_stack_service_names,
 )
-from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
+from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES, web_stack_service_names
 from osprey.deployment.web_terminals.render_images import (
     build_render_images,
     dispatch_worker_tier_image,
@@ -142,7 +140,7 @@ from osprey.deployment.web_terminals.render_images import (
 from osprey.deployment.web_terminals.roster import (
     dispatch_tier_name,
     resolve_cards,
-    single_user_alias_services,
+    single_user_operator_services,
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
@@ -279,15 +277,15 @@ def _service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]
 
     A projected panel that declares ``launch_token`` carries the variable's name
     as ``services.<key>.launch_token_env``, whatever its container runs; that
-    recorded name is minted as it stands. One whose panel accepts the
-    deployment-wide terminal secret (:func:`single_user_alias_services`) reads
-    that secret with no default, so it is minted for it as it is for the
-    built-in panels.
+    recorded name is minted as it stands. A projected panel holding a roster
+    grant on a deployment with no roster (:func:`single_user_operator_services`)
+    reads the deployment-wide terminal secret with no default, so it is minted
+    for it as it is for the built-in panels.
     """
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
     merged = dict(_SERVICE_TOKEN_VARS)
-    alias = single_user_alias_services(config)
+    alias = single_user_operator_services(config)
     for key, row in _projected_services(config).items():
         name = row.get("launch_token_env")
         names = (str(name),) if name else ()
@@ -2129,8 +2127,6 @@ def _stage_site_ca(source: str, context_dir: Path | str) -> str:
     :return: :data:`SITE_CA_CONTEXT_FILENAME`.
     :raises FileNotFoundError: If *source* does not name a readable file.
     """
-    import shutil
-
     src = Path(source).expanduser()
     if not src.is_file():
         raise FileNotFoundError(
@@ -4520,7 +4516,7 @@ def _web_terminals_enabled(config: dict) -> bool:
     """True if ``modules.web_terminals.enabled`` is set on ``config``.
 
     Same read as :func:`osprey.deployment.web_terminals.lint.lint_web_terminals`'s
-    own enabled-gate — the one place ``deploy_up`` decides whether a
+    own enabled-gate — the one place ``_start_stack`` decides whether a
     web-terminal reconcile is part of this deploy. Coerces a present-but-null
     ``modules`` or ``modules.web_terminals`` stanza (e.g. a bare ``web_terminals:``
     key in YAML, which parses to ``None``) to an empty dict rather than letting
@@ -4560,18 +4556,26 @@ def _report_port_conflicts(conflicts):
     logger.key_info(report)
 
 
-def _ownership_probe(config: dict) -> Any:
+def _ownership_probe(
+    config: dict | None, *, runtime: str | None = None, project: str | None = None
+) -> Any:
     """The runtime seam the foreign-checkout check reads the host through.
 
     Imported here, not at module scope: :mod:`osprey.deployment.reset` imports
     THIS module, so a top-level import would close a cycle. ``subprocess.run``
     is resolved at call time so the probe runs whatever this module runs.
+
+    Args:
+        config: The as-built config, or ``None`` when the build holds none.
+        runtime: The runtime to ask; the configured one when not given.
+        project: The compose project to pin in the runtime's environment;
+            the config's when not given.
     """
     from osprey.deployment.reset import RuntimeProbe
 
     return RuntimeProbe(
-        get_runtime_command(config)[0],
-        env=runtime_env(config, dict(os.environ)),
+        runtime or get_runtime_command(config)[0],
+        env=runtime_env(config, dict(os.environ), project=project),
         run=subprocess.run,
     )
 
@@ -4634,6 +4638,32 @@ def _refuse_foreign_checkout(config: dict, repo_root: Path | str) -> None:
         # to keep, so the rename is offered only while the other copy exists.
         rename = None if claim.other_copy_gone else _own_name_recipe(project)
         raise claim.refusal(START_REFUSAL, extra_remedy=rename)
+
+
+def _refuse_stop_over_another_copy(
+    config: dict | None, repo_root: Path, *, runtime: str, project: str
+) -> None:
+    """Refuse to stop *project* while another copy of this repo holds it.
+
+    The stop's counterpart of :func:`_refuse_foreign_checkout`, and unlike it
+    fails closed: a stop that proceeds without an answer is the stop this check
+    exists to prevent.
+
+    Raises:
+        ForeignCheckoutError: When another checkout's containers hold the name.
+        RuntimeError: When the runtime cannot list the project's containers.
+    """
+    from osprey.deployment.container_ownership import DOWN_REFUSAL, host_claim
+
+    probe = _ownership_probe(config, runtime=runtime, project=project)
+    try:
+        claim = host_claim(project, repo_identity(repo_root), probe=probe)
+    except (RuntimeError, OSError) as exc:
+        raise RuntimeError(
+            f"Could not check which copy of this repo holds project {project}: {exc}"
+        ) from exc
+    if claim.held_elsewhere:
+        raise claim.refusal(DOWN_REFUSAL)
 
 
 def _reconcile_orphan_terminals(config):
@@ -5890,75 +5920,6 @@ def _stage_graphdb_store(
     return None
 
 
-def deploy_up(
-    config_path,
-    detached=False,
-    dev_mode=False,
-    expose_network=False,
-    keep_archiver_base=False,
-    reuse_stores=False,
-):
-    """Start services using container runtime (Docker or Podman).
-
-    The legacy entry point: it RE-RENDERS the compose files from the config it
-    is handed and then starts them. A deployment repo starts from
-    :func:`up_as_built` instead, which renders nothing.
-
-    :param config_path: Path to the configuration file
-    :type config_path: str
-    :param detached: Run in detached mode
-    :type detached: bool
-    :param dev_mode: Development mode for local framework testing
-    :type dev_mode: bool
-    :param expose_network: Expose services to all network interfaces (0.0.0.0)
-    :type expose_network: bool
-    :param keep_archiver_base: Leave a mismatched archiver base in place instead
-        of rebuilding it (see :func:`_stage_archiver_store`)
-    :type keep_archiver_base: bool
-    """
-    config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
-    project_dir = Path(config_path).resolve().parent
-
-    # Before every other check, and before any branch below has touched the
-    # host: a deployment whose archive is fabricated does not get to start.
-    _refuse_invented_history(config)
-
-    # The compose project directory for every invocation below, resolved from
-    # the config path rather than inherited from the working directory — see
-    # compose_base_cmd for what it pins.
-    repo_root = resolve_repo_root(config, config_path)
-
-    # Advisory staleness check BEFORE anything deploys: a project rendered by
-    # an older framework/preset self-describes an out-of-date service set in
-    # config.yml, so the deploy below would "succeed" at the wrong goal with
-    # no error anywhere. Never blocks (see warn_if_project_stale).
-    warn_if_project_stale(project_dir)
-
-    # Anchored on the config this verb was HANDED, not on a derived
-    # `<repo>/build/config.yml`: a legacy flat project's own directory is its
-    # render, so deriving the path would name a file that does not exist there.
-    # Same contract as the as-built path — see `_start_as_built`.
-    with config_anchored_at(config_path):
-        _start_stack(
-            config,
-            compose_files,
-            repo_root,
-            detached=detached,
-            dev_mode=dev_mode,
-            expose_network=expose_network,
-            # ANCHORED, deliberately: the provisioners this reaches mint REAL
-            # SECRETS, and `_start_stack`'s default leaves them writing a
-            # cwd-relative `.env`. The repo root is resolved four lines up and
-            # every compose invocation below reads `<repo>/.env` with
-            # --env-file, so an unanchored mint writes tokens the stack never
-            # reads — a deploy that comes up with its fail-closed tokens unset,
-            # which looks secure and says nothing.
-            env_path=repo_root / COMPOSE_ENV_FILENAME,
-            keep_archiver_base=keep_archiver_base,
-            reuse_stores=reuse_stores,
-        )
-
-
 class BuildProgressReporter:
     """One build's captured stream, parsed once into one :class:`BuildModel`.
 
@@ -6532,12 +6493,9 @@ def _start_stack(
 ) -> None:
     """Provision, preflight and start one already-resolved stack.
 
-    Everything both start paths do once their compose files exist, in the one
-    order they must happen in. :func:`deploy_up` reaches here having just
-    rendered those files; :func:`up_as_built` reaches here having read the ones
-    a build already wrote. Nothing below can tell the difference, which is the
-    point: there is one deploy sequence, and the two verbs differ only in where
-    the inputs came from.
+    Everything a start does once its compose files exist, in the one order
+    they must happen in. :func:`_start_as_built` reaches here with the files a
+    build already wrote.
 
     When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
     reconciled too (rendering its artifacts and including
@@ -6649,7 +6607,9 @@ def _start_stack(
         DeploymentRecord(
             get_runtime_command(config)[0],
             resolve_project_name(config),
-            compose_services=_driven_service_names(config, compose_files, Path(repo_root)),
+            compose_services=tuple(
+                sorted(_started_services(config, compose_files, Path(repo_root)))
+            ),
         ),
     )
 
@@ -7977,29 +7937,34 @@ def _started_services(
     """Every service a start hands to compose: the rendered files' and the web stack's.
 
     Relative entries of *compose_files* are resolved against *repo_root*, as the
-    compose invocation resolves them. A service several files define is merged
-    key by key, the later file winning, as compose merges its ``-f`` list; its
-    ``labels`` are merged label by label, as compose merges them, so the labels
-    the build adds do not drop the ones the service's own template sets.
+    compose invocation resolves them, and merged by :func:`merged_services`.
+    The web stack's services are the keys its renderer names
+    (:func:`~osprey.deployment.web_terminals.render.web_stack_service_names`),
+    from the config alone: the start writes ``docker-compose.web.yml`` only once
+    its secrets and directories are provisioned, after this answer is recorded.
+    They are merged with no spec of their own because the overlay declares
+    nothing the run-once rule reads.
     """
     files = [
         repo_root / path if not Path(path).is_absolute() else Path(path) for path in compose_files
     ]
+    mappings: list[Mapping[Any, Any]] = [rendered_compose_services(file) or {} for file in files]
     if _web_terminals_enabled(config):
-        files.append(web_compose_file(repo_root))
-    return merged_compose_services(files)
+        mappings.append({name: {} for name in web_stack_service_names(config).names()})
+    return merged_services(mappings)
 
 
-def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
-    """The ``services`` of rendered compose *files*, merged as compose merges its ``-f`` list.
+def merged_services(mappings: Sequence[Mapping[Any, Any]]) -> dict[str, Any]:
+    """Compose ``services`` *mappings*, merged as compose merges its ``-f`` list.
 
-    A service several files define is merged key by key, the later file
-    winning; its ``labels`` are merged label by label. A file that cannot be
-    read adds nothing.
+    A service several mappings define is merged key by key, the later mapping
+    winning; its ``labels`` are merged label by label, as compose merges them,
+    so the labels the build adds do not drop the ones the service's own
+    template sets.
     """
     started: dict[str, Any] = {}
-    for file in files:
-        for name, spec in (rendered_compose_services(file) or {}).items():
+    for mapping in mappings:
+        for name, spec in mapping.items():
             earlier = started.get(name)
             if isinstance(earlier, Mapping) and isinstance(spec, Mapping):
                 labels = {**run_once.service_labels(earlier), **run_once.service_labels(spec)}
@@ -8008,23 +7973,12 @@ def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
     return started
 
 
-def _driven_service_names(
-    config: dict, compose_files: Sequence[str | Path], repo_root: Path
-) -> tuple[str, ...]:
-    """The compose service keys a start drives: its files' and the web stack's.
+def merged_compose_services(files: Sequence[Path]) -> dict[str, Any]:
+    """The ``services`` of rendered compose *files*, merged by :func:`merged_services`.
 
-    Relative entries of *compose_files* are resolved against *repo_root*, as
-    :func:`_started_services` resolves them. The web stack's keys come from the
-    roster and the auth method, not from its compose file, which the start
-    renders only after this is asked.
+    A file that cannot be read adds nothing.
     """
-    names: set[str] = set()
-    for path in compose_files:
-        file = repo_root / path if not Path(path).is_absolute() else Path(path)
-        names.update(rendered_compose_services(file) or {})
-    if _web_terminals_enabled(config):
-        names.update(web_stack_service_names(config))
-    return tuple(sorted(names))
+    return merged_services([rendered_compose_services(file) or {} for file in files])
 
 
 def _refuse_services_not_running(
@@ -8284,6 +8238,12 @@ def down_deployment(
     (:func:`_down_recorded_services`); a record that names none, and a caller
     that passes the pair, get the repo-label sweep (:func:`_down_by_label`).
 
+    While another copy of this repo holds the compose project, the stop is
+    refused, as ``up`` and ``restart`` refuse: the two copies share the name,
+    so a stop from here would stop that copy's containers too. The check runs
+    wherever a compose project is named — from the record or by the caller —
+    and fails closed: a runtime that cannot list the project stops nothing.
+
     Args:
         repo_root: The deployment repo — the directory holding ``profile.yml``.
         runtime: The runtime to stop with, given together with ``project``.
@@ -8293,7 +8253,10 @@ def down_deployment(
         DeploymentRecordError: The record is read and is unreadable; the
             message names ``osprey reset`` as the remedy.
         ValueError: Only one of ``runtime`` and ``project`` is given.
-        RuntimeError: When the runtime does not answer, or the compose
+        ForeignCheckoutError: When another copy of this repo's containers hold
+            the project name. Nothing is stopped.
+        RuntimeError: When the runtime does not answer, cannot list the
+            project's containers (nothing is stopped), or the compose
             ``down``, or the label sweep standing in for it, fails.
     """
     repo_root = Path(repo_root)
@@ -8320,6 +8283,7 @@ def down_deployment(
     is_running, error_msg = verify_runtime_is_running(config, runtime=runtime)
     if not is_running:
         raise RuntimeError(error_msg)
+    _refuse_stop_over_another_copy(config, repo_root, runtime=runtime, project=project)
     compose_files = as_built_compose_files(config, repo_root) if config else []
 
     if config and _web_terminals_enabled(config):

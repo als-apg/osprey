@@ -47,6 +47,7 @@ import { buildRegistry } from './palette-registry.js';
 import { fetchJSON } from './api.js';
 import { fuzzyMatch } from '/design-system/js/fuzzy.js';
 import { el } from '/design-system/js/dom.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @typedef {import('./palette-registry.js').Item} Item */
@@ -180,10 +181,12 @@ let activeIndex = -1;
 /** @type {string | null} */
 let activeKey = null;
 let currentQuery = '';
-let fetchSeq = 0;
-let artifactsSeq = 0;
-let closeSeq = 0;
-let openSeq = 0;
+// Each kind's newest instance is the current one: a newer open, fetch or close
+// retires the one before it.
+const configFetches = createLatestRequest();
+const artifactsFetches = createLatestRequest();
+const closes = createLatestRequest();
+const opens = createLatestRequest();
 
 /**
  * Stable identity for an item across registry rebuilds (group + label). The
@@ -604,12 +607,12 @@ function startConfigFetch() {
   // that gated the Config surface off and leave a permanent "Settings
   // unavailable" row — an outage report for a surface deliberately withdrawn.
   if (!settingsReachable()) return;
-  const token = ++fetchSeq;
+  const token = configFetches.begin();
   Promise.resolve()
     // The module's ONLY network call: the config snapshot.
-    .then(() => fetchJSON('/api/config'))
+    .then(() => fetchJSON('/api/config', { signal: token.signal }))
     .then((payload) => {
-      if (token !== fetchSeq || !opened) return;
+      if (!token.isCurrent() || !opened) return;
       const sections =
         payload && typeof payload === 'object' && payload.sections ? payload.sections : {};
       configState = { state: 'ok', sections };
@@ -617,7 +620,7 @@ function startConfigFetch() {
       render();
     })
     .catch(() => {
-      if (token !== fetchSeq || !opened) return;
+      if (!token.isCurrent() || !opened) return;
       configState = { state: 'error' };
       rebuildRegistry();
       render();
@@ -644,17 +647,17 @@ function artifactsReachable() {
 function startArtifactsFetch() {
   if (!artifactsReachable()) return;
   const load = /** @type {NonNullable<OpenDeps['loadArtifacts']>} */ (currentDeps.loadArtifacts);
-  const token = ++artifactsSeq;
+  const token = artifactsFetches.begin();
   Promise.resolve()
     .then(() => load())
     .then((entries) => {
-      if (token !== artifactsSeq || !opened) return;
+      if (!token.isCurrent() || !opened) return;
       artifactsState = { state: 'ok', entries: Array.isArray(entries) ? entries : [] };
       rebuildRegistry();
       render();
     })
     .catch(() => {
-      if (token !== artifactsSeq || !opened) return;
+      if (!token.isCurrent() || !opened) return;
       artifactsState = { state: 'error' };
       rebuildRegistry();
       render();
@@ -713,9 +716,9 @@ export function openPalette(deps) {
  * an earlier open that settles late is dropped.
  */
 function startProviders() {
-  const token = ++openSeq;
+  const token = opens.begin();
   const onChange = () => {
-    if (token !== openSeq || !opened) return;
+    if (!token.isCurrent() || !opened) return;
     render();
   };
   for (const provider of asyncProviders()) {
@@ -734,11 +737,11 @@ export function closePalette() {
   document.removeEventListener('keydown', onKeydown, true);
 
   const node = overlayEl;
-  const seq = ++closeSeq;
+  const close = closes.begin();
   if (node) {
     node.classList.remove('visible');
     const removeNode = () => {
-      if (seq === closeSeq && !opened && node.parentNode) node.remove();
+      if (close.isCurrent() && !opened && node.parentNode) node.remove();
     };
     node.addEventListener('transitionend', removeNode, { once: true });
     setTimeout(removeNode, 300);

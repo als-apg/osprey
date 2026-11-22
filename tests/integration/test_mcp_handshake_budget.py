@@ -14,7 +14,9 @@ keeps the literal budget. These tests pin both halves — a slow server that
 reports its phases is waited for, a mute one is not — with stub servers rather
 than the real ones, so they cost seconds: they start bare interpreters and no
 service (the group-stop proof's stub also starts one sleeper child for the stop
-to end), unlike the container-backed modules beside them.
+to end), unlike the container-backed modules beside them. The two halves read
+a real budget, so they carry ``wallclock`` and are timed alone; the others hold
+the helper to its contract on any clock.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ import pytest
 from osprey.deployment import subprocess_capture
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly
+from tests._scoped_stdlib import scoped
 from tests.integration import _mcp_handshake
 from tests.integration._mcp_handshake import MCPHandshakeError, list_mcp_tools
 
@@ -148,7 +151,7 @@ def _on_spawn(monkeypatch: pytest.MonkeyPatch, hook: Callable[[subprocess.Popen]
         hook(process)
         return process
 
-    monkeypatch.setattr(subprocess, "Popen", popen)
+    scoped(monkeypatch, "tests.integration._mcp_handshake", "subprocess", Popen=popen)
 
 
 def _handshake_failure(command: str, args: list[str]) -> str:
@@ -167,6 +170,7 @@ _ANNOUNCED_STARTUP_S = 100.0
 _STARTUP_STEP_S = 25.0
 
 
+@pytest.mark.wallclock
 def test_a_slow_but_announcing_server_is_waited_for(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -219,6 +223,7 @@ def test_a_slow_but_announcing_server_is_waited_for(
     assert clock.released
 
 
+@pytest.mark.wallclock
 def test_a_mute_server_still_times_out(tmp_path: Path) -> None:
     """The half that must not weaken: a server that announces nothing keeps the budget.
 

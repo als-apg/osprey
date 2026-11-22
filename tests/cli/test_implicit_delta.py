@@ -552,10 +552,10 @@ def test_a_profile_that_excludes_nothing_records_nothing(host: Path) -> None:
 
 def test_a_root_edit_the_loader_sees_also_moves_the_hash(host: Path) -> None:
     """Behavioral pin on the shared resolver: whatever changes what a render
-    BUILDS must change what its staleness advisory compares.
+    BUILDS must change what its drift check compares.
 
     Asserting the two agree on a merged dict would only pin that they call the
-    same function today; this pins the consequence, which is what the advisory
+    same function today; this pins the consequence, which is what the check
     actually promises.
     """
     render = _render(host, "reader", "name: Reader\n")

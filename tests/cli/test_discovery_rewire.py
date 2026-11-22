@@ -43,9 +43,9 @@ from click.testing import CliRunner
 
 from osprey.cli.query_cmd import query
 from osprey.cli.sim import sim_group
-from osprey.cli.web_cmd import LOG_FILE, PID_FILE, web
+from osprey.cli.web_cmd import LOG_FILE, PID_FILE, _StartedTree, web
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 from tests.cli._simulator_view import register_stub_engine, write_simulator_view
 
 #: A render that is also simulation-backed: the mock connector serves the
@@ -263,7 +263,10 @@ def _server_that_exits_on_sigterm() -> Iterator[MagicMock]:
     reads the host's process table nor asks the host whether that PID runs.
     """
     with (
-        patch("osprey.cli.web_cmd._started_groups", return_value=[]),
+        patch(
+            "osprey.cli.web_cmd._started_groups",
+            return_value=_StartedTree(groups=[], endable=False),
+        ),
         patch("osprey.cli.web_cmd._server_alive", return_value=False),
         patch("os.kill") as kill,
     ):

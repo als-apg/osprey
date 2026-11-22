@@ -49,6 +49,7 @@ from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey_connectors.errors import ConfigurationError
+from tests._scoped_stdlib import scoped
 from tests.fixtures.lifecycle_repo import (
     CI_PIPELINE_FILES,
     build_exemplar_repo,
@@ -556,10 +557,11 @@ def test_the_health_check_lands_where_every_reader_looks(
     # the emitted script probes live services, and what is under test is which
     # path the hook reached for.
     ran: list[list[str]] = []
-    monkeypatch.setattr(
-        postup_hooks.subprocess,
-        "run",
-        lambda argv, **kwargs: ran.append(argv) or subprocess_result(),
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda argv, **kwargs: ran.append(argv) or subprocess_result(),
     )
     postup_hooks.run_verify_script(str(repo), {})
 

@@ -494,7 +494,6 @@ def _build_dev_wheel_cached(osprey_source_root):
     """
     global _wheel_cache_dir, _wheel_cache_cleanup_registered
 
-    import subprocess
     import sys
     import tempfile
     from pathlib import Path

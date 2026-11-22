@@ -15,7 +15,8 @@
  *   - PROGRESS. The veil's bar fills as the files the page names arrive.
  *   - SLOW. After SLOW_NOTICE_MS the veil says the connection is slow.
  *   - FAILED. A script or stylesheet of the page that cannot be fetched ends
- *     the wait: the veil says so and offers a reload, `data-boot="failed"`.
+ *     the wait: the veil says so and offers a reload, `data-boot="failed"`,
+ *     and a page-ready mark still pending is marked `failed`.
  *   - FAIL-OPEN. Once the scripts have run, the veil lifts after
  *     FAIL_OPEN_MS whatever start-up is still waiting on. The veil is never
  *     the thing between an operator and the console.
@@ -24,6 +25,7 @@
   'use strict';
 
   const BOOT_ATTRIBUTE = 'data-boot';
+  const PAGE_READY_ATTRIBUTE = 'data-page-ready';
   const SLOW_NOTICE_MS = 8000;
   const FAIL_OPEN_MS = 10000;
   const EARLY_READS = ['/api/sessions/last-active', '/api/panels'];
@@ -135,16 +137,26 @@
     (event) => {
       const target = event.target;
       if (!(target instanceof HTMLScriptElement || target instanceof HTMLLinkElement)) return;
-      // Only the page's own files. A vendor bundle, from a CDN or from this
-      // server's /vendor/, has its own report and fallback where it is used
-      // (terminal.js, dock-workspace.js): the hub runs without dockview.
+      // Only the page's own files, by the test page-ready.js judges a script
+      // with: a script with no `src` is an inline module whose imports failed;
+      // a vendor bundle, from a CDN or from this server's /vendor/, has its own
+      // report and fallback where it is used (terminal.js, dock-workspace.js):
+      // the hub runs without dockview.
       const url = target instanceof HTMLScriptElement ? target.src : target.href;
-      if (!url) return;
-      const file = new URL(url, window.location.href);
-      if (file.origin !== window.location.origin || file.pathname.includes('/vendor/')) return;
+      if (url) {
+        const file = new URL(url, window.location.href);
+        const own = file.origin === window.location.origin && !file.pathname.includes('/vendor/');
+        if (!own) return;
+      } else if (target instanceof HTMLLinkElement) {
+        return;
+      }
       if (target instanceof HTMLLinkElement && target.rel !== 'stylesheet') return;
       if (!loading()) return;
       root.setAttribute(BOOT_ATTRIBUTE, 'failed');
+      // A hub that did not load cannot be driven.
+      if (root.getAttribute(PAGE_READY_ATTRIBUTE) === 'pending') {
+        root.setAttribute(PAGE_READY_ATTRIBUTE, 'failed');
+      }
       say(
         'The workspace did not load',
         'A file of this page could not be fetched from the server.',

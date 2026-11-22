@@ -108,6 +108,12 @@ output, and durable state:
      build/                         rendered by `osprey build`; gitignored
      var/                           agent memory and audit log; gitignored
 
+An active ``dispatch:`` or ``va_archiver:`` block is written whole, so that
+its run limits and identity can be read and changed where the block sits: each
+key the preset leaves unstated appears at its default, with a one-line comment.
+Keys the build derives (the ports it takes from ``port_base``, the archiver
+host) or that have no default are left out.
+
 ``git init`` and an initial commit run at the end, unless a git repository
 already encloses the target or ``--no-git`` is given.
 
@@ -508,9 +514,11 @@ Stop this deployment, keeping all data. It renders nothing; destroying data is
 If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
 compose files from ``profile.yml`` — those describe what would be started now,
 not what is running. Instead it stops the services the last start recorded, in
-the compose project it recorded, and leaves any container another checkout
-created. That is the recovery path for a ``build/`` deleted while the stack was
-up.
+the compose project it recorded. That is the recovery path for a ``build/``
+deleted while the stack was up.
+
+While another checkout of this repository holds the project name, ``down``
+refuses, names that copy, and stops nothing.
 
 A deployment whose record names no services, or a repository with no record, is
 stopped by the label this repository put on its containers. Containers are
@@ -1185,12 +1193,14 @@ is :doc:`/how-to/apps/index`.
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
    ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` passes the panel validator's page rules
-   (the three design-system sheets, the theme boot script, the font sheet, no raw
-   hex colour, the page-ready mark) and every class the panel sets has a CSS
-   rule, ESLint over ``panel/`` when it holds JS, and Vitest over
-   ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
-   with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
+   packages, that ``panel/index.html`` passes the panel validator's rules (the
+   three design-system sheets, the theme boot script, the font sheet, no raw hex
+   colour, the page-ready mark, no module of its own loaded ``async``), ESLint
+   over ``panel/`` when it holds JS, and
+   Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every
+   violation with its application, field and rule, and exits 1. A panel rule that
+   only reports (a class with no CSS rule) is printed as
+   ``[undefined_class: report]`` and does not fail the check. An ``apps/<name>/`` the block
    does not name is reported and not checked. An application an installed package
    ships is checked too; its violations name the
    distribution (``<dist>:<module path>/<file>``). The JS checks execute the
@@ -2098,7 +2108,12 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    and the like) and start anyway. Without it, a failed check refuses the start.
 
 ``osprey web stop [--repo DIRECTORY]``
-   Stop a background web terminal server.
+   Stop a background web terminal server. Returns once the server and the
+   processes it started have exited, waiting up to 60 seconds. A process that
+   outlives the server is ended with SIGTERM, then SIGKILL; one that cannot be
+   ended is named and the command exits 1. A server still running after the
+   wait is named and left alone, and the command exits 1; its PID file is
+   kept, so ``osprey web stop`` can be run again.
 
 ``osprey web sessions``
    Group for the commands that manage the sessions kept on disk.

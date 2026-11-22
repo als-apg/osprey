@@ -10,6 +10,7 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { showToast } from '/design-system/js/toast.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
@@ -65,9 +66,9 @@ let currentView = null;
 // The last alarm counts read, by the badge poll or the Alarms view.
 /** @type {ActiveAlarms|null} */
 let alarmCounts = null;
-// Bumped by every counts read and every counts event: an answer to an older
-// read is dropped, so the latest one writes the pill.
-let alarmCountsSeq = 0;
+// The counts reads: a newer read or a counts event retires this one, and a
+// retired read's answer is dropped, so the latest one writes the pill.
+const alarmCountReads = createLatestRequest();
 // The hash of the route mounted now, as formatRoute spells it; an equal route is not re-mounted.
 /** @type {string|null} */
 let currentRouteKey = null;
@@ -108,7 +109,7 @@ async function init() {
     // The Alarms tab's pill: read every 15 s and when the panel is shown, while
     // it is visible on another view; the Alarms view emits the counts itself.
     state.on('alarmCounts', (answer) => {
-      alarmCountsSeq += 1;
+      alarmCountReads.cancel();
       alarmCounts = answer;
       renderAlarmPill();
     });
@@ -278,11 +279,11 @@ function renderViewSwitch() {
  * the Alarms view is not the one shown (it emits `alarmCounts` every 5 s).
  */
 async function readAlarmCounts() {
-  const seq = ++alarmCountsSeq;
+  const token = alarmCountReads.begin();
   if (document.hidden || currentView === 'alarms' || !alarmsConfigured()) return;
   try {
-    const answer = await fetchActiveAlarms({ limit: 0 });
-    if (seq === alarmCountsSeq) state.emit('alarmCounts', answer);
+    const answer = await fetchActiveAlarms({ limit: 0 }, token.signal);
+    if (token.isCurrent()) state.emit('alarmCounts', answer);
   } catch {
     // The pill keeps its last count; the Alarms view says why the feed is down.
   }

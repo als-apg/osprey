@@ -1112,9 +1112,10 @@ class PanelRosterGrant:
     :ivar service: The service key (``services.<k>``) whose compose lists the
         grant — the container each per-user terminal proxies that panel's tab
         into with the operator secret ITS container holds.
-    :ivar single_user_alias: Whether, on a deployment with no web-terminal
-        roster, the deployment-wide secret is accepted under the single-user
-        operator's name (``deployment.host_identity``).
+    :ivar names_single_user_operator: Whether, on a deployment with no
+        web-terminal roster, the deployment-wide secret is accepted under the
+        single-user operator's name (``deployment.host_identity``). Every
+        application row does; among the built-ins only the OPTIMIZER does.
     :ivar loopback_only: Whether the service publishes on loopback whatever
         ``deployment.bind_address`` says, as an application container does.
         ``False`` for a service that publishes on the deployment's interface:
@@ -1122,7 +1123,7 @@ class PanelRosterGrant:
     """
 
     service: str
-    single_user_alias: bool = False
+    names_single_user_operator: bool = False
     loopback_only: bool = False
 
 
@@ -1153,7 +1154,7 @@ class PanelGrant(TypedDict):
 #: The rows no application projects: panel id → the service holding its grant.
 BUILTIN_PANEL_ROSTER_GRANTS: Mapping[str, PanelRosterGrant] = {
     BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
-    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", single_user_alias=True),
+    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", names_single_user_operator=True),
 }
 
 
@@ -1162,8 +1163,8 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
 
     The built-in rows, plus one per rendered ``services.<k>.roster_grant`` — the
     row an application's projection writes onto its panel's container as
-    ``{panel_id, single_user_alias}``. Read off the rendered service block,
-    never off ``app.yml``.
+    ``{panel_id}``. Read off the rendered service block, never off ``app.yml``;
+    any other key beside ``panel_id`` is ignored.
 
     :param config: The parsed deploy config.
     :return: The table, built-in rows first, then ``services`` order.
@@ -1187,7 +1188,7 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
         # (compose_generator._refuse_fragment_document refuses it).
         table[panel_id] = PanelRosterGrant(
             service=str(key),
-            single_user_alias=row.get("single_user_alias") is True,
+            names_single_user_operator=True,
             loopback_only=True,
         )
     return table
@@ -1370,12 +1371,12 @@ def has_web_terminal_roster(config: Any) -> bool:
     return web_terminals.get("enabled") is not False and bool(roster_entries(web_terminals))
 
 
-def single_user_alias_services(config: Any) -> frozenset[str]:
+def single_user_operator_services(config: Any) -> frozenset[str]:
     """The services whose panel may accept the deployment-wide terminal secret.
 
-    The rows of :func:`panel_roster_grant_table` with ``single_user_alias``, on
-    a deployment with no roster: the candidates :func:`service_panel_grant`
-    grants the alias to. Its further conditions (bind address, a nameable
+    The rows of :func:`panel_roster_grant_table` that name the single-user
+    operator, on a deployment with no roster: the candidates
+    :func:`service_panel_grant` grants the alias to. Its further conditions (bind address, a nameable
     operator) only ever narrow this set.
 
     :param config: The parsed deploy config.
@@ -1383,7 +1384,9 @@ def single_user_alias_services(config: Any) -> frozenset[str]:
     if has_web_terminal_roster(config):
         return frozenset()
     return frozenset(
-        row.service for row in panel_roster_grant_table(config).values() if row.single_user_alias
+        row.service
+        for row in panel_roster_grant_table(config).values()
+        if row.names_single_user_operator
     )
 
 
@@ -1400,10 +1403,11 @@ def service_panel_grant(
     For the service :func:`panel_roster_grant_table` names as a panel's grant
     holder: one credential per entitled roster user, roster order, each read
     from its own ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` with an empty default. On a
-    deployment with no roster, a row with ``single_user_alias`` instead accepts
-    the deployment-wide secret under the single-user operator's name: one
-    required credential, the account's variable read from
-    ``OSPREY_TERMINAL_SECRET``. No credentials for every other service.
+    deployment with no roster, a row that names the single-user operator (every
+    application panel's, and the OPTIMIZER's) instead accepts the
+    deployment-wide secret under that operator's name: one required credential,
+    the account's variable read from ``OSPREY_TERMINAL_SECRET``. No credentials
+    for every other service.
 
     The alias rests on one equivalence: on a single-user host the deployment
     secret is already the console's credential — ``osprey web`` admits it as the
@@ -1432,7 +1436,7 @@ def service_panel_grant(
     for panel_id, row in panel_roster_grant_table(config).items():
         if row.service != service_key:
             continue
-        if not row.single_user_alias or has_web_terminal_roster(config):
+        if not row.names_single_user_operator or has_web_terminal_roster(config):
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {
                 "credentials": [

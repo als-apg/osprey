@@ -156,7 +156,10 @@ describe('MARKDOWN path (md-render.js / preview-content.js) — script-bearing m
     );
     const tag = page.indexOf("vendor_script('DOMPurify')");
     expect(tag).toBeGreaterThan(-1);
-    expect(tag).toBeLessThan(page.indexOf('type="module"'));
+    // The page-ready writer's module comes first and uses no vendor library.
+    const firstModule = page.search(/type="module"(?! src="\/design-system\/js\/page-ready\.js")/);
+    expect(firstModule).toBeGreaterThan(-1);
+    expect(tag).toBeLessThan(firstModule);
   });
 
   for (const [label, md] of Object.entries(HOSTILE_MD)) {

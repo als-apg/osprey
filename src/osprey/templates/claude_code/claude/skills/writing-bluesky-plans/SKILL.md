@@ -26,8 +26,8 @@ run directly.
 A plan file is a single Python module exposing three required things (plus one
 optional fourth, `render` — see *The plan's own view* below):
 
-1. **`PLAN_METADATA`** — a plain dict with exactly three keys, all required
-   (a plan missing one is rejected at load time, not defaulted):
+1. **`PLAN_METADATA`** — a plain dict with three required keys (a plan
+   missing one is rejected at load time, not defaulted):
    - `name` (str) — the plan's name.
    - `description` (str) — human-readable summary.
    - `writes` (bool) — whether the plan moves a channel (vs. read-only).
@@ -35,16 +35,29 @@ optional fourth, `render` — see *The plan's own view* below):
      happen — that is governed entirely by the `control_system.writes` tier
      and the owner's switch for the machine.
 
-   **Three keys is the whole dict.** Unknown keys are refused, not ignored: the
-   loader parses this block with extra keys forbidden, so a stray key rejects
-   the plan with an error naming it. Nothing about the channels a plan touches
-   belongs here — that is declared on the `PARAMS` fields themselves (next
-   section), which is the one place every consumer reads it from.
+   A plan file on disk may add two optional keys that shape the operator's
+   form, each naming only `PARAMS` fields (a name the plan lacks quarantines
+   it at load):
+   - `layout` (list of lists of str) — rows of parameter names; the fields of
+     one row share a row of the form, the rest follow after.
+   - `summary` (list of str) — the one-line readout above the form's footer,
+     as parts like `"{num} points"`: `{name}` is a parameter's value, `{{` and
+     `}}` are literal braces. Shown parts are joined with " · ", a part shows
+     once every parameter it names has a value, a list shows as its count.
+
+   **Those five keys are the whole dict.** Unknown keys are refused, not
+   ignored: the loader parses this block with extra keys forbidden, so a stray
+   key rejects the plan with an error naming it. Nothing about the channels a
+   plan touches belongs here — that is declared on the `PARAMS` fields
+   themselves (next section), which is the one place every consumer reads it
+   from.
 
    When you author a **session** plan with `write_plan`, you do not write this
    block at all: the bridge assembles it from the call's
    `name`/`description`/`writes` and prepends it to your body. Write the block
-   by hand only in a plan file installed into a facility library.
+   by hand only in a plan file installed into a facility library. The route
+   writes neither `layout` nor `summary`, so a session plan states neither and
+   keeps the automatic form.
 
 2. **`PARAMS`** — a `pydantic.BaseModel` subclass declaring the plan's own
    parameters (channel names, ranges, point counts, ...). Every field that
@@ -609,9 +622,13 @@ failure downgrades the figure instead of losing it.
   no declared role is invisible to the mocks, the pre-enqueue check and the
   approval summary, and a `writes: true` plan with no movable field is
   quarantined at load.
+- **Never** give a `PARAMS` field a default its own field refuses — every
+  default, written or made by a factory, is held to the field's own bounds at
+  load, and a plan whose default fails is quarantined at load.
 - **Never** put channel names in `PLAN_METADATA`, or any key beyond
-  `name`/`description`/`writes` — the dict refuses unknown keys, and the
-  channels belong on the `PARAMS` fields.
+  `name`/`description`/`writes` and the optional `layout`/`summary` of a plan
+  file on disk — the dict refuses unknown keys, and the channels belong on the
+  `PARAMS` fields.
 - **Never** stamp a run you did not open — a plan wrapping a stock bluesky
   plan inherits that plan's metadata, and a second stamp would overwrite a
   more accurate one.

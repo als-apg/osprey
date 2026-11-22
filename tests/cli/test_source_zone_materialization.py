@@ -29,6 +29,7 @@ from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 
@@ -1189,8 +1190,6 @@ def test_failure_after_mkdir_removes_the_target(
 ) -> None:
     """The post-mkdir cleanup path: everything the seven cases above miss,
     because they all fail before the directory exists."""
-    import shutil as shutil_mod
-
     from osprey.cli import profile_cmd
 
     boom = RuntimeError("disk went away mid-copy")
@@ -1198,7 +1197,8 @@ def test_failure_after_mkdir_removes_the_target(
     def explode(src, dst, *args, **kwargs):  # noqa: ARG001 - the source and destination positions shutil.copytree is called at
         raise boom
 
-    monkeypatch.setattr(shutil_mod, "copytree", explode)
+    scoped(monkeypatch, "osprey.cli.templates.preset_data", "shutil", copytree=explode)
+    scoped(monkeypatch, profile_cmd, "shutil", copytree=explode)
     target = tmp_path / "p-facility"
 
     result = _new(runner, target, "hello-world")
@@ -1465,8 +1465,9 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
 
 def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Path) -> None:
     """Sections no bundled preset carries — facility MCP servers and custom
-    artifact extension types — are appended as commented guidance, and the guidance
-    is suppressed for a section the written profile actually defines."""
+    artifact extension types — are appended as commented guidance, and a section
+    the written profile actually defines carries its live key under that heading
+    in place of the commented example."""
     target = tmp_path / "my-facility"
 
     assert _new(runner, target, "demo").exit_code == 0
@@ -1482,7 +1483,8 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert "#       base_form: plots" in text
     assert "#   categories:" not in text
 
-    # A profile that defines mcp_servers itself gets the real key, not the hint.
+    # A profile that defines mcp_servers itself gets the real key under the
+    # section's heading, not the commented example.
     servers = json.dumps(
         {
             "facility_tools": {
@@ -1497,7 +1499,10 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
 
     text = (with_servers / "profile.yml").read_text()
     assert "# mcp_servers:" not in text
-    assert "Facility MCP servers" not in text
+    lines = text.splitlines()
+    heading = next(i for i, line in enumerate(lines) if "Facility MCP servers" in line)
+    following = next(line for line in lines[heading + 1 :] if not line.startswith("#"))
+    assert following == "mcp_servers:"
     assert "facility_tools:" in text
     # The category guidance is independent — still appended.
     assert "# artifact_server:" in text

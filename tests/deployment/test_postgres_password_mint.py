@@ -19,11 +19,11 @@ from tests.deployment._dotenv import project_env
 
 
 @pytest.fixture
-def captured_argv(stub_deploy_up, monkeypatch):
-    """Patch deploy_up's collaborators for a project with only 'postgresql' deployed."""
+def captured_argv(stub_start_stack, monkeypatch):
+    """Stub the start's host for a project with only 'postgresql' deployed."""
     # Every start builds the project image agent-record runs on; no build here.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    return stub_deploy_up({"deployed_services": ["postgresql"]}, seam="subprocess.run")
+    return stub_start_stack({"deployed_services": ["postgresql"]}, seam="subprocess.run")
 
 
 @pytest.fixture
@@ -34,8 +34,8 @@ def _clean_token_env(monkeypatch):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_postgresql_deploy_mints_ariel_db_password(_clean_token_env, tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+def test_postgresql_deploy_mints_ariel_db_password(stubbed_start, _clean_token_env, tmp_path):
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("ARIEL_DB_PASSWORD")
@@ -49,10 +49,7 @@ def test_postgresql_deploy_mints_ariel_db_password(_clean_token_env, tmp_path):
 @pytest.mark.parametrize("execution_method", ["local", "subprocess"])
 @pytest.mark.usefixtures("captured_argv")
 def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
-    _clean_token_env,
-    monkeypatch,
-    tmp_path,
-    execution_method,
+    stubbed_start, _clean_token_env, tmp_path, execution_method
 ):
     """ARIEL_DB_PASSWORD mints with writes enabled and Python running as a subprocess.
 
@@ -71,20 +68,13 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
     subprocess backend (see ``osprey.utils.execution_method.resolve_execution_method``)
     and is the value the deleted guard keyed on.
     """
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (
-            {
-                "deployed_services": ["postgresql"],
-                "control_system": {"writes_enabled": True},
-                "execution": {"execution_method": execution_method},
-            },
-            ["docker-compose.yml"],
-        ),
-    )
+    stubbed_start.config = {
+        "deployed_services": ["postgresql"],
+        "control_system": {"writes_enabled": True},
+        "execution": {"execution_method": execution_method},
+    }
 
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("ARIEL_DB_PASSWORD")
@@ -110,10 +100,10 @@ def test_password_generator_is_uri_safe_every_time(var):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_postgresql_mint_is_idempotent(_clean_token_env, tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+def test_postgresql_mint_is_idempotent(stubbed_start, _clean_token_env, tmp_path):
+    stubbed_start.start(detached=True)
     first = project_env(tmp_path)
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
     second = project_env(tmp_path)
 
     assert first["ARIEL_DB_PASSWORD"] == second["ARIEL_DB_PASSWORD"]
@@ -121,9 +111,9 @@ def test_postgresql_mint_is_idempotent(_clean_token_env, tmp_path):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_existing_ariel_db_password_is_preserved(_clean_token_env, tmp_path):
+def test_existing_ariel_db_password_is_preserved(stubbed_start, _clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=preexistingvalue\n", encoding="utf-8")
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
     assert project_env(tmp_path)["ARIEL_DB_PASSWORD"] == "preexistingvalue"
 
 
@@ -137,21 +127,25 @@ def test_existing_ariel_db_password_is_preserved(_clean_token_env, tmp_path):
     ],
 )
 @pytest.mark.usefixtures("captured_argv")
-def test_operator_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path, var):
+def test_operator_password_with_reserved_char_is_rejected(
+    stubbed_start, _clean_token_env, tmp_path, var
+):
     (tmp_path / ".env").write_text(f"{var}=p@ssword\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match=var):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_postgresql_deploy_mints_the_readonly_password_too(_clean_token_env, tmp_path):
+def test_postgresql_deploy_mints_the_readonly_password_too(
+    stubbed_start, _clean_token_env, tmp_path
+):
     """The SELECT-only role's login secret is minted beside the owner's.
 
     Both are Postgres identities the same fresh volume is initialized with, so
     a deploy that mints one and not the other leaves the read-only role on a
     publicly-known default.
     """
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("ARIEL_DB_READONLY_PASSWORD")

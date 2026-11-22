@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -490,8 +491,6 @@ def gather_session_metadata(created_via: str) -> dict:
     Args:
         created_via: Caller identifier (e.g. ``"ariel-mcp"``, ``"gallery-compose"``).
     """
-    import subprocess
-
     from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
     meta: dict = {"created_via": created_via}

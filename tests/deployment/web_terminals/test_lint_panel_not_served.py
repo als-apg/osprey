@@ -14,6 +14,7 @@ from osprey.interfaces.design_system.panels.validator import validate_panel
 from osprey.interfaces.web_terminal.panel_discovery import configured_panel_ids, discover_panels
 from tests.interfaces.web_terminal.test_panel_discovery import (
     _UNMARKED_HTML,
+    _UNSTYLED_CLASS_HTML,
     _manifest,
     _write_panel,
 )
@@ -57,6 +58,12 @@ def test_a_served_panel_and_a_missing_panels_dir_say_nothing(tmp_path):
     render = _render(tmp_path, _ON)
     assert panels_not_served(render, shown_as="build") == []
     _write_panel(render / "panels", "demo", manifest=_manifest())
+    assert panels_not_served(render, shown_as="build") == []
+
+
+def test_a_panel_whose_findings_only_report_is_not_named(tmp_path):
+    render = _render(tmp_path, _ON)
+    _write_panel(render / "panels", "demo", manifest=_manifest(), html=_UNSTYLED_CLASS_HTML)
     assert panels_not_served(render, shown_as="build") == []
 
 

@@ -13,6 +13,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.app_cmd import EXAMPLE_APP_DIR, app
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import ORBIT_BUMP, enable_orbit_bump
 
@@ -56,7 +57,7 @@ def no_js(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         return subprocess.CompletedProcess(list(argv), 0, "", "")
 
     monkeypatch.setattr("osprey.cli.app_cmd._run", run)
-    monkeypatch.setattr("osprey.cli.app_cmd.shutil.which", lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, "osprey.cli.app_cmd", "shutil", which=lambda name: f"/usr/bin/{name}")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
 
 

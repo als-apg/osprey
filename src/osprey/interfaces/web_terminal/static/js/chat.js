@@ -24,6 +24,7 @@
  * and simply hidden while the terminal shows — never torn down from here.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { uuid4 } from '/design-system/js/uuid.js';
 
 import {
@@ -223,11 +224,8 @@ export function initChat(containerId = 'operator-container') {
   /** Whether the hand-off on screen began with the operator leaving the terminal. */
   let cameFromTerminal = false;
 
-  /** Which hand-off attempt is current; a retry supersedes the one before it. */
-  let handoffGeneration = 0;
-
-  /** The in-flight hand-off request, so a retry can abandon it first. */
-  let handoffAbort = /** @type {AbortController | null} */ (null);
+  /** The hand-off attempts: a retry or a cancel aborts and retires the one in flight. */
+  const handoffs = createLatestRequest();
 
   /** When the current hand-off began, or null when none is showing. */
   let waitStartedAt = /** @type {number | null} */ (null);
@@ -492,9 +490,7 @@ export function initChat(containerId = 'operator-container') {
    * surface's.
    */
   function cancelHandoff() {
-    ++handoffGeneration;
-    handoffAbort?.abort();
-    handoffAbort = null;
+    handoffs.cancel();
     if (!cameFromTerminal) return;
     cameFromTerminal = false;
     hideOverlay();
@@ -596,13 +592,10 @@ export function initChat(containerId = 'operator-container') {
    * @returns {Promise<void>}
    */
   async function runHandoff(cutRunningTurn, endStarted = false) {
-    const generation = ++handoffGeneration;
     // The server frees a key whose requester disconnects, so abandoning the
     // wait in flight is what makes room for this one — two live requests for
     // the same key are two channels, and the second would be refused.
-    handoffAbort?.abort();
-    const controller = new AbortController();
-    handoffAbort = controller;
+    const attempt = handoffs.begin();
 
     const key = boundKey;
     showHandoffPending(cutRunningTurn);
@@ -612,11 +605,10 @@ export function initChat(containerId = 'operator-container') {
       handed = await requestHandoff(key, {
         interrupt: cutRunningTurn,
         endStarted,
-        signal: controller.signal,
+        signal: attempt.signal,
       });
     } catch (err) {
-      if (generation !== handoffGeneration) return;
-      handoffAbort = null;
+      if (!attempt.isCurrent()) return;
       const refusal = handoffRefusal(err);
       showHandoffRefused(refusal ?? HANDOFF_FALLBACK);
       const refused = /** @type {import('./chat-client.js').TransportError} */ (err);
@@ -629,21 +621,20 @@ export function initChat(containerId = 'operator-container') {
       }
       return;
     }
-    if (generation !== handoffGeneration) return;
+    if (!attempt.isCurrent()) return;
     // A 204 with no body: the server saw this request's channel close and
     // abandoned the acquire, so nothing was handed over and nothing failed.
     // The state on screen is still the true one — a wait the operator can
     // still cut short — and replacing it with copy about a request that was
     // never answered would be a claim the server did not make.
     if (!handed) return;
-    handoffAbort = null;
     cameFromTerminal = false;
     hideOverlay();
     await bindTo(key);
     // The replay is awaited, so a retry can start and put its own wait on
     // screen while this one is still finishing. Enabling the input here would
     // hand the operator a console over the newer attempt's overlay.
-    if (generation !== handoffGeneration) return;
+    if (!attempt.isCurrent()) return;
     setTransitioning(false);
   }
 

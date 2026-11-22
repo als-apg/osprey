@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.services.ariel_search.attachments import attachment_id_for
+from tests._scoped_stdlib import no_child_process
 from tests.mcp_server.ariel.conftest import (
     KEYSET_ENTRY_ID,
     KEYSET_RENDITION_BYTES,
@@ -454,9 +455,6 @@ async def test_serving_spawns_no_child_process(monkeypatch, ariel_registry):
     from osprey.imaging import render as render_module
     from osprey.services.ariel_search.attachments import prepare as prepare_module
 
-    def forbidden(*_args, **_kwargs):
-        raise AssertionError("attachment_view must never start a child process")
-
     async def forbidden_async(*_args, **_kwargs):
         raise AssertionError("attachment_view must never start a child process")
 
@@ -465,15 +463,17 @@ async def test_serving_spawns_no_child_process(monkeypatch, ariel_registry):
     monkeypatch.setattr(asyncio, "create_subprocess_shell", forbidden_async)
     monkeypatch.setattr(render_module, "_spawn", forbidden_async)
     monkeypatch.setattr(prepare_module, "prepare_picture", forbidden_async)
-    monkeypatch.setattr("subprocess.Popen", forbidden)
 
-    payload, _ = _blocks(await _call(_service(_row(), _entry()), ATT_ID))
-    assert payload["viewable"] is True
+    with no_child_process() as started:
+        payload, _ = _blocks(await _call(_service(_row(), _entry()), ATT_ID))
+        assert payload["viewable"] is True
 
-    with assert_raises_error(error_type="no_results"):
-        await _call(_service(None, _entry(), stored=_stored(copy_status="pending")), ATT_ID)
-    with assert_raises_error(error_type="not_found"):
-        await _call(_service(None, _entry()), ATT_ID)
+        with assert_raises_error(error_type="no_results"):
+            await _call(_service(None, _entry(), stored=_stored(copy_status="pending")), ATT_ID)
+        with assert_raises_error(error_type="not_found"):
+            await _call(_service(None, _entry()), ATT_ID)
+
+    assert started == []
 
 
 # ---------------------------------------------------------------------------

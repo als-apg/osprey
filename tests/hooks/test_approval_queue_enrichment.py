@@ -778,6 +778,84 @@ def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     assert posted == [(_preview_route("grid_scan"), plan_args)]
 
 
+def test_queue_add_prints_the_resolved_arguments_the_pre_flight_answered(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The approver reads the argument set that will be queued, defaults
+    included, not only the fields the draft typed."""
+    config = _queue_config(make_config)
+    resolved = {"span": 1.0, "correctors": ["COR_DEFAULT"], "limit": 10.0}
+    routes = {
+        "/draft": _draft_route("defaults_probe", {"span": 1.0}, 4),
+        _preview_route("defaults_probe"): {
+            "ok": True,
+            "plan": "defaults_probe",
+            "channels": [{"channel": "COR_DEFAULT", "role": "movable"}],
+            "moves": _moves(1),
+            "total_moves": 1,
+            "truncated": False,
+            "move_cap": 10000,
+            "reason": None,
+            "detail": None,
+            "retryable": False,
+            "plan_args": resolved,
+        },
+    }
+
+    with serving_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=4))
+
+    assert f"Plan args: {json.dumps(resolved)}" in reason
+    assert 'Plan args: {"span": 1.0}' not in reason
+    assert "(as typed)" not in reason
+
+
+def test_queue_add_prints_the_staged_arguments_when_none_resolved(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """A pre-flight that resolved nothing leaves the card on the draft as typed."""
+    config = _queue_config(make_config)
+    routes = {
+        "/draft": _draft_route("defaults_probe", {"span": 20.0}, 4),
+        _preview_route("defaults_probe"): {
+            "ok": False,
+            "plan": "defaults_probe",
+            "channels": [],
+            "moves": [],
+            "total_moves": 0,
+            "truncated": False,
+            "move_cap": None,
+            "reason": "plan_error",
+            "detail": "ValidationError: span must not exceed limit",
+            "retryable": False,
+            "plan_args": None,
+        },
+    }
+
+    with serving_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=4))
+
+    assert 'Plan args (as typed): {"span": 20.0}' in reason
+    assert not any(line.startswith("Plan args: ") for line in reason.splitlines())
+
+
+def test_queue_add_labels_the_arguments_as_typed_when_no_pre_flight_answers(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """With no pre-flight answer the card says the arguments are the draft as typed."""
+    config = _queue_config(make_config)
+    routes = {"/draft": _draft_route("defaults_probe", {"span": 20.0}, 4)}
+
+    with serving_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=4))
+
+    assert 'Plan args (as typed): {"span": 20.0}' in reason
+    assert not any(line.startswith("Plan args: ") for line in reason.splitlines())
+
+
 def test_queue_add_states_the_exact_total_when_the_pre_flight_truncated(
     tmp_path, hook_runner, make_config, monkeypatch
 ):

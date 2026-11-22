@@ -156,6 +156,24 @@ test('a reconnect whose transcript read fails keeps drawing the turn, and reads 
   expect(reads).toHaveLength(2);
 });
 
+test('of two reconnect reads, the newer one draws the log even when the older lands last', async () => {
+  const { follower, reads, entries, running: busy } = mount();
+  follower.frame({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+  follower.frame({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+  follower.frame({ type: 'text', content: 'Reading.', seq: 2 });
+  follower.frame({ type: 'hello', seq: 4, in_flight: true, pending: [] });
+  follower.frame({ type: 'hello', seq: 6, in_flight: true, pending: [] });
+  expect(reads).toHaveLength(2);
+
+  reads[1].resolve(running('read the orbit', 'Reading. It is flat.'));
+  await settle();
+  reads[0].resolve(running('read the orbit', 'Reading.'));
+  await settle();
+
+  expect(entries()).toEqual(['read the orbit', 'Reading. It is flat.']);
+  expect(busy()).toBe(true);
+});
+
 test("each snapshot passes on the chat's model, and no agent passes on the default", () => {
   const { follower } = mount();
   /** @type {Array<string | null>} */

@@ -30,6 +30,7 @@ import {
 } from './components.js';
 import { renderEntryTextHtml, renderFacilityReferencesList } from './reader-facility.js';
 import { seam, place, renderActionButtons, renderTabStrip } from './reader-seam.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /**
  * The web terminal session key from the host's last `osprey-session-change`;
@@ -116,13 +117,15 @@ function renderAttachmentCard(att) {
 
 /**
  * @typedef {object} ReaderState
- * @property {number} seq - Bumped by every `showInReader`/`clearReader` call;
- *   only the newest call may render or open an attachment
+ * @property {ReturnType<typeof createLatestRequest>} loads - The `showInReader`
+ *   calls: a newer call or `clearReader` retires this one, and only the current
+ *   call may render or open an attachment
  * @property {boolean} delegated - Whether the click delegation is bound
  * @property {ReaderCallbacks} callbacks - Callbacks of the newest call
  * @property {HTMLElement|null} lightbox - The lightbox this container opened
  * @property {ReaderContext|null} ctx - The shown entry's seam context
- * @property {number} tabs - Bumped by every tab switch; only the newest renders
+ * @property {ReturnType<typeof createLatestRequest>} tabs - The tab switches:
+ *   only the newest renders
  */
 
 /** @type {WeakMap<HTMLElement, ReaderState>} */
@@ -136,7 +139,14 @@ const readers = new WeakMap();
 function readerState(container) {
   let state = readers.get(container);
   if (!state) {
-    state = { seq: 0, delegated: false, callbacks: {}, lightbox: null, ctx: null, tabs: 0 };
+    state = {
+      loads: createLatestRequest(),
+      delegated: false,
+      callbacks: {},
+      lightbox: null,
+      ctx: null,
+      tabs: createLatestRequest(),
+    };
     readers.set(container, state);
   }
   return state;
@@ -228,7 +238,7 @@ function openTab(container, id) {
   );
   const grid = /** @type {HTMLElement|null} */ (container.querySelector('.entry-detail-grid'));
   if (!ctx?.isCurrent() || !panel || !grid) return;
-  const open = ++state.tabs;
+  const open = state.tabs.begin();
   for (const b of container.querySelectorAll('[data-reader-tab]')) {
     b.setAttribute('aria-selected', String(b.getAttribute('data-reader-tab') === (tab?.id ?? '')));
   }
@@ -238,7 +248,7 @@ function openTab(container, id) {
   panel.hidden = !tab;
   if (!tab) return;
   panel.innerHTML = renderLoading(`Loading ${tab.label}...`);
-  place(ctx, tab.render, panel, () => state.tabs === open);
+  place(ctx, tab.render, panel, open.isCurrent);
 }
 
 /**
@@ -286,7 +296,7 @@ export async function showInReader(container, entryId, options = {}) {
     onFollowUp,
   } = options;
   const state = readerState(container);
-  const seq = ++state.seq;
+  const token = state.loads.begin();
   state.callbacks = { onAttachmentOpen, onAttachmentClose, onSelectEntry, onFollowUp };
   bindDelegation(container);
   container.innerHTML = renderLoading('Loading entry...');
@@ -297,14 +307,14 @@ export async function showInReader(container, entryId, options = {}) {
     entry = await entriesApi.get(entryId);
     if (!entry) throw new Error(`Entry ${entryId} not found`);
   } catch (error) {
-    if (seq !== state.seq) return null;
+    if (!token.isCurrent()) return null;
     console.error('Failed to load entry:', error);
     container.innerHTML = renderErrorState('Failed to Load Entry', error);
     return null;
   }
-  if (seq !== state.seq) return null;
+  if (!token.isCurrent()) return null;
   const id = String(entry.entry_id || entryId);
-  const isCurrent = () => seq === state.seq;
+  const { isCurrent } = token;
   const ctx = { container, entry, entryId: id, callbacks: state.callbacks, isCurrent };
   state.ctx = ctx;
   renderEntryDetail(container, entry);
@@ -333,8 +343,7 @@ export async function showInReader(container, entryId, options = {}) {
  * @param {HTMLElement} container
  */
 export function clearReader(container) {
-  const state = readerState(container);
-  state.seq += 1;
+  readerState(container).loads.cancel();
   container.innerHTML = '';
 }
 
