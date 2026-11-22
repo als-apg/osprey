@@ -111,9 +111,31 @@ __all__ = [
     "take_inputs",
 ]
 
+#: The ``pyat`` settings key that makes the model's copy of the deck radiate.
+RADIATION_KEY = "radiation"
+
 #: The keys the ``pyat`` settings block may carry.
 SETTINGS_KEYS: frozenset[str] = frozenset(
-    {"solve", "twiss_in", "rest_mass_gev", ERROR_ELEMENTS_KEY, turn_settings.BLOCK_KEY}
+    {
+        "solve",
+        "twiss_in",
+        "rest_mass_gev",
+        RADIATION_KEY,
+        ERROR_ELEMENTS_KEY,
+        turn_settings.BLOCK_KEY,
+    }
+)
+
+#: The pass-method families :func:`radiate` turns to their radiating twin:
+#: ``enable_6d`` keywords, each ``auto``. The cavities, collective effects
+#: and quantum diffusion are left as the deck states them.
+_RADIATING_PASSES: tuple[str, ...] = (
+    "dipole_pass",
+    "quadrupole_pass",
+    "sextupole_pass",
+    "octupole_pass",
+    "multipole_pass",
+    "wiggler_pass",
 )
 
 #: The ``solve`` values, the first one the default.
@@ -194,6 +216,8 @@ class Prepared:
             by the deck's periodicity.
         turn_by_turn: The turn-by-turn block, checked and defaulted; ``None``
             on a ring that is not a turn-by-turn ring.
+        radiation: Whether the model's copy of the deck is made to radiate
+            (:func:`radiate`); ``False`` leaves the deck's own pass methods.
     """
 
     solve: str
@@ -201,6 +225,7 @@ class Prepared:
     rest_mass_gev: float
     length_m: float
     turn_by_turn: turn_settings.TurnSettings | None = None
+    radiation: bool = False
 
 
 @dataclass(frozen=True)
@@ -456,7 +481,8 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
     Args:
         deck: The lattice file.
         settings: The model's settings, ``{pyat: {solve?, twiss_in?,
-            rest_mass_gev?, error_elements?, turn_by_turn?}}``, or ``None``.
+            rest_mass_gev?, radiation?, error_elements?, turn_by_turn?}}``,
+            or ``None``.
         model: The model name the stop names; the deck's file stem when
             omitted.
 
@@ -469,7 +495,9 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             cavity without longitudinal motion, ``single_pass`` without
             ``twiss_in``, ``twiss_in`` on a periodic model, a ``twiss_in``
             value of the wrong length, a
-            ``rest_mass_gev`` that is not a finite non-negative number, or an
+            ``rest_mass_gev`` that is not a finite non-negative number, a
+            ``radiation`` that is not ``true`` or ``false`` or is ``true`` on
+            a ``single_pass`` model, or an
             ``error_elements`` list that is malformed, names an element
             twice, or states ``multipoles`` on an element with no polynomial;
             or a ``turn_by_turn`` block :func:`pyat_turn_settings.normalise`
@@ -499,7 +527,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             model_id,
             "model",
             f"settings key pyat carries unknown keys {', '.join(unknown)}",
-            f"use only solve, twiss_in, rest_mass_gev, {ERROR_ELEMENTS_KEY}, "
+            f"use only solve, twiss_in, rest_mass_gev, {RADIATION_KEY}, {ERROR_ELEMENTS_KEY}, "
             f"{turn_settings.BLOCK_KEY}",
         )
     solve = block.get("solve", SOLVES[0])
@@ -581,6 +609,23 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
                 "give rest_mass_gev as a finite non-negative number",
             )
         rest_mass_gev = float(rest_mass)
+    radiation = block.get(RADIATION_KEY, False)
+    if not isinstance(radiation, bool):
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            f"settings key pyat.{RADIATION_KEY} is {radiation!r}",
+            f"set {RADIATION_KEY} to true or false",
+        )
+    if radiation and solve == "single_pass":
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            f"settings key pyat.{RADIATION_KEY} is set on a single_pass model",
+            f"remove {RADIATION_KEY}; write the radiating pass methods into the deck instead",
+        )
     _check_error_elements(loaded, deck, settings, model_id)
     return Prepared(
         solve=solve,
@@ -588,6 +633,28 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
         rest_mass_gev=rest_mass_gev,
         length_m=loaded.length_m,
         turn_by_turn=_turn_block(loaded, deck, settings, model_id),
+        radiation=radiation,
+    )
+
+
+def radiate(lattice: Any) -> None:
+    """Give every magnet of ``lattice`` its radiating pass method, in place.
+
+    Bends, quadrupoles, sextupoles, octupoles, higher multipoles and wigglers
+    take pyAT's radiating twin of the pass method they have
+    (``...Pass`` to ``...RadPass``). The cavities keep theirs, an element
+    with no radiating twin (a corrector, a drift) is left alone, and one that
+    already radiates stays as it is. The radiation is the classical energy
+    loss: no quantum diffusion element is added.
+
+    Args:
+        lattice: The model's own copy of the deck.
+    """
+    lattice.enable_6d(
+        cavity_pass=None,
+        collective_pass=None,
+        diffusion_pass=None,
+        **dict.fromkeys(_RADIATING_PASSES, "auto"),
     )
 
 
@@ -1454,6 +1521,8 @@ def build(
 
     prepared = prepare(deck, settings, model=model)
     lattice = _load(deck).lattice.deepcopy()
+    if prepared.radiation:
+        radiate(lattice)
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     planes = tune_planes(lattice)
     entries = list(wiring)
@@ -1771,6 +1840,8 @@ def response_matrix(
         )
     loaded = _load(deck)
     lattice = loaded.lattice.deepcopy()
+    if prepared.radiation:
+        radiate(lattice)
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     records = list(wiring)
 
