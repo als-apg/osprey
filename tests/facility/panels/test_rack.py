@@ -198,5 +198,7 @@ def test_a_cut_rack_label_under_its_link_shows_its_whole_text_on_the_link(panel_
         ]  # fmt: skip
         assert over  # the link lies over it
         assert f"{long} · contested" in over[-1]["props"]["tooltip"]
-        # its one-line hover label is the link's own label, never the added lines
-        assert over[-1]["props"]["hoverLabel"] == long
+        # its one-line hover label is the link's own label, held short, never the added lines
+        hover = over[-1]["props"]["hoverLabel"]
+        assert len(hover) <= layout.HOVER_LABEL_MOST and hover.endswith("…")
+        assert long.startswith(hover[:-1])
