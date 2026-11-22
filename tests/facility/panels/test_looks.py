@@ -99,7 +99,7 @@ def test_no_widget_is_outside_the_page(panel_graph) -> None:
         size = doc["metadata"]["size"]
         for n in _nodes(doc):
             left, top, right, bottom = _box(n)
-            if left == layout.APPLY_AWAY:
+            if left == layout.AWAY:
                 (moves,) = [r for r in n["rules"] if r["targetProperty"] == "x"]
                 left = moves["conditions"][0]["value"]
                 right = left + n["geometry"]["width"]

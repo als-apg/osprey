@@ -138,3 +138,7 @@ UNLISTED = max(WIDTHS.values())
 #: The height of one line of text (the browser's ``line-height: normal``), in
 #: thousandths of an em: a label's box lower than this the viewer shrinks.
 LINE = 1300
+
+#: The baseline under the top of one line of text, in thousandths of an em: a
+#: text centred in its box has its baseline ``ASCENT - LINE / 2`` below the middle.
+ASCENT = 1025

@@ -13,6 +13,7 @@ import pytest
 
 from osprey.facility.panels import load_graph
 from osprey.facility.panels.classes import (
+    DERIVED_PARTS,
     FLAGS,
     GAP_PARTS,
     SIZE_PARTS,
@@ -164,7 +165,7 @@ def test_the_class_id_depends_on_the_key_alone(tmp_path, written):
     assert fewer["card-xr01-ip2"]["class"].startswith("card-class-pump-default-")
 
 
-def test_a_repeated_role_that_takes_the_tiles_away_makes_another_kind_of_card(tmp_path, written):
+def test_a_repeated_role_keeps_the_class_and_its_tiles_section(tmp_path, written):
     def second_gauge(document: dict[str, Any]) -> None:
         document["channels"].append(
             {
@@ -179,13 +180,10 @@ def test_a_repeated_role_that_takes_the_tiles_away_makes_another_kind_of_card(tm
     index = _written(_graph(tmp_path, second_gauge), tmp_path / "out")
     entries = _entries(index)
     pump = entries["card-xr02-ip2"]
-    # two readbacks of the key role have no one key tile: a card without tiles
-    # shows other blocks, so it is another kind of card, in a class of its own
-    assert pump["class"] != _entries(written)["card-xr02-ip2"]["class"]
-    assert "KeyTile" not in index["classes"][pump["class"]]["key"]["blocks"]
+    assert pump["class"] == _entries(written)["card-xr02-ip2"]["class"]
+    # two readbacks of the key role are one figure, the highest: the tiles stay
     assert "differs" not in pump
-    other = entries["card-xr01-ip2"]
-    assert "KeyTile" in index["classes"][other["class"]]["key"]["blocks"]
+    assert "all channels: rows: 2, the standard 1" in pump["varies"]
 
 
 def test_what_is_known_varies_and_its_gaps_are_named(written):
@@ -370,12 +368,26 @@ def _decided_fields() -> list[str]:
 def test_every_optional_typed_part_and_yes_no_field_has_a_decision():
     """A part of a view that may be absent, be of several kinds, or be yes/no is
     placed in one table: structure, gap, size or flag. None is left to a default."""
-    tables = [GAP_PARTS, SIZE_PARTS, STRUCTURE_PARTS, FLAGS, STRUCTURE_FLAGS, set(VALUE_FLAGS)]
+    tables = [
+        GAP_PARTS, SIZE_PARTS, STRUCTURE_PARTS, DERIVED_PARTS, FLAGS, STRUCTURE_FLAGS,
+        set(VALUE_FLAGS),
+    ]  # fmt: skip
     decided = set().union(*tables)
     assert [name for name in _decided_fields() if name not in decided] == []
     for i, a in enumerate(tables):
         for b in tables[i + 1 :]:
             assert not a & b  # each field is decided once
+
+
+def test_a_key_tile_s_member_names_are_no_part_of_its_structure():
+    from osprey.facility.panels import classes
+    from osprey.facility.panels.view import KeyTile
+
+    members = ("D:A", "D:B")
+    plain = KeyTile("T", members[0], "max", channels=members)
+    named = KeyTile("T", members[0], "max", channels=members, names=("A", "B"))
+    assert classes._Reader().shape(plain) == classes._Reader().shape(named)
+    assert "names" not in dict(classes._Reader().shape(named)[1])
 
 
 def test_the_layout_hash_moves_with_the_drawing_settings_not_with_a_member(tmp_path, written):

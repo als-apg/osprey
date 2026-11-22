@@ -29,6 +29,7 @@ import contextvars
 import itertools
 import json
 import math
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -245,6 +246,7 @@ ARROW_INSET = 4  # an arrow stops short of the next block
 WORD_GAP = 24  # between a name and the muted words after it
 DESCRIPTION_LINE = 19
 KEY_VALUE_TOP = 30  # a key tile's value under its top
+KEY_NOTE_MARGIN = 4  # under the line below a key figure, above the tile's border
 CHIP_HEIGHT_SMALL = 20  # the dashed "not served yet" chip
 BLOCK_ROW = 26
 BLOCK_TOP = 30  # a block's box above its first line
@@ -328,7 +330,7 @@ _TYPE_FIRST = "type a value first"
 _WILL_WRITE = "will write"
 #: An entry's Apply button's press value until a number is entered, and its rule's
 #: default: text, never a number, so no state of the button writes a number nobody
-#: typed. The button is off the canvas in that state (see APPLY_AWAY).
+#: typed. The button is off the canvas in that state (see AWAY).
 NOTHING_ENTERED = "nothing entered"
 #: The rule condition that holds only for a finite number: text fails the product
 #: (the viewer's evaluator refuses text in arithmetic and gives no output), an
@@ -420,9 +422,88 @@ RACK_COLUMN = RACK_LABEL_WIDTH + RACK_WIDTH + 2 * RACK_PAD + 2 * COLUMN_GAP  # t
 # ``max_expression_len`` (canopy/formula_engine/config.py at 166989aa: 2048).
 RULE_EXPRESSION_LIMIT = 2048
 TOOLTIP_LINES = 24  # a card's sources line shows this many statements on hover
+
+#: The props a rule may set, per widget type: those the viewer honours under a
+#: rule. Read from the viewer runtime at commit 4038c44: its renderer handles
+#: ``visible`` (false hides) and the geometry for every node; any other target is
+#: handed to the widget, which reads only the props listed, and an unread one is
+#: dropped without a word. A type not listed takes only the common ones.
+RULE_TARGETS_EVERY = frozenset({"visible", "x", "y", "width", "height"})
+RULE_TARGETS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "text-label": frozenset(
+            {
+                "text",
+                "foregroundColor",
+                "backgroundColor",
+                "fontSize",
+                "fontFamily",
+                "align",
+                "fitText",
+            }
+        ),
+        "pv-label": frozenset(
+            {
+                "pv",
+                "text",
+                "foregroundColor",
+                "backgroundColor",
+                "fontSize",
+                "fontFamily",
+                "align",
+                "fitText",
+                "precision",
+                "precisionFromPV",
+                "showUnits",
+                "alarmSensitive",
+                "alarmBorder",
+            }
+        ),  # fmt: skip
+        "pv-button": frozenset(
+            {
+                "invisible",
+                "label",
+                "onLabel",
+                "offLabel",
+                "labelType",
+                "foregroundColor",
+                "backgroundColor",
+                "onColor",
+                "offColor",
+                "fontSize",
+                "fontFamily",
+                "buttonType",
+                "pressValue",
+                "releaseValue",
+                "transparent",
+                "onImage",
+                "offImage",
+                "pv",
+                "readbackPV",
+            }
+        ),  # fmt: skip
+        "pv-led": frozenset({"pv", "onColor", "offColor"}),
+        "rectangle": frozenset(
+            {"fill", "fillColor", "lineColor", "lineWidth", "lineStyle", "cornerRadius"}
+        ),
+        "ellipse": frozenset({"fill", "fillColor", "lineColor", "lineWidth", "lineStyle"}),
+        "polygon": frozenset(
+            {"fill", "fillColor", "lineColor", "lineWidth", "lineStyle", "closed", "points"}
+        ),
+        "line": frozenset(
+            {"lineColor", "lineWidth", "lineStyle", "arrowStart", "arrowEnd", "arrowSize", "points"}
+        ),
+    }
+)
 TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
+#: A count's lamp while its member is counted: filled in the page's text colour,
+#: the strongest fill a tile holds that is no alarm, so "k of N" reads in the lit
+#: lamps; a zero is the outline of no state, no value the dashed unknown.
+COUNTED_LAMP: Mapping[str, Any] = MappingProxyType(
+    {**symbols.look("normal"), "fillColor": PAGE_TEXT, "lineColor": PAGE_TEXT}
+)
 MAX_TABLE_ROWS = 400  # rows of one table drawn; the rest are counted under it
 PROBE_BORE = 240  # the bore's width across a probe picture, in px
 PROBE_PAD = 32  # round the bore, for the buttons that stand out of it
@@ -436,12 +517,14 @@ PROBE_READOUT_WIDTH = 96
 WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
 COMMAND_VALUE = 1  # what pressing a command's button writes
-#: Where an entry's Apply button waits while nothing is entered: off the canvas, so
-#: there is nothing to click. The viewer's visible rules cannot hold it hidden: a
-#: rule has no output until its local first reports, and visible composes by AND
-#: with a base that must be true for the button ever to show. A geometry rule moves
-#: it in once the local holds a finite number.
-APPLY_AWAY = -10_000
+#: Where a widget waits, off the canvas, while a rule has not placed it: an entry's
+#: Apply button while nothing is entered, a key figure's holder line while its
+#: member does not hold the extreme. The viewer applies no rule before its channels
+#: answer, so a widget is drawn in its rest state until then (no data, a lost
+#: link): a ``visible`` rule whose default is false hides nothing in that state.
+#: Parked here, a widget is out of sight with no rule applied, and a geometry rule
+#: moves it in while its condition holds.
+AWAY = -10_000
 # What one screen may bind. The formula engine allows 1,000 subscriptions per
 # client (``max_subscriptions_per_client``, canopy/formula_engine/config.py at
 # 166989aa), and the viewer subscribes once per rule with a condition; a
@@ -581,6 +664,9 @@ _TRAY_TITLE = "in our lists, not placed"
 _NO_DATA = "no data yet"
 _NEEDS_SERVER = "needs a server-side aggregate"
 _A_MEMBER_MISSING = "one of {} has no value"
+#: The line under a largest or smallest figure: of how many, then (where the tile
+#: names it) the member that holds it.
+_HOLDS = {"max": "highest of {}", "min": "lowest of {}"}
 _NO_OK_STATED = "no ok state stated"
 _INFERRED_WORD = "inferred"
 _PER_PLACE = "counted per place"
@@ -684,6 +770,20 @@ def line_height(size: float) -> float:
     """The height of one line of text at *size* px in the viewer's font
     (:data:`.metrics.LINE`): a label's box lower than this the viewer shrinks."""
     return math.ceil(size * metrics.LINE / metrics.PER_EM)
+
+
+def baseline_drop(size: float) -> float:
+    """How far below its box's middle the viewer draws the baseline of a line of
+    text at *size* px: the viewer centres the line in the box, and the font puts
+    the baseline :data:`.metrics.ASCENT` under the line's top."""
+    return size * (metrics.ASCENT - metrics.LINE / 2) / metrics.PER_EM
+
+
+def on_baseline(top: float, h: float, size: float, h_beside: float, size_beside: float) -> float:
+    """The top of a box *h_beside* high whose text at *size_beside* px stands on the
+    baseline of a text at *size* px in a box *h* high at *top*."""
+    base = top + h / 2 + baseline_drop(size)
+    return base - baseline_drop(size_beside) - h_beside / 2
 
 
 def _line_room(g: Mapping[str, float], size: float) -> Mapping[str, float]:
@@ -2506,39 +2606,68 @@ class _Page:
 
     def key_figure(self, x: float, y: float, w: float, tile: KeyTile) -> None:
         """A key tile's figure over every channel of its role: "k of N" true, the
-        largest or the sum, from one formula; while any of them has no value the
-        figure is a dash and a line under it says so, so no part is shown as whole."""
+        largest, the smallest or the sum, from one formula. A count reads as one:
+        "of N" follows the figure on its baseline. Under the figure is one slot:
+        while any member has no value the slot says so, and the figure is a dash,
+        so no part is shown as whole; but a largest or smallest is the extreme of
+        the members that report (:func:`partial_extreme`), drawn muted, as a
+        bound, where the formula fits the engine. With values, the largest's or smallest's
+        slot names the member that holds it, or says "highest of N" past
+        :data:`.describe.HOLDER_MAX` members. A count's slot is a row of small
+        lamps, one per member in order, where they fit; each shows its own
+        no value by a dashed outline, so the row needs no note, and a member
+        with no value is not counted, so the figure is the lit lamps."""
         members = tile.channels
         keys = [f"c{i}" for i in range(len(members))]
         tokens = [f"{{{key}}}" for key in keys]
         counted = tile.shown_as == "count_true"
-        if counted:
-            figure = " + ".join(f"1 * ({t} != 0)" for t in tokens)
-        elif tile.shown_as == "sum":
-            figure = " + ".join(tokens)
-        else:
-            figure = f"max(({', '.join(tokens)},))"
-        if not counted:
-            scaled = f"({figure}) / {_number(tile.scale)}" if tile.scale else figure
+
+        def shaped(value: str) -> str:
+            scaled = f"({value}) / {_number(tile.scale)}" if tile.scale else value
             shape = (
                 fixed_expression("{v}", tile.precision)
                 if tile.precision is not None
                 else significant_expression("{v}")
             )
-            figure = shape.replace("{v}", f"({scaled})")
+            return shape.replace("{v}", f"({scaled})")
+
+        partial = False  # the figure is the extreme of the members that report
+        if counted:
+            figure = "+".join(f"1*(abs({t})>0)" for t in tokens)  # no value: no count
+        elif tile.shown_as == "sum":
+            figure = shaped(" + ".join(tokens))
+        else:  # max or min: a reduction over one tuple
+            figure = partial_extreme(tile.shown_as, tokens, shaped)
+            partial = len(figure) <= RULE_EXPRESSION_LIMIT
+            if not partial:  # too long to pass over a missing member: a dash then
+                figure = shaped(f"{tile.shown_as}(({', '.join(tokens)},))")
         bindings = dict(zip(keys, members, strict=True))
         reads = frozenset(members)
-        if len(figure) > RULE_EXPRESSION_LIMIT or not self.budget.take([(1, reads)]):
+        every: dict[str, Any] = {  # the bare largest member: a number while all report
+            "name": "",
+            "kind": "scalar",
+            "expression": f"max(({', '.join(tokens)},))",
+            "bindings": bindings,
+        }
+        if len(figure) > RULE_EXPRESSION_LIMIT or not self.budget.take([(1 + partial, reads)]):
             self.small(x, y, _NEEDS_SERVER, fg=MUTED_TEXT)
             return
         name = f"figure-{len(self.s.formulas)}"
         self.s.formulas.append(
             {"name": name, "kind": "scalar", "expression": figure, "bindings": bindings}
         )
+        every["name"] = f"every-{len(self.s.formulas)}"
         pv = _FORMULA_PREFIX + name
-        beside = f"of {len(members)}" if counted else (tile.unit or "")
-        beside_w = text_width(beside, SMALL_SIZE) if beside else 0
-        number_w = max(w - beside_w - GAP, 0)
+        high = KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE - KEY_NOTE_MARGIN
+        if counted:  # the widest count it can print, then "of N" right after it
+            beside = f"of {len(members)}"
+            number_w = text_width("0" * len(str(len(members))), KEY_VALUE_SIZE)
+            beside_x = x + number_w + ROW_GAP
+        else:  # the unit in the unit slot at the tile's right
+            beside = tile.unit or ""
+            beside_w = text_width(beside, SMALL_SIZE) if beside else 0
+            number_w = max(w - beside_w - GAP, 0)
+            beside_x = x + number_w + GAP
         self.s._rules += 1
         rule = {
             "id": f"r-{self.s._rules:04d}",
@@ -2547,28 +2676,54 @@ class _Page:
             "default": NO_VALUE,
             "formula": pv,
         }
+        rules: list[dict[str, Any]] = [rule]
+        if partial:  # muted while a member is missing: the figure is then a bound
+            self.s._rules += 1
+            rules.append(
+                {
+                    "id": f"r-{self.s._rules:04d}",
+                    "name": f"{tile.title} figure, every member reporting",
+                    "targetProperty": "foregroundColor",
+                    "pvs": [{"name": _FORMULA_PREFIX + every["name"], "trigger": True}],
+                    "conditions": [{"expression": "{0} == {0}", "value": PAGE_TEXT}],
+                    "default": MUTED_TEXT,
+                }
+            )
+            self.s.formulas.append(every)
         props = {
             "text": NO_VALUE,
             "fontSize": KEY_VALUE_SIZE,
             "foregroundColor": PAGE_TEXT,
             "backgroundColor": TRANSPARENT,
             "align": "left",
-            _TOOLTIP: f"{tile.shown_as.replace('_', ' ')} over {len(members)} channels",
+            _TOOLTIP: _over_all_tooltip(tile),
         }
-        high = KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE  # the figure, the note under it
-        self.s.widget("text-label", x, y, number_w, high, props, rules=[rule])
+        self.s.widget("text-label", x, y, number_w, high, props, rules=rules)
         if beside:
-            self.small(x + number_w + GAP, y + high - SMALL_LINE, beside, fg=MUTED_TEXT)
-        # the line that names a missing member; empty once every one reports
-        self.s._rules += 1
+            top = on_baseline(y, high, KEY_VALUE_SIZE, SMALL_LINE, SMALL_SIZE)
+            self.small(beside_x, top, beside, fg=MUTED_TEXT)
+        below = y + high
+        if counted and self.lamp_row(x, below, w, tile):
+            return
+        # the slot's one line: a missing member while one has no value; with values
+        # nothing, or "highest of N" where the tile names no holder. It reads a
+        # formula of its own, the bare largest member: the viewer inlines a
+        # formula into each condition, and the shaped figure is too long for that
+        held = tile.shown_as in _HOLDS and not tile.names
+        shown = _HOLDS[tile.shown_as].format(len(members)) if held else ""
         missing = {
-            "id": f"r-{self.s._rules:04d}",
+            "id": f"r-{self.s._rules + 1:04d}",
             "name": f"{tile.title} every member reports",
             "targetProperty": "text",
-            "pvs": [{"name": pv, "trigger": True}],
-            "conditions": [{"expression": "{0} == {0}", "value": ""}],
+            "pvs": [{"name": _FORMULA_PREFIX + every["name"], "trigger": True}],
+            "conditions": [{"expression": "{0} == {0}", "value": shown}],
             "default": _A_MEMBER_MISSING.format(len(members)),
         }
+        if len(engine_expression(missing, {every["name"]: every})) > RULE_EXPRESSION_LIMIT:
+            return  # too many members to say which way: the figure's dash says it alone
+        if not partial:
+            self.s.formulas.append(every)
+        self.s._rules += 1
         note = {
             "text": _A_MEMBER_MISSING.format(len(members)),
             "fontSize": SMALL_SIZE,
@@ -2576,7 +2731,122 @@ class _Page:
             "backgroundColor": TRANSPARENT,
             "align": "left",
         }
-        self.s.widget("text-label", x, y + high, w, SMALL_LINE, note, rules=[missing])
+        if tile.names:  # the holder on the left, the note at the right beside it
+            note_w = text_width(_A_MEMBER_MISSING.format(len(members)), SMALL_SIZE)
+            self.s.widget(
+                "text-label", x + w - note_w, below, note_w, SMALL_LINE, note, rules=[missing]
+            )
+            self.holder_lines(x, below, w, tile, w - note_w - GAP)
+        else:
+            self.s.widget("text-label", x, below, w, SMALL_LINE, note, rules=[missing])
+
+    def lamp_row(self, x: float, y: float, w: float, tile: KeyTile) -> bool:
+        """A count's slot: one small lamp per member, in order, each with the
+        member's name as its tooltip; whether it was drawn. A lamp shows what the
+        count counts: filled while its member is not zero, an outline while it is
+        zero, unknown with no value; so the lit lamps are the figure. Not drawn
+        when the lamps do not fit *w* at the mosaic's size, or their rules not the
+        screen's budget."""
+        members = tile.channels
+        step = MOSAIC_LIGHT + MOSAIC_GAP
+        if len(members) * step - MOSAIC_GAP > w:
+            return False
+        props = symbols.LIGHT_PROPS
+        if not self.budget.take([(len(props), frozenset({m})) for m in members]):
+            return False
+        top = y + (SMALL_LINE - MOSAIC_LIGHT) / 2
+        names = tile.names or tuple(members)
+        for i, member in enumerate(members):
+            self.count_lamp(x + i * step, top, member, names[i])
+        return True
+
+    def count_lamp(self, x: float, top: float, channel: str, name: str) -> None:
+        """One lamp of a count's row at ``(x, top)``: its shape drawn unknown,
+        with a rule per prop over *channel*: counted (not zero) filled in the
+        page's text colour, zero an outline, no value unknown's dashed outline.
+        The lamp is smaller than a line of the least text, so it carries no
+        mark: its outline says unknown (:data:`COUNTED_LAMP`)."""
+        looks = (COUNTED_LAMP, symbols.look(symbols.NONE), symbols.look("unknown"))
+        counted, zero, unknown = looks
+        shape, _mark = symbols.light(x, top, MOSAIC_LIGHT, "unknown")
+        shape["props"][_TOOLTIP] = name
+
+        def rule(prop: str) -> dict[str, Any]:
+            if counted[prop] == zero[prop]:  # any number: one condition
+                conditions = [{"expression": "{0} == {0}", "value": counted[prop]}]
+            else:
+                conditions = [
+                    {"expression": "abs({0}) > 0", "value": counted[prop]},  # no NaN
+                    {"expression": "{0} == 0", "value": zero[prop]},
+                ]
+            self.s._rules += 1
+            return {
+                "id": f"r-{self.s._rules:04d}",
+                "name": f"{name} counted {prop}",
+                "targetProperty": prop,
+                "pvs": [{"name": channel, "trigger": True}],
+                "conditions": conditions,
+                "default": unknown[prop],
+            }
+
+        self.s.add(shape, rules=[rule(p) for p in symbols.LIGHT_PROPS], tags=[_need("state light")])
+
+    def holder_lines(self, x: float, y: float, w: float, tile: KeyTile, short_w: float) -> None:
+        """Under a largest or smallest figure, the member that holds it: one line
+        per member, each parked at :data:`AWAY` and moved into the slot by an
+        ``x`` rule while its member is the first that holds the extreme among the
+        members with a value (:func:`holder_condition`). So one shows at a time,
+        a member with no value never removes it, and none shows before the
+        channels answer, when the viewer applies no rule. While a member has no
+        value the line says the name alone, in *short_w*, and the note beside it
+        says one has no value. A name too long for the line is cut so the part
+        that tells it from the other members survives (:func:`_cut_apart`); each
+        line's tooltip is the member's whole name. Left out when the screen's
+        rules do not fit."""
+        members = tile.channels
+        n = len(members)
+        every = " and ".join(f"{{{j}}} == {{{j}}}" for j in range(n))
+        lines: list[tuple[str, str, str]] = []
+        for k, short in enumerate(tile.names):
+            test = holder_condition(tile.shown_as, k, n)
+            if max(len(test), len(every)) > RULE_EXPRESSION_LIMIT:
+                return
+            held = _HOLDS[tile.shown_as].format(n) + " · "
+            room = w - text_width(held, SMALL_SIZE) + TEXT_PAD
+            text = held + _cut_apart(short, tile.names, room, SMALL_SIZE)
+            lines.append((test, text, _cut_apart(short, tile.names, short_w, SMALL_SIZE)))
+        if not self.budget.take([(2 * len(lines), frozenset(members))]):
+            return
+        pvs = [{"name": m, "trigger": True} for m in members]
+        for k, (test, text, alone) in enumerate(lines):
+            self.s._rules += 2
+            rules = [
+                {
+                    "id": f"r-{self.s._rules - 1:04d}",
+                    "name": f"{tile.title} held by {members[k]}",
+                    "targetProperty": "x",  # geometry: every widget type honours it
+                    "pvs": pvs,
+                    "conditions": [{"expression": test, "value": _pixel(x)}],
+                    "default": AWAY,
+                },
+                {
+                    "id": f"r-{self.s._rules:04d}",
+                    "name": f"{tile.title} held by {members[k]}, every member reporting",
+                    "targetProperty": "text",
+                    "pvs": pvs,
+                    "conditions": [{"expression": every, "value": text}],
+                    "default": alone,
+                },
+            ]
+            props = {
+                "text": text,
+                "fontSize": SMALL_SIZE,
+                "foregroundColor": MUTED_TEXT,
+                "backgroundColor": TRANSPARENT,
+                "align": "left",
+                _TOOLTIP: "\n".join(dict.fromkeys((tile.names[k], members[k]))),
+            }
+            self.s.widget("text-label", AWAY, y, w, SMALL_LINE, props, rules=rules)
 
     def shown_value(
         self,
@@ -3852,7 +4122,7 @@ class _Page:
                 "targetProperty": "x",
                 "pvs": [{"name": local, "trigger": True}],
                 "conditions": [{"expression": _ENTERED, "value": x}],
-                "default": APPLY_AWAY,
+                "default": AWAY,
             },
             {
                 "id": f"r-{first + 1:04d}",
@@ -3881,7 +4151,7 @@ class _Page:
             "foregroundColor": symbols.CONTROL_ACTION_TEXT,
             _TOOLTIP: f"writes the new value to {target}",
         }
-        self.s.widget("pv-button", APPLY_AWAY, y, width, ROW, button, rules=rules)
+        self.s.widget("pv-button", AWAY, y, width, ROW, button, rules=rules)
         # what Apply writes, from the same formula as its press value: when the
         # field's text is no number, both keep the last number, so the line still
         # says what a press writes
@@ -6958,6 +7228,49 @@ def _cut(
     return ""
 
 
+def _cut_apart(text: str, siblings: Sequence[str], width: float, size: float) -> str:
+    """*text*, one of *siblings*, cut to fit *width* at *size* so the part that
+    tells it from the others survives: whole while it fits; else the words the
+    siblings share at the front go first, word by word from their end
+    ("front…differing end"),
+    then the shared words at the end ("…differing…"), and only then the
+    differing part itself, from its front; with nothing shared it is cut in the
+    middle. The shared parts end and start at a
+    separator (any character not a letter or digit), so a cut never splits a
+    word the siblings both use. The whole shows on hover (:class:`_Cut`)."""
+    if text_width(text, size) <= width:
+        return text
+    cuts = _CUTS.get()
+    if cuts is not None:
+        cuts.append(text)
+    others = [s for s in siblings if s != text] or [text]
+    front = min(len(os.path.commonprefix([text, s])) for s in others)
+    back = min(len(os.path.commonprefix([text[::-1], s[::-1]])) for s in others)
+    while front and text[front - 1].isalnum():
+        front -= 1
+    back = min(back, len(text) - front)
+    while back and text[len(text) - back].isalnum():
+        back -= 1
+    head, differing, tail = text[:front], text[front : len(text) - back], text[len(text) - back :]
+    lead = _ELLIPSIS if head else ""
+    words = [k for k in range(len(head) - 1, 0, -1) if not head[k - 1].isalnum()]
+    tries = [head[:k] + _ELLIPSIS + differing + tail for k in [*words, 0] if head]
+    tries += [lead + differing + tail[:k] + _ELLIPSIS for k in range(len(tail) - 1, -1, -1)]
+    if head or tail:  # the differing part alone, from its front
+        tries += [
+            lead + differing[k:] + (_ELLIPSIS if tail else "") for k in range(1, len(differing))
+        ]
+    else:  # nothing shared: cut in the middle, the front and the end kept
+        tries += [
+            text[: (len(text) - k + 1) // 2] + _ELLIPSIS + text[len(text) - (len(text) - k) // 2 :]
+            for k in range(1, len(text))
+        ]
+    for kept in tries:
+        if text_width(kept, size) <= width:
+            return _Cut(kept, text)
+    return ""
+
+
 def _chip(title: str, item: object) -> tuple[str, Link | None]:
     """A card's chip for a related thing: "<relation>: <thing>", its card when it has one."""
     if isinstance(item, Link):
@@ -7280,6 +7593,48 @@ def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
     return out
 
 
+def partial_extreme(measure: str, tokens: Sequence[str], shaped: Callable[[str], str]) -> str:
+    """The figure of a largest or smallest (*measure* ``max`` or ``min``) over
+    *tokens* that passes over a member with no value: each member with no value
+    (``{t} != {t}``) stands in as the measure's far end, minus or plus infinity,
+    which never wins; *shaped* rounds the reduction for print. With no member
+    reporting it is no number, so the label keeps its dash: the engine's
+    reductions are numpy's, which give no number over one that is missing."""
+    far = "-inf" if measure == "max" else "inf"
+    each = ", ".join(f"where({t} == {t}, {t}, {far})" for t in tokens)
+    none = " * ".join(f"({t} != {t})" for t in tokens)
+    return f"where({none}, nan, {shaped(f'{measure}(({each},))')})"
+
+
+def holder_condition(measure: str, k: int, n: int) -> str:
+    """The condition under which member *k* of *n* is the first that holds the
+    extreme *measure* (``max`` or ``min``) of rule pvs ``{0}`` .. ``{n-1}`` among
+    the members that have a value: it has a value, no member before it is as far
+    or farther, and none after it is farther; a member with no value (``{j} !=
+    {j}``) is passed over. Of two members both holding it the first wins (the
+    tie rule), so at most one condition holds, and exactly one while any member
+    has a value."""
+    first, rest = (">=", ">") if measure == "max" else ("<=", "<")
+    terms = [f"{{{k}}} == {{{k}}}"]
+    for j in range(n):
+        if j == k:
+            continue
+        beaten = first if j < k else rest  # an earlier member wins a tie
+        terms.append(f"not ({{{j}}} {beaten} {{{k}}})")
+    return " and ".join(terms)
+
+
+def _over_all_tooltip(tile: KeyTile) -> str:
+    """A key figure's tooltip: what it counts or reduces, then its members by name,
+    one per line, the rest counted past :data:`TOOLTIP_LINES`."""
+    members = tile.names or tile.channels
+    head = f"{tile.shown_as.replace('_', ' ')} over {len(members)} channels"
+    shown = list(members[:TOOLTIP_LINES])
+    if len(members) > TOOLTIP_LINES:
+        shown.append(f"and {len(members) - TOOLTIP_LINES} more")
+    return "\n".join([head, *shown])
+
+
 def metric_formula(name: str, item: Tile) -> dict[str, Any]:
     """The screen formula of a key number: its expression over ``{key}`` tokens and the
     channel each key binds. Counts are sums of ``1 * (test)``, so a true test counts one
@@ -7298,7 +7653,7 @@ def metric_formula(name: str, item: Tile) -> dict[str, Any]:
         bindings = dict(zip(keys, item.channels, strict=True))
         tokens = [f"{{{key}}}" for key in keys]
         if item.measure == "count_true":
-            expression = " + ".join(f"1 * ({t} != 0)" for t in tokens)
+            expression = "+".join(f"1*(abs({t})>0)" for t in tokens)  # no value: no count
         elif item.measure == "count_false":
             expression = " + ".join(f"1 * ({t} == 0)" for t in tokens)
         elif item.measure == "rms":

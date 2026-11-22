@@ -1287,16 +1287,93 @@ def _row_word(row: ChannelRole) -> str:
 
 
 #: A card key number's measures over every channel of its role on the device.
-_OVER_ALL = ("count_true", "max", "sum")
+_OVER_ALL = ("count_true", "max", "min", "sum")
+#: The measures whose figure one member holds, so the tile can name it.
+_HELD = ("max", "min")
+#: The figure a default tile shows over several own channels of one role, by how
+#: the role shows one: how many are true, or the highest. A role shown as a word
+#: or a text has no figure over many.
+_MANY_MEASURE = {"lamp": "count_true", "value": "max"}
+#: A default count's word for the true state where none is stated and the role's
+#: channels are two-state (a ``bool``).
+_TRUE_WORD = "on"
+_EXTREME = {"max": "Highest {}", "min": "Lowest {}"}
+#: The most members a tile names its figure's holder for: each name is one rule,
+#: and five tiles of this many stay within a fifth of a screen's rule budget.
+HOLDER_MAX = 32
+#: Why a role of several own channels gets no default figure.
+NO_TRUE_WORD = "not two-state, no word stated for its true state"
 
 
-def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[KeyTile]:
+def _true_word(graph: PanelGraph, channel: str) -> str | None:
+    """The word for a channel's true state: the one ``state_labels.csv`` or the
+    facility file's ``options`` states for 1; else :data:`_TRUE_WORD` for a
+    two-state channel (a ``bool``); else ``None``, since a word guessed from the
+    role's name would be a guess."""
+    stated = graph.state_words(channel).get("1")
+    if stated:
+        return stated
+    try:
+        record = graph.channel(channel)
+    except KeyError:
+        return None
+    if len(record.options) == 2:
+        return record.options[1]
+    return _TRUE_WORD if record.value_type == "bool" else None
+
+
+def _over_all_title(row: ChannelRole, measure: str, true: str | None = None) -> str:
+    """A default figure's title: "<role> <true word>" for a count of the true ones,
+    "Highest <role>" for the largest, "Lowest <role>" for the smallest. A stated
+    label keeps its case; a word made from the role is lower case after the
+    title's first word."""
+    word = _role_word(row)
+    if measure == "count_true":
+        return f"{word} {true}"
+    if not row.label:
+        word = word.lower()
+    return _EXTREME[measure].format(word)
+
+
+def _channel_short(thing: str, channel: str) -> str:
+    """A channel's name short of its device's id: what follows the id and its
+    separator when the name begins with it (``:``, ``-``, ``_`` and ``.`` alike),
+    else the whole name."""
+
+    def plain(text: str) -> str:
+        return text.translate(_SEPARATORS)
+
+    if len(channel) > len(thing) and plain(channel[: len(thing)]) == plain(thing):
+        rest = channel[len(thing) :].lstrip(":-_.")
+        if rest:
+            return rest
+    return channel
+
+
+def _holders(thing: str, members: tuple[str, ...], measure: str) -> tuple[str, ...]:
+    """The short names a tile names its figure's holder by: one per member for the
+    highest or the lowest (:func:`_channel_short`), up to :data:`HOLDER_MAX`
+    members; none above that, and none for a count or a sum, which no one member
+    holds."""
+    if measure not in _HELD or len(members) > HOLDER_MAX:
+        return ()
+    return tuple(_channel_short(thing, m) for m in members)
+
+
+_SEPARATORS = str.maketrans({"-": ":", "_": ":", ".": ":"})
+
+
+def _key_tiles(
+    graph: PanelGraph, thing: Thing, hits: list[RoleHit], notes: list[str] | None = None
+) -> list[KeyTile]:
     """The tiles: the ``metrics.csv`` rows of view ``card`` of the device's class
     whose ``level`` is its recipe or empty, by order, each
     the first channel of its role (``signal``) or not served yet; with none, the
-    first :data:`DEFAULT_TILES` roles that exactly one of the device's own
-    channels plays and that show a value, a word or a lamp, identity roles left
-    out."""
+    first :data:`DEFAULT_TILES` roles the device's own channels play and that
+    show a value, a word or a lamp, identity roles left out: one channel's value,
+    or one figure over several (:data:`_MANY_MEASURE`). A role of several whose
+    count has no true word (:func:`_true_word`) gets no tile, and a line in
+    *notes* when given."""
     by_role: dict[str, list[RoleHit]] = {}
     for hit in hits:
         by_role.setdefault(hit.role.role, []).append(hit)
@@ -1328,6 +1405,7 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
                     None if counted else scale,
                     row.precision,
                     channels=members,
+                    names=_holders(thing.id, members, row.measure),
                 )
             )
             continue
@@ -1351,16 +1429,39 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
         if len(tiles) == DEFAULT_TILES:
             break
         # Only the device's own channels of a role count: a neighbour's channel
-        # its roles reach is no figure of this device, and two own channels of
-        # one role are no single figure either.
+        # its roles reach is no figure of this device.
         own = [h for h in found if h.owner == thing.id]
-        if len(own) != 1:
+        if not own:
             continue
         hit = own[0]
         first = hit.role
         if role in graph.identity or role == INTERNAL_ROLE or first.shown_as in CONTROLS:
             continue
         unit, scale = _role_unit(graph, hit)
+        if len(own) > 1:  # several own channels: one figure over them all, or none
+            measure = _MANY_MEASURE.get(first.shown_as)
+            if measure is None:
+                continue
+            members = tuple(dict.fromkeys(h.channel for h in own))
+            counted = measure == "count_true"
+            true = _true_word(graph, members[0]) if counted else None
+            if counted and true is None:
+                if notes is not None:
+                    notes.append(f"{thing.cls}.{role}")
+                continue
+            tiles.append(
+                KeyTile(
+                    _over_all_title(first, measure, true),
+                    hit.channel,
+                    measure,
+                    None if counted else unit,
+                    None if counted else scale,
+                    None,
+                    channels=members,
+                    names=_holders(thing.id, members, measure),
+                )
+            )
+            continue
         tiles.append(
             KeyTile(
                 _role_word(first),
@@ -1373,6 +1474,27 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
             )
         )
     return tiles
+
+
+def figure_notes(graph: PanelGraph, devices: Iterable[str]) -> tuple[Counter[str], Counter[str]]:
+    """What ``check`` says of the card figures over several channels: per
+    ``<class>.<role>``, the devices whose role of several own channels gets no
+    default figure (:data:`NO_TRUE_WORD`); and per ``<class>: <title>``, the
+    tiles whose highest or lowest names no holder, having more than
+    :data:`HOLDER_MAX` members."""
+    skipped: Counter[str] = Counter()
+    unnamed: Counter[str] = Counter()
+    for device in devices:
+        try:
+            thing = graph.thing(device, "device")
+        except KeyError:
+            continue
+        notes: list[str] = []
+        for tile in _key_tiles(graph, thing, graph.roles(device), notes):
+            if tile.shown_as in _HELD and len(tile.channels) > HOLDER_MAX:
+                unnamed[f"{thing.cls}: {tile.title}"] += 1
+        skipped.update(notes)
+    return skipped, unnamed
 
 
 def _relation_block(

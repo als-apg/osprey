@@ -1638,14 +1638,38 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    card names it without a link. ``check`` counts the devices with no card, those
    the default alone leaves without one, and how many devices each row decides. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
-   ``card`` whose ``level`` names its recipe, else the roles exactly one of the
-   device's own channels plays, a neighbour's channel its roles reach not
-   counted, but never a role whose word is a ``nameplate`` signal, which says what the device is, not how
+   ``card`` whose ``level`` names its recipe, else the roles the device's own
+   channels play, a neighbour's channel its roles reach not counted, but never a
+   role whose word is a ``nameplate`` signal, which says what the device is, not how
    it is (a ``channel_roles.csv`` row giving the channel another word overrides
-   it); a tile's measure is
-   ``value`` or ``word`` of the role's first channel, or over every channel of
-   the role on the device ``count_true`` shown "k of N", ``max`` or ``sum``, a
-   dash and "one of N has no value" while any member has none), its relations as
+   it); a role that several own channels play is one figure over them all, a
+   count of the true ones for a lamp titled "<role> <true word>", the word
+   ``state_labels.csv`` or the channel's ``options`` state for 1 ("on" only for
+   a ``bool`` channel; a role with neither gets no tile, and ``check`` names
+   it), the highest for a value titled "Highest <role>", and no tile for a
+   word; a stated card row for the class wins over this default; a tile's
+   measure is ``value`` or ``word`` of the role's first channel, or over every
+   channel of the role on the device ``count_true``, ``max``, ``min`` or
+   ``sum``. A count reads "k of N", "of N" on the figure's baseline right after
+   it, and under it a row of small lamps, one per member in order, where they
+   fit the tile, each filled while its member is counted, an outline while it
+   is zero and a dashed outline while it has no value, its tooltip the member's
+   name, and a member with no value is not counted, so the figure is the lit
+   lamps; the highest's or the lowest's line under the figure names the
+   member that holds it ("highest of N · <name>", the first such member, its
+   name short of the device's id), from one label per member parked off the
+   page and moved into the line by a rule while its member holds the extreme
+   among the members with a value (a tie goes to the first), so a page whose
+   channels have not answered shows none, up to 32 members, past which it says
+   "highest of N" and ``check`` names the tile; the figure's tooltip names what
+   it is over, member by member; a name too long for the line is cut so the
+   part that tells it from the other members survives, and each line's tooltip
+   is the member's whole name; while any member has no value the line says
+   "one of N has no value", beside the holder's name where the tile names one,
+   or each lamp shows its dashed outline, and a sum is a dash, while the
+   highest or the lowest is that of the members that report, drawn muted, a
+   bound and not the whole, where its formula fits the engine's length, else a
+   dash; with no member reporting it is a dash), its relations as
    a chain of blocks (the device's own block showing only roles one channel of
    it plays: a role played per connector or member is not rows there), its
    drawings (a drawing none of whose parts has a place is a compact row of

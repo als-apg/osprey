@@ -29,9 +29,10 @@ FONT_FILE = Path(__file__).parent / "panel_font" / "IBMPlexSans-Regular.woff"
 CHARACTERS = "".join(chr(i) for i in range(0x20, 0x7F)) + "—–·›≈≠…→←↑↓Σ±°µ×Δ²³Ω"
 
 
-def measure(path: Path | str = FONT_FILE) -> tuple[str, str, dict[str, int], int]:
-    """The font's family, its version, its advance width per character and its
-    line height (the browser's ``line-height: normal``), in thousandths of an em."""
+def measure(path: Path | str = FONT_FILE) -> tuple[str, str, dict[str, int], int, int]:
+    """The font's family, its version, its advance width per character, its line
+    height (the browser's ``line-height: normal``) and its ascent (the baseline
+    under the top of that line), in thousandths of an em."""
     from fontTools.ttLib import TTFont  # a matplotlib dependency, imported where it is used
 
     font = TTFont(str(path))
@@ -43,11 +44,12 @@ def measure(path: Path | str = FONT_FILE) -> tuple[str, str, dict[str, int], int
     }
     hhea = font["hhea"]
     line = round((hhea.ascent - hhea.descent + hhea.lineGap) * 1000 / per_em)
-    return font["name"].getDebugName(1), font["name"].getDebugName(5), widths, line
+    ascent = round((hhea.ascent + hhea.lineGap / 2) * 1000 / per_em)
+    return font["name"].getDebugName(1), font["name"].getDebugName(5), widths, line, ascent
 
 
 def main(path: Path | str = FONT_FILE) -> str:
-    family, version, widths, line = measure(path)
+    family, version, widths, line, ascent = measure(path)
     rows = "\n".join(f"    {c!r}: {w}," for c, w in widths.items())
     return f'''"""Advance widths of the viewer's text font, for measuring text in a panel.
 
@@ -75,6 +77,10 @@ UNLISTED = max(WIDTHS.values())
 #: The height of one line of text (the browser's ``line-height: normal``), in
 #: thousandths of an em: a label's box lower than this the viewer shrinks.
 LINE = {line}
+
+#: The baseline under the top of one line of text, in thousandths of an em: a
+#: text centred in its box has its baseline ``ASCENT - LINE / 2`` below the middle.
+ASCENT = {ascent}
 '''
 
 

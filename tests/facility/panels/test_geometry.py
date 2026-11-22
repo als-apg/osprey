@@ -6,7 +6,7 @@ the layout measures it. Every screen of the fixture facility is checked:
 - a text label's text fits its box, in width and in line height, so the viewer
   never shrinks or clips it;
 - no widget reaches outside the canvas, but the Apply buttons parked away by
-  design (:data:`layout.APPLY_AWAY`);
+  design (:data:`layout.AWAY`);
 - no two text labels draw over each other;
 - the page never asks for a face the viewer's font set lacks: a plot carries no
   title of its own.
@@ -61,12 +61,27 @@ def screens(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any
     }
 
 
+def _hidden(node: dict[str, Any]) -> bool:
+    """Whether *node* is out of sight until a rule shows it: parked off the
+    canvas at :data:`layout.AWAY`, its ``x`` rule's default."""
+    return node["geometry"]["x"] == layout.AWAY
+
+
+def _placed(node: dict[str, Any]) -> float:
+    """Where a parked *node*'s ``x`` rule moves it while its condition holds."""
+    (moves,) = [r for r in node["rules"] if r["targetProperty"] == "x"]
+    (condition,) = moves["conditions"]
+    return condition["value"]
+
+
 def _texts(doc: dict[str, Any]) -> list[tuple[str, str, float, float, float, float]]:
     """Each text label's id, text and the box its letters take: x, y, width, height."""
     found = []
     for node in _nodes(doc["root"]):
         props, g = node["props"], node["geometry"]
         if node["type"] != "text-label" or not str(props.get("text", "")).strip():
+            continue
+        if _hidden(node):  # parked until a rule shows it: see the shared-box test
             continue
         size = props.get("fontSize", layout.TEXT_SIZE)
         w = min(_ink(props["text"], size), g["width"])
@@ -141,7 +156,7 @@ def test_the_canvas_ends_one_margin_under_the_content(screens):
         bottom = max(
             n["geometry"]["y"] + n["geometry"]["height"]
             for n in _nodes(doc["root"])
-            if n["type"] != "absolute-canvas" and n["geometry"]["x"] != layout.APPLY_AWAY
+            if n["type"] != "absolute-canvas" and n["geometry"]["x"] != layout.AWAY
         )
         height = doc["metadata"]["size"]["height"]
         if height != doc["root"]["geometry"]["height"] or height - bottom != layout.PAGE_END:
@@ -155,7 +170,7 @@ def test_no_widget_reaches_outside_the_canvas(screens):
         size = doc["metadata"]["size"]
         for node in _nodes(doc["root"]):
             g = node["geometry"]
-            if node["type"] == "absolute-canvas" or g["x"] == layout.APPLY_AWAY:
+            if node["type"] == "absolute-canvas" or g["x"] == layout.AWAY:
                 continue
             if (
                 g["width"] < 0
@@ -188,6 +203,102 @@ def test_no_text_lies_under_a_value(screens):
                 ):
                     under.append((name, t_id, text, value["id"]))
     assert under == []
+
+
+def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_graph):
+    """Labels parked until a rule moves them in may share a box only when their
+    rules prove that at most one shows: each is the first-holder condition of its own
+    member over the same members (:func:`layout.holder_condition`), whose form
+    admits no two at once. The static check leaves parked labels out; this is
+    what lets it."""
+    import re
+
+    from osprey.facility.panels.view import CardHead, KeyTile, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    members = ("XR01-X:T1-RB", "XR01-X:T2-RB", "XR01-X:T3-RB")
+    drawn = {
+        f"extreme-{measure}": stub_render(
+            View(
+                Target("card", "device", "XR01:X"), "XR01:X", (),
+                (Section("head", (CardHead("X · default", None),)),
+                 Section("tiles", (KeyTile("T", members[0], measure, "K", channels=members,
+                                           names=("T1-RB", "T2-RB", "T3-RB")),)),),
+            ),
+            panel_graph,
+        )
+        for measure in ("max", "min")
+    }  # fmt: skip
+    groups: dict[tuple[str, tuple[float, ...]], list[dict[str, Any]]] = {}
+    for name, doc in {**screens, **drawn}.items():
+        for node in _nodes(doc["root"]):
+            if node["type"] != "text-label" or not _hidden(node):
+                continue
+            g = node["geometry"]
+            box = (_placed(node), g["y"], g["width"], g["height"])
+            groups.setdefault((name, box), []).append(node)
+    shared = [group for group in groups.values() if len(group) > 1]
+    assert len(shared) >= len(drawn)  # the extreme tiles drawn here, and any the set has
+    unproved = []
+    for group in shared:
+        held: tuple[str, ...] | None = None
+        seen = set()
+        for node in group:
+            (rule,) = [r for r in node["rules"] if r["targetProperty"] == "x"]
+            (condition,) = rule["conditions"]
+            pvs = tuple(pv["name"] for pv in rule["pvs"])
+            test = condition["expression"]
+            match = re.match(r"\{(\d+)\} == \{\1\}", test)
+            k = int(match.group(1)) if match else -1
+            forms = {layout.holder_condition(m, k, len(pvs)) for m in ("max", "min")}
+            proved = (
+                match is not None
+                and rule["targetProperty"] == "x"
+                and rule["default"] == layout.AWAY
+                and test in forms
+                and (held is None or pvs == held)
+                and k not in seen
+            )
+            held = pvs
+            seen.add(k)
+            if not proved:
+                unproved.append(node["id"])
+    assert unproved == []
+
+
+def _off_targets(doc: dict[str, Any]) -> list[tuple[str, str]]:
+    """Each (widget type, rule target) of *doc* the viewer does not honour."""
+    return [
+        (node["type"], rule["targetProperty"])
+        for node in _nodes(doc["root"])
+        for rule in node.get("rules") or ()
+        if rule["targetProperty"]
+        not in layout.RULE_TARGETS_EVERY | layout.RULE_TARGETS.get(node["type"], frozenset())
+    ]
+
+
+def test_every_rule_sets_a_prop_its_widget_honours(screens):
+    """A rule on a prop its widget does not read is dropped by the viewer without
+    a word; so the generator writes none (:data:`layout.RULE_TARGETS`)."""
+    off = {name: found for name, doc in screens.items() if (found := _off_targets(doc))}
+    assert off == {}
+
+
+def test_with_no_rule_applied_nothing_a_rule_hides_is_on_the_canvas(screens):
+    """The viewer applies no rule before a rule's channels answer (no data, a lost
+    link), so a widget is drawn in its rest state then: a widget a rule hides
+    must rest out of sight without it. A ``visible`` rule whose default is false
+    leaves its widget on the canvas in that state; a rule that parks a widget
+    at :data:`layout.AWAY` by default must find it parked there."""
+    shown = [
+        (name, node["id"], rule["targetProperty"])
+        for name, doc in screens.items()
+        for node in _nodes(doc["root"])
+        for rule in node.get("rules") or ()
+        if (rule["targetProperty"] == "visible" and rule["default"] is False)
+        or (rule["targetProperty"] == "x" and rule["default"] == layout.AWAY and not _hidden(node))
+    ]
+    assert shown == []
 
 
 def test_no_text_lies_over_another(screens):
@@ -227,11 +338,12 @@ def test_the_metrics_measure_the_font_the_layout_names():
 
 def test_the_metrics_table_is_the_font_file_it_names():
     script = load_module("panel_font_metrics", FONT_METRICS)
-    family, version, widths, line = script.measure()
+    family, version, widths, line, ascent = script.measure()
     # regenerate the module from the font file: it is the module in the tree
     assert metrics.FONT == family
     assert metrics.WIDTHS == widths
     assert metrics.LINE == line
+    assert metrics.ASCENT == ascent
     assert f"from {family}, {version};" in (metrics.__doc__ or "")
     assert (script.FONT_FILE.parent / "OFL.txt").is_file()  # the font's licence beside it
 
