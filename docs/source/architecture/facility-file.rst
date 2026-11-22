@@ -121,6 +121,10 @@ filters the file's own channel records and names a model or a place.
      - The one wiring record naming an address, as its ``address`` or under ``also``, as the file holds it.
      -
      - ``None`` for an address no model wires.
+   * - ``record_address(address)``
+     - The address of the wiring record naming an address under ``also``; the address itself otherwise.
+     -
+     - The address itself for an address no record names under ``also``.
    * - ``resolve(target)``
      - The channel and device records a reference target names, by exact id.
      - ``LINK_KINDS``: channel, then device.

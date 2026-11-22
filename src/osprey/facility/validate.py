@@ -3448,7 +3448,8 @@ def tolerance_warnings(
     moves a toleranced setpoint's readback beyond the tolerance, so its moves
     time out while it is active; and, per lane that does not serve the
     simulator, the count of float setpoints that declare no ``tolerance`` and
-    so settle within the lane's floor, the first line followed by up to
+    so settle within the lane's floor (a further address of a wiring record
+    counts as its record), the first line followed by up to
     :data:`_WARNED_ADDRESSES` of their addresses, one per line. A scenario's
     ``still`` counts as the simulator view writes it
     (:func:`~osprey.facility.views.simulator.resolved_still`), so a reading
@@ -3505,6 +3506,7 @@ def tolerance_warnings(
         if channel.get("role") == "setpoint"
         and channel.get("value_type", "float") == "float"
         and not channel.get("tolerance")
+        and records.record_address(address) == address
     ]
     for key, simulated, floor in lanes:
         if simulated or not bare:

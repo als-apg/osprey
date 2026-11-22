@@ -262,8 +262,7 @@ def channel_record(
     role = channel["role"]
     if role not in _ROLE_DIRECTIONS:
         raise ValueError(f"channel {address} has the role {role!r}")
-    wiring = records.wired(address)
-    own = address if wiring is None else str(wiring["address"])
+    own = records.record_address(address)
     held = channel if own == address else records.record("channel", own) or channel
     pair = held.get("pair")
     return ChannelRecord(

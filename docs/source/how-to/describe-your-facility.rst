@@ -864,7 +864,7 @@ Each address under ``also`` is a channel of ``records/channels.yaml`` with the
 and the same ``unit`` when both state one. It reads what ``address`` reads at
 the same instant, with the same calibration, motion and readout noise, and a
 write to it is a write to ``address``. It reads back the ``pair`` of
-``address``, and a command fired under it waits as one fired under
+``address`` and settles within its ``tolerance``, and a command fired under it waits as one fired under
 ``address``; ``tolerance``, ``timeout_s`` and ``idle`` are stated on ``address`` only. It
 carries no seed of its own, and a limit is still stated per address. A pair is stated between
 records' ``address`` names: the build stops when an address under ``also``

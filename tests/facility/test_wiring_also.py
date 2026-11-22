@@ -108,6 +108,17 @@ def test_the_records_name_the_wiring_record_under_each_address(tmp_path: Path) -
     assert records.wired(READING)["address"] == READING
 
 
+def test_the_records_give_each_address_its_records_address(tmp_path: Path) -> None:
+    tree = _tree()
+    tree["records/channels.yaml"].append({"id": "RACK3:SPARE", "on": {"device": "SR/BPM1"}})
+    records = FacilityRecords(built_document(tmp_path, tree)[0])
+
+    assert records.record_address(SETPOINT_ALSO) == SETPOINT
+    assert records.record_address(SETPOINT) == SETPOINT
+    assert records.wired("RACK3:SPARE") is None
+    assert records.record_address("RACK3:SPARE") == "RACK3:SPARE"
+
+
 def test_a_facility_stating_no_also_is_written_as_before(tmp_path: Path) -> None:
     """Dropping ``also`` changes the further addresses' owner and nothing else."""
     plain = _tree()

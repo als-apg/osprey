@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
     from pathlib import Path
 
+    from osprey.facility.records import FacilityRecords
     from osprey_connectors.control_context import ControlContext
     from osprey_connectors.control_system import (
         ChannelLimitsConfig,
@@ -226,8 +227,8 @@ _write_observers: "list[Callable[[str, str], None]]" = []
 SETTLE_TIMEOUT_S = 5.0
 
 #: The last facility file :func:`settle` parsed: its path, its ``st_mtime_ns``
-#: and its channel records by ``id``; read and replaced under :data:`_facility_lock`.
-_facility_parsed: "tuple[Path, int, dict[str, Mapping[str, Any]]] | None" = None
+#: and its records; read and replaced under :data:`_facility_lock`.
+_facility_parsed: "tuple[Path, int, FacilityRecords] | None" = None
 _facility_lock = threading.Lock()
 
 
@@ -1126,33 +1127,40 @@ async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
 
 
 def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
-    """One landing per setpoint that has a bound, as the render's facility file states it."""
+    """One landing per setpoint that has a bound, as the render's facility file states it.
+
+    A further address of a wiring record settles as its record.
+    """
     from osprey_connectors.settle import Landing, settle_bound
     from osprey_connectors.simulation.envelope import motion_envelope
     from osprey_connectors.types import is_simulated, resolve_control_system_type
 
-    path, channels = _facility_channels()
+    path, records = _facility_records()
     simulated: bool | None = None
     landings: list[Landing] = []
     for address, demand in demands.items():
-        channel = channels.get(address)
+        channel = records.record("channel", address)
         if channel is None or channel.get("role") != "setpoint":
             raise ValueError(f"{address} is no setpoint in {path}")
-        readback = str(channel.get("pair") or address)
+        own = records.record_address(address)
+        held = records.record("channel", own) or channel
+        pair = held.get("pair")
+        readback = str(pair) if pair and pair != own else address
         if simulated is None:
             section = _target_connector_config() or _control_system_section()
             simulated = is_simulated(resolve_control_system_type(section))
-        motion = motion_envelope(channels.get(readback, {}).get("simulation")) if simulated else 0.0
+        read = records.record("channel", readback) or {}
+        motion = motion_envelope(read.get("simulation")) if simulated else 0.0
         bound = settle_bound(
-            channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
+            held.get("tolerance"), float(demand), motion=motion, simulated=simulated
         )
         if bound is not None:
             landings.append(Landing(address, readback, float(demand), bound))
     return landings
 
 
-def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
-    """The render's facility file and its channel records by ``id``.
+def _facility_records() -> "tuple[Path, FacilityRecords]":
+    """The render's facility file and its records.
 
     Parsed once per path and modification time.
 
@@ -1163,6 +1171,7 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
     global _facility_parsed
 
     from osprey.channel_roster.sources import facility_file_path
+    from osprey.facility.records import FacilityRecords
     from osprey_connectors.config import get_full_configuration
 
     config = get_full_configuration()
@@ -1181,14 +1190,10 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
     records = document.get("channels") if isinstance(document, dict) else None
     if not isinstance(records, list):
         raise ValueError(f"{path} holds no 'channels' list")
-    channels: dict[str, Mapping[str, Any]] = {
-        str(record["id"]): record
-        for record in records
-        if isinstance(record, dict) and "id" in record
-    }
+    held = FacilityRecords(document)
     with _facility_lock:
-        _facility_parsed = (path, mtime_ns, channels)
-    return path, channels
+        _facility_parsed = (path, mtime_ns, held)
+    return path, held
 
 
 def read_channel(channel_address: str, **kwargs) -> Any:
