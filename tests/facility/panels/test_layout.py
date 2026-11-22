@@ -1718,3 +1718,25 @@ def test_every_size_constant_is_named_once() -> None:
     names = re.findall(r"^([A-Z][A-Z0-9_]*) = ", source, flags=re.MULTILINE)
     twice = sorted({n for n in names if names.count(n) > 1})
     assert twice == []  # a second binding silently changes every use of the first
+
+
+def test_a_ring_word_moved_in_from_the_page_edge_keeps_to_its_symbol(panel_graph) -> None:
+    """A word over a ring near the page's edge stays on the page; its box moves
+    in, and the word keeps to the side of its own symbol, not over the next one."""
+    from osprey.facility.panels.describe import place_view
+
+    doc, _ = draw(place_view(panel_graph, "XR/XR01"), panel_graph)
+    rings = [
+        n["geometry"] for n in _by_type(doc, "polygon")
+        if n["props"].get("lineStyle") == "dashed" or n["props"].get("lineWidth", 0) > 2
+    ]  # fmt: skip
+    moved = [
+        n for n in _by_type(doc, "text-label")
+        if n["geometry"]["width"] == layout.TAG_WIDTH and n["geometry"]["height"] == layout.TAG_HEIGHT
+        and n["props"].get("align") in ("left", "right")
+    ]  # fmt: skip
+    assert moved  # the fixture has a ring at the strip's start
+    for word in moved:
+        g = word["geometry"]
+        anchor = g["x"] if word["props"]["align"] == "left" else g["x"] + g["width"]
+        assert any(r["x"] - 1 <= anchor <= r["x"] + r["width"] + 1 for r in rings), word["id"]

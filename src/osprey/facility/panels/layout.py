@@ -5277,8 +5277,11 @@ class _Page:
         outline = symbols.ring(left, top, right, bottom, RING_PAD, static)
         outline["props"][_TOOLTIP] = element.thing
         above = top - RING_PAD - level * TAG_HEIGHT
-        centre = MARGIN + tag_centre((left + right) / 2 - MARGIN)  # the word stays on the page
+        middle = (left + right) / 2
+        centre = MARGIN + tag_centre(middle - MARGIN)  # the word stays on the page
         word = symbols.tag(centre, above, TAG_WIDTH, TAG_HEIGHT, SMALL_SIZE, static)
+        if centre != middle:  # moved in from the page's edge: the word keeps to its side
+            word["props"]["align"] = "right" if centre < middle else "left"
         g = word["geometry"]
         self.taken.append((g["x"], g["y"], g["width"], g["height"]))
         self.words.append((element.thing, (g["x"], g["y"], g["width"], g["height"])))
