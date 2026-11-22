@@ -152,6 +152,7 @@ HEADER_HEIGHT = 40  # the bar at the top of every screen
 HEADER_PAD = 8  # the bar's widgets from its top
 PANEL_PAD = 16  # a section's frame around its content: the frame stands in the margin
 PANEL_GAP = 12  # between two section frames
+STRETCH_SHARE = 1 / 3  # of its own height a frame may be stretched to match its neighbour
 ROW = 24  # height of one row of text, a field or a button
 ROW_GAP = 4
 SECTION_GAP = 16
@@ -1341,6 +1342,22 @@ def _half_wide(content: Sequence[Mapping[str, Any]]) -> bool:
     )
 
 
+@dataclass
+class _Run:
+    """Half-wide frames of one role set in two columns from *top*: each frame as
+    ``(first, end, own height)``, its nodes ``nodes[first:end]``, and the run's
+    lowest edge *bottom*, where the next frame of the run follows."""
+
+    role: str
+    top: int
+    frames: list[tuple[int, int, int]]
+    bottom: float
+
+    @property
+    def end(self) -> int:
+        return self.frames[-1][1]
+
+
 @dataclass(frozen=True)
 class _Block:
     """A strip symbol's values as drawn: its short name over them, at *cx* the symbol's
@@ -1642,6 +1659,7 @@ class _Page:
         self.crowded = 0  # strip values with no room in the lanes under their symbol
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
         self.last_frame: _Frame | None = None  # the frame drawn last, while it may pair
+        self.run: _Run | None = None  # half-wide frames in two columns, while one may join
         self.x0: float = MARGIN  # the left edge of the column drawn in
         self.room: float = STRIP_WIDTH  # the width stretching content fills
         self.plot_h: float = CURVE_HEIGHT  # the height a stretching plot takes
@@ -2391,7 +2409,8 @@ class _Page:
         cuts = _CUTS.get()
         counted = len(cuts) if cuts is not None else 0
         self.drawn_section(section)
-        short = (before.bottom - before.top) - nodes[first]["geometry"]["height"]
+        tall = nodes[before.first]["geometry"]["height"]  # on whole pixels, as drawn
+        short = tall - nodes[first]["geometry"]["height"]
         if short > 0:  # drawn again, its plot as much taller as its frame is short
             del nodes[first:]
             if cuts is not None:  # its cut labels are counted once
@@ -2402,7 +2421,7 @@ class _Page:
             self.plot_h = CURVE_HEIGHT
         self.x0, self.room, self.frame_x, self.frame_w = kept
         left, right = nodes[before.first]["geometry"], nodes[first]["geometry"]
-        height = max(before.bottom - before.top, right["height"])
+        height = max(tall, right["height"])
         left.update(width=HALF_FRAME, height=height)
         right.update(height=height)
         self.y = before.top + height + PANEL_GAP
@@ -2566,14 +2585,23 @@ class _Page:
     def beside(self, block: _Frame) -> None:
         """Width before height: *block*, just framed, goes to the right half beside
         the frame drawn just before it when both hold content no wider than half a
-        frame and nothing in either is placed by a rule; both frames then take the
-        taller one's height. Only frames of one role pair (:func:`frame_role`),
-        and only across the full width: a frame in a column of its own stays
-        where it is."""
+        frame and nothing in either is placed by a rule. Only frames of one role
+        pair (:func:`frame_role`), and only across the full width: a frame in a
+        column of its own stays where it is. More frames of the role that follow
+        join the two columns, each under the shorter (:meth:`join`)."""
         before, self.last_frame = self.last_frame, block
+        run, self.run = self.run, None
         nodes = self.s.nodes
         if not _half_wide(nodes[block.first + 1 : block.end]):
             self.last_frame = None
+            return
+        if (
+            run is not None
+            and run.end == block.first
+            and run.bottom + PANEL_GAP == block.top
+            and run.role == block.role
+        ):
+            self.join(run, block)
             return
         if before is None or before.end != block.first or before.bottom + PANEL_GAP != block.top:
             return
@@ -2586,16 +2614,46 @@ class _Page:
         ):  # a frame in a column of its own (a card's), or already beside another
             self.last_frame = None
             return
-        dx, dy = HALF_FRAME + PANEL_GAP, before.top - block.top
-        for node in nodes[block.first + 1 : block.end]:
-            node["geometry"]["x"] += dx
-            node["geometry"]["y"] += dy
-        height = max(before.bottom - before.top, block.bottom - block.top)
-        left, right = nodes[before.first]["geometry"], nodes[block.first]["geometry"]
-        left.update(width=HALF_FRAME, height=height)
-        right.update(x=left["x"] + dx, y=before.top, width=HALF_FRAME, height=height)
-        self.y = before.top + height
-        self.last_frame = None
+        left = nodes[before.first]["geometry"]
+        run = _Run(block.role, left["y"], [(before.first, before.end, left["height"])], 0)
+        self.join(run, block)
+
+    def join(self, run: _Run, block: _Frame) -> None:
+        """*block* into *run*, and the run set again in two columns read downward:
+        the first frames down the left, the rest down the right, split where the
+        taller column is least tall (the left one where two splits tie), so short
+        frames stack beside a long one, each at its own height. The last frame of
+        the shorter column is then stretched to the other's foot only when that
+        adds at most :data:`STRETCH_SHARE` of its own height; else the page under
+        it stays plain, no empty frame drawn there."""
+        nodes = self.s.nodes
+        run.frames.append((block.first, block.end, nodes[block.first]["geometry"]["height"]))
+        heights = [own for _first, _end, own in run.frames]
+
+        def column(part: Sequence[int]) -> int:
+            return sum(part) + PANEL_GAP * (len(part) - 1)
+
+        split = min(
+            range(1, len(heights)),
+            key=lambda j: (max(column(heights[:j]), column(heights[j:])), j),
+        )
+        feet = []
+        for side, part in enumerate((run.frames[:split], run.frames[split:])):
+            x, y = MARGIN - PANEL_PAD + side * (HALF_FRAME + PANEL_GAP), run.top
+            for first, end, own in part:
+                frame = nodes[first]["geometry"]
+                dx, dy = x - frame["x"], y - frame["y"]
+                for node in nodes[first + 1 : end]:
+                    node["geometry"]["x"] += dx
+                    node["geometry"]["y"] += dy
+                frame.update(x=x, y=y, width=HALF_FRAME, height=own)
+                y += own + PANEL_GAP
+            feet.append((y - PANEL_GAP, part[-1]))
+        (low, last), (high, _) = sorted(feet, key=lambda f: f[0])
+        if high - low <= STRETCH_SHARE * last[2]:
+            nodes[last[0]]["geometry"]["height"] = last[2] + high - low
+        run.bottom = high
+        self.y, self.run, self.last_frame = run.bottom, run, None
 
     def framed(self, title: str, draw: Callable[[], None], *, note: str | None = None) -> None:
         """A section's frame and head around what *draw* draws (as :meth:`section`)."""

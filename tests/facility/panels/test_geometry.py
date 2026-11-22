@@ -386,38 +386,95 @@ def _frames(doc: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def test_narrow_frames_stand_side_by_side_at_one_height(screens):
-    """Width before height: two frames whose content needs at most half the width
-    stand side by side, the same top and height, and hold everything drawn there."""
+def test_narrow_frames_stand_side_by_side_in_two_columns(screens):
+    """Width before height: frames whose content needs at most half the width
+    stand in two columns, each beside a frame of the other column, and hold
+    everything drawn there; no two frames overlap."""
     pairs = 0
     for name, doc in screens.items():
         frames = _frames(doc)
         halves = [g for g in frames if g["width"] == layout.HALF_FRAME]
         lefts = [g for g in halves if g["x"] == layout.MARGIN - layout.PANEL_PAD]
         rights = [g for g in halves if g not in lefts]
-        assert len(lefts) == len(rights), name  # a half frame always has its partner
-        for a in lefts:
-            (b,) = [g for g in rights if g["y"] == a["y"]]
-            assert b["height"] == a["height"], name
-            pairs += 1
+        runs: list[list[dict[str, Any]]] = []  # frames set together, top to foot
+        for a in sorted(halves, key=lambda g: g["y"]):
+            if runs and a["y"] <= max(g["y"] + g["height"] for g in runs[-1]) + layout.PANEL_GAP:
+                runs[-1].append(a)
+            else:
+                runs.append([a])
+        for run in runs:  # a half frame always has a column beside it
+            assert {g["x"] for g in run} == {lefts[0]["x"], rights[0]["x"]}, (name, run)
+        for a in halves:
+            pairs += a in lefts
             inside = [
                 n["geometry"]
                 for n in _nodes(doc["root"])
                 if n["type"] != "absolute-canvas"
-                and n["geometry"] not in (a, b)
+                and n["geometry"] not in halves
                 and a["y"] < n["geometry"]["y"] < a["y"] + a["height"]
+                and a["x"] <= n["geometry"]["x"] < a["x"] + a["width"]
             ]
             for g in inside:
-                within = any(
-                    f["x"] <= g["x"] and g["x"] + g["width"] <= f["x"] + f["width"] for f in (a, b)
-                )
-                assert within, (name, g)
+                assert g["x"] + g["width"] <= a["x"] + a["width"], (name, g)
         for a, b in itertools.combinations(frames, 2):  # frames never overlap
             assert (
                 a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
                 or a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
             ), name  # fmt: skip
     assert pairs >= 5  # the fixture has short sections to pair
+
+
+def _grouped_frames(panel_graph, sizes: tuple[int, ...]) -> list[dict[str, Any]]:
+    """The frames of a channel list of groups of one stated grouping, *sizes*
+    rows each, in order."""
+    import dataclasses
+
+    from osprey.facility.panels.describe import channel_list
+    from osprey.facility.panels.view import Section, ValueRow
+    from tests.facility.panels._views import stub_render
+
+    def group(k: int, n: int) -> Section:
+        rows = tuple(
+            ValueRow(f"row {i}", f"XR01-PS1:G{k}R{i}-RB", None, None, False) for i in range(n)
+        )
+        return Section(f"group {k}", rows, "record type")
+
+    base = channel_list(panel_graph, "XR01:PS1")
+    view = dataclasses.replace(base, sections=tuple(group(k, n) for k, n in enumerate(sizes)))
+    return _frames(stub_render(view, panel_graph))
+
+
+def test_a_short_frame_beside_a_long_one_keeps_its_own_height(panel_graph):
+    """A frame is stretched to its neighbour's height by at most a third of its
+    own: a short group beside a long one keeps its height, and the page under it
+    stays plain, no empty frame."""
+    (alone,) = _grouped_frames(panel_graph, (6,))
+    short, long = _grouped_frames(panel_graph, (6, 30))
+    assert (short["y"], short["width"]) == (long["y"], layout.HALF_FRAME)
+    assert short["x"] < long["x"]
+    assert short["height"] == alone["height"] < long["height"]
+    near, near_too = _grouped_frames(panel_graph, (6, 7))  # near in height: one height
+    assert near["height"] == near_too["height"]
+    assert all(type(v) is int for g in (near, near_too) for v in g.values())  # whole pixels
+    assert near_too["height"] - _grouped_frames(panel_graph, (6,))[0]["height"] <= (
+        layout.STRETCH_SHARE * alone["height"]
+    )
+
+
+def test_short_frames_stack_beside_a_long_one(panel_graph):
+    """Three short groups beside one long one stack in one column, each at its
+    own height, the long one alone in the other, read downward."""
+    own = [_grouped_frames(panel_graph, (n,))[0]["height"] for n in (4, 5, 6)]
+    for sizes in ((4, 5, 6, 30), (30, 4, 5, 6)):
+        frames = _grouped_frames(panel_graph, sizes)
+        long = max(frames, key=lambda g: g["height"])
+        stack = [g for g in frames if g is not long]
+        assert len({g["x"] for g in stack}) == 1 and stack[0]["x"] != long["x"]
+        assert sorted(g["height"] for g in stack) == sorted(own)  # none stretched
+        assert stack[0]["y"] == long["y"]
+        for upper, lower in itertools.pairwise(sorted(stack, key=lambda g: g["y"])):
+            assert lower["y"] == upper["y"] + upper["height"] + layout.PANEL_GAP
+        assert stack[-1]["y"] + stack[-1]["height"] < long["y"] + long["height"]
 
 
 def _paired_titles(doc: dict[str, Any]) -> list[tuple[str, str]]:
