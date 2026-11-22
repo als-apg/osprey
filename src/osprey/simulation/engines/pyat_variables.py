@@ -25,7 +25,7 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   no element): zero sets every cavity's voltage to zero, anything else puts
   back the voltages the deck holds. :func:`rf_on` reads it as a boolean.
 * :class:`TurnSetpointVariable` -- a turn-by-turn setting (``signal: arm``,
-  ``pilot_tone``, ``stored``, or one of the injected beam's
+  ``pilot_tone``, ``stored``, ``pulsed_kick``, or one of the injected beam's
   ``offset_<coordinate>`` and ``mismatch_<plane>``) that holds what is
   written and touches no element. :func:`pilot_tone_on` reads the tone as a boolean.
 * :class:`TurnStateVariable` and :class:`TurnArrayVariable` -- a turn-by-turn
@@ -94,7 +94,13 @@ from lume_pyat.simulator import PyATSimulator
 from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from osprey.simulation.engines.pyat_faults import magnet_cal, multipole_error, supply_calibration
-from osprey.simulation.engines.pyat_turn_settings import ARRAY_SIGNALS, SETTING_SIGNALS, SIGNALS
+from osprey.simulation.engines.pyat_turn_settings import (
+    ARRAY_SIGNALS,
+    PULSED_KICK,
+    SETTING_SIGNALS,
+    SIGNALS,
+    kick_words,
+)
 from osprey_connectors.simulation.engines import (
     Calibration,
     check_inverse,
@@ -1199,8 +1205,9 @@ class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
 class TurnSetpointVariable(PyATLatticeScalarVariable):
     """A turn-by-turn setting that holds what is written.
 
-    ``arm``, ``pilot_tone``, ``stored``, and the injected beam's
-    ``offset_<coordinate>`` and ``mismatch_<plane>``, which every shot reads.
+    ``arm``, ``pilot_tone``, ``stored``, and what every shot reads: the
+    injected beam's ``offset_<coordinate>`` and ``mismatch_<plane>``, and a
+    pulsed magnet's ``pulsed_kick``.
 
     It touches no element and no ring quantity -- no snapshot targets, a write
     that does nothing to the lattice -- so the model serves it from the value
@@ -1211,14 +1218,20 @@ class TurnSetpointVariable(PyATLatticeScalarVariable):
 
     Attributes:
         signal: The engine block's signal.
-        monitor: The monitor element the record names, or ``None`` for a
-            record of the whole ring.
+        monitor: The element the record names -- a monitor, or a pulsed
+            kick's magnet -- or ``None`` for a record of the whole ring.
+        plane: A pulsed kick's plane, 0 for horizontal and 1 for vertical.
+        scale: The radians one unit of a pulsed kick's record is worth.
+        pulse: The share of a pulsed kick the bunch meets on each turn.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     signal: str
     monitor: str | None = None
+    plane: int | None = None
+    scale: float = 1.0
+    pulse: tuple[float, ...] = (1.0,)
 
     @model_validator(mode="after")
     def _check_the_signal(self) -> TurnSetpointVariable:
@@ -1246,6 +1259,9 @@ class TurnSetpointVariable(PyATLatticeScalarVariable):
         signal = str(field(field(record, "engine"), "signal"))
         fields.setdefault("default_value", SIGNALS.get(signal, 0.0))
         element = field(record, "element")
+        if signal == PULSED_KICK:
+            plane, scale, pulse = kick_words(record)
+            fields.update(plane=plane, scale=scale, pulse=pulse)
         return cls(signal=signal, monitor=None if element is None else str(element), **fields)
 
     def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:  # noqa: ARG002

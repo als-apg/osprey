@@ -400,3 +400,130 @@ def test_tracking_leaves_the_lattice_untouched(
     before = [element.FamName for element in ring]
     _shot(ring, injection, monitors, shape, 1)
     assert [element.FamName for element in ring] == before
+
+
+# -- pulsed kicks ------------------------------------------------------------
+
+KICKER = "HCM01"  # a corrector after BPM01 and before BPM02
+
+
+@pytest.fixture(scope="module")
+def kicker(ring: Any) -> int:
+    (index,) = ring.get_uint32_index(KICKER)
+    return int(index)
+
+
+def _pulsed(ring: Any, injection: int, monitors: np.ndarray, kicks: Any, turns_: int = 5) -> Any:
+    return turns.track_shot(ring, injection, monitors, LAUNCH, turns_, pulsed=kicks)
+
+
+def _kicked_copy(ring: Any, kicker: int, angle: float) -> Any:
+    lattice = copy.deepcopy(ring)
+    lattice[kicker].KickAngle = np.array([angle, 0.0])
+    return lattice
+
+
+def test_a_pulse_that_lasts_every_turn_is_a_static_kick(
+    ring: Any, injection: int, monitors: np.ndarray, kicker: int
+) -> None:
+    pulsed = _pulsed(ring, injection, monitors, [turns.PulsedKick(kicker, 0, KICK, (1.0,) * 5)])
+    static = _pulsed(_kicked_copy(ring, kicker, KICK), injection, monitors, ())
+    np.testing.assert_array_equal(pulsed.x, static.x)
+    np.testing.assert_array_equal(pulsed.y, static.y)
+
+
+def test_a_one_turn_pulse_kicks_the_first_turn_only(
+    ring: Any, injection: int, monitors: np.ndarray, kicker: int
+) -> None:
+    pulsed = _pulsed(ring, injection, monitors, [turns.PulsedKick(kicker, 0, KICK, (1.0,))])
+    static = _pulsed(_kicked_copy(ring, kicker, KICK), injection, monitors, ())
+    plain = _pulsed(ring, injection, monitors, ())
+    np.testing.assert_array_equal(pulsed.x[:, 0], static.x[:, 0])
+    assert not np.allclose(pulsed.x[:, 1:], static.x[:, 1:], atol=1e-9)
+    # The monitor ahead of the kicker reads the unkicked bunch on turn 1.
+    ahead = (monitors - injection) % len(ring) < (kicker - injection) % len(ring)
+    np.testing.assert_array_equal(pulsed.x[ahead, 0], plain.x[ahead, 0])
+    assert np.all(pulsed.x[~ahead, 0] != plain.x[~ahead, 0])
+
+
+def test_a_one_turn_pulse_is_two_trackings_end_to_end(
+    ring: Any, injection: int, monitors: np.ndarray, kicker: int
+) -> None:
+    pulsed = _pulsed(ring, injection, monitors, [turns.PulsedKick(kicker, 0, KICK, (1.0,))], 3)
+    start = np.asfortranarray(np.asarray(LAUNCH, dtype=np.float64).reshape(6, 1))
+    kicked = _kicked_copy(ring, kicker, KICK).rotate(injection)
+    at.lattice_track(kicked, start, nturns=1, in_place=True)
+    places = np.sort((monitors - injection) % len(ring)).astype(np.uint32)
+    out, _, _ = at.lattice_track(
+        ring.rotate(injection), start, nturns=2, refpts=places, keep_counter=True
+    )
+    order = np.argsort(np.argsort((monitors - injection) % len(ring)))
+    np.testing.assert_allclose(pulsed.x[:, 1:], out[0, 0][order], atol=1e-14)
+
+
+def test_a_pulse_scales_the_kick_turn_by_turn(
+    ring: Any, injection: int, monitors: np.ndarray, kicker: int
+) -> None:
+    half = _pulsed(ring, injection, monitors, [turns.PulsedKick(kicker, 0, KICK, (0.5,))])
+    static = _pulsed(_kicked_copy(ring, kicker, 0.5 * KICK), injection, monitors, ())
+    np.testing.assert_array_equal(half.x[:, 0], static.x[:, 0])
+    none = _pulsed(ring, injection, monitors, [turns.PulsedKick(kicker, 0, KICK, (0.0,))])
+    plain = _pulsed(ring, injection, monitors, ())
+    np.testing.assert_array_equal(none.x, plain.x)
+
+
+def test_a_vertical_pulse_kicks_the_other_plane(
+    ring: Any, injection: int, monitors: np.ndarray, kicker: int
+) -> None:
+    launch = (0.0,) * 6
+    reading = turns.track_shot(
+        ring, injection, monitors, launch, 1, pulsed=[turns.PulsedKick(kicker, 1, KICK, (1.0,))]
+    )
+    plain = turns.track_shot(ring, injection, monitors, launch, 1)
+    after = int(np.flatnonzero(reading.y[:, 0] != plain.y[:, 0])[0])
+    # First order in the kick vertically; horizontally only what the sextupoles couple in.
+    assert abs(reading.y[after, 0]) > 1e-5
+    assert abs(reading.x[after, 0]) < 1e-3 * abs(reading.y[after, 0])
+
+
+def test_a_pulsed_kick_adds_to_the_kick_the_element_holds(
+    ring: Any, injection: int, monitors: np.ndarray, kicker: int
+) -> None:
+    held = _kicked_copy(ring, kicker, KICK)
+    both = _pulsed(held, injection, monitors, [turns.PulsedKick(kicker, 0, KICK, (1.0,))], 1)
+    double = _pulsed(_kicked_copy(ring, kicker, 2 * KICK), injection, monitors, (), 1)
+    np.testing.assert_array_equal(both.x, double.x)
+
+
+def test_a_pulsed_kick_leaves_the_lattice_untouched(
+    ring: Any, injection: int, monitors: np.ndarray, kicker: int
+) -> None:
+    before = np.array(ring[kicker].KickAngle, dtype=np.float64)
+    _pulsed(ring, injection, monitors, [turns.PulsedKick(kicker, 0, KICK, (1.0, 0.5))])
+    np.testing.assert_array_equal(ring[kicker].KickAngle, before)
+
+
+def test_a_pulse_tracks_the_same_in_particle_chunks(
+    ring: Any,
+    injection: int,
+    monitors: np.ndarray,
+    shape: np.ndarray,
+    kicker: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kicks = [turns.PulsedKick(kicker, 0, KICK, (1.0, 0.25))]
+    whole = turns.track_shot(ring, injection, monitors, LAUNCH, 4, shape=shape, pulsed=kicks)
+    monkeypatch.setattr(turns, "TRACK_FLOATS", 6 * monitors.size * 4 * 8)
+    chunked = turns.track_shot(ring, injection, monitors, LAUNCH, 4, shape=shape, pulsed=kicks)
+    np.testing.assert_allclose(chunked.x, whole.x, rtol=0, atol=1e-15)
+    np.testing.assert_array_equal(chunked.alive, whole.alive)
+
+
+def test_an_element_that_applies_no_kick_angle_is_named(ring: Any) -> None:
+    (drift,) = ring.get_uint32_index("SEPTUM")
+    assert turns.applies_kick_angle(ring[int(drift)]) is False
+    (corrector,) = ring.get_uint32_index(KICKER)
+    assert turns.applies_kick_angle(ring[int(corrector)]) is True
+    quadrupole = at.Quadrupole("K", 0.3, 0.0)
+    assert turns.applies_kick_angle(quadrupole) is True
+    assert not hasattr(quadrupole, "KickAngle")

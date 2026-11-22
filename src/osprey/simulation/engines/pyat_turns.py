@@ -18,6 +18,7 @@ here, so this module is imported only when a pyat model tracks turns.
 
 from __future__ import annotations
 
+import copy
 import math
 import time
 from collections.abc import Sequence
@@ -332,8 +333,76 @@ def write_apertures(
                 setattr(element, attribute, values.copy())
 
 
+@dataclass(frozen=True)
+class PulsedKick:
+    """A kick one element gives the bunch on the first turns of a shot.
+
+    Attributes:
+        element: The element's index in the lattice.
+        plane: 0 for a horizontal kick, 1 for a vertical one.
+        angle: The kick at full pulse, in radians.
+        pulse: The share of ``angle`` given on each turn, from the first; the
+            turns after the last get none.
+    """
+
+    element: int
+    plane: int
+    angle: float
+    pulse: tuple[float, ...] = (1.0,)
+
+
+def applies_kick_angle(element: at.Element) -> bool:
+    """Whether ``element``'s pass method applies a ``KickAngle``.
+
+    Asked of the tracker itself: a copy of the element is given a kick angle
+    and a particle on its axis is tracked through it.
+    """
+    probe = copy.deepcopy(element)
+    probe.KickAngle = np.array([1.0e-6, 0.0])
+    particle = np.zeros((6, 1), order="F")
+    at.lattice_track(at.Lattice([probe], energy=1.0e9), particle, nturns=1, in_place=True)
+    return bool(abs(particle[1, 0]) > 1.0e-9)
+
+
+def pulsed_lattices(
+    lattice: at.Lattice, kicks: Sequence[PulsedKick], turns: int
+) -> list[at.Lattice]:
+    """The lattice of each of the first turns of a shot, while a pulse lasts.
+
+    Each is ``lattice`` with a copy of every kicked element in its place, the
+    turn's share of the kick added to the kick angle the element holds.
+    ``lattice`` and its elements are not changed.
+
+    Args:
+        lattice: The lattice a shot tracks.
+        kicks: The pulsed kicks, by element index in ``lattice``.
+        turns: The turns the shot tracks.
+
+    Returns:
+        One lattice per turn up to the longest pulse, ``turns`` at most.
+    """
+    length = min(turns, max((len(kick.pulse) for kick in kicks), default=0))
+    stages = []
+    for turn in range(length):
+        stage = lattice.copy()
+        for kick in kicks:
+            if turn >= len(kick.pulse):
+                continue
+            element = copy.deepcopy(stage[kick.element])
+            angle = np.array(getattr(element, "KickAngle", (0.0, 0.0)), dtype=np.float64)
+            angle[kick.plane] += kick.angle * kick.pulse[turn]
+            element.KickAngle = angle
+            stage[kick.element] = element
+        stages.append(stage)
+    return stages
+
+
 def track_particles(
-    lattice: at.Lattice, particles: np.ndarray, refpts: np.ndarray, turns: int
+    lattice: at.Lattice,
+    particles: np.ndarray,
+    refpts: np.ndarray,
+    turns: int,
+    first: Sequence[at.Lattice] = (),
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Track ``particles`` and reduce them per reference point and turn, each ``(refpts, turns)``.
 
@@ -347,6 +416,8 @@ def track_particles(
         particles: ``(6, particles)`` launch coordinates.
         refpts: The element indexes read, in the lattice's order.
         turns: The turns tracked, 1 or more.
+        first: The lattices the first turns track instead, one per turn, each
+            with ``lattice``'s elements at the same indexes.
 
     Returns:
         The share of ``particles`` alive, and the survivors' centroid in
@@ -364,10 +435,11 @@ def track_particles(
         done = 0
         step = 1
         while done < turns:
-            nturns = min(step, turns - done)
+            staged = done < len(first)
+            nturns = 1 if staged else min(step, turns - done)
             started = time.perf_counter()
             tracked, _, _ = at.lattice_track(
-                lattice,
+                first[done] if staged else lattice,
                 coordinates,
                 nturns=nturns,
                 refpts=refpts,
@@ -383,7 +455,8 @@ def track_particles(
             sum_x[:, span] += np.where(live, x, 0.0).sum(axis=0)
             sum_y[:, span] += np.where(live, y, 0.0).sum(axis=0)
             done += nturns
-            step = max(1, int(SLICE_S * nturns / elapsed)) if elapsed > 0.0 else 2 * nturns
+            if not staged:
+                step = max(1, int(SLICE_S * nturns / elapsed)) if elapsed > 0.0 else 2 * nturns
     with np.errstate(invalid="ignore", divide="ignore"):
         centroid_x = np.where(alive > 0, sum_x / alive, np.nan)
         centroid_y = np.where(alive > 0, sum_y / alive, np.nan)
@@ -402,6 +475,7 @@ def track_shot(
     shot: int = 0,
     jitter: Sequence[float] = (0.0,) * 6,
     offset: Sequence[float] = (0.0,) * 6,
+    pulsed: Sequence[PulsedKick] = (),
 ) -> TurnReading:
     """Track one shot from the injection element for ``turns`` turns.
 
@@ -423,6 +497,8 @@ def track_shot(
         jitter: The centroid jitter's sigma per coordinate, in the launch's
             order and units.
         offset: A static offset per coordinate, added to the launch.
+        pulsed: The kicks pulsed on the shot's first turns, by element index
+            in ``lattice``.
 
     Returns:
         The reading per monitor and turn.
@@ -442,7 +518,12 @@ def track_shot(
     if shape is None:
         shape = np.zeros((6, 1), dtype=np.float64)
     particles = launched_bunch(launch, shape, key=key, shot=shot, jitter=jitter, offset=offset)
-    alive, x, y = track_particles(rotated, particles, refpts, turns)
+    kicks = [
+        PulsedKick((kick.element - start) % length, kick.plane, kick.angle, kick.pulse)
+        for kick in pulsed
+    ]
+    first = pulsed_lattices(rotated, kicks, turns)
+    alive, x, y = track_particles(rotated, particles, refpts, turns, first)
     rows = np.argsort(order)  # each caller's monitor's row in ring order
     return TurnReading(x=x[rows], y=y[rows], alive=alive[rows])
 

@@ -1040,6 +1040,20 @@ def _turn_start_values(
                 )
         elif signal == "stored" and field(record, "element") is not None:
             _element_index(loaded, deck, field(record, "element"), record_id, "wiring")
+        elif signal == turn_settings.PULSED_KICK:
+            from osprey.simulation.engines.pyat_turns import applies_kick_angle
+
+            element = field(record, "element")
+            index = _element_index(loaded, deck, element, record_id, "wiring")
+            if not applies_kick_angle(loaded.lattice[index]):
+                raise _stop(
+                    deck,
+                    record_id,
+                    "wiring",
+                    f"{address} carries signal {signal}, but element {element} applies no "
+                    "kick angle",
+                    "name a corrector or a magnet element of the deck, not a drift or a marker",
+                )
         if signal in turn_settings.ARRAY_SIGNALS:
             shape = list(shapes.get(address, ()))
             if shape != [block.samples]:

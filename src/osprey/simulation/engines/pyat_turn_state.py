@@ -32,6 +32,7 @@ from osprey.simulation.engines.pyat_turn_settings import (
     BEAM_SIGNALS,
     MISMATCH_SIGNALS,
     OFFSET_SIGNALS,
+    PULSED_KICK,
 )
 from osprey.simulation.engines.pyat_variables import (
     TurnArrayVariable,
@@ -271,6 +272,11 @@ class TurnByTurnModel(PyATLatticeModel):
             for variable in channels
             if isinstance(variable, TurnSetpointVariable) and variable.signal in BEAM_SIGNALS
         }
+        self._kicks: list[TurnSetpointVariable] = [
+            variable
+            for variable in channels
+            if isinstance(variable, TurnSetpointVariable) and variable.signal == PULSED_KICK
+        ]
         for variable in channels:
             if isinstance(variable, (TurnStateVariable, TurnArrayVariable)):
                 variable.bind(self.turn_state)
@@ -398,6 +404,16 @@ class TurnByTurnModel(PyATLatticeModel):
             held.get(signal, factor)
             for signal, factor in zip(MISMATCH_SIGNALS, settings.mismatch, strict=True)
         ]
+        written = self.get([kick.name for kick in self._kicks]) if self._kicks else {}
+        pulsed = [
+            pyat_turns.PulsedKick(
+                self.simulator.unique_element_index(str(kick.monitor)),
+                int(kick.plane or 0),
+                kick.scale * float(written[kick.name]),
+                kick.pulse,
+            )
+            for kick in self._kicks
+        ]
         if any(
             (settings.emittance_x, settings.emittance_y, settings.sigma_delta, settings.sigma_z)
         ):
@@ -427,6 +443,7 @@ class TurnByTurnModel(PyATLatticeModel):
             shot=shot,
             jitter=settings.jitter,
             offset=offset,
+            pulsed=pulsed,
         )
         charge = float(inputs.get("charge", 0.0))
         stored_current = float(previous.get("stored_current", 0.0))
