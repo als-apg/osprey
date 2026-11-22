@@ -25,8 +25,9 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   no element): zero sets every cavity's voltage to zero, anything else puts
   back the voltages the deck holds. :func:`rf_on` reads it as a boolean.
 * :class:`TurnSetpointVariable` -- a turn-by-turn setting (``signal: arm``,
-  ``pilot_tone`` or ``stored``) that holds what is written and touches no
-  element. :func:`pilot_tone_on` reads the tone as a boolean.
+  ``pilot_tone``, ``stored``, or one of the injected beam's
+  ``offset_<coordinate>`` and ``mismatch_<plane>``) that holds what is
+  written and touches no element. :func:`pilot_tone_on` reads the tone as a boolean.
 * :class:`TurnStateVariable` and :class:`TurnArrayVariable` -- a turn-by-turn
   ring's model state (``armed``, ``turns_tracked``; ``turn_x``, ``turn_y``,
   ``turn_sum``), read-only, each reading the turn state its model binds it to.
@@ -1196,7 +1197,10 @@ class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
 
 
 class TurnSetpointVariable(PyATLatticeScalarVariable):
-    """A turn-by-turn setting that holds what is written: ``arm``, ``pilot_tone``, ``stored``.
+    """A turn-by-turn setting that holds what is written.
+
+    ``arm``, ``pilot_tone``, ``stored``, and the injected beam's
+    ``offset_<coordinate>`` and ``mismatch_<plane>``, which every shot reads.
 
     It touches no element and no ring quantity -- no snapshot targets, a write
     that does nothing to the lattice -- so the model serves it from the value

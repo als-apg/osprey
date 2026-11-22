@@ -13,7 +13,11 @@ but ``injection_element`` defaulted:
 * ``launch`` -- the launch offsets, a map of ``x px y py delta ct``;
 * ``emittance_x``, ``emittance_y``, ``sigma_delta``, ``sigma_z`` -- the
   bunch's size;
-* ``jitter`` -- the shot-to-shot centroid jitter, a map of ``x`` and ``y``;
+* ``twiss`` -- the optics the bunch arrives with, a map of ``beta``, ``alpha``
+  and ``dispersion``; a key left out is the ring's own at the injection;
+* ``mismatch`` -- a factor on those beta functions, a map of ``x`` and ``y``;
+* ``jitter`` -- the shot-to-shot centroid jitter, a map of ``x px y py delta
+  ct``;
 * ``aperture`` -- the half-axes ``x`` and ``y`` written on every element with a
   length, and its ``shape`` (``elliptical``, the default, or
   ``rectangular``); none when unstated;
@@ -23,7 +27,10 @@ but ``injection_element`` defaulted:
   words.
 
 A wiring record's engine block names one of :data:`SIGNALS` by ``signal``;
-an input's engine block names one of :data:`INPUT_SIGNALS`. This module reads
+an input's engine block names one of :data:`INPUT_SIGNALS`. The
+:data:`BEAM_SIGNALS` are the injected beam's settings a client or a scenario
+moves: ``offset_<coordinate>`` is added to the launch, and ``mismatch_x`` and
+``mismatch_y`` replace the block's factors. This module reads
 plain data and imports neither pyAT nor, until a block is normalised, numpy:
 the caller looks the injection element up in its deck.
 """
@@ -45,13 +52,17 @@ __all__ = [
     "APERTURE_SHAPES",
     "ARRAY_SIGNALS",
     "Aperture",
+    "BEAM_SIGNALS",
     "BLOCK_KEY",
     "INPUT_SIGNALS",
     "LAUNCH_KEYS",
+    "MISMATCH_SIGNALS",
     "MONITOR_SIGNALS",
+    "OFFSET_SIGNALS",
     "RING_SIGNALS",
     "SETTING_SIGNALS",
     "SIGNALS",
+    "InjectedTwiss",
     "TurnSettings",
     "describe_input",
     "describe_signal",
@@ -74,8 +85,12 @@ APERTURE_SHAPES: tuple[str, ...] = ("elliptical", "rectangular")
 DEFAULT_TURNS = 250
 DEFAULT_TRIGGER_SAMPLE = 10
 DEFAULT_PARTICLES = 16
-#: The centroid jitter's sigma in ``x`` and ``y``, metres.
-DEFAULT_JITTER: tuple[float, float] = (5e-5, 3e-5)
+#: The centroid jitter's sigma per launch coordinate, in :data:`LAUNCH_KEYS`' order.
+DEFAULT_JITTER: tuple[float, float, float, float, float, float] = (5e-5, 0.0, 3e-5, 0.0, 0.0, 0.0)
+#: The planes a mismatch factor is stated for.
+PLANES: tuple[str, ...] = ("x", "y")
+#: The ``twiss`` keys, each with the numbers it holds.
+TWISS_KEYS: dict[str, int] = {"beta": 2, "alpha": 2, "dispersion": 4}
 DEFAULT_TONE_PERIOD = 10
 
 #: The readout keys with their defaults; ``tone_period`` is a whole number.
@@ -100,6 +115,8 @@ KEYS: frozenset[str] = frozenset(
         "trigger_sample",
         "particles",
         "launch",
+        "twiss",
+        "mismatch",
         "jitter",
         "aperture",
         "tone_period",
@@ -112,10 +129,21 @@ KEYS: frozenset[str] = frozenset(
 MONITOR_SIGNALS: frozenset[str] = frozenset({"arm", "armed", "turn_x", "turn_y", "turn_sum"})
 #: The array signals: ``trigger_sample + turns`` samples per monitor.
 ARRAY_SIGNALS: frozenset[str] = frozenset({"turn_x", "turn_y", "turn_sum"})
+#: The static launch offset's signals, in :data:`LAUNCH_KEYS`' order: each
+#: is added to its launch coordinate.
+OFFSET_SIGNALS: tuple[str, ...] = tuple(f"offset_{key}" for key in LAUNCH_KEYS)
+#: The mismatch factors' signals, in :data:`PLANES`' order.
+MISMATCH_SIGNALS: tuple[str, ...] = tuple(f"mismatch_{plane}" for plane in PLANES)
+#: The injected beam's settings: every shot reads the values they hold.
+BEAM_SIGNALS: frozenset[str] = frozenset({*OFFSET_SIGNALS, *MISMATCH_SIGNALS})
 #: The signals of the whole ring, whose records name no element.
-RING_SIGNALS: frozenset[str] = frozenset({"turns_tracked", "rf_switch", "pilot_tone"})
+RING_SIGNALS: frozenset[str] = frozenset(
+    {"turns_tracked", "rf_switch", "pilot_tone", *BEAM_SIGNALS}
+)
 #: The signals written by a client: each a setpoint.
-SETTING_SIGNALS: frozenset[str] = frozenset({"arm", "rf_switch", "pilot_tone", "stored"})
+SETTING_SIGNALS: frozenset[str] = frozenset(
+    {"arm", "rf_switch", "pilot_tone", "stored", *BEAM_SIGNALS}
+)
 
 #: Every wiring signal with its start value; an array starts as zeros.
 SIGNALS: dict[str, float] = {
@@ -128,6 +156,8 @@ SIGNALS: dict[str, float] = {
     "rf_switch": 1.0,
     "pilot_tone": 0.0,
     "stored": 0.0,
+    **dict.fromkeys(OFFSET_SIGNALS, 0.0),
+    **dict.fromkeys(MISMATCH_SIGNALS, 1.0),
 }
 
 #: The signals an input's engine block may name.
@@ -151,6 +181,21 @@ class Aperture:
 
 
 @dataclass(frozen=True)
+class InjectedTwiss:
+    """The optics the injected bunch arrives with; ``None`` is the ring's own at the injection.
+
+    Attributes:
+        beta: ``(beta_x, beta_y)`` in metres.
+        alpha: ``(alpha_x, alpha_y)``.
+        dispersion: ``(eta_x, eta_px, eta_y, eta_py)``.
+    """
+
+    beta: tuple[float, float] | None = None
+    alpha: tuple[float, float] | None = None
+    dispersion: tuple[float, float, float, float] | None = None
+
+
+@dataclass(frozen=True)
 class TurnSettings:
     """A turn-by-turn ring's settings block, checked and defaulted.
 
@@ -165,9 +210,13 @@ class TurnSettings:
         emittance_y: Vertical emittance, metre-radians.
         sigma_delta: Relative energy spread.
         sigma_z: Bunch length, metres.
-        jitter: The centroid jitter's sigma in ``x`` and ``y``, metres.
+        jitter: The centroid jitter's sigma per launch coordinate, in the
+            launch's order and units.
         aperture: The aperture, or ``None`` for none.
         readout: The monitor readout.
+        twiss: The optics the bunch arrives with.
+        mismatch: The factor on the arriving beta function in ``x`` and
+            ``y``; 1 is the stated optics.
     """
 
     injection_element: str
@@ -180,9 +229,11 @@ class TurnSettings:
     emittance_y: float
     sigma_delta: float
     sigma_z: float
-    jitter: tuple[float, float]
+    jitter: tuple[float, float, float, float, float, float]
     aperture: Aperture | None
     readout: TurnReadout
+    twiss: InjectedTwiss = InjectedTwiss()
+    mismatch: tuple[float, float] = (1.0, 1.0)
 
     @property
     def samples(self) -> int:
@@ -286,11 +337,34 @@ def normalise(
     launch = tuple(
         number(launch_map, key, 0.0, f"launch.{key}", signed=True) for key in LAUNCH_KEYS
     )
-    jitter_map = sub_map("jitter", ("x", "y"))
-    jitter = (
-        number(jitter_map, "x", DEFAULT_JITTER[0], "jitter.x"),
-        number(jitter_map, "y", DEFAULT_JITTER[1], "jitter.y"),
+    jitter_map = sub_map("jitter", LAUNCH_KEYS)
+    jitter = tuple(
+        number(jitter_map, key, default, f"jitter.{key}")
+        for key, default in zip(LAUNCH_KEYS, DEFAULT_JITTER, strict=True)
     )
+    mismatch_map = sub_map("mismatch", PLANES)
+    mismatch = tuple(number(mismatch_map, plane, 1.0, f"mismatch.{plane}") for plane in PLANES)
+    if 0.0 in mismatch:
+        raise stop(
+            f"{where}.mismatch is {dict(mismatch_map)!r}",
+            "give each mismatch factor as a number above 0; 1 is the stated optics",
+        )
+    twiss_map = sub_map("twiss", TWISS_KEYS)
+    twiss: dict[str, Any] = {}
+    for key, length in TWISS_KEYS.items():
+        if key not in twiss_map:
+            continue
+        stated = twiss_map[key]
+        if not isinstance(stated, list | tuple) or len(stated) != length:
+            raise stop(f"{where}.twiss.{key} is {stated!r}", f"give {key} as {length} numbers")
+        numbers = tuple(
+            number({key: value}, key, 0.0, f"twiss.{key}", signed=key != "beta") for value in stated
+        )
+        if key == "beta" and 0.0 in numbers:
+            raise stop(
+                f"{where}.twiss.beta is {stated!r}", "give each beta function as metres above 0"
+            )
+        twiss[key] = numbers
     aperture = None
     if "aperture" in block:
         stated = sub_map("aperture", ("x", "y", "shape"))
@@ -323,6 +397,8 @@ def normalise(
         particles=particles,
         launch=launch,
         jitter=jitter,
+        twiss=InjectedTwiss(**twiss),
+        mismatch=mismatch,
         aperture=aperture,
         readout=TurnReadout(tone_period=tone_period, **readout),
         **sizes,
@@ -352,8 +428,9 @@ def signal_of(record: Any) -> str | None:
 def describe_signal(record: Any) -> Mapping[str, Any]:
     """Describe a wiring record whose engine block names a ``signal``.
 
-    A setting signal (``arm``, ``rf_switch``, ``pilot_tone``, ``stored``) is a
-    ``setpoint`` refreshing ``pass``; the rest (``armed``, the turn arrays,
+    A setting signal (``arm``, ``rf_switch``, ``pilot_tone``, ``stored`` and
+    the injected beam's :data:`BEAM_SIGNALS`) is a ``setpoint`` refreshing
+    ``pass``; the rest (``armed``, the turn arrays,
     ``turns_tracked``) are ``output`` refreshing ``event``. No signal has a
     plane, so none is taken for an orbit monitor or corrector. The ``kind`` is
     the signal. ``arm`` carries the ``command`` mark: a write to it starts one
@@ -394,9 +471,15 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
 
 
 def start_value(signal: str, block: TurnSettings) -> float | list[float]:
-    """A signal's start value: zeros of ``block.samples`` for an array, else a scalar."""
+    """A signal's start value.
+
+    Zeros of ``block.samples`` for an array, the block's own factor for a
+    mismatch, else the signal's scalar.
+    """
     if signal in ARRAY_SIGNALS:
         return [0.0] * block.samples
+    if signal in MISMATCH_SIGNALS:
+        return block.mismatch[MISMATCH_SIGNALS.index(signal)]
     return SIGNALS[signal]
 
 
