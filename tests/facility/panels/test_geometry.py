@@ -14,6 +14,7 @@ the layout measures it. Every screen of the fixture facility is checked:
 
 from __future__ import annotations
 
+import itertools
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -424,6 +425,161 @@ def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
     # a name that fits, or one with separators, breaks as before
     assert layout._wrap_label("PowerSupply", 400, layout.SMALL_SIZE, 2) == ["PowerSupply"]
     assert layout._wrap_label("XR01-PS1:On-Sts", 400, layout.SMALL_SIZE, 2) == ["XR01-PS1:On-Sts"]
+
+
+def _frames(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """The section frames of *doc*: the boxes in the margin that sections stand in."""
+    left = layout.MARGIN - layout.PANEL_PAD
+    return [
+        n["geometry"]
+        for n in _nodes(doc["root"])
+        if n["type"] == "rectangle"
+        and n["props"].get("fillColor") == layout.PANEL_BACKGROUND
+        and n["props"].get("lineColor") == layout.BOX_BORDER
+        and n["geometry"]["x"] in (left, left + layout.HALF_FRAME + layout.PANEL_GAP)
+        and n["geometry"]["width"] in (layout.HALF_FRAME, layout.STRIP_WIDTH + 2 * layout.PANEL_PAD)
+    ]
+
+
+def test_narrow_frames_stand_side_by_side_in_two_columns(screens):
+    """Width before height: frames whose content needs at most half the width
+    stand in two columns, each beside a frame of the other column, and hold
+    everything drawn there; no two frames overlap."""
+    pairs = 0
+    for name, doc in screens.items():
+        frames = _frames(doc)
+        halves = [g for g in frames if g["width"] == layout.HALF_FRAME]
+        lefts = [g for g in halves if g["x"] == layout.MARGIN - layout.PANEL_PAD]
+        rights = [g for g in halves if g not in lefts]
+        runs: list[list[dict[str, Any]]] = []  # frames set together, top to foot
+        for a in sorted(halves, key=lambda g: g["y"]):
+            if runs and a["y"] <= max(g["y"] + g["height"] for g in runs[-1]) + layout.PANEL_GAP:
+                runs[-1].append(a)
+            else:
+                runs.append([a])
+        for run in runs:  # a half frame always has a column beside it
+            assert {g["x"] for g in run} == {lefts[0]["x"], rights[0]["x"]}, (name, run)
+        for a in halves:
+            pairs += a in lefts
+            inside = [
+                n["geometry"]
+                for n in _nodes(doc["root"])
+                if n["type"] != "absolute-canvas"
+                and n["geometry"] not in halves
+                and a["y"] < n["geometry"]["y"] < a["y"] + a["height"]
+                and a["x"] <= n["geometry"]["x"] < a["x"] + a["width"]
+            ]
+            for g in inside:
+                assert g["x"] + g["width"] <= a["x"] + a["width"], (name, g)
+        for a, b in itertools.combinations(frames, 2):  # frames never overlap
+            assert (
+                a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
+                or a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
+            ), name  # fmt: skip
+    assert pairs >= 5  # the fixture has short sections to pair
+
+
+def _grouped_frames(panel_graph, sizes: tuple[int, ...]) -> list[dict[str, Any]]:
+    """The frames of a channel list of groups of one stated grouping, *sizes*
+    rows each, in order."""
+    import dataclasses
+
+    from osprey.facility.panels.describe import channel_list
+    from osprey.facility.panels.view import Section, ValueRow
+    from tests.facility.panels._views import stub_render
+
+    def group(k: int, n: int) -> Section:
+        rows = tuple(
+            ValueRow(f"row {i}", f"XR01-PS1:G{k}R{i}-RB", None, None, False) for i in range(n)
+        )
+        return Section(f"group {k}", rows, "record type")
+
+    base = channel_list(panel_graph, "XR01:PS1")
+    view = dataclasses.replace(base, sections=tuple(group(k, n) for k, n in enumerate(sizes)))
+    return _frames(stub_render(view, panel_graph))
+
+
+def test_a_short_frame_beside_a_long_one_keeps_its_own_height(panel_graph):
+    """A frame is stretched to its neighbour's height by at most a third of its
+    own: a short group beside a long one keeps its height, and the page under it
+    stays plain, no empty frame."""
+    (alone,) = _grouped_frames(panel_graph, (6,))
+    short, long = _grouped_frames(panel_graph, (6, 30))
+    assert (short["y"], short["width"]) == (long["y"], layout.HALF_FRAME)
+    assert short["x"] < long["x"]
+    assert short["height"] == alone["height"] < long["height"]
+    near, near_too = _grouped_frames(panel_graph, (6, 7))  # near in height: one height
+    assert near["height"] == near_too["height"]
+    assert all(type(v) is int for g in (near, near_too) for v in g.values())  # whole pixels
+    assert near_too["height"] - _grouped_frames(panel_graph, (6,))[0]["height"] <= (
+        layout.STRETCH_SHARE * alone["height"]
+    )
+
+
+def test_short_frames_stack_beside_a_long_one(panel_graph):
+    """Three short groups beside one long one stack in one column, each at its
+    own height, the long one alone in the other, read downward."""
+    own = [_grouped_frames(panel_graph, (n,))[0]["height"] for n in (4, 5, 6)]
+    for sizes in ((4, 5, 6, 30), (30, 4, 5, 6)):
+        frames = _grouped_frames(panel_graph, sizes)
+        long = max(frames, key=lambda g: g["height"])
+        stack = [g for g in frames if g is not long]
+        assert len({g["x"] for g in stack}) == 1 and stack[0]["x"] != long["x"]
+        assert sorted(g["height"] for g in stack) == sorted(own)  # none stretched
+        assert stack[0]["y"] == long["y"]
+        for upper, lower in itertools.pairwise(sorted(stack, key=lambda g: g["y"])):
+            assert lower["y"] == upper["y"] + upper["height"] + layout.PANEL_GAP
+        assert stack[-1]["y"] + stack[-1]["height"] < long["y"] + long["height"]
+
+
+def _paired_titles(doc: dict[str, Any]) -> list[tuple[str, str]]:
+    """The headings of each two frames standing side by side, left then right."""
+    half = layout.HALF_FRAME
+    frames = [
+        n["geometry"] for n in _nodes(doc["root"])
+        if n["type"] == "rectangle" and n["geometry"]["width"] == half
+        and n["props"].get("fillColor") == symbols.PANEL_BACKGROUND
+    ]  # fmt: skip
+
+    def title(g: dict[str, Any]) -> str:
+        heads = sorted(
+            (n for n in _nodes(doc["root"]) if n["type"] == "text-label"
+             and abs(n["geometry"]["y"] - (g["y"] + layout.PANEL_PAD)) < 1
+             and g["x"] <= n["geometry"]["x"] < g["x"] + g["width"]),
+            key=lambda n: n["geometry"]["x"],
+        )  # fmt: skip
+        return str(heads[0]["props"]["text"]) if heads else ""
+
+    rows: dict[float, list[dict[str, Any]]] = {}
+    for g in frames:
+        rows.setdefault(g["y"], []).append(g)
+    return [
+        (title(a), title(b))
+        for a, b in (sorted(r, key=lambda g: g["x"]) for r in rows.values() if len(r) == 2)
+    ]
+
+
+def test_frames_pair_only_with_their_own_role(screens, panel_graph):
+    """An action block never stands beside a reference list; on a channel list two
+    groups pair only as stated groups of one grouping, and a group of no stated
+    kind (the not stated, the leftovers) stands alone."""
+    from osprey.facility.panels.describe import channel_list
+    from osprey.facility.panels.view import Link, Section, Target, ValueRow
+
+    pairs = [p for doc in screens.values() for p in _paired_titles(doc)]
+    assert pairs  # some do pair
+    actions = [p for p in pairs if any(t.endswith("OPERATE") for t in p)]
+    assert not [p for p in actions if any("ALL CHANNELS" in t for t in p)]
+    reference = Section("links", (Link("x", Target("card", "device", "X")),))
+    live = Section("values", (ValueRow("a", "XR01-X:A-RB", None, None, False),))
+    assert layout.frame_role(reference, grouped=False) == "reference"
+    assert layout.frame_role(live, grouped=False) == "live"
+    assert layout.frame_role(live, grouped=True) is None  # a group of no stated kind
+    stated = Section("record type ai", live.items, "record type")
+    assert layout.frame_role(stated, grouped=True) == "group: record type"
+    view = channel_list(panel_graph, "XR01:PS1")
+    unstated = [s for s in view.sections if s.grouping is None]
+    assert all(view.sections.index(s) >= len(view.sections) - len(unstated) for s in unstated)
 
 
 def _texts_at(doc: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:

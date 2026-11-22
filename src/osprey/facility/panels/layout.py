@@ -152,6 +152,7 @@ HEADER_HEIGHT = 40  # the bar at the top of every screen
 HEADER_PAD = 8  # the bar's widgets from its top
 PANEL_PAD = 16  # a section's frame around its content: the frame stands in the margin
 PANEL_GAP = 12  # between two section frames
+STRETCH_SHARE = 1 / 3  # of its own height a frame may be stretched to match its neighbour
 ROW = 24  # height of one row of text, a field or a button
 ROW_GAP = 4
 SECTION_GAP = 16
@@ -189,6 +190,8 @@ SET_ROW_HEAD = 64  # a set overview's row heads: the place, short
 SET_BLOCK_GAP = 24  # between two blocks of a set overview's columns
 SET_MEMBERS = 200  # a set overview draws blocks until this many cells are drawn
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
+# a frame beside another: half the frames' width, a gap between the two
+HALF_FRAME = (STRIP_WIDTH + 2 * PANEL_PAD - PANEL_GAP) // 2
 MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 45 px tall
 SYMBOL_UNIT = 20  # one shape unit of a symbol, in px, at scale 1: a bend is 75 px tall
 STRIP_AXIS = 38  # the axis's room each side: half the tallest symbol, a bend
@@ -1279,6 +1282,87 @@ def light_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
 
 
 @dataclass(frozen=True)
+class _Frame:
+    """A frame as drawn: its node and its content's, ``nodes[first:end]``, from *top*
+    to *bottom*."""
+
+    first: int
+    end: int
+    top: float
+    bottom: float
+    role: str | None = None  # what the frame is for (:func:`frame_role`)
+
+
+#: What a section's frame is for, by what it holds first: two frames stand side
+#: by side only with the same role, so an action block never stands beside a
+#: reference list. A kind not named here has no role and stands alone.
+FRAME_ROLES: Mapping[type, str] = MappingProxyType(
+    {
+        Operate: "action",
+        Front: "action",
+        Picture: "picture",
+        CurvePlot: "picture",  # a picture with its curve
+        Chain: "live",
+        CardStrip: "live",
+        LimitLadder: "live",
+        RingStrip: "live",
+        ValueRow: "live",
+        Light: "live",
+        ChannelGrid: "reference",
+        ChannelCount: "reference",
+        Link: "reference",
+        Fact: "reference",
+    }
+)
+
+
+def frame_role(section: Section, grouped: bool) -> str | None:
+    """The role of *section*'s frame. On a list split into groups (*grouped*), a
+    stated group's grouping, so two groups pair only within one grouping, and
+    ``None`` for a group that is no stated group. Else :data:`FRAME_ROLES` of
+    what it holds; ``None``, which never pairs, for mixed or unnamed kinds."""
+    if grouped:
+        return None if section.grouping is None else f"group: {section.grouping}"
+    kinds = {FRAME_ROLES.get(type(item)) for item in section.items}
+    return kinds.pop() if len(kinds) == 1 else None
+
+
+#: The content that stretches to the width it is given (``_Page.room``): drawn at
+#: half width beside a frame of fixed content that takes at most half.
+STRETCHING = (CurvePlot,)
+#: Rule targets that place a widget: a widget with one cannot be moved by its frame.
+_PLACING = frozenset({"x", "y", "width", "height"})
+
+
+def _half_wide(content: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether a frame's *content* fits a half-wide frame and can be moved: every
+    widget within the left half, none placed by a rule or parked off the page."""
+    right = MARGIN - PANEL_PAD + HALF_FRAME - PANEL_PAD
+    return bool(content) and all(
+        n["geometry"]["x"] >= 0
+        and n["geometry"]["x"] + n["geometry"]["width"] <= right
+        and not any(r["targetProperty"] in _PLACING for r in n.get("rules") or ())
+        for n in content
+    )
+
+
+@dataclass
+class _Run:
+    """Half-wide frames of one role set in two columns from *top*: each frame as
+    ``(first, end, own height)``, its nodes ``nodes[first:end]``, and the run's
+    lowest edge *bottom*, where the next frame of the run follows."""
+
+    role: str
+    top: int
+    frames: list[tuple[int, int, int]]
+    bottom: float
+
+    @property
+    def end(self) -> int:
+        return self.frames[-1][1]
+
+
+@dataclass(frozen=True)
 class _Block:
     """A strip symbol's values as drawn: its short name over them, at *cx* the symbol's
     centre, *left* and *w* the block's span, in *lane*."""
@@ -1594,10 +1678,19 @@ class _Page:
         self.crowded = 0  # strip values with no room in the lanes under their symbol
         self.strip_order: dict[str, int] = {}  # a strip's things, in the beam order it states
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
+        self.last_frame: _Frame | None = None  # the frame drawn last, while it may pair
+        self.run: _Run | None = None  # half-wide frames in two columns, while one may join
         # the last section heading: its line's top and the right edge of its words
         self.head: tuple[float, float] | None = None
         self.words: list[tuple[str, tuple[float, float, float, float]]] = []  # its state words
         self.x0: float = MARGIN  # the left edge of the column drawn in
+        self.room: float = STRIP_WIDTH  # the width stretching content fills
+        self.plot_h: float = CURVE_HEIGHT  # the height a stretching plot takes
+        # the frame drawn next: its left edge and width
+        self.frame_x: float = MARGIN - PANEL_PAD
+        self.frame_w: float = STRIP_WIDTH + 2 * PANEL_PAD
+        self.card_number = 0  # the drawn card's sections numbered so far
+        self.role: str | None = None  # the role of the frame drawn next (frame_role)
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
         self.facts_bottom: float = 0  # a rack's right column, where it ends
@@ -2156,9 +2249,9 @@ class _Page:
         self.y = bottom + PANEL_PAD - ROW_GAP
         self.s.widget(
             "rectangle",
-            MARGIN - PANEL_PAD,
+            self.frame_x,
             top,
-            STRIP_WIDTH + 2 * PANEL_PAD,
+            self.frame_w,
             self.y - top,
             {
                 "lineColor": BOX_BORDER,
@@ -2293,58 +2386,124 @@ class _Page:
     def drawn_card(self, sections: list[Section]) -> None:
         """A device's drawn card: the title line, the key tiles, then each section in
         its frame, numbered, the relations as a chain, the operate block and the
-        channels grid last; a drawing (picture, probe, calibration) as on the old card."""
-        number = 0
-        for section in sections:
+        channels grid last; a drawing (picture, probe, calibration) as on the old card.
+
+        A section whose content stretches (a curve's plot) waits for the section
+        after it: drawn first, that one shows whether its fixed content takes at
+        most half the width; then the stretching one is drawn at half width
+        beside it (:meth:`stretched_beside`), else under it at full width."""
+        waiting: Section | None = None
+        for k, section in enumerate(sections):
             first = section.items[0] if section.items else None
-            if isinstance(first, CardHead):
-                self.title_line(first)
-            elif isinstance(first, KeyTile):
-                self.key_tiles([i for i in section.items if isinstance(i, KeyTile)])
-            elif isinstance(first, CardStrip):
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.card_strip, first))
-            elif isinstance(first, Chain):
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.chain_blocks, first))
-            elif isinstance(first, CurvePlot):
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.curve_plot, first))
-            elif isinstance(first, LimitLadder):
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.limit_ladder, first))
-            elif isinstance(first, RingStrip):
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.ring_strip, first))
-            elif isinstance(first, Front):
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.card_front, first))
-            elif isinstance(first, Operate):
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.operate, first))
-            elif isinstance(first, ChannelGrid):
-                number += 1
-                title = f"{number} · {section.title} ({len(first.rows)})"
-                self.framed(title, partial(self.channel_grid, first), note=_GRID_NOTE)
-            elif isinstance(first, ChannelCount):
-                number += 1
-                title = f"{number} · {section.title} ({first.total})"
-                self.framed(title, partial(self.channel_count, first))
-            elif any(isinstance(i, PartFacts) for i in section.items):
-                number += 1
-                self.framed(
-                    f"{number} · {section.title}", partial(self.part_drawing, section.items)
-                )
-            elif isinstance(first, Picture | Probe):
-                self.section(section)  # a drawing heads itself, by its view
-            elif isinstance(first, CardFoot):
-                self.card_foot(first)
-            elif section.title in _FACT_SECTIONS:
-                number += 1
-                self.framed(f"{number} · {section.title}", partial(self.fact_lines, section.items))
-            else:
-                number += 1
-                self.section(Section(f"{number} · {section.title}", section.items))
+            after = sections[k + 1].items[:1] if k + 1 < len(sections) else ()
+            stretches = isinstance(first, STRETCHING)
+            if stretches and waiting is None and after and not isinstance(after[0], CardFoot):
+                waiting = section
+                continue
+            self.drawn_section(section)
+            if waiting is not None:
+                self.stretched_beside(waiting)
+                waiting = None
+
+    def stretched_beside(self, section: Section) -> None:
+        """A section whose content stretches, drawn in the right half beside the frame
+        drawn last when that one holds fixed content no wider than half a frame,
+        both frames then as tall as the taller; else at full width under it. A
+        stretching section shorter than its neighbour is drawn once more with its
+        plot taller by the difference, so it fills its half. It holds no rule and
+        reads no channel, so drawing it again takes nothing from the screen's
+        budget."""
+        before, nodes = self.last_frame, self.s.nodes
+        role = frame_role(section, grouped=False)
+        if (
+            before is None
+            or before.role != role
+            or before.end != len(nodes)
+            or before.bottom + PANEL_GAP != self.y
+        ):
+            self.drawn_section(section)
+            return
+        kept = (self.x0, self.room, self.frame_x, self.frame_w)
+        self.frame_x = MARGIN - PANEL_PAD + HALF_FRAME + PANEL_GAP
+        self.frame_w = HALF_FRAME
+        self.x0, self.room = self.frame_x + PANEL_PAD, HALF_FRAME - 2 * PANEL_PAD
+        self.y, self.last_frame = before.top, None
+        first, widgets, number = len(nodes), self.s._widgets, self.card_number
+        cuts = _CUTS.get()
+        counted = len(cuts) if cuts is not None else 0
+        self.drawn_section(section)
+        tall = nodes[before.first]["geometry"]["height"]  # on whole pixels, as drawn
+        short = tall - nodes[first]["geometry"]["height"]
+        if short > 0:  # drawn again, its plot as much taller as its frame is short
+            del nodes[first:]
+            if cuts is not None:  # its cut labels are counted once
+                del cuts[counted:]
+            self.s._widgets, self.card_number = widgets, number
+            self.y, self.plot_h = before.top, CURVE_HEIGHT + short
+            self.drawn_section(section)
+            self.plot_h = CURVE_HEIGHT
+        self.x0, self.room, self.frame_x, self.frame_w = kept
+        left, right = nodes[before.first]["geometry"], nodes[first]["geometry"]
+        height = max(tall, right["height"])
+        left.update(width=HALF_FRAME, height=height)
+        right.update(height=height)
+        self.y = before.top + height + PANEL_GAP
+        self.last_frame = None
+
+    def drawn_section(self, section: Section) -> None:
+        """One section of a drawn card, by what it holds (:meth:`drawn_card`)."""
+        first = section.items[0] if section.items else None
+        self.role = frame_role(section, grouped=False)
+        if isinstance(first, CardHead):
+            self.title_line(first)
+        elif isinstance(first, KeyTile):
+            self.key_tiles([i for i in section.items if isinstance(i, KeyTile)])
+        elif isinstance(first, CardStrip):
+            self.card_number += 1
+            self.framed(f"{self.card_number} · {section.title}", partial(self.card_strip, first))
+        elif isinstance(first, Chain):
+            self.card_number += 1
+            self.framed(f"{self.card_number} · {section.title}", partial(self.chain_blocks, first))
+        elif isinstance(first, CurvePlot):
+            self.card_number += 1
+            self.framed(f"{self.card_number} · {section.title}", partial(self.curve_plot, first))
+        elif isinstance(first, LimitLadder):
+            self.card_number += 1
+            self.framed(f"{self.card_number} · {section.title}", partial(self.limit_ladder, first))
+        elif isinstance(first, RingStrip):
+            self.card_number += 1
+            self.framed(f"{self.card_number} · {section.title}", partial(self.ring_strip, first))
+        elif isinstance(first, Front):
+            self.card_number += 1
+            self.framed(f"{self.card_number} · {section.title}", partial(self.card_front, first))
+        elif isinstance(first, Operate):
+            self.card_number += 1
+            self.framed(f"{self.card_number} · {section.title}", partial(self.operate, first))
+        elif isinstance(first, ChannelGrid):
+            self.card_number += 1
+            title = f"{self.card_number} · {section.title} ({len(first.rows)})"
+            self.framed(title, partial(self.channel_grid, first), note=_GRID_NOTE)
+        elif isinstance(first, ChannelCount):
+            self.card_number += 1
+            title = f"{self.card_number} · {section.title} ({first.total})"
+            self.framed(title, partial(self.channel_count, first))
+        elif any(isinstance(i, PartFacts) for i in section.items):
+            self.card_number += 1
+            self.framed(
+                f"{self.card_number} · {section.title}", partial(self.part_drawing, section.items)
+            )
+        elif isinstance(first, Picture | Probe):
+            self.section(section)  # a drawing heads itself, by its view
+        elif isinstance(first, CardFoot):
+            self.card_foot(first)
+        elif section.title in _FACT_SECTIONS:
+            self.card_number += 1
+            self.framed(
+                f"{self.card_number} · {section.title}", partial(self.fact_lines, section.items)
+            )
+        else:
+            self.card_number += 1
+            self.section(Section(f"{self.card_number} · {section.title}", section.items))
 
     def card_foot(self, foot: CardFoot) -> None:
         """Muted lines under the last section, no frame and no number: where the
@@ -2423,6 +2582,102 @@ class _Page:
                 self.nav(self.x0, self.y, right - self.x0, SMALL_LINE, link)
             self.y += SMALL_LINE + ROW_GAP
 
+    def frame(self, first: int, top: float) -> None:
+        """The frame around what was drawn since node *first*, from *top*: under it,
+        in the margin around it. A frame whose content takes at most half the
+        width goes beside the frame before it when that one does too
+        (:meth:`beside`)."""
+        self.y += PANEL_PAD - ROW_GAP
+        self.s.widget(
+            "rectangle",
+            self.frame_x,
+            top,
+            self.frame_w,
+            self.y - top,
+            {
+                "lineColor": BOX_BORDER,
+                "lineWidth": LINE_WIDTH,
+                "fill": True,
+                "fillColor": PANEL_BACKGROUND,
+            },
+        )
+        self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
+        self.beside(_Frame(first, len(self.s.nodes), top, self.y, self.role))
+        self.y += PANEL_GAP
+
+    def beside(self, block: _Frame) -> None:
+        """Width before height: *block*, just framed, goes to the right half beside
+        the frame drawn just before it when both hold content no wider than half a
+        frame and nothing in either is placed by a rule. Only frames of one role
+        pair (:func:`frame_role`), and only across the full width: a frame in a
+        column of its own stays where it is. More frames of the role that follow
+        join the two columns, each under the shorter (:meth:`join`)."""
+        before, self.last_frame = self.last_frame, block
+        run, self.run = self.run, None
+        nodes = self.s.nodes
+        if not _half_wide(nodes[block.first + 1 : block.end]):
+            self.last_frame = None
+            return
+        if (
+            run is not None
+            and run.end == block.first
+            and run.bottom + PANEL_GAP == block.top
+            and run.role == block.role
+        ):
+            self.join(run, block)
+            return
+        if before is None or before.end != block.first or before.bottom + PANEL_GAP != block.top:
+            return
+        if block.role is None or before.role != block.role:
+            return  # not the same role: each stands alone (:func:`frame_role`)
+        full = (MARGIN - PANEL_PAD, STRIP_WIDTH + 2 * PANEL_PAD)
+        if any(
+            (nodes[f]["geometry"]["x"], nodes[f]["geometry"]["width"]) != full
+            for f in (before.first, block.first)
+        ):  # a frame in a column of its own (a card's), or already beside another
+            self.last_frame = None
+            return
+        left = nodes[before.first]["geometry"]
+        run = _Run(block.role, left["y"], [(before.first, before.end, left["height"])], 0)
+        self.join(run, block)
+
+    def join(self, run: _Run, block: _Frame) -> None:
+        """*block* into *run*, and the run set again in two columns read downward:
+        the first frames down the left, the rest down the right, split where the
+        taller column is least tall (the left one where two splits tie), so short
+        frames stack beside a long one, each at its own height. The last frame of
+        the shorter column is then stretched to the other's foot only when that
+        adds at most :data:`STRETCH_SHARE` of its own height; else the page under
+        it stays plain, no empty frame drawn there."""
+        nodes = self.s.nodes
+        run.frames.append((block.first, block.end, nodes[block.first]["geometry"]["height"]))
+        heights = [own for _first, _end, own in run.frames]
+
+        def column(part: Sequence[int]) -> int:
+            return sum(part) + PANEL_GAP * (len(part) - 1)
+
+        split = min(
+            range(1, len(heights)),
+            key=lambda j: (max(column(heights[:j]), column(heights[j:])), j),
+        )
+        feet = []
+        for side, part in enumerate((run.frames[:split], run.frames[split:])):
+            x, y = MARGIN - PANEL_PAD + side * (HALF_FRAME + PANEL_GAP), run.top
+            for first, end, own in part:
+                frame = nodes[first]["geometry"]
+                dx, dy = x - frame["x"], y - frame["y"]
+                for node in nodes[first + 1 : end]:
+                    node["geometry"]["x"] += dx
+                    node["geometry"]["y"] += dy
+                frame.update(x=x, y=y, width=HALF_FRAME, height=own)
+                y += own + PANEL_GAP
+            feet.append((y - PANEL_GAP, part[-1]))
+        (low, last), (high, _) = sorted(feet, key=lambda f: f[0])
+        if high - low <= STRETCH_SHARE * last[2]:
+            nodes[last[0]]["geometry"]["height"] = last[2] + high - low
+        run.bottom = high
+        self.y, self.run, self.last_frame = run.bottom, run, None
+
     def framed(self, title: str, draw: Callable[[], None], *, note: str | None = None) -> None:
         """A section's frame and head around what *draw* draws (as :meth:`section`)."""
         first = len(self.s.nodes)
@@ -2434,22 +2689,7 @@ class _Page:
             x = self.x0 + text_width(title.upper(), HEADING_SIZE) + WORD_GAP
             self.small(x, head_y, note, fg=MUTED_TEXT)
         draw()
-        self.y += PANEL_PAD - ROW_GAP
-        self.s.widget(
-            "rectangle",
-            MARGIN - PANEL_PAD,
-            top,
-            STRIP_WIDTH + 2 * PANEL_PAD,
-            self.y - top,
-            {
-                "lineColor": BOX_BORDER,
-                "lineWidth": LINE_WIDTH,
-                "fill": True,
-                "fillColor": PANEL_BACKGROUND,
-            },
-        )
-        self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
-        self.y += PANEL_GAP
+        self.frame(first, top)
 
     def title_line(self, head: CardHead) -> None:
         """The device's name, large; its class and recipe beside it, muted; the
@@ -2836,12 +3076,15 @@ class _Page:
     def curve_plot(self, curve: CurvePlot) -> None:
         """The curve's measured points as dots joined by a line, in a frame with the
         least and most x and y at its corners and the axes' units; with no point,
-        a dashed frame and the note."""
+        a dashed frame and the note. It stretches: the plot takes the width it is
+        given (:attr:`room`) past its label column, at most :data:`CURVE_WIDTH`, as tall as
+        :attr:`plot_h`."""
         x0, top = self.x0 + BLOCK_LABEL, self.y
+        wide = min(CURVE_WIDTH, self.room - BLOCK_LABEL)
         if not curve.points:
-            self.box(x0, top, CURVE_WIDTH, CURVE_HEIGHT / 2, line=MUTED_TEXT, dashed=True)
-            self.text(x0 + GAP, top, curve.note or "", size=SMALL_SIZE, w=CURVE_WIDTH - 2 * GAP, h=CURVE_HEIGHT / 2, fg=MUTED_TEXT)  # fmt: skip
-            self.y = top + CURVE_HEIGHT / 2 + ROW_GAP
+            self.box(x0, top, wide, self.plot_h / 2, line=MUTED_TEXT, dashed=True)
+            self.text(x0 + GAP, top, curve.note or "", size=SMALL_SIZE, w=wide - 2 * GAP, h=self.plot_h / 2, fg=MUTED_TEXT)  # fmt: skip
+            self.y = top + self.plot_h / 2 + ROW_GAP
             return
         xs, ys = [p[0] for p in curve.points], [p[1] for p in curve.points]
         lo_x, hi_x, lo_y, hi_y = min(xs), max(xs), min(ys), max(ys)
@@ -2849,9 +3092,9 @@ class _Page:
         def at(point: tuple[float, float]) -> tuple[float, float]:
             fx = (point[0] - lo_x) / ((hi_x - lo_x) or 1)
             fy = (point[1] - lo_y) / ((hi_y - lo_y) or 1)
-            return x0 + fx * CURVE_WIDTH, top + (1 - fy) * CURVE_HEIGHT
+            return x0 + fx * wide, top + (1 - fy) * self.plot_h
 
-        self.box(x0, top, CURVE_WIDTH, CURVE_HEIGHT, line=BOX_BORDER, fill=PANEL_BACKGROUND)
+        self.box(x0, top, wide, self.plot_h, line=BOX_BORDER, fill=PANEL_BACKGROUND)
         if len(curve.points) > 1:
             self.line([at(p) for p in curve.points], symbols.FOCUS, BLOCK_LINE)
         for point in curve.points:
@@ -2860,18 +3103,18 @@ class _Page:
             self.s.widget("ellipse", px - CURVE_POINT / 2, py - CURVE_POINT / 2, CURVE_POINT, CURVE_POINT, props)  # fmt: skip
         y_unit, x_unit = curve.y_unit or "", curve.x_unit or ""
         self.small(self.x0, top, f"{hi_y:g} {y_unit}".strip(), fg=MUTED_TEXT)
-        self.small(self.x0, top + CURVE_HEIGHT - SMALL_LINE, f"{lo_y:g} {y_unit}".strip(), fg=MUTED_TEXT)  # fmt: skip
-        self.y = top + CURVE_HEIGHT + ROW_GAP
+        self.small(self.x0, top + self.plot_h - SMALL_LINE, f"{lo_y:g} {y_unit}".strip(), fg=MUTED_TEXT)  # fmt: skip
+        self.y = top + self.plot_h + ROW_GAP
         self.small(x0, self.y, f"{lo_x:g} {x_unit}".strip(), fg=MUTED_TEXT)
         hi = f"{hi_x:g} {x_unit}".strip()
-        self.small(x0 + CURVE_WIDTH - text_width(hi, SMALL_SIZE), self.y, hi, fg=MUTED_TEXT)
+        self.small(x0 + wide - text_width(hi, SMALL_SIZE), self.y, hi, fg=MUTED_TEXT)
         self.y += SMALL_LINE + ROW_GAP
         for text in (
             f"{len(curve.points)} points from {curve.source}" if curve.source else None,
             curve.note,
         ):
             if text:
-                self.small(self.x0, self.y, _cut(text, STRIP_WIDTH, SMALL_SIZE), fg=MUTED_TEXT)
+                self.small(self.x0, self.y, _cut(text, self.room, SMALL_SIZE), fg=MUTED_TEXT)
                 self.y += SMALL_LINE
         self.y += ROW_GAP
 
@@ -4030,9 +4273,9 @@ class _Page:
         self.y = bottom + PANEL_PAD - ROW_GAP
         self.s.widget(
             "rectangle",
-            MARGIN - PANEL_PAD,
+            self.frame_x,
             top,
-            STRIP_WIDTH + 2 * PANEL_PAD,
+            self.frame_w,
             self.y - top,
             {
                 "lineColor": BOX_BORDER,
@@ -4320,6 +4563,7 @@ class _Page:
 
     def section(self, section: Section) -> None:
         """A section in its frame: the frame stands in the margin around what it holds."""
+        self.role = frame_role(section, grouped=self.view.id.view == "channels")
         first = len(self.s.nodes)
         top = self.y
         self.y += PANEL_PAD
@@ -4333,22 +4577,7 @@ class _Page:
         self.items(section)
         self.label_col = LABEL_WIDTH
         self.check_cols = (NAME_WIDTH, NAME_WIDTH)
-        self.y += PANEL_PAD - ROW_GAP
-        self.s.widget(
-            "rectangle",
-            MARGIN - PANEL_PAD,
-            top,
-            STRIP_WIDTH + 2 * PANEL_PAD,
-            self.y - top,
-            {
-                "lineColor": BOX_BORDER,
-                "lineWidth": LINE_WIDTH,
-                "fill": True,
-                "fillColor": PANEL_BACKGROUND,
-            },
-        )
-        self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
-        self.y += PANEL_GAP
+        self.frame(first, top)
 
     def items(self, section: Section) -> None:
         tallies = [i for i in section.items if isinstance(i, CalibrationTallies)]
@@ -5877,7 +6106,7 @@ class _Page:
         outline = [p for p in picture.parts if p.kind == OUTLINE_KIND]
         parts = [p for p in picture.parts if not p.shape and p.kind != OUTLINE_KIND]
         self.heading(f"{picture.view} view")
-        room = min(self.right - self.x0, CARD_LEFT - COLUMN_GAP)
+        room = min(self.right - self.x0, HALF_FRAME - 2 * PANEL_PAD)  # a half frame
         canvas = min(PICTURE_SIZE, room - 2 * PICTURE_PAD)
         x0 = self.x0 + (room - canvas) / 2
         if not shape_rows and not outline and not any(p.positioned for p in parts):
