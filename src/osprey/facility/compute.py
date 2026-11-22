@@ -375,10 +375,10 @@ def check_model_inputs(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     Returns:
         Every stop, in model and declared order.
     """
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
     models, owners = _models_and_owners(document)
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engines = metadata.entry_points(group=ENGINE_GROUP)
     errors: list[FacilityBuildError] = []
     graph: dict[str, list[str]] = {}
     via: dict[tuple[str, str], str] = {}
@@ -534,9 +534,9 @@ def check_served_inputs(
 
 
 def _prepare_decks(run: _Run) -> dict[str, _Deck]:
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engines = metadata.entry_points(group=ENGINE_GROUP)
     decks: dict[str, _Deck] = {}
     for model in run.document.get("models", []):
         if "deck" not in model:

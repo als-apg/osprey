@@ -47,14 +47,14 @@ The full field table is *The declaration* in
 
 The package names the declaration under the entry-point group
 ``osprey.facility.kinds``, and an engine of its own, when it has one, under
-``osprey.simulation.engines``:
+``osprey_connectors.simulation.engines``:
 
 .. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment-0.1.dist-info/entry_points.txt
    :language: ini
 
 In the package's ``pyproject.toml`` these are the
 ``[project.entry-points."osprey.facility.kinds"]`` and
-``[project.entry-points."osprey.simulation.engines"]`` tables.
+``[project.entry-points."osprey_connectors.simulation.engines"]`` tables.
 
 3. Install it in both places
 ============================

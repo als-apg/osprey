@@ -65,6 +65,7 @@ from osprey.facility.panels.model import PanelGraph
 from osprey.facility.panels.view import Fact, Operate, Target, View
 
 __all__ = [
+    "DRAWING_RULE",
     "DRAWN_GAPS",
     "FLAGS",
     "GAP_FIELDS",
@@ -85,6 +86,12 @@ __all__ = [
     "summary",
     "summary_line",
 ]
+
+#: The rule a ``drawing`` digest is taken by, stated in the index beside the digests:
+#: 1, the written file without the model stamp; 2, also without any widget's
+#: ``meta``. Two sets of one rule differ in a class's ``drawing`` only where the
+#: drawing differs; across rules, every digest may differ once.
+DRAWING_RULE = 2
 
 #: The view kinds whose screens are classed by what they show rather than by structure.
 KEYED_VIEWS = frozenset({"card", "channels", "set", "calibration"})
@@ -475,6 +482,10 @@ def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, d
             "roles": roles,
         }
         readable = f"{cls}-{recipe}"
+        if not graph.card_channels(target.id):
+            # a device with no channels of its own is another card than one with own channels and no
+            # stated role; stated only where it holds, so other keys stay as they are
+            key["own_channels"] = "none"
     elif target.view == "calibration":
         # Gains and offsets are different things to judge even where the layout
         # agrees: the calibration kind is the kind of signal it states.
@@ -486,10 +497,20 @@ def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, d
     return _class_id(target.view, readable, key), key
 
 
+#: The longest slug a class id carries between its view and its digest.
+SLUG_LENGTH = 48
+
+
 def _class_id(view: str, readable: str, key: Mapping[str, Any]) -> str:
-    """A slug of the key's readable part and the first 8 hex digits of its digest."""
+    """A slug of the key's readable part and the first 8 hex digits of its digest.
+
+    The parts that tell two classes of one readable stem apart (a ``-no-own-channels``
+    suffix, the digest) are never cut: a slug over :data:`SLUG_LENGTH` loses the
+    end of its stem."""
     digest = _digest(repr(sorted(key.items())))[:_DIGEST]
-    slug = _slug(readable)[:48].strip("-")
+    suffix = "no-own-channels" if key.get("own_channels") == "none" else ""
+    room = SLUG_LENGTH - (len(suffix) + 1 if suffix else 0)
+    slug = "-".join(part for part in (_slug(readable)[:room].strip("-"), suffix) if part)
     return f"{view}-class-{slug}-{digest}" if slug else f"{view}-class-{digest}"
 
 
@@ -511,8 +532,9 @@ def blocks(view: View, key: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def drawing_digest(text: str) -> str:
-    """16 hex digits naming a written screen's drawing: its file without the model
-    stamp (the stamp in its description and the one its header shows)."""
+    """16 hex digits naming a written screen's drawing, by :data:`DRAWING_RULE`:
+    its file without the model stamp (the stamp in its description and the one
+    its header shows) and without any widget's ``meta``."""
     return _digest(text)[:16]
 
 

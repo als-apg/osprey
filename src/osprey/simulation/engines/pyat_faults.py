@@ -47,6 +47,13 @@ magnet whose supply is wired to a deck property -- a bend on the deck energy
 under ``error_elements`` (:func:`error_elements`), each ``{element: <name>,
 multipoles: <bool>}``, and :func:`fault_variables` merges them with what the
 wiring implies: one roster, whichever way an element came to be on it.
+
+**One fault is the lattice's own.** A ring built longer or shorter than its
+design belongs to no element and no address, so a ``periodic`` model declares
+``lattice/circumference_error`` (:data:`CIRCUMFERENCE_ERROR`), in metres. It
+is seeded once, when the model is built, by scaling every drift
+(:func:`lengthen`): the beam still makes its harmonic number of RF periods a
+turn, so the longer ring is the design ring driven at a higher frequency.
 """
 
 from __future__ import annotations
@@ -57,11 +64,11 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from osprey.simulation.engines.calibration import field as _slot
-from osprey.simulation.engines.calibration import to_hardware, to_physics
+from osprey_connectors.simulation.engines import field as _slot
+from osprey_connectors.simulation.engines import to_hardware, to_physics
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey.simulation.engines.calibration import Calibration
+    from osprey_connectors.simulation.engines import Calibration
 
 #: The readout fields every monitor readback carries on its own axis, each at
 #: its identity: a monitor that reports the true orbit position exactly, and
@@ -87,8 +94,17 @@ FAULT_SEPARATOR = "/"
 ROLL = "roll"
 ROLL_IDENTITY = 0.0
 
-#: The engine attributes whose setpoints carry a calibration fault.
-CALIBRATED_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "KickAngle"})
+#: Engine attribute -> the supply calibration fields a setpoint on it carries.
+#: A magnet supply takes both. A cavity setpoint takes the one that names a
+#: real error of it: a frequency offset, a voltage scale error, a phase
+#: (time lag) offset.
+SUPPLY_FIELDS: dict[str, tuple[str, ...]] = {
+    "PolynomB": ("cal_factor", "cal_offset"),
+    "KickAngle": ("cal_factor", "cal_offset"),
+    "Frequency": ("cal_offset",),
+    "Voltage": ("cal_factor",),
+    "TimeLag": ("cal_offset",),
+}
 
 MIN_MONITOR_GAIN = 0.1
 MAX_MONITOR_GAIN = 10.0
@@ -135,6 +151,15 @@ MULTIPOLE_BOUNDS: tuple[float, float] = (-math.inf, math.inf)
 #: What a slot's ``scope`` says it is keyed by.
 ADDRESS_SCOPE = "address"
 ELEMENT_SCOPE = "element"
+LATTICE_SCOPE = "lattice"
+
+#: What stands in for an address in the name of a fault of the lattice itself.
+LATTICE = "lattice"
+#: The ring-length error's field, and its fault name.
+CIRCUMFERENCE_FIELD = "circumference_error"
+CIRCUMFERENCE_ERROR = f"{LATTICE}{FAULT_SEPARATOR}{CIRCUMFERENCE_FIELD}"
+#: The largest ring-length error a scenario may state, in metres.
+MAX_CIRCUMFERENCE_ERROR_M = 0.1
 
 _MULTIPOLE_PREFIX = "error_"
 
@@ -332,7 +357,8 @@ class FaultSlot:
         element: The element the address is wired to (its first slice's);
             the element itself for an element error.
         scope: ``address`` for a fault keyed by a wired address,
-            ``element`` for an element error keyed by the element's name.
+            ``element`` for an element error keyed by the element's name,
+            ``lattice`` for a fault of the lattice itself.
     """
 
     address: str
@@ -420,7 +446,9 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
     its x-axis readback or else its first one. A monitor has one readback per
     axis: a second address of the same reading is stated under the record's
     ``also``, which this engine never sees. A setpoint (``direction: write``) on ``PolynomB`` or
-    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``.
+    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``; a cavity setpoint
+    carries one of the two (:data:`SUPPLY_FIELDS`): ``cal_offset`` on
+    ``Frequency`` and on ``TimeLag``, ``cal_factor`` on ``Voltage``.
 
     Every element a record that is no monitor reading binds (its ``element``
     or each of its ``slices``) carries ``dx``, ``dy`` and ``roll``; one bound
@@ -431,8 +459,9 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
     element both bound and declared carries the union. These slots are of
     ``element`` scope and keyed by the element's name. An element whose name
     is also a wired address carries none, so the two keyings never share a
-    name, and neither does a wired monitor's element. Nothing is imported and
-    no deck is read.
+    name, and neither does a wired monitor's element. A model that is not
+    ``single_pass`` also carries the one ``lattice``-scope slot,
+    :data:`CIRCUMFERENCE_ERROR`. Nothing is imported and no deck is read.
 
     Args:
         wiring: The model's wiring records, each with its ``direction``.
@@ -483,8 +512,8 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
                     f"{first} and {address} both read {axis} of monitor {element}, which has "
                     f"one reading per axis; state {address} under `also` of {first}'s record"
                 )
-        elif _slot(record, "direction") == "write" and attribute in CALIBRATED_ATTRIBUTES:
-            for field in SUPPLY_IDENTITY:
+        elif _slot(record, "direction") == "write":
+            for field in SUPPLY_FIELDS.get(attribute, ()):
                 declare(address, field, element)
     for element, axes in monitors.items():
         for address in axes.values():
@@ -515,7 +544,40 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
                 slots[f"{element}{FAULT_SEPARATOR}{field}"] = FaultSlot(
                     element, field, MULTIPOLE_BOUNDS, element=element, scope=ELEMENT_SCOPE
                 )
+    block = _slot(settings, SETTINGS_BLOCK)
+    if not (isinstance(block, Mapping) and block.get("solve") == "single_pass"):
+        slots[CIRCUMFERENCE_ERROR] = FaultSlot(
+            LATTICE,
+            CIRCUMFERENCE_FIELD,
+            (-MAX_CIRCUMFERENCE_ERROR_M, MAX_CIRCUMFERENCE_ERROR_M),
+            scope=LATTICE_SCOPE,
+        )
     return dict(sorted(slots.items()))
+
+
+def lengthen(lattice: Any, error_m: float) -> None:
+    """Make a ring ``error_m`` longer by scaling every drift by one factor.
+
+    The magnets keep their lengths and their fields, so the optics are the
+    design's to first order and the only thing that moves is the ring's
+    length against its RF wavelength.
+
+    Args:
+        lattice: The model's own lattice, written in place.
+        error_m: The ring-length error, in metres; negative shortens.
+
+    Raises:
+        ValueError: the lattice holds no drift to take the error.
+    """
+    import at
+
+    drifts = [element for element in lattice if isinstance(element, at.Drift)]
+    total = sum(float(element.Length) for element in drifts)
+    if total <= 0.0:
+        raise ValueError(f"{CIRCUMFERENCE_ERROR}: the deck holds no drift to take the error")
+    factor = 1.0 + error_m / total
+    for element in drifts:
+        element.Length = float(element.Length) * factor
 
 
 @dataclass(frozen=True)
@@ -663,15 +725,20 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
 
 
 __all__ = [
+    "CIRCUMFERENCE_ERROR",
     "ELEMENT_SCOPE",
     "ERROR_ELEMENTS_KEY",
     "ErrorElementsError",
+    "LATTICE_SCOPE",
+    "MAX_CIRCUMFERENCE_ERROR_M",
     "MISALIGNMENT_BOUNDS",
     "MULTIPOLE_INDICES",
     "READOUT_IDENTITY",
+    "SUPPLY_FIELDS",
     "SUPPLY_IDENTITY",
     "bpm_read",
     "error_elements",
+    "lengthen",
     "magnet_cal",
     "multipole_attribute",
     "multipole_error",

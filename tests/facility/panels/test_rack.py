@@ -202,3 +202,32 @@ def test_a_cut_rack_label_under_its_link_shows_its_whole_text_on_the_link(panel_
         hover = over[-1]["props"]["hoverLabel"]
         assert len(hover) <= layout.HOVER_LABEL_MOST and hover.endswith("…")
         assert long.startswith(hover[:-1])
+
+
+def test_rack_units_are_numbered_by_where_they_stand(panel_graph) -> None:
+    """A rack unit's order tag follows its place in the rack: top down, then left
+    to right, whatever order the view lists the units in."""
+    import dataclasses
+    import re
+
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    shuffled = []
+    for section in view.sections:
+        items = tuple(
+            dataclasses.replace(i, units=tuple(reversed(i.units))) if hasattr(i, "units") else i
+            for i in section.items
+        )
+        shuffled.append(dataclasses.replace(section, items=items))
+    for v in (view, dataclasses.replace(view, sections=tuple(shuffled))):
+        doc = stub_render(v, panel_graph)
+        first: dict[int, tuple[float, float]] = {}
+        for n in nodes(doc):
+            comment = n.get("meta", {}).get("comment", "")
+            if "item: rack-unit" not in comment:
+                continue
+            order = int(re.search(r"order: (\d+)", comment).group(1))
+            g = n["geometry"]
+            first[order] = min(first.get(order, (g["y"], g["x"])), (g["y"], g["x"]))
+        assert len(first) > 1
+        places = [first[k] for k in sorted(first)]
+        assert places == sorted(places)  # by place: down the rack, then across

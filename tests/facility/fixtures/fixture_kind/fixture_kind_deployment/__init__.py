@@ -4,7 +4,7 @@ The package a deployment ships beside its facility tree (``data/facility/`` in
 the deployment repository, not a mounted machine repository): it registers the
 measurement kind ``fixture_kind`` under ``osprey.facility.kinds`` and the engine
 ``fixture_ring`` (:mod:`fixture_kind_deployment.engine`) under
-``osprey.simulation.engines``, and it imports OSPREY only through
+``osprey_connectors.simulation.engines``, and it imports OSPREY only through
 :mod:`osprey.facility.kinds`.
 
 The kind is shaped from what a turn-by-turn measurement needs, under its own

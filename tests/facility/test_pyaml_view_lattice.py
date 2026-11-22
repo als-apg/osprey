@@ -241,8 +241,8 @@ def test_an_engine_without_polynomial_kicks_stops_the_build_naming_engine_and_mo
 
     from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.pyaml import write_pyaml_view
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
     from osprey.simulation.engines import pyat as real
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
     tree = with_correctors(with_rf(measured_tree()))
     tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
@@ -252,7 +252,7 @@ def test_an_engine_without_polynomial_kicks_stops_the_build_naming_engine_and_mo
     found = metadata.entry_points
 
     def entry_points(**selection: Any) -> Any:
-        if selection.get("group") == ENTRY_POINT_GROUP:
+        if selection.get("group") == ENGINE_GROUP:
             return _Engines("pyat", stub)
         return found(**selection)
 

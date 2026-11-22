@@ -142,7 +142,7 @@ class Calibrations:
         device's hardware-to-physics conversion: that slice's own ``curve``
         where it states one, else the entry's ``calibration.curve``.
         """
-        from osprey.simulation.engines.calibration import curve_from_record, field
+        from osprey_connectors.simulation.engines import curve_from_record, field
 
         row = check_a._row(device)
         words = self.wiring.engine(family)
@@ -203,7 +203,7 @@ def _calibrations(built: BuiltModel) -> Calibrations:
 
 def _secant(curve: Any, start: float, width: float) -> float:
     """The physics change per hardware unit of ``curve`` over one step."""
-    from osprey.simulation.engines.calibration import to_physics
+    from osprey_connectors.simulation.engines import to_physics
 
     return (to_physics(curve, start + width) - to_physics(curve, start)) / width
 
@@ -327,7 +327,7 @@ def test_closed_orbit_hardware_is_the_physics_one_through_the_monitor_calibratio
     tree: str, stem: str, mml_built: Built
 ) -> None:
     """``state.orbit``'s hardware reading, through each monitor's calibration, is its physics."""
-    from osprey.simulation.engines.calibration import to_physics
+    from osprey_connectors.simulation.engines import to_physics
 
     reference = model_reference(tree, stem)
     state = section(reference, "state")

@@ -309,3 +309,18 @@ class TestTool:
         envelope = raised["envelope"]
         assert envelope["error_type"] == "validation_error"
         assert "answers only the orbit response" in envelope["error_message"]
+
+
+@pytest.mark.parametrize("error_type", ["defect", "build"])
+def test_cause_classifies_any_facility_defect_as_facility(error_type: str) -> None:
+    """A contract FacilityDefectError, raised by any engine, is a facility cause."""
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.simulation.response import _cause
+    from osprey_connectors.simulation.engines import FacilityDefectError
+
+    exc = (
+        FacilityDefectError("x")
+        if error_type == "defect"
+        else FacilityBuildError("source-invalid", "x", [], "fix x", record_kind="path", detail="x")
+    )
+    assert _cause(exc, types.SimpleNamespace()) == "facility"

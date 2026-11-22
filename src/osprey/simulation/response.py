@@ -55,11 +55,11 @@ def _thaw(value: Any) -> Any:
 
 def _cause(exc: Exception, engine: Any) -> str | None:
     """The :data:`CAUSES` entry *exc* states for *engine*, or ``None`` for a failure."""
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_connectors.simulation.engines import FacilityDefectError
 
     if isinstance(exc, getattr(engine, "REFUSAL_ERRORS", ())):
         return "request"
-    if isinstance(exc, FacilityBuildError):
+    if isinstance(exc, FacilityDefectError):
         return "facility"
     if isinstance(exc, getattr(engine, "SOLVE_ERRORS", ())):
         return "solve"
@@ -108,7 +108,7 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
 
     Prints ``{"refused", "cause"}`` with the engine's own text when the
     engine answers no matrix: ``cause`` is ``request`` for one of the
-    engine's ``REFUSAL_ERRORS``, ``facility`` for a ``FacilityBuildError``,
+    engine's ``REFUSAL_ERRORS``, ``facility`` for a ``FacilityDefectError``,
     ``solve`` for one of its ``SOLVE_ERRORS``. Otherwise prints ``{"rows",
     "columns", "matrix", "missing", "row_positions", "column_positions"}``:
     ``columns`` the solved correctors, possibly none, ``matrix`` one column

@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from osprey.facility.panels import emit, load_graph, targets
+from osprey.facility.panels.classes import DRAWING_RULE
 from osprey.facility.panels.emit import (
     FORMAT_VERSION,
     SCREEN_SUFFIX,
@@ -159,6 +160,7 @@ def test_files_sit_under_their_view_kind_with_an_index(panel_graph, tmp_path):
     index = json.loads((out / "index.json").read_text())
     assert index["format"] == FORMAT_VERSION
     assert index["facility_hash"] == panel_graph.content_hash
+    assert index["drawing_rule"] == DRAWING_RULE  # how ``drawing`` is taken
     assert len(index["screens"]) == len(targets(panel_graph))
     entry = next(e for e in index["screens"] if e["kind"] == "rollup" and e["by"] == "system")
     assert set(entry) >= {"id", "kind", "thing_kind", "thing", "by", "title", "file", "bytes"}
@@ -916,3 +918,36 @@ def test_a_scoped_write_names_what_it_does_not_write_and_links_only_to_its_files
     assert any(
         p.file == "card/card-xr01-bend1.screen.json" and "place XR" in p.detail for p in notes
     )
+
+
+def test_a_paged_roll_up_s_header_ends_its_way_out_without_a_mark(tmp_path, monkeypatch):
+    """The device names its own roll-up as the last step of the way out, so the
+    header does not name it again; the mark after that step and the join before
+    the page text go with the name, and a mark stands only between two steps."""
+    import importlib
+
+    from osprey.facility.panels import layout
+    from osprey.facility.panels.describe import device_rollup
+    from tests.facility.panels._views import stub_render
+
+    describe_module = importlib.import_module("osprey.facility.panels.describe")
+    monkeypatch.setattr(describe_module, "DEVICE_PAGE", 50)
+    graph = graph_with_wide(tmp_path / "wide", 120)
+    view = device_rollup(graph, "XR01:WIDE1", 2)
+    doc = stub_render(view, graph)
+    header = sorted(
+        (
+            n
+            for n in doc["root"]["children"]
+            if n["geometry"]["y"] + n["geometry"]["height"] <= layout.HEADER_HEIGHT
+            and n["type"] != "rectangle"
+        ),
+        key=lambda n: n["geometry"]["x"],
+    )
+    words = [str(n["props"].get("text") or n["props"].get("label") or "") for n in header]
+    words = [w for w in words if w and not w.startswith("model ")]  # the stamp
+    assert words[-1] == "page 2 of 3 health", words  # the page text, no join mark before it
+    assert words[-2] == "XR01:WIDE1"  # the device, once: its card's step
+    marks = [i for i, w in enumerate(words) if w == "›"]
+    assert marks and all(0 < i and words[i + 1] not in ("›", "page 2 of 3 health") for i in marks)
+    assert not [w for w in words if w.startswith("·")]

@@ -112,9 +112,14 @@ def test_locator_with_zero_extent_centres_everything() -> None:
 
 def test_five_thousand_elements_arrange_quickly() -> None:
     items = [el(f"e{i}", i * 0.3, "quad", "beam" if i % 3 else "above") for i in range(5000)]
-    t = time.perf_counter()
-    assert len(arrange(items, WIDTHS)) == 5000
-    assert time.perf_counter() - t < 0.5
+    # CPU time, best of three: a shared CI runner that deschedules the worker
+    # must not read as a slow algorithm. The budget itself is unchanged.
+    best = float("inf")
+    for _ in range(3):
+        t = time.process_time()
+        assert len(arrange(items, WIDTHS)) == 5000
+        best = min(best, time.process_time() - t)
+    assert best < 0.5
 
 
 def test_a_lone_element_keeps_its_natural_width() -> None:

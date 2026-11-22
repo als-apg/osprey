@@ -110,12 +110,7 @@ DYNAMIC_RATCHET: Mapping[str, str] = {
 #: Substrings one of which a file must contain to be parsed for A2.
 _DYNAMIC_SPELLINGS = ("import_module", "__import__", "files(", "__file__")
 
-DESCRIPTION, PANELS, CONNECTORS_BOUND, FRAMEWORK = (
-    "description",
-    "panels",
-    "connectors-bound",
-    "framework",
-)
+DESCRIPTION, PANELS, FRAMEWORK = ("description", "panels", "framework")
 
 
 # --- the sides, read from the contracts ------------------------------------------------
@@ -142,7 +137,6 @@ class Sides:
     Attributes:
         description: Modules of the description (``facility-description-standalone``).
         panels: Modules of the panel engine (``panels-document-only``).
-        connectors_bound: The engine contract bound for ``osprey_connectors``.
         framework: Modules of the framework (``framework-without-panels``).
         non_public: Description modules the framework may not reach
             (``facility-public-api``).
@@ -151,7 +145,6 @@ class Sides:
 
     description: tuple[str, ...]
     panels: tuple[str, ...]
-    connectors_bound: tuple[str, ...]
     framework: tuple[str, ...]
     non_public: tuple[str, ...]
     roots: tuple[str, ...]
@@ -163,7 +156,6 @@ class Sides:
             for side, patterns in (
                 (DESCRIPTION, self.description),
                 (PANELS, self.panels),
-                (CONNECTORS_BOUND, self.connectors_bound),
                 (FRAMEWORK, self.framework),
             )
             if _named(module, patterns)
@@ -200,14 +192,10 @@ def read_sides(pyproject: Path = PYPROJECT) -> Sides:
     missing = [cid for cid in wanted if cid not in contracts]
     assert not missing, f"pyproject.toml has no import-linter contract {missing}"
     description = contracts["facility-description-standalone"]
-    framework = tuple(contracts["framework-without-panels"]["source_modules"])
     return Sides(
         description=tuple(description["source_modules"]),
         panels=tuple(contracts["panels-document-only"]["source_modules"]),
-        connectors_bound=tuple(
-            module for module in description["forbidden_modules"] if module not in framework
-        ),
-        framework=framework,
+        framework=tuple(contracts["framework-without-panels"]["source_modules"]),
         non_public=tuple(contracts["facility-public-api"]["protected_modules"]),
         roots=tuple(config["root_packages"]),
     )
@@ -445,11 +433,11 @@ def crossed_row(side: str | None, target: str, sides: Sides) -> str | None:
     """The contract row a reach from ``side`` to ``target`` breaks, or None."""
     to = sides.of(target)
     connectors = target.split(".")[0] == "osprey_connectors"
-    if side == DESCRIPTION and to in (FRAMEWORK, CONNECTORS_BOUND):
+    if side == DESCRIPTION and to == FRAMEWORK:
         return "S1"
     if side == DESCRIPTION and to == PANELS:
         return "S2"
-    if side == PANELS and to in (DESCRIPTION, CONNECTORS_BOUND):
+    if side == PANELS and to == DESCRIPTION:
         return "S3"
     if side == PANELS and (to == FRAMEWORK or connectors):
         return "S4"
@@ -483,10 +471,6 @@ def _report(title: str, edges: Mapping[str, list[Reach]], keys: Iterable[str]) -
 def test_every_contract_side_names_some_module() -> None:
     sides = read_sides()
     assert sides.description and sides.panels and sides.framework and sides.non_public
-    assert sides.connectors_bound == (
-        "osprey.simulation.engines",
-        "osprey.simulation.engines.calibration",
-    ), "the connectors-bound side is the engine contract, not more or less"
 
 
 def test_the_two_packages_import_only_their_dependency_sets() -> None:

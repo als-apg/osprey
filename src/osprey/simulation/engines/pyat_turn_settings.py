@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from osprey.facility.errors import FacilityBuildError
-from osprey.simulation.engines.calibration import field
+from osprey_connectors.simulation.engines import field
 
 if TYPE_CHECKING:
     from osprey.simulation.engines.pyat_turn_readout import TurnReadout

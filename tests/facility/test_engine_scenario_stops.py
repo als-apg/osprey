@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from osprey.facility.scenarios import check_scenario_engines
-from osprey.simulation.engines import ENTRY_POINT_GROUP, EnginePlugin
+from osprey_connectors.simulation.engines import ENGINE_GROUP, EnginePlugin
 
 FAKE = "fake_scenario_stops_engine"
 
@@ -35,7 +35,7 @@ def register(monkeypatch: pytest.MonkeyPatch):
     def _register(module: types.ModuleType) -> None:
         monkeypatch.setitem(sys.modules, FAKE, module)
         found = metadata.EntryPoints(
-            [metadata.EntryPoint(name="fake", value=FAKE, group=ENTRY_POINT_GROUP)]
+            [metadata.EntryPoint(name="fake", value=FAKE, group=ENGINE_GROUP)]
         )
 
         def entry_points(**kwargs: Any) -> Any:
