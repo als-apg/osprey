@@ -119,6 +119,37 @@ def test_a_lights_mark_gets_a_line_of_its_size():
         assert ink <= drawn["geometry"]["width"]
 
 
+def test_every_widget_stands_on_whole_pixels(screens):
+    """Edges on fractions of a pixel draw soft: every box, and every point of a
+    line or shape, is on a whole pixel."""
+    off = []
+    for name, doc in screens.items():
+        for node in _nodes(doc["root"]):
+            g = node["geometry"]
+            points = node["props"].get("points") or ()
+            values = [g["x"], g["y"], g["width"], g["height"]]
+            values += [v for p in points for v in (p["x"], p["y"])]
+            if any(not float(v).is_integer() for v in values):
+                off.append((name, node["id"]))
+    assert off == []
+
+
+def test_the_canvas_ends_one_margin_under_the_content(screens):
+    """Every screen, of every kind, ends :data:`layout.PAGE_END` under its lowest
+    widget; nothing more, so the viewer draws it as large as it can."""
+    wrong = {}
+    for name, doc in screens.items():
+        bottom = max(
+            n["geometry"]["y"] + n["geometry"]["height"]
+            for n in _nodes(doc["root"])
+            if n["type"] != "absolute-canvas" and n["geometry"]["x"] != layout.APPLY_AWAY
+        )
+        height = doc["metadata"]["size"]["height"]
+        if height != doc["root"]["geometry"]["height"] or height - bottom != layout.PAGE_END:
+            wrong[name] = height - bottom
+    assert wrong == {}
+
+
 def test_no_widget_reaches_outside_the_canvas(screens):
     outside = []
     for name, doc in screens.items():
