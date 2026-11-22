@@ -16,7 +16,9 @@ roster's. Membership is the ``channels`` list verbatim --- the addresses a
 simulator serves for its own models' status are not channel records and are
 never listed. Direction is the record's ``role``: a ``setpoint`` is settable,
 a ``readback`` is readable, and ``none`` states no direction. A setpoint's
-readback is its ``pair``, unless the pair is the setpoint itself.
+readback is its ``pair``, unless the pair is the setpoint itself. A further
+address of a wiring record (under ``also``) takes its record's ``pair``,
+``timeout_s`` and ``idle``.
 
 Failure is data, never an exception: a file no build has written is a
 :attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_NOT_BUILT`
@@ -31,7 +33,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.channel_roster.records import (
     ChannelDirection,
@@ -44,6 +46,9 @@ from osprey.channel_roster.records import (
 )
 from osprey.facility import FACILITY_FILE
 from osprey_connectors.logger import get_logger
+
+if TYPE_CHECKING:
+    from osprey.facility.records import FacilityRecords
 
 logger = get_logger("channel_roster.sources")
 
@@ -189,8 +194,13 @@ def read_facility_roster(source: RosterSource) -> RosterResult:
         return _corrupt(source, str(e))
     except ValueError as e:
         return _corrupt(source, _failure(e))
+    from osprey.facility.records import FacilityRecords
+
     try:
-        records = tuple(channel_record(channel, source) for channel in document["channels"])
+        facility = FacilityRecords(document)
+        records = tuple(
+            channel_record(channel, source, facility) for channel in document["channels"]
+        )
     except (ValueError, KeyError, TypeError) as e:
         return _corrupt(source, _failure(e))
 
@@ -227,8 +237,19 @@ def _failure(error: Exception) -> str:
     return str(error).rstrip(".") or type(error).__name__
 
 
-def channel_record(channel: Mapping[str, Any], source: RosterSource) -> ChannelRecord:
+def channel_record(
+    channel: Mapping[str, Any], source: RosterSource, records: FacilityRecords
+) -> ChannelRecord:
     """Turn one facility-file channel record into the roster's.
+
+    A further address of a wiring record (under ``also``) is that record under
+    another name: its readback, ``timeout_s`` and ``idle`` are the record's.
+
+    Args:
+        channel: The channel record.
+        source: The facility file the record is read from.
+        records: The facility file's records, which name each address's wiring
+            record.
 
     Raises:
         KeyError: The record has no ``id`` or no ``role``.
@@ -241,20 +262,23 @@ def channel_record(channel: Mapping[str, Any], source: RosterSource) -> ChannelR
     role = channel["role"]
     if role not in _ROLE_DIRECTIONS:
         raise ValueError(f"channel {address} has the role {role!r}")
-    pair = channel.get("pair")
+    wiring = records.wired(address)
+    own = address if wiring is None else str(wiring["address"])
+    held = channel if own == address else records.record("channel", own) or channel
+    pair = held.get("pair")
     return ChannelRecord(
         address=address,
         source=source,
         direction=_ROLE_DIRECTIONS[role],
-        readback=pair if role == "setpoint" and pair != address else None,
+        readback=pair if role == "setpoint" and pair != own else None,
         role=role,
         value_type=channel.get("value_type"),
         description=channel.get("description"),
         on=_on(channel.get("on")),
         options=_options(channel.get("options")),
         command=channel.get("command") is True,
-        timeout_s=channel.get("timeout_s"),
-        idle=channel.get("idle"),
+        timeout_s=held.get("timeout_s"),
+        idle=held.get("idle"),
     )
 
 

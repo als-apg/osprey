@@ -75,6 +75,26 @@ def test_a_setpoint_paired_with_itself_names_no_readback() -> None:
     assert document["settables"] == [{"name": "A:SP", "setpoint": "A:SP"}]
 
 
+def test_a_further_setpoint_is_a_settable_reading_its_records_pair() -> None:
+    document = bluesky_document(
+        FacilityRecords(
+            {
+                "channels": [
+                    _channel("A:SP", "setpoint", "A:RB"),
+                    _channel("A:RB", "readback"),
+                    _channel("RACK:SP", "setpoint", "RACK:SP"),
+                ],
+                "models": [{"name": "M", "wiring": [{"address": "A:SP", "also": ["RACK:SP"]}]}],
+            }
+        )
+    )
+
+    assert document["settables"] == [
+        {"name": "A:SP", "setpoint": "A:SP", "readback": "A:RB"},
+        {"name": "RACK:SP", "setpoint": "RACK:SP", "readback": "A:RB"},
+    ]
+
+
 def test_an_unpaired_readback_is_a_readable() -> None:
     document = bluesky_document(FacilityRecords({"channels": [_channel("T:01", "readback")]}))
 

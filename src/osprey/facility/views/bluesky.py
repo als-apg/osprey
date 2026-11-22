@@ -74,7 +74,7 @@ def _records(records: FacilityRecords, facility_file: Path) -> list[Any]:
     from osprey.channel_roster import channel_record
 
     source = _source(facility_file)
-    return [channel_record(channel, source) for channel in records.of_kind("channel")]
+    return [channel_record(channel, source, records) for channel in records.of_kind("channel")]
 
 
 def _tolerances(records: FacilityRecords) -> dict[str, Mapping[str, float]]:

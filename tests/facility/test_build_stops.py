@@ -72,6 +72,21 @@ def _deck(*edits: Edit) -> Callable[[], Tree]:
     return _from(deck_tree, edits)
 
 
+#: The injection fixture's facility tree: its engine marks the request a command.
+INJECTION = Path(__file__).resolve().parent / "fixtures" / "injection"
+
+
+def _injection_tree() -> Tree:
+    return {
+        rel: yaml.safe_load((INJECTION / rel).read_text(encoding="utf-8"))
+        for rel in ("models.yaml", "limits.yaml", "records/channels.yaml")
+    }
+
+
+def _injection(*edits: Edit) -> Callable[[], Tree]:
+    return _from(_injection_tree, edits)
+
+
 def _from(base: Callable[[], Tree], edits: tuple[Edit, ...]) -> Callable[[], Tree]:
     def make() -> Tree:
         tree = base()
@@ -464,6 +479,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "command_invalid__confirm_on_bound",
         "command-invalid",
         "`confirm: true` on a command that states `timeout_s`",
+    ),
+    (
+        "command_invalid__on_further_address",
+        "command-invalid",
+        "`timeout_s` or `idle` on a further address of a wiring record",
+    ),
+    (
+        "command_invalid__confirm_on_further_address",
+        "command-invalid",
+        "`confirm: true` on a further address of a command that states `timeout_s`",
     ),
     (
         "value_invalid__measurement_step_key",
@@ -1691,6 +1716,47 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: command-invalid: limit Q1:ON — `confirm: true` on a command that states "
             "`timeout_s`; fix: remove `confirm`; the wait for Q1:STATE confirms the write"
+        ),
+    ),
+    "command_invalid__on_further_address": (
+        _deck(
+            wiring("SR", 1, also=["RACK:QD:SP"]),
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "RACK:QD:SP",
+                    "role": "setpoint",
+                    "timeout_s": 2.0,
+                    "on": {"device": "SR/QD"},
+                },
+            ),
+        ),
+        (
+            "facility: command-invalid: channel RACK:QD:SP — `timeout_s` on RACK:QD:SP, which "
+            "wiring record SR/QD:SP states under `also`; fix: state `timeout_s` on QD:SP only; it "
+            "holds under each of its addresses"
+        ),
+    ),
+    "command_invalid__confirm_on_further_address": (
+        _injection(
+            update("records/channels.yaml", 0, pair="INJ:SHOT:BUSY", timeout_s=2.0),
+            update("records/channels.yaml", 13, idle=0.0),
+            append("records/channels.yaml", {"id": "INJ:RACK:REQ", "role": "setpoint"}),
+            wiring("CHAIN", 0, also=["INJ:RACK:REQ"]),
+            limits(
+                {
+                    "address": "INJ:RACK:REQ",
+                    "writable": True,
+                    "min_value": 0,
+                    "max_value": 1,
+                    "confirm": True,
+                },
+            ),
+        ),
+        (
+            "facility: command-invalid: limit INJ:RACK:REQ — `confirm: true` on a further "
+            "address of a command that states `timeout_s`; fix: remove `confirm`; the wait for "
+            "INJ:SHOT:BUSY confirms the write"
         ),
     ),
     "value_invalid__measurement_step_key": (

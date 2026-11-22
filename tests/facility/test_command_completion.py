@@ -325,3 +325,57 @@ def test_follows_none_on_an_idle_status_builds(tmp_path: Path) -> None:
     channels = _channels(_build(tmp_path, _tree(**{STATUS: {"simulation": {"follows": "none"}}})))
 
     assert channels[STATUS]["idle"] == "OFF"
+
+
+#: The measured tree's QD setpoint, the further address its wiring record states, and its status.
+SETPOINT, FURTHER, BUSY = "QD:SP", "RACK3:UNIT2:SP", "QD:BUSY"
+
+
+def _further_tree(monkeypatch: pytest.MonkeyPatch, **further: Any) -> dict[str, Any]:
+    """The measured tree with ``SETPOINT`` a bounded command also served as ``FURTHER``."""
+    from tests.facility.test_wiring_also import _tree as also_tree
+
+    _marking(monkeypatch, SETPOINT)
+    tree = also_tree()
+    for channel in tree["records/channels.yaml"]:
+        if channel["id"] == SETPOINT:
+            channel.update(pair=BUSY, timeout_s=2.0)
+        elif channel["id"] == FURTHER:
+            channel.update(further)
+    tree["records/channels.yaml"].append(
+        {"id": BUSY, "value_type": "int", "idle": 0, "on": {"device": "SR/QD"}}
+    )
+    return tree
+
+
+def _further_stop(tmp_path: Path, tree: dict[str, Any]) -> str:
+    with pytest.raises(FacilityBuildError) as stopped:
+        built_document(tmp_path, tree)
+    return stopped.value.format_message()
+
+
+@pytest.mark.parametrize(("key", "value"), [("timeout_s", 2.0), ("idle", 0)])
+def test_a_bound_or_idle_on_a_further_address_stops_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, value: Any
+) -> None:
+    tree = _further_tree(monkeypatch, **{key: value})
+
+    assert _further_stop(tmp_path, tree) == (
+        f"facility: command-invalid: channel {FURTHER} — `{key}` on {FURTHER}, which wiring "
+        f"record SR/QD:SP states under `also`; fix: state `{key}` on {SETPOINT} only; it holds "
+        "under each of its addresses"
+    )
+
+
+def test_confirm_true_on_a_further_address_of_a_bounded_command_stops_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = _further_tree(monkeypatch)
+    limit = {"writable": True, "min_value": -1.0, "max_value": 1.0, "confirm": True}
+    tree["limits.yaml"] = {"records": [{"address": FURTHER, **limit}]}
+
+    assert _further_stop(tmp_path, tree) == (
+        f"facility: command-invalid: limit {FURTHER} — `confirm: true` on a further address of a "
+        f"command that states `timeout_s`; fix: remove `confirm`; the wait for {BUSY} confirms "
+        "the write"
+    )

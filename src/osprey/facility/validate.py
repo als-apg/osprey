@@ -1252,7 +1252,9 @@ def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     number > 0. A limits record states no ``confirm: true`` on a command with
     ``timeout_s``: the wait for its status confirms the write. A status that
     states ``idle`` states no ``follows`` naming a setpoint; the simulation never
-    follows it. Runs once commands are marked, so the stop is
+    follows it. A further address of a wiring record (under ``also``) states
+    neither ``timeout_s`` nor ``idle``: the record's own hold under each of
+    its addresses. Runs once commands are marked, so the stop is
     ``command-invalid`` alone.
 
     Args:
@@ -1303,21 +1305,51 @@ class _Records:
             if channel.get("command") is True
         }
         awaited = {status for address, status in status_of.items() if status != address}
+        # A further address of a wiring record is that record under another
+        # name: its bound and its status's idle are the record's own.
+        further: dict[str, tuple[str, str]] = {}
+        for _, entry in self.index.wiring:
+            own, *names = wiring_addresses(entry)
+            for name in names:
+                if name != own:
+                    further.setdefault(name, (str(entry.get("id")), own))
         for address, channel in sorted(channels.items()):
+            if address in further:
+                yield from self._on_further(address, channel, *further[address])
+                continue
             yield from self._bound(address, channel, status_of.get(address))
             if "idle" in channel:
                 yield from self._idle(address, channel, awaited)
         for record in self.index.limits:
             address = str(record.get("address"))
-            bounded = address in status_of and "timeout_s" in channels[address]
+            own = further[address][1] if address in further else address
+            bounded = own in status_of and "timeout_s" in channels[own]
             if bounded and record.get("confirm") is True:
                 yield self._error(
                     "command-invalid",
                     "limit",
                     address,
                     ["limits.yaml"],
-                    "`confirm: true` on a command that states `timeout_s`",
-                    f"remove `confirm`; the wait for {status_of[address]} confirms the write",
+                    "`confirm: true` on a command that states `timeout_s`"
+                    if own == address
+                    else "`confirm: true` on a further address of a command that states "
+                    "`timeout_s`",
+                    f"remove `confirm`; the wait for {status_of[own]} confirms the write",
+                )
+
+    def _on_further(
+        self, address: str, channel: Mapping[str, Any], wid: str, own: str
+    ) -> Iterator[FacilityBuildError]:
+        """``timeout_s`` and ``idle`` are stated on a wiring record's ``address`` only."""
+        for key in ("timeout_s", "idle"):
+            if key in channel:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    stating_files(channel, key),
+                    f"`{key}` on {address}, which wiring record {wid} states under `also`",
+                    f"state `{key}` on {own} only; it holds under each of its addresses",
                 )
 
     def _bound(
