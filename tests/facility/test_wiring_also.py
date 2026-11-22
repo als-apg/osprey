@@ -196,6 +196,23 @@ def test_a_seed_on_a_further_address_stops_the_build(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "unit", [pytest.param("A", id="with-unit"), pytest.param(None, id="no-unit")]
+)
+def test_a_tolerance_on_a_further_address_stops_the_build(tmp_path: Path, unit: str | None) -> None:
+    tree = _tree()
+    if unit is not None:
+        _channel(tree, SETPOINT)["unit"] = unit
+        _channel(tree, SETPOINT_ALSO)["unit"] = unit
+    _channel(tree, SETPOINT_ALSO)["tolerance"] = {"absolute": 0.5}
+
+    assert _stop(tmp_path, tree) == (
+        "facility: value-invalid: channel RACK3:UNIT2:SP — `tolerance` on RACK3:UNIT2:SP, "
+        "which wiring record SR/QD:SP states under `also`; fix: state `tolerance` on QD:SP "
+        "only; it holds under each of its addresses"
+    )
+
+
 def test_a_further_address_naming_the_records_own_pair_stops_the_build(tmp_path: Path) -> None:
     """Two setpoints may share a readback; two addresses of one setpoint are not two."""
     tree = _tree()
