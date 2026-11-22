@@ -15,7 +15,7 @@ in place of the address, ``{<element>: {dx: ...}}``.
 The engine plug-in names what a model built from a wiring declares through
 ``fault_variables(wiring, settings)``: fault name -> a slot carrying ``address``,
 ``field``, ``value_range`` and ``options``. A plug-in is reached through the
-``osprey.simulation.engines`` entry-point group, never by import. Every value
+``osprey_connectors.simulation.engines`` entry-point group, never by import. Every value
 is coerced as a float and must lie inside its slot's ``value_range`` or equal
 one of its ``options``.
 
@@ -246,10 +246,10 @@ def fault_roster(
         ``fault_variables`` raises ``ValueError`` refuses the model: the
         roster has no slot and carries the text as its ``refusal``.
     """
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
     name = str(model.get("engine"))
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engines = metadata.entry_points(group=ENGINE_GROUP)
     if name not in engines.names:
         return None
     plugin = engines[name].load()

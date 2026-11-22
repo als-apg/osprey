@@ -31,7 +31,6 @@ from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
 from pydantic import ValidationError
 
-from osprey.simulation.engines import calibration as cal
 from osprey.simulation.engines import pyat_variables
 from osprey.simulation.engines.pyat_variables import (
     EV_PER_GEV,
@@ -44,6 +43,7 @@ from osprey.simulation.engines.pyat_variables import (
     StrengthVariable,
     variable_from_wiring,
 )
+from osprey_connectors.simulation import engines as cal
 
 N_CELLS = 8
 QUAD_K = 1.0

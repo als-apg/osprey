@@ -258,9 +258,9 @@ def _describer(engine: str | None) -> Any:
     """
     from importlib import metadata
 
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
-    return metadata.entry_points(group=ENTRY_POINT_GROUP)[str(engine)].load().describe
+    return metadata.entry_points(group=ENGINE_GROUP)[str(engine)].load().describe
 
 
 # ===================================================================

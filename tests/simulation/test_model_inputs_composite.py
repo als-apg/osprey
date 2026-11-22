@@ -31,7 +31,6 @@ from lume.variables import ScalarVariable, Variable
 from osprey.facility.build import LATER_STAGES
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.validate import run_stages
-from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey.simulation.engines import pyat as pyat_engine
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
@@ -127,11 +126,9 @@ def engines(monkeypatch: pytest.MonkeyPatch) -> None:
     consumer.describe_input = lambda record: None
     monkeypatch.setitem(sys.modules, PRODUCER_ENGINE, producer)
     monkeypatch.setitem(sys.modules, CONSUMER_ENGINE, consumer)
-    # The facility build looks engines up under the framework's group, the VA
-    # under the connectors' group; both are registered until chain step 3.
+    # The facility build and the VA both look engines up here.
     found = metadata.EntryPoints(
-        metadata.EntryPoint(name=name, value=value, group=group)
-        for group in (ENTRY_POINT_GROUP, ENGINE_GROUP)
+        metadata.EntryPoint(name=name, value=value, group=ENGINE_GROUP)
         for name, value in (
             ("pyat", pyat_engine.__name__),
             ("producer", PRODUCER_ENGINE),

@@ -980,22 +980,22 @@ Another backend
 ---------------
 
 An engine OSPREY does not ship is an engine plug-in. The container looks up
-the ``engine`` each model record names in the ``osprey.simulation.engines``
-entry-point group. It calls the registered module's ``build``, which returns
+the ``engine`` each model record names in the
+``osprey_connectors.simulation.engines`` entry-point group. It calls the registered module's ``build``, which returns
 the ``LUMEModel`` serving that model's wiring over its deck. ``osprey build``
 reaches the same module through the same group when it checks the facility
 tree. The shipped ``osprey.simulation.engines.pyat`` is the reference
 implementation of the contract.
 
 1. Write the engine module to the contract
-   ``osprey.simulation.engines.EnginePlugin`` states;
+   ``osprey_connectors.simulation.engines.EnginePlugin`` states;
    ``osprey.simulation.engines.pyat`` implements it.
 2. Register it under the entry-point group in your package's metadata, and
    install the package where ``osprey build`` runs:
 
    .. code-block:: toml
 
-      [project.entry-points."osprey.simulation.engines"]
+      [project.entry-points."osprey_connectors.simulation.engines"]
       my_engine = "my_facility.engine"
 
 3. Build an image that carries OSPREY's virtual-accelerator install and your

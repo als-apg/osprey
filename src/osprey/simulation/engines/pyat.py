@@ -58,13 +58,6 @@ from lume_pyat.exceptions import AmbiguousElementError, OrbitSolveError, Unknown
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import pyat_turn_settings as turn_settings
-from osprey.simulation.engines.calibration import (
-    NoInverse,
-    curve_from_record,
-    field,
-    to_hardware,
-    to_physics,
-)
 from osprey.simulation.engines.pyat_faults import (
     CIRCUMFERENCE_ERROR,
     ELEMENT_SCOPE,
@@ -78,6 +71,13 @@ from osprey.simulation.engines.pyat_faults import (
     multipole_attribute,
     multipole_field,
     readout,
+)
+from osprey_connectors.simulation.engines import (
+    NoInverse,
+    curve_from_record,
+    field,
+    to_hardware,
+    to_physics,
 )
 
 if TYPE_CHECKING:

@@ -389,7 +389,7 @@ def _magnet_model(
     slice, which a zero-length slice reads as integrated and a thick one per
     metre.
     """
-    from osprey.simulation.engines.calibration import Linear, Table, curve_from_record
+    from osprey_connectors.simulation.engines import Linear, Table, curve_from_record
 
     entry = magnet.entry
     calibration = entry.get("calibration") or {}
@@ -1109,7 +1109,7 @@ def _design_lattice(
 
     from osprey.facility.errors import FacilityBuildError
     from osprey.facility.validate import stating_files
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
     deck = inputs.facility_dir / str(record["deck"])
     elements = sorted(
@@ -1120,7 +1120,7 @@ def _design_lattice(
             for element, _ in _slice_elements(magnet.entry)
         }
     )
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engines = metadata.entry_points(group=ENGINE_GROUP)
     engine = str(record["engine"])
     model = str(record["name"])
     convert = (
