@@ -58,6 +58,10 @@ starts its time again. A gate still wins: a gated channel holds its gated
 value while a response runs. Only a write fires a response: the start state,
 the active scenarios' writes and a reset fire none, and a reset ends a running
 one. The response is part of the held value, as the gate is.
+
+A setpoint whose channel states ``started_by: <command>`` holds a written value
+without echoing it: its readback takes the setpoint's held value when the
+command is written. A batch writing both holds the setpoint first.
 """
 
 from __future__ import annotations
@@ -293,6 +297,15 @@ class TextureModel(LUMEModel):
             and self._channels[address].get("pair") not in (None, address)
             and str(self._channels[address]["pair"]) in owned
         }
+        #: Each command's started setpoints, whose writes echo only when it is written.
+        self._starts: dict[str, list[str]] = {}
+        for address in self._echo:
+            command = self._channels[address].get("started_by")
+            if command is not None:
+                self._starts.setdefault(str(command), []).append(address)
+        self._started = frozenset(
+            address for started in self._starts.values() for address in started
+        )
         #: Each command's responding channels, and each responding channel's record.
         self._responders: dict[str, list[str]] = {}
         self._responds: dict[str, RespondsRecord] = {}
@@ -435,7 +448,8 @@ class TextureModel(LUMEModel):
         The channel itself, the readback it echoes into, and every channel
         downstream of either: a ``linear`` channel summing it, a ``gate``
         channel it blocks, a ``pulse`` waveform it drives or enables. A command
-        also reaches the channels responding to it.
+        also reaches the channels responding to it and the readbacks of the
+        setpoints it starts; a started setpoint does not reach its readback.
         """
         downstream: dict[str, set[str]] = {}
         for address in self._variables:
@@ -452,7 +466,10 @@ class TextureModel(LUMEModel):
         for address, variable in self._variables.items():
             if variable.read_only:
                 continue
-            found = {address, self._echo.get(address, address), *self._responders.get(address, ())}
+            found = {address, *self._responders.get(address, ())}
+            if address not in self._started:
+                found.add(self._echo.get(address, address))
+            found.update(self._echo[started] for started in self._starts.get(address, ()))
             pending = list(found)
             while pending:
                 for dependent in downstream.get(pending.pop(), ()):
@@ -729,17 +746,25 @@ class TextureModel(LUMEModel):
     def _hold(self, values_by_name: Mapping[str, object], *, fired_at: float | None = None) -> None:
         """Hold coerced values and their echoes; nothing is held when one is refused.
 
+        A started setpoint is held without its echo; a command echoes the
+        held value of each setpoint it starts, this batch's writes included.
         With ``fired_at``, each command written fires its responses then.
         """
         coerced = {
             name: self._coerce(name, value.tolist() if isinstance(value, np.ndarray) else value)
             for name, value in values_by_name.items()
         }
+        targets = {**self._held, **coerced}
         echoes = {
             self._echo[name]: self._echoed(self._echo[name], name, value)
             for name, value in coerced.items()
-            if name in self._echo
+            if name in self._echo and name not in self._started
         }
+        for command in coerced:
+            for setpoint in self._starts.get(command, ()):
+                echoes[self._echo[setpoint]] = self._echoed(
+                    self._echo[setpoint], setpoint, targets[setpoint]
+                )
         self._held.update(coerced)
         self._held.update(echoes)
         if fired_at is not None:
