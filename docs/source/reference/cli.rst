@@ -1767,7 +1767,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
-   the layout cut to fit. The layout measures text in the viewer's own font
+   the layout cut to fit. Every widget stands on whole pixels, each edge rounded
+   where it is written, and every screen ends one margin under its lowest frame.
+   The layout measures text in the viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
    label in a chain block takes two lines, a muted line of prose (a caption, a
