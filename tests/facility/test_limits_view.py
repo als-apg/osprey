@@ -375,7 +375,7 @@ class TestTheBuildDerivesTheDatabasePath:
 # --- findings: report lines, nothing changed ----------------------------------------
 
 
-def test_findings_name_open_setpoints_and_one_edged_records() -> None:
+def test_findings_name_open_setpoints_and_records_short_of_writable() -> None:
     from osprey.facility.views.limits import limits_findings
 
     doc = _doc(
@@ -389,7 +389,8 @@ def test_findings_name_open_setpoints_and_one_edged_records() -> None:
     assert limits_findings(records, True) == [
         "limits: 1 setpoints have no limits record; the target serves them writable with no range",
         f"  {CORR}",  # a readback without a record is no finding: it is never writable
-        "limits: 1 limits records state one edge; each is served not writable until it states both",
+        "limits: 1 limits records serve their setpoint not writable; stating what each line "
+        "lacks makes it writable",
         f"  {QD}: min_value 0.0, no max_value",
     ]
     # the same setpoint where the target refuses a write to a channel with no record
@@ -397,6 +398,76 @@ def test_findings_name_open_setpoints_and_one_edged_records() -> None:
     assert refused == "limits: 1 setpoints have no limits record; the target refuses writes to them"
     # the findings change nothing: the database is what it was
     assert limits_document(records)[QD]["writable"] is False
+
+
+def _stating(record: dict[str, Any], missing: tuple[str, ...]) -> dict[str, Any]:
+    """The record with each slot it lacks stated: an edge inside any stated one, else `true`."""
+    stated = dict(record)
+    for slot in missing:
+        if slot == "min_value":
+            stated[slot] = stated["max_value"] - 1.0 if "max_value" in stated else 0.0
+        elif slot == "max_value":
+            stated[slot] = stated["min_value"] + 1.0
+        else:
+            stated[slot] = True
+    return stated
+
+
+def test_every_listed_record_becomes_writable_by_stating_what_its_line_lacks() -> None:
+    from osprey.facility.validate import record_missing, record_writable
+    from osprey.facility.views.limits import limits_findings
+
+    qs = "SR:MAG:QS:01:CURRENT:SP"
+    lock = "SR:MAG:QL:01:CURRENT:SP"
+    rb = "SR:MAG:QD:01:CURRENT:RB"
+    valve = "SR:VAC:VALVE:01:OPEN:SP"
+    gate = "SR:VAC:GATE:01:OPEN:SP"
+    channels = {
+        QD: ("setpoint", "float"),
+        qs: ("setpoint", "float"),
+        lock: ("setpoint", "float"),
+        QF: ("setpoint", "float"),
+        rb: ("readback", "float"),
+        valve: ("setpoint", "bool"),
+        gate: ("setpoint", "bool"),
+    }
+    limits = {
+        QD: {"min_value": 0.0},
+        qs: {"max_step": 0.5},
+        lock: {"min_value": 0.0, "writable": False},
+        QF: {"min_value": 0.0, "max_value": 5.0},
+        rb: {"min_value": 0.0},
+        valve: {"confirm": False},
+        gate: {"writable": True},
+    }
+    records = FacilityRecords(
+        {
+            "channels": [
+                {"id": address, "role": role, "value_type": value_type}
+                for address, (role, value_type) in channels.items()
+            ],
+            "limits": {
+                "records": [{"address": address, **record} for address, record in limits.items()]
+            },
+        }
+    )
+
+    assert limits_findings(records, True) == [
+        "limits: 3 limits records serve their setpoint not writable; stating what each line "
+        "lacks makes it writable",
+        f"  {QD}: min_value 0.0, no max_value",
+        f"  {qs}: max_step 0.5, no min_value, no max_value",
+        f"  {valve}: no writable: true",
+    ]
+    listed = {QD, qs, valve}
+    for address, record in limits.items():
+        role, value_type = channels[address]
+        missing = record_missing(record, role, value_type)
+        if address in listed:
+            assert missing
+            assert record_writable(_stating(record, missing), role, value_type), address
+        else:
+            assert record_writable(record, role, value_type) or missing is None, address
 
 
 def test_findings_list_the_first_addresses_unless_every_one_is_asked_for() -> None:
