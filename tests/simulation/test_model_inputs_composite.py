@@ -35,6 +35,7 @@ from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey.simulation.engines import pyat as pyat_engine
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 
 PRODUCER_ENGINE = "fake_model_input_producer_engine"
 CONSUMER_ENGINE = "fake_model_input_consumer_engine"
@@ -126,12 +127,16 @@ def engines(monkeypatch: pytest.MonkeyPatch) -> None:
     consumer.describe_input = lambda record: None
     monkeypatch.setitem(sys.modules, PRODUCER_ENGINE, producer)
     monkeypatch.setitem(sys.modules, CONSUMER_ENGINE, consumer)
+    # The facility build looks engines up under the framework's group, the VA
+    # under the connectors' group; both are registered until chain step 3.
     found = metadata.EntryPoints(
-        [
-            metadata.EntryPoint(name="pyat", value=pyat_engine.__name__, group=ENTRY_POINT_GROUP),
-            metadata.EntryPoint(name="producer", value=PRODUCER_ENGINE, group=ENTRY_POINT_GROUP),
-            metadata.EntryPoint(name="consumer", value=CONSUMER_ENGINE, group=ENTRY_POINT_GROUP),
-        ]
+        metadata.EntryPoint(name=name, value=value, group=group)
+        for group in (ENTRY_POINT_GROUP, ENGINE_GROUP)
+        for name, value in (
+            ("pyat", pyat_engine.__name__),
+            ("producer", PRODUCER_ENGINE),
+            ("consumer", CONSUMER_ENGINE),
+        )
     )
 
     def entry_points(**selection: Any) -> metadata.EntryPoints:
