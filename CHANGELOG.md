@@ -14,6 +14,436 @@ the `[Unreleased]` section below when a release is cut.
 
 ## [Unreleased]
 
+## [2026.11.1] - 2026-11-23
+
+Follow-up to 2026.11.0. It moves the simulation engines to the
+`osprey_connectors.simulation.engines` entry-point group and requires
+`osprey-connectors>=2026.11.15`; framework 2026.11.0 does not find its engines
+under that connectors release, so upgrade both together. It also renames the
+channel directory's config section and tools, makes `build/facility.json`
+version 4, and adds `osprey facility panels`. The entries marked **Breaking
+change** name what to edit.
+
+### Added
+
+- `phoebus_open_panel` takes an optional `macros` argument, a mapping of macro
+  name to string value, so the agent can open a parameterised Phoebus display
+  (`{"IOC": "injbpm"}`). The facility declares which parameters a screen takes:
+  a `phoebus.panels` entry in the long form (`file`, `macros: [IOC]`) lists the
+  macro names, an undeclared name is refused, and a panel in the short form
+  takes none. A value is a plain token (ASCII letters, digits, `.`, `_`, `-`),
+  so it cannot leave the display's directory. A Phoebus agent bridge too old to
+  apply macros is refused with `not_supported`. (#2184)
+- The project image can be built where `cdn.playwright.dev` is blocked: `images.playwright_download_host` points the headless-browser download at a site mirror, and `images.skip_browser: true` builds without it, after which the `artifact_export` tool and CANOPY screenshots report the browser missing. (#2786)
+- `osprey profile panels` prints which login shows which panel: a tab, the tab
+  the login opens on, only in the panel menu, or not there. `--json` names the
+  file that decides each cell and `--html FILE` writes the table as a page. (#2837)
+- A `roster` panel shows which login opens which panel inside the web terminal,
+  the table `osprey profile panels` prints. A login selects it in `web_panels:`,
+  `osprey build` writes it into that login's render, and it sits in the
+  sidebar's System group. (#2847)
+- The Logbook reader shows an entry's body as formatted text when the entry
+  declares `body_format: markdown` (the `generic_json` adapter stores it as
+  `metadata.body_format`): tables, lists, links and code, with each picture
+  shown where the text places it when it names one of the entry's own
+  attachments. Entries that declare no format look as before. Offline
+  deployments get the two libraries it needs from `osprey vendor fetch`. (#2872)
+- A Bluesky plan file can state its form layout and its summary line in `PLAN_METADATA` (`layout`, `summary`). (#2894)
+- `channel_directory.alarm_state` takes `type: osprey_alarm_relay` with `settings.url`, for a facility where only HTTP crosses the network between OSPREY and the alarm server's Kafka broker.
+- The channel directory's views and the agent's directory answers name a channel
+  and its server in the control system's own words: PV and IOC on EPICS, the
+  virtual accelerator and the stand-in; attribute and device server on TANGO;
+  property and server on DOOCS; channel and server on any other. A facility
+  connector states its own words in a `channel_vocabulary` class attribute.
+- Dispatch workers can connect to the event dispatcher over an authenticated
+  ZeroMQ bus instead of listening on ports of their own: set
+  `dispatch.transport: bus`. Every provisioned worker then takes runs (the least
+  loaded first), a trigger that fires before any worker is up waits for one, and
+  `osprey up` mints each container its own CURVE key. The chat bridges read runs
+  through the dispatcher's new `/worker` routes. HTTP stays the default.
+- Facility layers: a place, device, channel or group record may state `basis: inferred` and the `rule` its fields rest on. The build keeps both in that layer's provenance entry, and a field the build derives by a named rule, such as a setpoint's pair, is listed under `provenance.rules`. Panels marks a pair inferred from either.
+- A readback's seed may state `follows`: `follows: <setpoint>` makes the
+  simulation copy that setpoint's writes into the readback where the default
+  does not, and `follows: none` stops the copy where the default makes it. The
+  build refuses `follows` on a channel no setpoint names, on a readback several
+  setpoints name, naming a setpoint whose `pair` is another channel, or naming a
+  setpoint of another type. The simulator view writes `follows.json`: for each
+  pair whether the simulation follows it (`default`, `seed` or `not followed`),
+  why, and the totals.
+
+  A channel's seed is joined per key across layers and `seeds.yaml`, so one
+  source may state `follows` and another the seed's values; one key two sources
+  state differently is a `layer-conflict`. A followed readback whose seed gives
+  it a value of its own (`topoff`, `topoff_lifetime`, `linear`, `pulse`) is
+  refused with `seed-invalid`; a write to its setpoint would replace that value.
+- A readback's seed `follows: <setpoint>` may follow a setpoint of another type
+  into a labelled readback, which then takes the state of the same index: from
+  a labelled setpoint of as many labels (`Clear / Set` into `Off / On`), or from
+  a setpoint that holds a number (`1` holds the second label). The build refuses
+  a setpoint of another label count or of neither labels nor a number, and a
+  number setpoint whose start value is no index of the readback's labels. The
+  default never copies by index. `follows.json` states each followed pair's
+  `copy` (`value` or `index`) and, for an index copy, the label of each index.
+- `osprey facility panels` draws a device's card from its recipe: a front of
+  connectors with what is on each and their values and presses in labelled bands
+  (a group of readings as a table), a chain of relations, a ring-strip of a group
+  by place with a count of the lamps ok now, a limit ladder, a part's card, a
+  rack elevation with half-width units, and calibration curves that never put a
+  contested claim in force. Key tiles count, take the maximum of or sum a role
+  over the device's channels. A press names the value it writes, Apply shows
+  what it will write, and no card offers a press on a driver-internal channel or
+  on a channel it reaches only through an inferred relation, nor a text record
+  as an entry; such channels are
+  shown read only. Anything that rests on an inferred relation says so, with
+  its rule on hover. New optional columns in `fronts.csv` are `roles` and
+  `apart`. `check` counts connectors, readings, presses and withheld presses.
+- `osprey facility panels` draws a device class seen from its end on its card.
+  A `pictures.csv` row may now state a size (`w_mm`, `h_mm`), an angle
+  (`angle_deg`), the signal it shows live (`signal`) and the place it applies
+  under (`under`); shape kinds (`yoke`, `outline`, `pole`, `coil`,
+  `corrector_winding`, `bore`, `gap`) draw the body, at default proportions where
+  no size is stated, and other kinds are parts placed on a coil or in a column
+  beside the yoke. A scale caption names what the drawing is scaled from.
+  `check` sorts the classes by how they are drawn and notes a picture signal that
+  binds no channel or channels of two devices. An optional `state_labels.csv`
+  names the word each value of a discrete channel means, and a command's button
+  reads it.
+- `osprey facility panels write` draws operator screens from the built facility
+  and a set of rule tables beside it: device cards, set overviews, calibration
+  views, place views, rack elevations, health roll-ups and a setpoint checkout,
+  as Canopy Screen-IR files with an index. `osprey facility panels check`
+  compares a written set with what the model gives now and exits 1 on a stale,
+  missing, invalid or over-budget screen.
+- **Knowledge bundles hold images.** A concept embeds a PNG, JPEG, GIF, WebP or
+  SVG stored in the bundle with `![alt](path)`, a reference-style image or
+  `<img>`, and the KNOWLEDGE panel shows it. `read_concept` lists the images a
+  concept embeds, and the new `view_asset` tool lets the agent look at one (SVG
+  excepted). `osprey knowledge validate` warns about an image that is missing,
+  of a disallowed type, over 10 MB or without alt text.
+- A page that declares `data-page-ready="pending"` and throws before it marks itself ready is marked `data-page-ready="failed"` by the design system's page-ready writer. A script that waits for `"true"` can stop on `"failed"` instead of timing out.
+- Each device card and channel list in a panels `index.json` names, under `others`, what it shows of other things on purpose: the thing, the kind of item that draws it (a strip member, a chain block, a value row, ...) and the channels of it the screen binds. A row that names no thing is placed by its channel's owner. A checker can then tell a neighbour's channel drawn by design from a channel on the wrong screen; `panels check` holds the field to the model like the other class fields.
+- Each widget of a generated panel that draws a view item names it in its `meta` comment: `item: <kind>` (`rack-unit`, `strip-element`, `key-tile`, `chain-block`, `grid-row`), `thing: <id>` where the item stands for one thing, and `order: <n>` where the view states an order. A checker can then tell which item a widget draws and whether the items read in their stated order, without guessing from text and position. Viewers do not read widget comments, so nothing drawn changes. A class's `drawing` digest now leaves every widget comment out, so tags never move a class. This is a new digest rule, which the index states as `drawing_rule: 2`. Compared with a set written before (no `drawing_rule`, rule 1), the `drawing` of each class whose standard carries any widget comment changes once, though nothing drawn changed. On the fixture example the screens grow by about 1.5%.
+- `osprey build` warns for each panel under a render's `panels/` that the web terminal will not serve, naming every reason (`web_terminals.panel_not_served`); the build still succeeds. `GET /api/panels` lists the same panels and reasons in `refused`. Before, only the web terminal's log said a panel was skipped.
+- `osprey facility panels write` states each screen's class in `index.json`, so a reviewer judges one standard screen per class and reads how the other members differ. A device's card is classed by its device class, card recipe and the set of signal roles it shows; a calibration by its calibration kind and structure; every other screen, a set among them, by its view kind, the kind of thing it is about and its structure. Sameness is measured on what a screen shows, not on its pixels: the count of a repeated block, its order, gaps in what is known (a source, a unit, a stated position, a link) and data-state flags are left out. Each entry names its `class`; when it is off its standard, `differs` says how (a section, item kind, block or relation present or missing); `varies` states its other differences in sizes, gaps, flags and drawing variants; and the entry carries its own `sizes`, `gaps`, `flags`, longest `label` and the labels cut to fit (`cuts`). The `classes` table holds each class's key, standard, counts, a layout hash that tells a changed standard, and a `sample` of members that span the class; `class_summary` holds the counts a gate reads. `panels check` reports a stale class as `stale_class`, and the new `osprey facility panels classes` prints the table, a table per view kind and a one-line summary. The panels format is 2.
+- Panels: a `channel_roles.csv` row's `scope` may name any relation type of the vocabulary that runs from a device to a device (`interlocked_by`, `powered_by`, `triggered_by`, ...), walked like `read_out_by`: a device's card shows its own interlock point by the stated relation, and an interlock's card carries the points of the devices it interlocks through a chain.
+- Panels: `draw.json` takes `write_under`, the places a write keeps to (with the devices placed there, the devices in no place joined to them and the groups of those devices), and `check` holds a write to the same scope. A device gets a card only when it has a channel its card shows or a drawing; `cards.csv` states the exceptions, `keep` or `drop`, selecting devices by class (or `*`), place, id pattern, attribute (`name=value`) and condition (`no-channel`, `no-drawing`). `check` reports the devices the default leaves without a card and how many devices each `cards.csv` row decides.
+
+  The home screen lists the top places that hold a device of a model first, as the machines, and the other top places below them.
+- Channel Finder: the server fleet shows which servers of the control system
+  are alive. With `channel_directory.fleet` configured, one service reads the
+  liveness channel of every server once per refresh period, and the panel's
+  servers view, the `server_fleet` tool, the server page and `server_record`
+  all answer from that snapshot with each server's state (`alive`, `stalled`,
+  `silent`, `unreached`, `unknown`), its findings and the read time. At an EPICS
+  facility the servers are IOCs and the view is titled **IOCs**. Roster sources
+  (`channel_directory.fleet.roster_sources`, a public contract that may still
+  change) add what the facility expects of each server on `live`. The
+  `stopped_servers` scenario key stops a simulated server, and the demo ships
+  the scenario `line-server-stopped`.
+- A scenario can state a ring-length error on a `pyat` ring:
+  `faults.<model>` takes `lattice/circumference_error`, in metres. The model
+  scales every drift of its copy of the deck when it is built, which is the
+  design ring driven at a shifted RF frequency.
+- A `pyat` readback of a deck property (`engine: {attribute: energy}`, no
+  element) may state its own calibration: it then reads the value of the energy
+  setpoint's curve through its own, so a bending-magnet string can serve its
+  voltage beside its current. Such a readback states `energy_scaling: none`, and
+  its computed `default` is the value it starts with.
+- A `pyat` ring can be made to radiate: `settings.pyat.radiation: true` gives
+  every magnet of the model's copy of the deck its radiating pass method, for
+  the closed orbit, the response matrix and turn-by-turn tracking. Off by
+  default; a deck that states radiating pass methods is tracked as written.
+- The `pyat` engine wires a cavity's `Voltage` and `TimeLag` as setpoints with
+  readbacks, beside `Frequency`: a phase setpoint is a time lag through the
+  record's calibration, a voltage is shared over `slices` by their weights, and
+  the RF switch holds the commanded voltage while it is off. Each RF setpoint
+  carries one fault: `cal_offset` on a frequency and on a time lag, `cal_factor`
+  on a voltage.
+- `osprey facility validate` reports two limits findings on stderr: the setpoints with no limits record, which the target serves writable with no range when its limits mode is `optional` and refuses otherwise, and the limits records that state only one edge, which are served not writable. Each finding is a count line and its addresses, the first ten unless `--all-limits` is given. The findings change nothing: what is served and the exit code stay as they were. A re-import beside an existing `limits.yaml` now names the setpoints the export bands that the file has no record for (a count and the first ten), and writes none of them; and it names each per-device `Range` table whose row count is not the family's device count, from which no band is taken.
+- Facility vocabulary: `normalized_strength_setpoint` and `normalized_strength_readback` (a multipole's K, titled `Strength`), and `kick_angle_setpoint` and `kick_angle_readback` (a corrector's angle, titled `Kick`). The MML draft proposes them for a field whose hardware units are a normalized strength (`1/m^2`, `m^-3`) on a multipole family, or an angle (`rad`, `mrad`) on a corrector family, as it proposes the current signals for a current.
+- A wiring record may list further channel addresses of its variable under
+  `also`. Each reads what the record's `address` reads at the same instant and
+  writes what it writes, waveforms included. The build stops when two wiring
+  records read the same axis of one monitor; before, the second took the first
+  one's readout and the first one's fault variables stopped acting.
+
+### Changed
+
+- `osprey init` writes an active `dispatch:` or `va_archiver:` block whole: every key it builds with that the preset leaves unstated appears at its default with a one-line comment, keys the build derives (the ports it takes from the port base, the archiver host) excepted; a profile without them builds as before. (#2037)
+- `osprey init` writes `claude_md_template:` into `profile.yml`, so the profile names the template its `CLAUDE.md` is rendered from. A profile without the key still renders `CLAUDE.md.j2`. (#2039)
+- A chat frame that ends a turn carries `ends_turn: true` on the stream, the events feed, the buffered `POST /api/chat` response and the replay; the web chat reads it instead of deciding for itself. (#2104)
+- `POST /api/entries` refuses a body with a field it does not define (422) instead of ignoring it. This includes `attachment_ids`, which was never read; entries with files go through `POST /api/entries/upload`. (#2166)
+- **Breaking change:** a tool of your own that saves to the artifact store no
+  longer has its files posted to a chat by a dispatch run. Pass `deliver=True`
+  to the store's save method (`save_file`, `save_object`, `save_from_path`) for
+  each file the tool makes for the person who asked; a save that leaves it out
+  keeps the file in the store, where the gallery shows it and the agent can read
+  it. See "MCP server" in the Extending Osprey guide. (#2499)
+- The orbit-bump panel's plane, shape, other-BPMs, corrector-rule and nudge-step controls are the design system's segmented control: the left and right arrow keys move the choice. (#2578)
+- The HTML-to-image converter no longer downloads Chromium at run time. A missing browser is reported as `dependency_missing` with the install command by `artifact_export` and ARIEL `entry_create`, and with the same text by the gallery's logbook draft. A host that relied on the download installs the browser once with that command; container images get it from the image build. A missing Playwright package is no longer answered with a second install command: it is a dependency of OSPREY, and its absence is reported as an import error. (#2786)
+- A Bluesky plan whose parameter default fails the parameter's own validation is refused when the catalog loads it. (#2894)
+- `osprey app check` refuses an app panel that calls `markPageReady()` without `data-page-ready="pending"` on its `<html>`, or that carries `data-page-ready="true"`: either marks the panel ready before its first state is drawn. The check reads the scripts `panel/index.html` loads and what they import.
+- **Breaking change:** the channel directory is named in channel and server
+  words, which hold on every control system. Its config section, MCP server and
+  tools were named after EPICS PVs and IOCs. Change these when upgrading:
+
+  - the config section `pv_directory` is `channel_directory`, and its
+    `display.ioc_health_suffixes` is `display.server_health_suffixes`;
+  - the MCP server `pv-directory` is `channel-directory`, so its switch is
+    `claude_code.servers.channel-directory.enabled`;
+  - the tool `pv_record` is `channel_record` and takes `channels`, and the tool
+    `ioc_record` is `server_record` and takes `server`;
+  - `alarm_state` takes `channels`, and `alarm_config`, `alarm_history` and
+    `put_history` take `channel`;
+  - rows and pages carry `channel` and `server` where they carried `pv` and
+    `ioc`, and the panel's routes are `#/channel/<name>`, `#/server/<name>` and
+    `#/channels?server=<name>`.
+
+  A profile that still spells `pv_directory`, `display.ioc_health_suffixes` or
+  `claude_code.servers.pv-directory` fails the build with a message that names
+  the new key. The old tool names in a facility's own prompts, skills and
+  permission rules are not checked, so search for them.
+- The channel-finder subagent's instructions say the absent-node option is a real choice whose description names what is missing, chosen only where the node has no value at that level; a level the question does not mention takes every option that applies.
+- A profile whose `claude_md_template` is empty, not a name, or names no bundled CLAUDE.md render is now refused when the profile loads, and the message lists the bundled renders. Before this change an empty value silently built the default; leave the key out for the default.
+- The framework, `osprey-optimizer` and `pyaml-cs-osprey` require `osprey-connectors>=2026.11.15`, the first release that reads engines from the `osprey_connectors.simulation.engines` group the framework now registers them under. 2026.11.14 brought copying a setpoint into a labelled readback by index, which a seed's `follows` across types needs; 2026.11.13 brought listing a directory's servers, stopping a simulated server and reading the `channel_directory` section under that name; the directory, alarm and put-log service connectors the channel directory reads came with 2026.11.12. Framework 2026.11.0 registers its engines under the old group, which 2026.11.15 no longer reads: upgrade the framework and `osprey-connectors` together.
+- `osprey down` refuses, and names the other copy, when another checkout of the repo holds the deployment's project name; with compose files in `build/` it used to stop that copy's containers too.
+- `osprey up` records the services it starts in `var/deployment.json`. `osprey down` run without compose files in `build/` stops exactly those services in the recorded compose project, including a container that carries no checkout label, and leaves another checkout's containers and any other service of that project running. A deployment last started by an older OSPREY, and a repo with no record, stop the containers labelled for this repo, as before.
+- **Breaking change:** simulation engines register under the entry-point group
+  `osprey_connectors.simulation.engines`, not `osprey.simulation.engines`; the old
+  group is no longer read. A package that ships its own engine renames its
+  `[project.entry-points."osprey.simulation.engines"]` table to
+  `[project.entry-points."osprey_connectors.simulation.engines"]` and reinstalls.
+  The engine contract (`EnginePlugin`, `OPTIONAL_NAMES`, `TIME_CONTRACT`, the
+  calibration math) is imported from `osprey_connectors.simulation.engines`.
+- A Bluesky plan is queued with every parameter stated, defaults included. The arguments are validated as a whole when the plan is queued; a channel that only a default names is checked against the worker's devices then, and a factory default is made once and not again when the run starts. The queue, the run record and the enqueue approval prompt show that complete set, and the pre-flight answer carries it as `plan_args`. Arguments the plan refuses are refused with `invalid_item`; a plan registry the bridge cannot read refuses the enqueue with `plan_registry_unreadable`, which is retryable.
+- **Breaking change:** `build/facility.json` is now version 4
+  (`osprey.facility.facility/4`): it carries the effective `signals` and
+  `relation_types` tables, and every group has a `kind`. The panel engine reads
+  version 4 only and refuses a document of any other version, older or newer,
+  with "rebuild with osprey build".
+  Deployments run `osprey build`, then `osprey facility panels write` to rewrite
+  their panels. The document's JSON Schema is published beside the schema model
+  in `facility.schema.json`, with a floor per version.
+- Facility: several setpoints may name one readback as their `pair` (a set and a reset command read back on one channel), and a command may pair with the status it reads back on although their value types or options differ. A setpoint and readback whose signals name one quantity must still agree in type. The simulation drives a readback from its setpoint only where exactly one setpoint names it and the two agree in type, so what it serves is unchanged. Panels draws a shared readback beside each of its setpoints.
+- Python executions and Jupyter kernels start seconds sooner, and `osprey build`
+  and `osprey facility validate` take seconds less CPU: registry initialization
+  and the `.env.example` render no longer import the built-in provider adapters.
+  A provider is imported when it is first used, so a registered provider whose
+  module raises while importing fails that first use, with an error naming the
+  provider and its module, instead of failing registry initialization; one whose
+  module or class cannot be found still reads as an unknown provider.
+- MML import: a family field's signal may differ per model. `by_model` in the mapping answers the signal for the models that differ, `null` for none. The draft reads each model's units on its own and lists only the models that differ. The import stops when a field gives a current signal to a model whose units for it are not a current, and names the answer to add.
+- **Knowledge bundles follow Open Knowledge Format 0.3.** A new bundle's root `index.md` is stamped `okf_version: "0.3"`, and `osprey knowledge regen-index` keeps whatever frontmatter the root index already holds (`title`, `description`, `license`, your own keys) instead of rewriting it. A Markdown file with no `type`, such as a `README.md`, is no longer a concept: it is left out of the indexes, the agent's listing and search, and `osprey knowledge validate` names it in a warning rather than failing. Files below a name starting with `.` are not part of the bundle, and a `log.md` must have no frontmatter. Links resolve the way the specification states, in the indexes, the KNOWLEDGE panel and its health check: a target starting with `/` from the bundle root, any other from the directory of the page it is written in; a link to an asset or a directory is no longer reported broken. Bundles written for 0.1 and 0.2 still read, and an existing `okf_version: "0.1"` stamp stays until you change it.
+- The KNOWLEDGE panel no longer loads an image from another host, or a `data:`
+  image, in a concept: it shows the image's alt text, with a link to a remote
+  source.
+- **Breaking change:** a panel's entry page loads the page-ready writer first: add `<script type="module" src="/design-system/js/page-ready.js"></script>` to its `<head>`, before its first module or deferred script. A panel under `panels/` without the line is not served; the web terminal's log, its panels list (`refused`) and `osprey build` name it. `osprey app check` refuses an app panel without it (`page_ready`). A page that declares `data-page-ready="pending"` is now also marked `"failed"` when one of its own scripts cannot be loaded (a missing file, or a parse error in its module graph); a vendor bundle that fails to load does not fail the page. A hub whose own file fails to load is marked `failed` as well as showing its reload. A KNOWLEDGE panel opened on its graph whose graph throws while drawing is marked `failed`, not ready. A page that declares `pending` may not load its own modules `async`.
+- A device card or channel list of a device with no channels of its own is no longer classed with one whose channels play no stated role: its class key states `own_channels: none`, and the class takes a name ending in `-no-own-channels`. Other class keys and ids are unchanged. A class name too long for its id now loses the end of its stem, never the suffix or the digest that tell two classes apart.
+- A device card's operate panel now draws every control as one row on one set of columns for the whole panel: the kind's tag, the control's name once, what it is now, the entry field or the button (a choice's segments side by side), and for an entry Apply and what it will write; what a group writes follows its rows, under the names. Fields and buttons stand in one column, so none jumps sideways from row to row, and the name no longer stands a second time on a line of its own above the row. The legend of the kinds names only the kinds the panel draws, and stands on the panel's title line when it fits there. Rows that end at their button or value (actions, choices, read-only values) use the width: consecutive groups of them stand in cells side by side, up to three, each on the panel's columns moved over with what it writes under it, and a group of many such rows takes up to three columns, filled downward, so short rows do not run down the page. A group of many entries of one role is still a grid.
+- A device card's calibration block states conditions that several rows share once, under the rows, after the titles of the rows they hold for, instead of cutting the same text in every row; and a name too wide for its line with no separator in it (a class word such as `PowerSupply`) breaks where a small letter meets a capital. The panel geometry tests also check that no text lies under a value display.
+- The panels index splits a default-recipe device card class whose cards show different blocks (a card with controls and a read-only one, a card with or without key tiles) into one class per kind of card, its key holding `blocks`; a class whose cards all show the same blocks keeps its key and its id. Each class also states `drawing`, a digest of its standard's written file without the model stamp, beside `layout`, which keeps its meaning.
+- A link box drawn over a cut label now carries the label's whole text as its tooltip (with the link's own label first where the text does not hold it); a box over several cut labels joins their whole texts one per line, and counts the rest past 24 lines; a text another line already holds is not added. The box's one-line hover label is the link's own label, held to 40 characters and cut with an ellipsis past that: the basis of an inferred relation and its rule ("· inferred: …") go to the tooltip only, after the label, where before a chain's hop or a ring member drew the whole sentence as one line across its neighbours. A hover box over a cut label holds its hover label to the same bound; the whole text stays in its tooltip. Before, the box the pointer reaches showed only the link's label, so a rack unit cut to "<device> · contested…" showed only the device id. Measuring text in the viewer's font (since the font metrics change) also changes which values on a place strip get a lane, so a strip may show other values than before; each one not shown is still counted in its "values not shown" line.
+- Every list of the panels ordered by name takes the numbers in a name by value, so outputs read 0, 1, 2, 10, 11 and never 0, 1, 10, 11, 2; one helper, `osprey.facility.panels.order.name_order`, orders them all, and a thing's channels come in that order, so a card's rows of one role, its block lines and its channel list follow it. On an operate panel the kind's tag stands once at the head of a run of one kind (groups of one kind that follow each other, each with its own line of what it writes, are one run), a row whose button says its name has no name beside it, and a choice whose segments wrap reads downward like an action group.
+- A generated screen now shows what it is for first. Sections that hold nothing but links to other screens follow the rest, and the sources come last, each part in its own order, so a set's members come before its group and calibration links. A place's or roll-up's key numbers with data come first, as an even grid; those with no data yet fold into one last line that says "no data yet" once, each title in a dashed outline. A roll-up's summed state is the headline of its block: a larger light and its name in the page's text, larger than the tiles it sums. A child it does not sum (no rule) comes after the members, a wider gap before it where the row has room (never a row of its own for the gap alone), as a dashed outline with no fill, so it does not look like one of them.
+- A rack screen keeps the lists of the rack in one column beside its elevation, down to its foot: from the top, the devices at no unit, those that carry a light first; then the classes and the sources as reference; then the devices too many side by side at one unit, level with that unit (or as near under it as the column allows) and joined to it by a line. What does not fit beside continues under the rack at the full width, in as many columns as fit there; the rack never grows. Every unit from the rack's floor to its highest stated one is numbered, those a device is stated at in the page's text and the rest muted, and a unit no device takes is drawn as a faint slot, so a gap reads as a free unit. Nothing in the facility states a rack's height yet, so the rack is drawn to its highest stated unit and says so once. No chassis moves from its stated unit, half or height.
+- Each panel validator rule now states its consequence: `refuse` stops a panel from being served and fails `osprey app check`; `report` is printed and stops nothing. The rule that every class a panel sets has a CSS rule (`undefined_class`) is now the validator's and is `report`: it is checked for every panel, the web terminal logs it and serves the panel, and `osprey app check` prints it as `[undefined_class: report]` and no longer exits 1 for it. `osprey build` and the panels list name only a panel that a refusing rule stops.
+- **Breaking change:** a panel under `panels/` is served only if its entry page declares `data-page-ready="pending"` and a script it loads calls `markPageReady()`; the web terminal's log names a panel it skips for this. An older panel adds both: the attribute on its `<html>` and `import { markPageReady } from '/design-system/js/page-ready.js';` with a `markPageReady()` call once its first state is drawn. `osprey app check` now runs the panel validator's page rules on an app panel: it also refuses a missing `theme-boot.js`, a missing `/static/fonts/fonts.css` link and a raw hex colour, and reports a missing design-system sheet as `missing_design_system_link` (was `design_system_css`).
+- A class's `sample` in the panels index names, for each member, what it stands for (`as`): the standard, the smallest, the largest, the one with the longest labels, the first off standard, and the drawing sides it is the first to show. Each member is `{"file", "as"}` instead of a bare file name.
+- A section's heading line now carries what qualifies it. A section of chips that fit beside their caption is one line high, the caption and the chips side by side. A set's or a calibration view's member count stands on its heading's line, muted, and a calibration view's one-line legend at the right end of that line, not under the cells. A place strip's legend of looks is drawn only while something it explains is drawn. The header names the page once: where the last step of the way out is the page's own thing, its name is not written a second time.
+- Two section frames in a row whose content each needs at most half the width now stand side by side instead of one under the other at full width. Three or more such frames in a row stand in two columns read downward, split where the taller column is least tall, so several short frames stack beside a long one. A frame is stretched to its neighbour's foot only when that adds at most a third of its own height; else it keeps its height and the page under it stays plain. A frame whose content is wider, or holds a widget a rule places, stays full width. Screens with several short sections (a device's operate and channel panels, a channel list's groups, a set's links) get shorter and are drawn larger. Content that stretches (a curve's plot) is drawn after the frame that follows it; where that frame's fixed content takes at most half the width, the plot takes the other half and grows to the frame's height, so a magnet's end view and its excitation curve stand side by side. A drawing now takes at most a half frame's width. Two frames pair only when they have one role: an action block never stands beside a reference list, and two groups of a channel list pair only as stated groups of one grouping (two record types, two role groups); the record type not stated and the leftovers stand alone, last.
+- `osprey facility panels write` measures text in the viewer's font (IBM Plex Sans, from a table of its advance widths) instead of a fixed width per character, and no label leaves its box: a row's label column takes its section's longest label, a chain block's value column takes what its lines show and its labels the rest, a long block label takes two lines, and a text still too long is cut with an ellipsis and listed under `cuts`. The header's line stops before the model stamp; a rack's inferred mark has its own room beside the light; a dipole drawn near the end of a card's strip is cut at the strip's end; and a plot's title is a label of the page, since the viewer draws a plot's own title in a weight the font set does not load. The table is generated from the font file itself (`scripts/panel_font_metrics.py`, IBM Plex Sans under the SIL Open Font License, the file and its licence in `scripts/panel_font/`), and a test holds the table to the file, so a change of the viewer's font is one file to replace and one script to run.
+- A device card drawn by the default recipe takes a key tile from a role only when exactly one of the device's own channels plays it: a neighbour's channel the role reaches no longer hides the device's own figure, and a device with two own channels of a role still gets no tile for it.
+- A value display in a generated panel is as wide as the widest text the facility states it can show: its longest state word (the facility file's `options`, or `state_labels.csv`), else the longer of its limits as the display prints them when that is wider than the stand-in, else the stand-in `-0.00123`, the widest number three significant digits print, since nothing stated bounds the value. The unit is added where the display prints it. The panel graph now reads each channel's `options` and limits record. Every text label's box is at least one line of the viewer's font high (the line height is read from the font file with the advance widths), grown about its middle where it was lower, so a light's "?" mark and a 13 px label in a short box are drawn at the size the file states. A checkout's channel and thing columns are as wide as their longest names, the flag columns after them still on the page. A muted line of prose (a caption, a note, what a press writes, a picture's source, the source beside a fact or a placement) takes as many lines as it needs, broken after a space, slash, comma or semicolon, instead of being cut after two. A label still cut carries its whole text as a tooltip on a transparent box written over it; a viewer that shows tooltips shows it.
+- Generated panels stand on whole pixels. Every widget's box, and every point of a line or a shape, is rounded edge by edge at the one place widgets are written, so boxes that touched still touch and a box of whole size keeps it. Before, about four in ten widgets of a card, a roll-up or a place view sat on fractions of a pixel and drew soft edges. Rows of tiles now take one whole width each and give what is left over to their gaps, so a row still ends exactly at the right margin. Widths measured for a value display are rounded up, and a text box grown to a line's height grows by an even number of pixels, so it stays centred. Every screen, a device card too, now ends the same distance under its lowest frame.
+- Panels: a place's roll-up draws its children as arcs of a ring when at least two of them lie along a beam path the facility file marks `periodic` and go round it (no gap between them of half the ring or more); the `draw.json` `ring` key is gone. A device's card says which position along the beam its strips use and where it is read from (its pose, the facility file's `s`, or its whole's), with the facility file's `s` beside a pose that differs from it.
+
+  `symbols.csv` is the one table of how strips draw a class, for a card's strip and a place's alike, in the drawing's own symbol names (`quadrupole`, `bend`, `ion_pump`, ...); `draw.json` loses `symbols` and `above`.
+
+  A rack is a place some `located_in` claim gives a unit in; the `draw.json` `rack_classes` key is gone.
+- Panels: what the facility file states is the default and the rule tables only add to it. A setpoint's readback is its channel's `pair`, a thing's short name what `names.csv` states, else its `label`, else the last part of its id, a channel is drawn by its `role` (setpoint as an entry, readback as a value), and a channel on a device that states a `signal` plays that signal as its role on the card. A `channel_roles.csv` row's stated `label` is now the word on every tile, value row and group title of its channels, and stays in front of what tells two of them apart. A state channel that `health.csv` rows rule is a lamp by default; a role a channel's signal gives it never makes it a press, so an enumerated output no row names stays a choice of its stated words. `record_types.csv` `drawn_as` may be empty (the role's drawing). Every rule table may now be absent. `check` notes, per table, the rows that only restate the facility file or these defaults with no column read for anything else (`redundant: <table>: <n> rows ...`), and the `record_types.csv` rows whose `drawn_as` alone is the default (`redundant: record_types.csv drawn_as: ...`).
+
+  A signal role may be marked `nameplate` (in `signals.yaml`, or by a `nameplate` annotation in the vocabulary): it names the unit it is read from, such as a model, serial number or firmware version. The vocabulary gains `model_readback`, `serial_number_readback` and `firmware_version_readback`, marked nameplate. A device card never makes a role of a nameplate signal a key tile; the engine no longer names identity roles by a fixed list of words.
+- Panels (experimental, so marked in the CLI reference and help): each model has its own beam frame in `positions.csv`, the frame in which most of its devices' rows state a position, so a facility with two rings is drawn with two; the single ring frame and `load_graph(ring_frame=...)` are gone. A device placed only by a place around it is bracketed over that place's stretch (its own position and its devices'), with no fixed extent; the strip counts say "by their place". A picture's or annotation's signal is looked up on the devices any device-to-device relation of the vocabulary names, as the channel role scopes walk, not only `read_out_by`. The ring roll-up orders its arcs round the ring only when the ring's length is stated.
+- Panels: a setpoint's readback comes from the facility file alone, its channel `pair`; the `pairs.csv` table is gone. A pair a layer states shows as stated, with the file that states it; a pair the build derives from the signals shows as inferred, with the rule.
+- Panels: a write kept to `write_under` lists on the home only what it keeps, with the kept places at the top and one line saying which places the write keeps to; the not-placed indexes list only kept devices. A group with members in and out of the scope is cut to its kept members, and a group cut to the same members as another is written once, the one the facility defined whole within the scope.
+
+  Facility signals: a signal may state a `title`, the short word a screen names it by; a role's channels are called by their row's `label`, else that title, else the signal's name. The vocabulary titles its general signals (`Current`, `Setpoint`, `Voltage`, `Ramp rate`, `On command`) and gains the temperature alarm-limit ladder, readback and setpoint of `lolo`, `lo`, `hi` and `hihi`, titled `Lolo`, `Lo`, `Hi`, `Hihi`.
+
+  A group dropped as a duplicate under a write scope holds no members there, so every screen of the write links to the group kept in its place, never to the one not written.
+
+  A written screen links only to files of the same write: a screen a scoped write does not produce is named as text, without a link, and `check` notes each such name as `outside_set`.
+- A block that `osprey init --set` (or init's own `data:`) adds to the profile is written in its section under that section's heading, not appended headerless after `config:`.
+- A compose service can declare that it runs once with the label `osprey.run-once` set to `must-succeed` or `may-fail`. `osprey up -d` then counts it as started when it exited 0 or, for `may-fail`, when it exited at all, reporting a non-zero exit by name and code; before, the start check failed every start of a deployment with a run-once service nothing waits on. A service that declares nothing is still not taken for run-once. The build refuses another value, a run-once service with `restart: always` or `unless-stopped`, and `may-fail` on a service another one waits on to complete; `osprey status` shows a declared service that ended as declared as `Done`. Refines the start check of #2316.
+- When no container runtime is installed, the message now names Docker Engine 20.10 or newer, Docker Desktop 4.0 or newer and Podman 4.1 or newer, so a Linux host is told which engine to install; the deployment guide and the ARIEL setup page state the same floors. The Podman floor is 4.1 because older Podman cannot build the locked cache mounts the shipped images use.
+- The web terminal loads faster and in one step. Its scripts, styles and fonts
+  are served gzipped under a content fingerprint, so a browser keeps them until
+  a deploy changes them and a reload fetches almost nothing; the page names its
+  whole module graph up front instead of discovering it one import level per
+  round trip. While it loads, the sidebar and a "Loading workspace" veil stand in
+  for the workspace, which then appears arranged as it will stay. The veil's bar
+  fills as the page's files arrive; the veil says when the connection is slow
+  and offers a reload when a file cannot be fetched.
+- The multi-user sign-in button shows that it is working and ignores a second
+  submit. While a terminal's app is still starting, nginx answers with a themed
+  waiting page that opens the terminal as soon as it is ready, instead of a
+  plain page that reloads every five seconds.
+
+### Removed
+
+- **Breaking change:** `panel.roster_grant.single_user_alias` is removed from `app.yml`, and an app that still sets it is refused by `osprey app check` and `osprey build`. `roster_grant: {}` now names the one operator on a single-user deployment, so the panel's writes are recorded under `deployment.host_identity`; replace `roster_grant: {single_user_alias: true}` with `roster_grant: {}`.
+
+### Fixed
+
+- The virtual accelerator image builds under docker 24's builder, which leaves `TARGETARCH` empty: the image reads its architecture inside the build and needs no `--build-arg TARGETARCH`. (#2179)
+- `osprey up -d` now fails, naming the services, when compose reports success but a service has no running container. (#2316)
+- `osprey build`, `osprey validate` and `osprey web` warn for each enabled
+  feature that sends its own model request and has no API key: session naming,
+  logbook compose, the in-context channel finder, the ARIEL semantic processor
+  and image captions, and the health model chat check. A personal Claude login
+  covers the agent only. An unset `${VAR}` key is refused before any request is
+  sent, and session naming makes no request without a key. (#2324)
+- The `anthropic` provider no longer sends a temperature to Claude 5 models,
+  which refuse any but 1, so the in-context channel finder works with them. (#2325)
+- The web terminal renders its log output on a separate thread, so a record that
+  is slow to draw, such as a Rich traceback, no longer stalls every request while
+  it draws. (#2372)
+- `osprey web` applies the `logging.*` settings of the deployment it serves, also
+  when it is started from another directory with `--repo`. `rich_tracebacks:
+  false` was ignored there, because logging was set up before the deployment was
+  known. (#2372)
+- The web terminal no longer logs a browser abandoning a slow request as a server
+  error with a traceback, which under load could block it for good. The request
+  is answered `499` and logged in one debug line. (#2372)
+- `osprey web stop` waits for the server and the processes it started to exit, ends the ones that outlive the server (SIGTERM, then SIGKILL) and reports Stopped once none is left. A server still running after the wait is named, keeps its PID file, and the command exits 1, as it does for a process it could not end. (#2393)
+- `osprey facility import` reads a file that opens with the retired `mml import` seed header as seeded and names it in one warning with the current header line, instead of refusing the import. (#2402)
+- The hierarchical channel finder refuses an options request that skips a required level and names the level to choose first, instead of offering that level's options (such as `-`, "no sector") under the wrong level name. The channel-finder agent's prompt and the `get_options` description state the rule, so the agent reads every level in turn. (#2484)
+- A chat bridge posts only what the agent made for the person who asked: its
+  plots, the figures and `save_artifact()` files of its scripts, a
+  `create_document` PDF, and what it registers or exports on purpose
+  (`artifact_register`, `artifact_export`, a logbook picture). Each tool now
+  states this when it saves, and a dispatch run's `artifacts` list and
+  `GET /dispatch/{id}/artifacts` name exactly those entries. Everything else
+  stays in the artifact store and is served by id but is no longer posted: the
+  approval preview, notebook and result record of every `execute` call, a
+  tool's data record (an `archiver_read` series, an oversized `channel_read`
+  reading and its picture, a screenshot or Phoebus snapshot record, a
+  `pyaml_measure` file), a document's `.tex` source, and the `submit_response`
+  file, whose text is already the reply. To send a stored picture the agent
+  registers its file with `artifact_register`; to send data it writes a CSV file
+  and registers that. (#2499)
+- A watchdog hold now covers an application panel's websocket as it covers its
+  HTTP writes. While a session of the terminal is held, the panel proxy forwards
+  no frame the browser sends to the application and closes the socket with the
+  `session_held` refusal; frames from the application keep arriving. A hold that
+  starts after the socket opened takes effect at the next frame. (#2569)
+- Artifact and panel pages no longer fail to render when a first-party module has a comment that spells an import; the inliner reads imports only from code. (#2576)
+- `osprey app check` reads a class rule in a `<style>` block of the panel's page, so the reference panel and a panel written from the panel skill pass it as copied. (#2579)
+- An optimizer run whose worker takes over a minute to start keeps its job record, so the panel keeps Pause and Cancel. A worker that finds its job record gone refuses to start and files no write request. (#2654)
+- `osprey build` refuses an application panel that a roster card shows when the app's `app.yml` sets no `panel.roster_grant`, instead of building a panel that refuses that card with 401. Add `roster_grant: {}` under `panel:`; on a single-user deployment, which has no roster, the same entry names the one operator. (#2751)
+- The project image builds with the engine's builtin Dockerfile frontend, so a
+  host that reaches Docker Hub only through `images.base_registry` no longer
+  stalls resolving `docker/dockerfile:1`. (#2785)
+- `osprey up` no longer passes the host-port preflight when a service leaves the host network and changes its port while another process holds the new one; a listener with no visible owner is excused only on a port the last start bound for that service. (#2818)
+- `osprey facility import list` writes a device record for every device its
+  `device` column names, so a list without an `s` column validates. Beside
+  another source of device records, it names the devices only the list declares. (#2863)
+- The Bluesky queue-server container now exits, and its restart policy restarts
+  it, when the RE Manager process inside is gone: no answer to a ping and a
+  refused connection on its control port, for about a minute. Before, a manager
+  that died before its Redis connection succeeded left the container running and
+  unhealthy until someone restarted it by hand. (#2889)
+- A Bluesky plan parameter whose default comes from a factory shows that default in the Plans form. (#2894)
+- `osprey up` seeds the graph store in requests of a few megabytes instead of
+  sending the whole corpus in one, and wipes a store it replaces in bounded
+  transactions, so the default 1G heap holds for a large facility's corpus (a
+  110 MB corpus needed 3G before). A seed that fails is no longer a quiet
+  success: it is reported in the step output, the rest of the stack still
+  starts, and `osprey up -d` and `osprey restart -d` then end on the failed step
+  with a non-zero exit status. (#2915)
+- `POST /api/entries/upload` refuses a form field it does not define with a 422 naming the field, and reports an empty subject or details with the same error as `POST /api/entries`.
+- `osprey build` of a large facility no longer runs out of memory. A facility
+  of 175,000 channels peaked near 6 GB resident and now stays near 2.3 GB: layer
+  files are read record by record, the schema check validates one record at a
+  time, the facility file is parsed once per build and shared with every render,
+  views and the facility file are copied from the first render rather than held,
+  the graph view is streamed to its file, and the channel search index keeps
+  only the triples it reads. The build's output is unchanged, byte for byte.
+- The hierarchical channel finder refuses an undefined level, a selection key that is no level, and a selected value that names no node, naming the mistake and the defined choices; the Explore page's options and build requests answer 422 for them instead of 500, and the agent's tools answer a validation error instead of an internal error or an empty list.
+- On a facility-run queue server, the plan form shows each parameter's default as its value (`abc`, `10`) and sends that value, not the queue server's quoted text.
+- A wiring record that names no element and reads a setpoint of the whole deck
+  (the energy, say) now builds where no setpoint pairs with it or its seed
+  states `follows: none`; before, the build refused it as an output. Its
+  computed `default` is the setpoint's value, as the model serves it.
+- A Python execution, sandboxed analysis run or plan dry-run now works from a folder whose name contains a quote or ends in a backslash.
+- `osprey up` and `osprey restart` refuse a `build/` rendered in another directory and name that directory, instead of starting it and reporting every service as having no container; run `osprey build` in the new directory.
+- The Knowledge panel no longer replaces a page opened from a chat citation with
+  the overview when the panel was still starting up: the newest navigation wins,
+  and a page or overview that a later navigation superseded draws nothing when it
+  arrives late. A panel opened on the Graph view's link stays on the Graph view,
+  and a page or a Browse of a group that switching to the Graph view cut short
+  loads again when the Knowledge view is shown, a Browse at its group's section.
+- In the KNOWLEDGE panel, the search list shows the answer to the newest query; a slower answer to an earlier query, or to a query since cleared, no longer replaces it.
+- A finished optimizer job's record now expires one hour after the job ended. Reading its status no longer renews it, so a job left open in the panel expires too and then reads as not found; its results stay in the results listing.
+- An optimizer run whose job record expired before its worker started now ends as an error: the job API and the panel show the status error and the reason, instead of the job disappearing.
+- An optimizer run whose worker process is killed or crashes now ends as an error: the job API and the panel show the status error and the reason, "The worker process exited before the run ended; check the machine before the next run.", and the run's record stays readable for the usual hour instead of disappearing within a minute.
+- An optimizer job now ends in one step: its outcome, its record, its one-hour lifetime and the run slot are written together. A late refusal no longer replaces how a finished job ended, a failed or repeated start of a cancelled draft no longer renews it, a start or spawn that fails reads as an error instead of a job left running or a draft left half-ended, and an interrupted end no longer leaves a job record that never expires.
+- Nothing beside a rack runs past its foot: the list of devices at no unit takes the room the classes, sources and groups side by side leave, and what does not fit, a group side by side included, stands under the rack at the full width, a group's units on its heading in place of the joining line. A rack list takes as many columns as fit, each as wide as its own longest name, reads downward in balanced columns (two columns of a band differ by one row at most, the last band too) with a larger gap after every fourth row and in bands of twenty rows, a list of one or two rows fills across, numbered names take their numbers by value, and a name too long for its column keeps the part that tells it apart. The bar over devices side by side says whether they are listed beside the rack or under it.
+- On a place strip, the state word over a ringed symbol or badge (WARNING, FAULT) no longer runs into its neighbour's or into a neighbouring ring. A badge's stem length was chosen for the badge's own width, not its word's, so two badges of one stem length could stand closer than a word is wide; on the axis, symbols without a ring took a word lane too, and with only two lanes a third close ring went into an occupied one. Now a ringed badge's stem length is chosen for its word, a longer stem clears the word below it, only ringed symbols on the axis take a lane, and a further lane or stem length is opened where the existing ones are taken; the strip grows by one line per lane. A badge's stem can still run down through a lower badge's word where many ringed badges stand close; `facility panels check` names each such crossing as a `crossed_word` note. A word over a ring near the page's edge, whose box moves in to stay on the page, now keeps to the side of its own symbol instead of standing over its neighbour.
+- On a calibration table, conditions that several rows share no longer read as the last row's note. The shared line sat directly under the last row, in the same muted grey and with no gap, and that row was often not one of those it holds for. It now stands after half a row of space and a thin rule, and a reference mark (1, then 2 for a second shared text) starts the line and follows the title of each row it holds for. The line no longer repeats the rows' titles; the marks point at them.
+- Panels drawing: names and values on a card's strip move a line out instead of covering a neighbour's; each row of a place's strip has a locator over its own stretch of the beam, so leaders run down rather than across; ringed badges keep their ring's room apart; a rack draws a unit numbered 0 inside its frame, lists chassis too many side by side for their names under the rack, and leaves room after the conflict mark; calibration cells grow to hold a value of several numbers, so rows and the legend no longer overlap; a long roll-up tile name, basis chip or calibration date wraps instead of being cut. The state ring's padding is no longer overwritten by the ring roll-up's margin.
+- `osprey facility panels write` writes one home screen that every other screen
+  leads back to and from which every screen is reached: the top places, the sets
+  under their class, the groups with no set view, and what is in no place. A
+  device card names its sets and leads back to its place's view; a place view
+  opens its racks' elevations and its sets; a roll-up of one system opens the sets
+  of its devices. A place card draws at most 60 of its own lights and counts the
+  rest. Presses that share a word are named apart, a device whose presses all
+  stand on its front no longer says "no operator actions stated", a key tile keeps
+  its number whole with the "meaning not stated" note under it, and a chain block
+  is wide enough for a value with its unit.
+
+  A device whose card lists counts rather than its channels gets a paged roll-up
+  of its own, so each of its rule-bearing channels is read by one roll-up page. A
+  set of more than 96 members is paged by its rows, a group of kind `section` is
+  never a set, `check` notes a family that is no set only because some members
+  have no stated class (`unset_group`), and a set member with no health light
+  shows its card's first key-tile value. The home lists the devices in no place
+  by class, each class on a page of its own. A `pictures.csv` row may name the
+  devices it applies to in an optional `devices` id pattern (`!` first: all but
+  those).
+- Panels: a part with no place of its own stands where its accepted whole is (crumbs, strips, and a line on its card); a member of a family with a shared supply shows the supply's values read-only with a link to the supply's card, and never its presses; strips read each device's `s` along its model when no ring-frame pose places it, keep to one beam path per strip, and draw a stretch across a ring's start in one piece; a card's strip window reads on across a ring's start. The build writes each deck model's `length` and `periodic` into the facility file, and the strips take a ring's length from there.
+- A web terminal is handed the credentials its channel directory services name: each
+  variable under `auth:` in `channel_directory.settings` and in the `alarm_log`,
+  `alarm_state` and `put_log` blocks, and each CA file under `tls.ca_bundle`.
+  Before, none reached a deployed terminal, so a directory service behind a
+  login answered "not set" on every read.
+- Plots with a `data_source` no longer fail with `Dangerous pattern` when the workspace or file path contains a word the sandbox scan refuses, such as `epics` or `http`; the path reaches the sandbox as data, and plotting code is scanned as before.
+- A session's group counts in the sidebar now come only from the artifact server, so an artifact announced after the page loaded its counts no longer shows up twice in a count, and a run's output now updates its form's count live.
+- `osprey build` no longer warns that a scenario moves a toleranced readback
+  beyond its tolerance when the scenario stills that readback with `still: all`
+  or with a selection; the warning now counts the readings the scenario stills.
+- A `pyat` readback record that states another calibration than the setpoint on
+  its element, attribute and index now reads that setpoint's physics value
+  through its own calibration, so one quantity can be served in a second unit;
+  before, it served the setpoint's value. Its computed `default` is the value it
+  starts with, as is that of a readback no setpoint names as its pair or whose
+  pair the simulation does not follow. A
+  readback of a deck property that states another calibration than its setpoint
+  stops the build with `engine-invalid`.
+- The web terminal no longer paints the dark theme first and switches to the
+  light one a moment later on a first visit where `web.theme` names a family and
+  the operator's OS prefers light.
+
+### Security
+
+- The nginx front door of a multi-user deployment is now pinned to
+  `nginx:1.31.9-alpine`, the release that fixes the unauthenticated HTTP/2
+  memory-corruption flaws CVE-2026-123007 and CVE-2026-123633 ("nginx2root").
+  A deployment is exposed only with `tls.enabled: true`, which is where HTTP/2
+  is on. The previous floating `nginx:1.31.9-alpine` tag left a host that had it
+  cached on the vulnerable 1.31.8; redeploy after upgrading to pull the fixed
+  image, and re-copy it first if `images.base_registry` names a mirror.
+
 ## [2026.11.0] - 2026-11-14
 
 First stable release since 2026.6.2, after the three 2026.9.0 public betas.

@@ -1,1 +1,0 @@
-Plots with a `data_source` no longer fail with `Dangerous pattern` when the workspace or file path contains a word the sandbox scan refuses, such as `epics` or `http`; the path reaches the sandbox as data, and plotting code is scanned as before.

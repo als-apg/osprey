@@ -1,1 +1,0 @@
-`osprey build` warns for each panel under a render's `panels/` that the web terminal will not serve, naming every reason (`web_terminals.panel_not_served`); the build still succeeds. `GET /api/panels` lists the same panels and reasons in `refused`. Before, only the web terminal's log said a panel was skipped.

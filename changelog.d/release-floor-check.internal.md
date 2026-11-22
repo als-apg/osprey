@@ -1,1 +1,0 @@
-A framework tag is refused while the framework imports `osprey-connectors` code its declared floor does not carry, including imports behind an `except ImportError` stand-in (`release.yml`, job `verify-connectors-floor`).

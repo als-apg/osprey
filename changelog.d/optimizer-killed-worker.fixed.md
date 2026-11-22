@@ -1,1 +1,0 @@
-An optimizer run whose worker process is killed or crashes now ends as an error: the job API and the panel show the status error and the reason, "The worker process exited before the run ended; check the machine before the next run.", and the run's record stays readable for the usual hour instead of disappearing within a minute.

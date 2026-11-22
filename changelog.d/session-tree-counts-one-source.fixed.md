@@ -1,1 +1,0 @@
-A session's group counts in the sidebar now come only from the artifact server, so an artifact announced after the page loaded its counts no longer shows up twice in a count, and a run's output now updates its form's count live.

@@ -1,1 +1,0 @@
-A finished optimizer job's record now expires one hour after the job ended. Reading its status no longer renews it, so a job left open in the panel expires too and then reads as not found; its results stay in the results listing.
