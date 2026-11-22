@@ -71,6 +71,7 @@ from osprey_connectors.simulation.values import is_waveform
 
 __all__ = [
     "FACILITY_HEADER",
+    "LIMIT_BOUNDS",
     "STAGES",
     "Stage",
     "StageReport",
@@ -159,7 +160,10 @@ _SAME_VARIABLE_SLOTS: dict[str, Any] = {
     "options": None,
     "shape": None,
 }
-_LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
+#: The two edges of a limits record's range; a float or int setpoint is writable only with both.
+_LIMIT_EDGES = ("min_value", "max_value")
+#: The bound slots of a limits record, in the order the limits document writes them.
+LIMIT_BOUNDS = (*_LIMIT_EDGES, "max_step")
 #: The value types a limits record bounds; every other type carries no bounds.
 _NUMERIC_TYPES = ("float", "int")
 _MOTION = ("noise", "drift")
@@ -2412,7 +2416,7 @@ class _Records:
                     f"`writable: true` on a {channel.get('role', DEFAULT_ROLE)} channel",
                     "remove `writable`; only a setpoint is writable",
                 )
-            bounds = [slot for slot in _LIMIT_BOUNDS if record.get(slot) is not None]
+            bounds = [slot for slot in LIMIT_BOUNDS if record.get(slot) is not None]
             if (
                 record.get("writable") is True
                 and channel.get("role") == "setpoint"

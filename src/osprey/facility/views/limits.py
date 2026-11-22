@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import record_writable
+from osprey.facility.validate import LIMIT_BOUNDS, record_writable
 from osprey.facility.views import ViewInputs
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 
@@ -44,11 +44,11 @@ __all__ = [
 LIMITS_FILE = "channel_limits.json"
 LIMITS_VERSION = "4.0"
 
-_BOUNDS = ("min_value", "max_value", "max_step")
-
 
 def _entry(record: Mapping[str, Any], role: str, value_type: str) -> dict[str, Any]:
-    entry: dict[str, Any] = {slot: record[slot] for slot in _BOUNDS if record.get(slot) is not None}
+    entry: dict[str, Any] = {
+        slot: record[slot] for slot in LIMIT_BOUNDS if record.get(slot) is not None
+    }
     entry["writable"] = record_writable(record, role, value_type)
     confirm = record.get("confirm")
     entry["confirm"] = confirm if isinstance(confirm, bool) else True

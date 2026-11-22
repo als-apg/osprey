@@ -17,6 +17,7 @@ from osprey.facility.schema import core
 from osprey.facility.sources import SET_VALUED_SLOTS, load_sources
 from osprey.facility.validate import (
     FACILITY_HEADER,
+    LIMIT_BOUNDS,
     STAGES,
     StageReport,
     known_classes,
@@ -1194,6 +1195,13 @@ class TestLimitRules:
             )
         )
         assert _run(tmp_path, files).ok
+
+    def test_the_limit_bounds_are_float_slots_of_a_limits_record(self) -> None:
+        record = yaml.safe_load(CORE_YAML.read_text(encoding="utf-8"))["classes"]["LimitRecord"]
+        attributes = record["attributes"]
+        assert {slot: attributes[slot].get("range") for slot in LIMIT_BOUNDS} == dict.fromkeys(
+            LIMIT_BOUNDS, "float"
+        )
 
     def test_integral_bounds_on_an_int_channel(self, tmp_path: Path) -> None:
         files = _with_channels(
