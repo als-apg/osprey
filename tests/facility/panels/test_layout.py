@@ -397,10 +397,10 @@ def test_a_locator_puts_ticks_and_devices_in_proportion_to_s(panel_graph) -> Non
     (m0, x0), (m1, x1) = ticks[0], ticks[-1]
     per_metre = (x1 - x0) / (m1 - m0)
     for m, x in ticks:
-        assert x == pytest.approx(x0 + (m - m0) * per_metre, abs=0.2)
+        assert x == pytest.approx(x0 + (m - m0) * per_metre, abs=1)  # whole pixels
     marks = sorted(n["geometry"]["x"] + n["geometry"]["width"] / 2 for n in _marks(doc))
     for s, x in zip((0, 7, 12.5, 30), marks, strict=True):
-        assert x == pytest.approx(x0 + s * per_metre, abs=0.2)
+        assert x == pytest.approx(x0 + s * per_metre, abs=1)
 
 
 def test_a_dense_strip_breaks_into_rows_instead_of_shrinking(panel_graph) -> None:
@@ -412,7 +412,7 @@ def test_a_dense_strip_breaks_into_rows_instead_of_shrinking(panel_graph) -> Non
         if thing.startswith("D") and n["type"] == "polygon":
             kind = ("quadrupole_f", "quadrupole_d", "bend")[int(thing[1:]) % 3]
             natural = symbols.WIDTH_UNITS[kind] * SYMBOL_UNIT
-            assert n["geometry"]["width"] >= natural * MIN_STRIP_SCALE - 0.1
+            assert n["geometry"]["width"] >= natural * MIN_STRIP_SCALE - 1  # whole pixels
 
 
 def test_each_row_of_a_strip_has_a_locator_of_its_own_stretch(panel_graph) -> None:
