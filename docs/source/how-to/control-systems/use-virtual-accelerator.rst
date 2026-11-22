@@ -596,6 +596,52 @@ commanded.
        RING:RF:VOLT:SP: {cal_factor: 1.02}
        RING:RF:FREQ:SP: {cal_offset: 1.0e-4}
 
+.. _va-radiation:
+
+A radiating ring
+----------------
+
+A pyAT deck radiates through the pass methods of its elements. A deck that
+states radiating pass methods is tracked as written. For a deck that does
+not, the model's ``pyat`` settings can switch radiation on:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     settings:
+       pyat:
+         radiation: true
+
+With ``radiation: true`` every bend, quadrupole, sextupole, octupole,
+multipole and wiggler of the model's copy of the deck gets its radiating
+pass method. The cavities and the deck file stay as they are. The key is a
+``true`` or ``false``; absent or ``false`` leaves the deck's own pass methods,
+so it does not strip a deck that already radiates. A ``single_pass`` model
+refuses ``true``.
+
+What changes:
+
+- The beam loses energy in every magnet and the cavity makes it up. The
+  closed orbit is the six-dimensional one at the synchronous phase, where
+  the cavity returns the energy lost per turn, and it carries the small
+  horizontal sawtooth of an energy that falls between cavities.
+- The orbit readings, the optics and the response matrix are those of the
+  radiating ring. Tracked motion is damped. The radiation is the mean energy
+  loss, without quantum excitation: a tracked bunch does not grow to an
+  equilibrium size.
+- A voltage below the energy loss per turn leaves no closed orbit. A ring
+  refuses the write that takes it there and keeps its last value; a
+  turn-by-turn ring (:ref:`va-turn-by-turn`) accepts it and its orbit
+  readings read NaN.
+- With the RF off on a turn-by-turn ring, a tracked bunch loses the energy
+  loss per turn every turn. It moves inwards by the dispersion times the
+  relative energy lost, and it is lost where that reaches a declared
+  aperture.
+- A closed-orbit solve costs several times that of the same deck without
+  radiation; tracking a shot costs about the same.
+
 .. _va-injection-chain:
 
 An injection chain
@@ -884,7 +930,8 @@ same in every run.
 - With the RF off the ring has no closed orbit: its orbit readings read NaN
   and its settings stay writable. The stored beam adds nothing to the sum, so
   the samples before the trigger read the floor, and a bunch with declared
-  apertures is lost within some hundred turns.
+  apertures is lost within some hundred turns. On a radiating ring
+  (:ref:`va-radiation`) it also loses energy every turn.
 
 **Cost.** Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly

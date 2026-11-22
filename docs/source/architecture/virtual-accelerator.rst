@@ -446,6 +446,11 @@ energy whose path has the design length, and the RF frequency that centres
 the beam is lower than the design one by that much. A ``single_pass`` model
 declares no such fault.
 
+Radiation is not a fault but a statement about the deck: ``pyat.radiation:
+true`` in a model's settings gives the magnets of the model's copy their
+radiating pass methods before any error is seeded, for the build and for the
+response matrix alike (:ref:`va-radiation`).
+
 A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from
 the composite's own value.
