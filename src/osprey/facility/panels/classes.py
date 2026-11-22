@@ -476,9 +476,9 @@ def class_key(graph: PanelGraph, target: Target, structure: str) -> tuple[str, d
         }
         readable = f"{cls}-{recipe}"
         if not graph.card_channels(target.id):
-            # a device with no channel is another card than one with channels and no
+            # a device with no channels of its own is another card than one with own channels and no
             # stated role; stated only where it holds, so other keys stay as they are
-            key["channels"] = "none"
+            key["own_channels"] = "none"
     elif target.view == "calibration":
         # Gains and offsets are different things to judge even where the layout
         # agrees: the calibration kind is the kind of signal it states.
@@ -497,11 +497,11 @@ SLUG_LENGTH = 48
 def _class_id(view: str, readable: str, key: Mapping[str, Any]) -> str:
     """A slug of the key's readable part and the first 8 hex digits of its digest.
 
-    The parts that tell two classes of one readable stem apart (a ``-no-channels``
+    The parts that tell two classes of one readable stem apart (a ``-no-own-channels``
     suffix, the digest) are never cut: a slug over :data:`SLUG_LENGTH` loses the
     end of its stem."""
     digest = _digest(repr(sorted(key.items())))[:_DIGEST]
-    suffix = "no-channels" if key.get("channels") == "none" else ""
+    suffix = "no-own-channels" if key.get("own_channels") == "none" else ""
     room = SLUG_LENGTH - (len(suffix) + 1 if suffix else 0)
     slug = "-".join(part for part in (_slug(readable)[:room].strip("-"), suffix) if part)
     return f"{view}-class-{slug}-{digest}" if slug else f"{view}-class-{digest}"

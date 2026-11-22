@@ -496,7 +496,7 @@ def test_a_class_names_its_standard_s_drawing_apart_from_its_layout(tmp_path, mo
 def test_a_device_with_no_channel_is_not_classed_with_one_whose_channels_play_no_role(tmp_path):
     """Two devices of one class and recipe, neither with a channel that plays a role:
     one has a channel, the other none. Their cards differ, so their classes do; the
-    key says ``channels: none`` only where it holds, so other keys stay as they were."""
+    key says ``own_channels: none`` only where it holds, so other keys stay as they were."""
 
     def one_channel(document: dict[str, Any]) -> None:
         document["channels"].append({"id": "XR02-BLOCK1:Note-X", "on": {"device": "XR02:BLOCK1"}})
@@ -509,7 +509,7 @@ def test_a_device_with_no_channel_is_not_classed_with_one_whose_channels_play_no
         )
         assert with_one[1]["roles"] == without[1]["roles"] == []
         assert with_one[0] != without[0]
-        assert "channels" not in with_one[1] and without[1]["channels"] == "none"
+        assert "own_channels" not in with_one[1] and without[1]["own_channels"] == "none"
 
 
 def test_a_long_class_name_loses_the_end_of_its_stem_not_what_tells_classes_apart():
@@ -518,12 +518,12 @@ def test_a_long_class_name_loses_the_end_of_its_stem_not_what_tells_classes_apar
     long = "a-device-class-whose-name-runs-well-past-the-slug-length-limit"
     key = {"view": "card", "device_class": long, "recipe": "default", "roles": []}
     plain = classes._class_id("card", long, key)
-    bare = classes._class_id("card", long, {**key, "channels": "none"})
+    bare = classes._class_id("card", long, {**key, "own_channels": "none"})
     slug = bare[len("card-class-") : -(classes._DIGEST + 1)]
-    assert slug.endswith("-no-channels") and len(slug) <= classes.SLUG_LENGTH
-    assert long.startswith(slug[: -len("-no-channels")])  # the stem is what was cut
+    assert slug.endswith("-no-own-channels") and len(slug) <= classes.SLUG_LENGTH
+    assert long.startswith(slug[: -len("-no-own-channels")])  # the stem is what was cut
     assert plain[len("card-class-") : -(classes._DIGEST + 1)] == long[: classes.SLUG_LENGTH].strip(
         "-"
     )
-    short = classes._class_id("card", "Valve-valve", {**key, "channels": "none"})
-    assert short.startswith("card-class-valve-valve-no-channels-")
+    short = classes._class_id("card", "Valve-valve", {**key, "own_channels": "none"})
+    assert short.startswith("card-class-valve-valve-no-own-channels-")
