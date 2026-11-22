@@ -1697,6 +1697,37 @@ def test_a_roll_up_s_summed_state_is_its_headline_and_what_it_does_not_sum_stand
         assert gap == layout.OUTSIDE_GAP
 
 
+def test_a_roll_up_row_that_fits_keeps_its_outside_tile_and_counts_on_its_heading(
+    panel_graph,
+) -> None:
+    """Width before height: tiles that fit one row at their content's width share
+    it, the tile outside the sum included, behind its wider gap; the counts are
+    one muted line on the heading's line, said once."""
+    from osprey.facility.panels.describe import health_rollup
+
+    view = health_rollup(panel_graph, "XR/XR01")
+    (root,) = view.sections[-1].items
+    doc, _ = draw(view, panel_graph)
+    tiles = [
+        n["geometry"] for n in nodes(doc)
+        if n["type"] in ("rectangle", "polygon")
+        and n["geometry"]["height"] == layout.ROLLUP_TILE_HEIGHT
+    ]  # fmt: skip
+    assert len({g["y"] for g in tiles}) == 1  # one row, nothing wraps alone
+    assert len({(g["x"], g["width"]) for g in tiles}) == len(root.children)
+    ruled = sum(not c.no_rule for c in root.children)
+    (head,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "BY PLACE"]
+    (counts,) = [
+        n for n in _by_type(doc, "text-label")
+        if n["props"]["text"].startswith(f"{ruled} with a health rule · ")
+    ]  # fmt: skip
+    middle = head["geometry"]["y"] + head["geometry"]["height"] / 2
+    assert counts["geometry"]["y"] + counts["geometry"]["height"] / 2 == pytest.approx(middle)
+    assert counts["props"]["foregroundColor"] == symbols.MUTED_TEXT
+    reads = counts["props"]["text"].split(" · ")[1]
+    assert not [n for n in _by_type(doc, "text-label") if n["props"]["text"] == reads]  # once
+
+
 def test_a_screen_shows_what_it_is_for_before_its_ways_to_other_screens(panel_graph) -> None:
     """On a set's screen the members come first; the sections of nothing but links
     (its group, its calibration views) follow, each in its own order."""

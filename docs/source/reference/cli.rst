@@ -1770,7 +1770,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the layout cut to fit. A screen shows what it is for first: sections of nothing
    but links follow the rest, key numbers with no data yet fold into one last
    line, and a roll-up's summed state is larger than what it sums, a child it
-   does not sum set apart in a dashed outline. The layout measures text in the
+   does not sum set apart in a dashed outline on the same row where all fit one
+   row at their content's width, its counts one muted line on the heading's
+   line. The layout measures text in the
    viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long

@@ -2103,19 +2103,30 @@ class _Page:
         self.y += PANEL_PAD
         width = ROLLUP_LEFT - COLUMN_GAP if beside is not None else STRIP_WIDTH
         self.x0, self.right = MARGIN, MARGIN + width
-        self.heading(f"by {self.view.id.by or 'place'}")
+        head_y = self.y
+        title = f"by {self.view.id.by or 'place'}"
+        self.heading(title)
         plan, decisions = self.plan(root)
-        self.rollup_root(root, plan)
+        if plan == "live":  # the counts once, muted, on the heading's line
+            ruled = sum(not c.no_rule for c in root.children)
+            count = len(root.channels)
+            counts = f"{ruled} with a health rule · " + _READS.format(
+                count, "" if count == 1 else "s"
+            )
+            after = self.x0 + caps_width(title.upper(), HEADING_SIZE) + WORD_GAP
+            self.small(after, head_y + (ROW - SMALL_LINE) / 2, counts, fg=MUTED_TEXT)
+        self.rollup_root(root, plan, counted=plan == "live")
         on_ring = {node.label for node in arcs.nodes} if arcs is not None else set()
         if arcs is not None:
             self.ring(root, arcs, decisions)
-        columns = max(1, int((width + GAP) // (ROLLUP_TILE_WIDTH + GAP)))
-        w = (width - (columns - 1) * GAP) / columns
         children = [(i, c) for i, c in enumerate(root.children) if c.label not in on_ring]
         # what the root's state does not sum (no rule) comes after what it does,
         # a wider gap between, and never looks like a member
         members = [(i, c) for i, c in children if not c.no_rule]
         outside = [(i, c) for i, c in children if c.no_rule]
+        w = _rollup_tile_width(
+            [c for _i, c in children], root.label, width, bool(members and outside)
+        )
         x: float = MARGIN
         y = self.y
         for k, (i, child) in enumerate([*members, *outside]):
@@ -2202,9 +2213,10 @@ class _Page:
         if node.link is not None:
             self.nav(left, top, RING_LABEL_WIDTH, 2 * ROW, replace(node.link, label=node.label))
 
-    def rollup_root(self, root: Node, plan: str | None) -> None:
+    def rollup_root(self, root: Node, plan: str | None, *, counted: bool = False) -> None:
         """The root's line: its light and what it reads, its parts, or that its summary
-        needs a server-side aggregate."""
+        needs a server-side aggregate. What it reads is left out where the heading
+        line already *counted* it."""
         count = len(root.channels)
         lights = [describe_light(self.graph, c) for c in root.channels]
         if plan == "summary":
@@ -2225,7 +2237,8 @@ class _Page:
             x = self.light(self.x0, self.y, lights, rule="aggregate state", size=size)
             note = _AGGREGATE_TEXT.format(count)
         x = self.text(x + GAP, self.y, root.label, size=HEADLINE_SIZE)
-        x = self.text(x + WORD_GAP, self.y, note, size=SMALL_SIZE, fg=MUTED_TEXT)
+        if not counted:
+            x = self.text(x + WORD_GAP, self.y, note, size=SMALL_SIZE, fg=MUTED_TEXT)
         height: float = ROW
         if plan == "parts":
             height = self.parts(chunks(self.graph, lights), x + GAP, self.x0 + INDENT)
@@ -6851,6 +6864,29 @@ def _block_label(block: ChainBlock) -> float:
     """The label column of a block's lines: its longest label, and the gap before it."""
     widths = [text_width(row.label, SMALL_SIZE) for row in block.rows]
     return max([BLOCK_LABEL_LEAST, *widths]) + GAP
+
+
+def _rollup_tile_width(children: Sequence[Node], parent: str, width: float, apart: bool) -> float:
+    """One width for a roll-up's tiles. Width before height: when every tile fits
+    one row at the width its content needs (its light and name, or its note),
+    with the wider gap before the tiles the state does not sum (*apart*), the
+    row is shared out evenly, in whole pixels; else as many columns of at least
+    :data:`ROLLUP_TILE_WIDTH` as fit."""
+    n = len(children)
+    extra = OUTSIDE_GAP - GAP if apart else 0
+    if n:
+        need = max(
+            2 * TILE_PAD
+            + max(
+                LIGHT_SIZE + GAP + text_width(c.label.removeprefix(parent + "/"), TEXT_SIZE),
+                text_width(_READS.format(len(c.channels), "s"), SMALL_SIZE),
+            )
+            for c in children
+        )
+        if n * need + (n - 1) * GAP + extra <= width:
+            return (width - extra - (n - 1) * GAP) // n  # whole: the gaps stay exact
+    columns = max(1, int((width + GAP) // (ROLLUP_TILE_WIDTH + GAP)))
+    return (width - (columns - 1) * GAP) / columns
 
 
 def _hover_box(g: Mapping[str, float], text: str) -> dict[str, Any]:
