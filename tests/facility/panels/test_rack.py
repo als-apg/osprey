@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from osprey.facility.panels import layout, symbols
 from osprey.facility.panels.describe import rack_elevation
 from tests.facility.panels._views import nodes, stub_render
@@ -79,13 +81,44 @@ def test_a_chassis_name_is_inside_its_bar_with_its_light_at_the_right_end(panel_
     assert lights[0]["x"] + lights[0]["width"] <= bar["x"] + bar["width"]
 
 
-def test_devices_not_at_a_unit_are_a_framed_list_below_the_rack(panel_graph) -> None:
+def test_everything_of_the_rack_stands_beside_it_live_first(panel_graph) -> None:
+    """The devices at no unit are listed beside the rack, not under it, above the
+    counts and sources, which are reference."""
     doc = _doc(panel_graph)
     texts = _texts(doc)
     heading, ch3 = texts["NOT AT A UNIT"]["geometry"], texts["XR01:CH3"]["geometry"]
+    right = layout.MARGIN + layout.RACK_COLUMN
+    assert heading["x"] >= right and ch3["x"] >= right  # beside the rack
+    assert ch3["y"] > heading["y"]
+    assert texts["BY CLASS"]["geometry"]["y"] > ch3["y"]  # state before inventory
     lowest = max(b["geometry"]["y"] + b["geometry"]["height"] for b in _bars(doc).values())
-    assert heading["y"] > lowest and ch3["y"] > heading["y"]
-    assert ch3["x"] < layout.MARGIN + layout.RACK_COLUMN  # below the rack, not beside
+    assert ch3["y"] < lowest  # nothing of the rack hangs under it
+
+
+def test_every_unit_is_numbered_and_a_free_one_is_a_slot(panel_graph) -> None:
+    """The units from the rack's floor to its highest stated one are numbered, those
+    a device is stated at in the page's text and the rest muted; a unit no device
+    takes is a faint slot; the rack's height, which nothing states, is said once."""
+    from osprey.facility.panels.view import Elevation
+
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
+    stated = {u.position for u in elevation.units}
+    doc = _doc(panel_graph)
+    labels = [n for n in nodes(doc) if n["type"] == "text-label"]
+    numbers = {n["props"]["text"]: n for n in labels if re.fullmatch(r"U\d+", n["props"]["text"])}
+    top = max(int(k[1:]) for k in numbers)
+    assert set(numbers) == {f"U{u}" for u in range(1, top + 1)}
+    for name, node in numbers.items():
+        bright = node["props"]["foregroundColor"] == layout.PAGE_TEXT
+        assert bright == (int(name[1:]) in stated), name
+    slots = [
+        n for n in nodes(doc)
+        if n["type"] == "rectangle" and n["props"].get("fill") is False
+        and n["geometry"]["height"] == layout.RACK_U - 2
+    ]  # fmt: skip
+    assert 0 < len(slots) < top
+    assert any(t.startswith("the rack's height is not stated") for t in _texts(doc))
 
 
 def test_the_right_column_counts_the_classes_and_names_the_sources(panel_graph) -> None:

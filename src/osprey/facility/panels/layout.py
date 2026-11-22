@@ -597,6 +597,7 @@ _SIDE_BY_SIDE_BAR = "{} devices side by side · listed under the rack"
 _BY_CLASS = "by class"
 _SOURCES = "sources"
 _RACK_COUNTS = "{} at a stated unit · {} not at a unit"
+_HEIGHT_NOT_STATED = "the rack's height is not stated: drawn to its highest stated unit, U{}"
 _UNITS_FROM = "{} · {} devices"
 _SET_READBACK = "each cell: readback of {}"
 _CAL_HEADS = ("parameter", "value in force", "basis", "date", "source", "history")
@@ -6369,7 +6370,21 @@ class _Page:
             rows * RACK_U + 2 * RACK_PAD,
             {"lineColor": PAGE_TEXT, "lineWidth": AXIS_WIDTH, "fill": False},
         )
-        labelled: set[int | None] = set()
+        stated = {unit.position for unit in elevation.units}
+        taken = {
+            u for unit in elevation.units for u in range(unit.position or 0, _unit_top(unit) + 1)
+        }
+        for u in range(lowest, height + 1):  # every unit numbered, a ruler; a free one a slot
+            y = rack_top + (height - u) * RACK_U
+            self.text(
+                MARGIN, y, f"U{u}", size=SMALL_SIZE, w=RACK_LABEL_WIDTH - GAP, h=RACK_U,
+                fg=PAGE_TEXT if u in stated else MUTED_TEXT,
+            )  # fmt: skip
+            if u not in taken:
+                self.s.widget(
+                    "rectangle", bars_x, y + 1, RACK_WIDTH, RACK_U - 2,
+                    {"lineColor": BOX_BORDER, "lineWidth": LINE_WIDTH, "fill": False},
+                )  # fmt: skip
         lanes = rack_lanes(elevation.units)
         # chassis too many side by side for their names: one bar over their units,
         # and each in a list under the rack with its own light
@@ -6380,13 +6395,6 @@ class _Page:
             x = bars_x + lane * w
             y = rack_top + (height - unit_top) * RACK_U
             h = (unit.size_u or 1) * RACK_U
-            if unit.position not in labelled:  # at the unit stated: the bar's lowest
-                labelled.add(unit.position)
-                label = f"U{unit.position}"
-                self.text(
-                    MARGIN, y + h - RACK_U, label, size=SMALL_SIZE, w=RACK_LABEL_WIDTH - GAP,
-                    h=RACK_U,
-                )  # fmt: skip
             if w < RACK_LANE_LEAST:
                 crowded.append(unit)
                 continue
@@ -6399,19 +6407,41 @@ class _Page:
                 spans[-1][2] += 1
             else:
                 spans.append([low, high, 1])
+        beside: list[tuple[float, list[RackUnit]]] = []
         for low, high, n in spans:
             y = rack_top + (height - high) * RACK_U
             h = (high - low + 1) * RACK_U
             self.box(bars_x, y, RACK_WIDTH, h, fill=FIELD_BACKGROUND, dashed=True)
             word = _cut(_SIDE_BY_SIDE_BAR.format(n), RACK_WIDTH - GAP, SMALL_SIZE)
             self.text(bars_x + GAP / 2, y, word, size=SMALL_SIZE, w=RACK_WIDTH - GAP, h=RACK_U, fg=MUTED_TEXT)  # fmt: skip
+            members = [u for u in crowded if low <= (u.position or 0) <= high]
+            beside.append((y, members))
         bottom = top + rows * RACK_U + 2 * RACK_PAD
-        self.rack_facts(elevation, top)
-        self.y = max(bottom, self.facts_bottom) + SECTION_GAP
-        if crowded:
-            self.not_at_a_unit(crowded, heading=_SIDE_BY_SIDE)
+        # everything of the rack beside it: those at a shared unit beside that unit,
+        # joined to it; those at no unit, live first; then the counts and sources
+        x0, right = self.x0, self.right
+        self.x0, self.right = MARGIN + RACK_COLUMN, MARGIN + STRIP_WIDTH
+        self.y = top
+        frame_right = frame_x + RACK_WIDTH + 2 * RACK_PAD
+        # those at no unit first, from the top, live first; then each group sharing a
+        # unit beside it, or as near under it as the column allows, joined to it
         if elevation.unpositioned:
-            self.not_at_a_unit(elevation.unpositioned)
+            self.rack_chips(_NOT_AT_A_UNIT, live_first(elevation.unpositioned), bottom)
+        for y, members in beside:
+            self.x0, self.right = MARGIN + RACK_COLUMN, MARGIN + STRIP_WIDTH
+            self.y = max(self.y, y)
+            mid, here = y + RACK_U / 2, self.y + ROW / 2
+            path = [(frame_right, mid), (self.x0 - GAP, mid)]
+            if here != mid:
+                path.append((self.x0 - GAP, here))
+            self.line(path, MUTED_TEXT)
+            self.rack_chips(_SIDE_BY_SIDE, members, bottom)
+        self.x0, self.right = x0, right
+        self.rack_facts(elevation, self.y, bottom)
+        if height:  # nothing in the facility states a rack's height yet
+            self.small(MARGIN, bottom + ROW_GAP, _HEIGHT_NOT_STATED.format(height), fg=MUTED_TEXT)
+            bottom += ROW_GAP + SMALL_LINE
+        self.y = max(bottom, self.facts_bottom) + SECTION_GAP
 
     def chassis(self, x: float, y: float, w: float, h: float, unit: RackUnit) -> None:
         """One bar: its name inside, the light at its right end, a link over it."""
@@ -6441,11 +6471,16 @@ class _Page:
         else:
             self.light(x, y, unit.lights, size=CHIP_LIGHT)
 
-    def rack_facts(self, elevation: Elevation, top: float) -> None:
-        """Right of the rack: the classes of its devices counted, how many stand at a
-        unit, and the documents the units come from."""
+    def rack_facts(self, elevation: Elevation, top: float, under: float) -> None:
+        """Reference, muted, after the lists: the classes of the rack's devices, each
+        count beside its name, how many stand at a unit, and the documents the units
+        come from. Beside the rack while it still stands there (*top* above
+        *under*), else across the page, the sources beside the classes."""
         x0, right = self.x0, self.right
-        self.x0, self.right = MARGIN + RACK_COLUMN, MARGIN + STRIP_WIDTH
+        across = top >= under
+        half = (STRIP_WIDTH - COLUMN_GAP) / 2
+        self.x0 = MARGIN if across else MARGIN + RACK_COLUMN
+        self.right = MARGIN + half if across else MARGIN + STRIP_WIDTH
         self.y = top
         every = [*elevation.units, *elevation.unpositioned]
         classes: Counter[str] = Counter()
@@ -6458,15 +6493,18 @@ class _Page:
         if classes:
             self.heading(_BY_CLASS)
             for cls, count in sorted(classes.items(), key=lambda kv: (-kv[1], kv[0])):
-                self.text(self.x0, self.y, cls, size=SMALL_SIZE, h=SMALL_LINE)
-                n = str(count)
-                w = text_width(n, SMALL_SIZE)
-                self.text(self.right - w, self.y, n, size=SMALL_SIZE, w=w, h=SMALL_LINE)
+                x = self.text(self.x0, self.y, cls, size=SMALL_SIZE, h=SMALL_LINE)
+                self.text(
+                    x + WORD_GAP, self.y, str(count), size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT
+                )
                 self.y += SMALL_LINE
             self.y += ROW_GAP
         counts = _RACK_COUNTS.format(len(elevation.units), len(elevation.unpositioned))
         self.text(self.x0, self.y, counts, size=SMALL_SIZE, fg=MUTED_TEXT)
         self.next_row()
+        left_bottom = self.y
+        if across:  # the sources in the right half, from the top
+            self.x0, self.right, self.y = MARGIN + half + COLUMN_GAP, MARGIN + STRIP_WIDTH, top
         documents: Counter[str] = Counter()
         for unit in every:  # a document per unit once, however many of its rows say it
             documents.update(
@@ -6487,45 +6525,44 @@ class _Page:
                 more = _MORE_ROWS.format(len(ranked) - RACK_SOURCES)
                 self.text(self.x0, self.y, more, size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
-        self.facts_bottom = self.y
+        self.facts_bottom = max(self.y, left_bottom)
         self.x0, self.right = x0, right
 
-    def not_at_a_unit(self, entries: Sequence[RackUnit], heading: str = _NOT_AT_A_UNIT) -> None:
-        """The devices in the rack with no unit (or, under another *heading*, those too
-        many side by side for their names): a framed list of chips, each with its
-        light and the unit a claim gives, under the rack."""
-        first = len(self.s.nodes)
-        top = self.y
-        self.y += PANEL_PAD
+    def rack_chips(self, heading: str, entries: Sequence[RackUnit], under: float) -> None:
+        """Beside the rack, in the column from :attr:`x0` to :attr:`right`: a muted
+        heading, then a chip per device with its light and the unit a claim gives,
+        wrapping within the column; a line that starts past the rack's bottom
+        (*under*) takes the page's width, so a long list flows round the rack
+        instead of running down a narrow column."""
         self.heading(heading)
-        x: float = MARGIN
+        x: float = self.x0
         for unit in entries:
             name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
             label = f"{name} · unit {unit.unit_text}" if unit.unit_text else name
             if unit.position is not None:
                 label = f"{name} · U{unit.position}"
             mark = _mark_room(unit)
+            room = self.right - self.x0
+            label = _cut(label, room - CHIP_LIGHT - 2 * GAP - mark, SMALL_SIZE)
             w = text_width(label, SMALL_SIZE) + CHIP_LIGHT + 2 * GAP + mark
-            if x > MARGIN and x + w > MARGIN + STRIP_WIDTH:
-                x = MARGIN
+            if x > self.x0 and x + w > self.right:
                 self.y += CHIP_HEIGHT + CHIP_GAP
+                if self.y >= under:  # past the rack: the full width
+                    self.x0, self.right = MARGIN, MARGIN + STRIP_WIDTH
+                x = self.x0
             self.box(x, self.y, w, CHIP_HEIGHT, fill=FIELD_BACKGROUND)
             self.unit_light(x + GAP / 2, self.y + (CHIP_HEIGHT - ROW) / 2, unit)
             self.text(x + CHIP_LIGHT + GAP + mark, self.y, label, size=SMALL_SIZE, h=CHIP_HEIGHT)
             if isinstance(unit.link, Link):
                 self.nav(x, self.y, w, CHIP_HEIGHT, unit.link)
             x += w + CHIP_GAP
-        self.y += CHIP_HEIGHT + PANEL_PAD
-        self.s.widget(
-            "rectangle",
-            MARGIN - PANEL_PAD / 2,
-            top,
-            STRIP_WIDTH + PANEL_PAD,
-            self.y - top,
-            {"lineColor": BOX_BORDER, "lineWidth": LINE_WIDTH, "fill": False},
-        )
-        self.s.nodes.insert(first, self.s.nodes.pop())
-        self.y += GAP
+        self.y += CHIP_HEIGHT + GAP
+
+
+def live_first(units: Sequence[RackUnit]) -> list[RackUnit]:
+    """*units* with those that carry a light first, each part in its own order:
+    a state comes before an inventory."""
+    return [u for u in units if u.lights] + [u for u in units if not u.lights]
 
 
 def rack_lanes(units: Sequence[RackUnit]) -> list[tuple[int, int]]:
