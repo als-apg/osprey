@@ -9,12 +9,15 @@ trigger see only the stored beam, and injected turn 1 sits at index
 
 The sum is the injected charge times its alive share times the sum per unit
 charge, plus, while the RF is on, the stored current times the sum per unit
-stored current; it never falls below the floor. Positions are the sum-weighted
-mix of the stored beam, which sits at zero, and the injected bunch, plus
-position noise. Where the beam sum is at or below the floor there is no beam
-to read: the positions are floor noise, much larger than a beam signal. With
-the pilot tone on, a spike lands on every sample whose index is a multiple of
-the tone's period, in all three arrays.
+stored current; it never falls below the floor. The beam position is the
+sum-weighted mix of the stored beam, which sits at zero, and the injected
+bunch, plus position noise. The monitor's own read-out faults -- the ones its
+orbit reading carries, handed in as one function of the (x, y) pair -- then
+act on that position, as they act on an orbit reading. Where the beam sum is
+at or below the floor there is no beam to read: the positions are floor
+noise, much larger than a beam signal, and no fault shows. With the pilot
+tone on, a spike lands on every sample whose index is a multiple of the
+tone's period, in all three arrays.
 
 Every random number is a ``keyed_normals`` draw keyed on the array's record
 address, the shot's value and the sample index, never on Python's ``hash``
@@ -24,25 +27,31 @@ takes plain numbers and arrays; nothing reads a model or a lattice.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 __all__ = [
+    "FAULT_NOISE_SUBKEY",
     "NOISE_SUBKEY",
     "TONE_SPIKE_M",
     "TONE_SUBKEY",
     "TurnReadout",
+    "beam_position",
     "beam_sum",
+    "floor_and_tone",
     "monitor_turn_arrays",
     "sample_draws",
-    "turn_positions",
     "turn_sum",
 ]
 
 #: The subkey of an array's noise stream, between the address and the shot.
 NOISE_SUBKEY = b":turn_noise:"
+
+#: The subkey of the stream a monitor's noise fault reads on a position array.
+FAULT_NOISE_SUBKEY = b":readout_noise:"
 
 #: The subkey of an array's tone spikes, between the address and the shot.
 TONE_SUBKEY = b":tone:"
@@ -167,7 +176,7 @@ def turn_sum(
     return reading
 
 
-def turn_positions(
+def beam_position(
     centroid: Any,
     injected: np.ndarray,
     stored: np.ndarray,
@@ -175,15 +184,13 @@ def turn_positions(
     trigger_sample: int,
     address: str,
     shot: int,
-    tone_on: bool,
     readout: TurnReadout,
-) -> np.ndarray:
-    """One axis's position array.
+) -> tuple[np.ndarray, np.ndarray]:
+    """One axis's beam position as the monitor's pick-up sees it, and where it sees beam.
 
     Where the beam sum exceeds the floor, the position is the sum-weighted
     mix of the stored beam at zero and the injected centroid, plus position
-    noise; elsewhere it is floor noise. Both noises read one stream of the
-    address. With the tone on, its spikes are added on top.
+    noise; elsewhere it is zero.
 
     Args:
         centroid: The injected survivors' centroid, one per turn; NaN where
@@ -193,11 +200,11 @@ def turn_positions(
         trigger_sample: The samples before injected turn 1.
         address: The position record's address, which keys its noise.
         shot: The shot's value.
-        tone_on: Whether the pilot tone is on.
         readout: The calibration.
 
     Returns:
-        A float64 array the length of ``injected``, with no NaN.
+        ``(position, beam)``: a float64 array the length of ``injected``
+        with no NaN, and the samples whose beam sum exceeds the floor.
     """
     samples = injected.shape[0]
     centre = np.concatenate([np.zeros(trigger_sample), np.asarray(centroid, dtype=np.float64)])
@@ -208,10 +215,43 @@ def turn_positions(
     safe_total = np.where(total > 0.0, total, 1.0)
     mixed = weight * np.where(seen, centre, 0.0) / safe_total
     position = np.where(beam, mixed, 0.0)
-    if readout.position_noise != 0.0 or readout.floor_noise != 0.0:
+    if readout.position_noise != 0.0:
         draws = sample_draws(address, NOISE_SUBKEY, shot, samples)
-        sigma = np.where(beam, readout.position_noise, readout.floor_noise)
-        position = position + sigma * draws
+        position = position + np.where(beam, readout.position_noise, 0.0) * draws
+    return np.asarray(position, dtype=np.float64), beam
+
+
+def floor_and_tone(
+    position: np.ndarray,
+    beam: np.ndarray,
+    *,
+    address: str,
+    shot: int,
+    tone_on: bool,
+    readout: TurnReadout,
+) -> np.ndarray:
+    """One axis's position array from what the monitor read of the beam.
+
+    Where no beam is seen the sample is floor noise, whatever ``position``
+    holds there; the floor noise reads the stream of the address the position
+    noise reads. With the tone on, its spikes are added on top.
+
+    Args:
+        position: The monitor's reading of the beam position, per sample.
+        beam: The samples whose beam sum exceeds the floor.
+        address: The position record's address, which keys its noise.
+        shot: The shot's value.
+        tone_on: Whether the pilot tone is on.
+        readout: The calibration.
+
+    Returns:
+        A float64 array the length of ``position``.
+    """
+    samples = position.shape[0]
+    floor = np.zeros(samples, dtype=np.float64)
+    if readout.floor_noise != 0.0:
+        floor = readout.floor_noise * sample_draws(address, NOISE_SUBKEY, shot, samples)
+    position = np.where(beam, position, floor)
     if tone_on and readout.tone_amplitude != 0.0:
         spikes = (
             readout.tone_amplitude
@@ -235,6 +275,7 @@ def monitor_turn_arrays(
     addresses: tuple[str, str, str],
     shot: int,
     readout: TurnReadout,
+    faults: Callable[[np.ndarray, np.ndarray], tuple[Any, Any]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One monitor's ``x``, ``y`` and ``sum`` arrays for one shot.
 
@@ -251,6 +292,9 @@ def monitor_turn_arrays(
             each array's noise.
         shot: The shot's value, which keys every array's noise.
         readout: The calibration and electronics.
+        faults: The monitor's own read-out faults: called once with the two
+            beam-position arrays, in metres, it returns what the monitor
+            reads of them. ``None`` is a perfect monitor.
 
     Returns:
         ``(x, y, sum)``, float64 arrays of ``trigger_sample + turns`` samples, no NaN.
@@ -279,18 +323,30 @@ def monitor_turn_arrays(
         rf_on=rf_on,
         readout=readout,
     )
-    x, y = (
-        turn_positions(
+    (x, beam_x), (y, beam_y) = (
+        beam_position(
             centroid,
             injected,
             stored,
             trigger_sample=trigger_sample,
             address=address,
             shot=shot,
-            tone_on=tone_on,
             readout=readout,
         )
         for centroid, address in ((centroid_x, address_x), (centroid_y, address_y))
+    )
+    if faults is not None:
+        x, y = faults(x, y)
+    x, y = (
+        floor_and_tone(
+            np.asarray(position, dtype=np.float64),
+            beam,
+            address=address,
+            shot=shot,
+            tone_on=tone_on,
+            readout=readout,
+        )
+        for position, beam, address in ((x, beam_x, address_x), (y, beam_y, address_y))
     )
     total = turn_sum(
         injected + stored, address=address_sum, shot=shot, tone_on=tone_on, readout=readout
