@@ -1658,12 +1658,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    lamps; the highest's or the lowest's line under the figure names the
    member that holds it ("highest of N · <name>", the first such member, its
    name short of the device's id), from one label per member parked off the
-   page and moved into the line by a rule while its member holds the extreme,
-   so a page whose channels have not answered shows none, up to 32 members, past which it says "highest of N" and ``check``
-   names the tile; the figure's tooltip names what it is over, member by
-   member; while any member has no value the figure is
-   a dash and the line says "one of N has no value", or each lamp shows its
-   dashed outline), its relations as
+   page and moved into the line by a rule while its member holds the extreme
+   among the members with a value (a tie goes to the first), so a page whose
+   channels have not answered shows none, up to 32 members, past which it says
+   "highest of N" and ``check`` names the tile; the figure's tooltip names what
+   it is over, member by member; while any member has no value the figure is a
+   dash and the line says "one of N has no value", beside the holder's name
+   where the tile names one, or each lamp shows its dashed outline), its relations as
    a chain of blocks (the device's own block showing only roles one channel of
    it plays: a role played per connector or member is not rows there), its
    drawings (a drawing none of whose parts has a place is a compact row of

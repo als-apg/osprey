@@ -2685,9 +2685,14 @@ class _Page:
             "backgroundColor": TRANSPARENT,
             "align": "left",
         }
-        self.s.widget("text-label", x, below, w, SMALL_LINE, note, rules=[missing])
-        if tile.names:
-            self.holder_lines(x, below, w, tile)
+        if tile.names:  # the holder on the left, the note at the right beside it
+            note_w = text_width(_A_MEMBER_MISSING.format(len(members)), SMALL_SIZE)
+            self.s.widget(
+                "text-label", x + w - note_w, below, note_w, SMALL_LINE, note, rules=[missing]
+            )
+            self.holder_lines(x, below, w, tile, w - note_w - GAP)
+        else:
+            self.s.widget("text-label", x, below, w, SMALL_LINE, note, rules=[missing])
 
     def lamp_row(self, x: float, y: float, w: float, tile: KeyTile) -> bool:
         """A count's slot: one small lamp per member, in order, each with the
@@ -2740,35 +2745,48 @@ class _Page:
 
         self.s.add(shape, rules=[rule(p) for p in symbols.LIGHT_PROPS], tags=[_need("state light")])
 
-    def holder_lines(self, x: float, y: float, w: float, tile: KeyTile) -> None:
+    def holder_lines(self, x: float, y: float, w: float, tile: KeyTile, short_w: float) -> None:
         """Under a largest or smallest figure, the member that holds it: one line
         per member, each parked at :data:`AWAY` and moved into the slot by an
-        ``x`` rule while its member is the first that holds the extreme
-        (:func:`holder_condition`). So one shows at a time, none while any member
-        has no value (the extreme is then no number), and none before the
-        channels answer, when the viewer applies no rule. Left out when the
-        screen's rules do not fit."""
+        ``x`` rule while its member is the first that holds the extreme among the
+        members with a value (:func:`holder_condition`). So one shows at a time,
+        a member with no value never removes it, and none shows before the
+        channels answer, when the viewer applies no rule. While a member has no
+        value the line says the name alone, in *short_w*, and the note beside it
+        says one has no value. Left out when the screen's rules do not fit."""
         members = tile.channels
-        lines: list[tuple[str, str]] = []
+        n = len(members)
+        every = " and ".join(f"{{{j}}} == {{{j}}}" for j in range(n))
+        lines: list[tuple[str, str, str]] = []
         for k, short in enumerate(tile.names):
-            test = holder_condition(tile.shown_as, k, len(members))
-            if len(test) > RULE_EXPRESSION_LIMIT:
+            test = holder_condition(tile.shown_as, k, n)
+            if max(len(test), len(every)) > RULE_EXPRESSION_LIMIT:
                 return
-            words = _HOLDS[tile.shown_as].format(len(members)) + f" · {short}"
-            lines.append((test, _cut(words, w, SMALL_SIZE)))
-        if not self.budget.take([(len(lines), frozenset(members))]):
+            words = _HOLDS[tile.shown_as].format(n) + f" · {short}"
+            lines.append((test, _cut(words, w, SMALL_SIZE), _cut(short, short_w, SMALL_SIZE)))
+        if not self.budget.take([(2 * len(lines), frozenset(members))]):
             return
         pvs = [{"name": m, "trigger": True} for m in members]
-        for k, (test, text) in enumerate(lines):
-            self.s._rules += 1
-            rule = {
-                "id": f"r-{self.s._rules:04d}",
-                "name": f"{tile.title} held by {members[k]}",
-                "targetProperty": "x",  # geometry: every widget type honours it
-                "pvs": pvs,
-                "conditions": [{"expression": test, "value": _pixel(x)}],  # where add puts it
-                "default": AWAY,
-            }
+        for k, (test, text, alone) in enumerate(lines):
+            self.s._rules += 2
+            rules = [
+                {
+                    "id": f"r-{self.s._rules - 1:04d}",
+                    "name": f"{tile.title} held by {members[k]}",
+                    "targetProperty": "x",  # geometry: every widget type honours it
+                    "pvs": pvs,
+                    "conditions": [{"expression": test, "value": _pixel(x)}],
+                    "default": AWAY,
+                },
+                {
+                    "id": f"r-{self.s._rules:04d}",
+                    "name": f"{tile.title} held by {members[k]}, every member reporting",
+                    "targetProperty": "text",
+                    "pvs": pvs,
+                    "conditions": [{"expression": every, "value": text}],
+                    "default": alone,
+                },
+            ]
             props = {
                 "text": text,
                 "fontSize": SMALL_SIZE,
@@ -2776,7 +2794,7 @@ class _Page:
                 "backgroundColor": TRANSPARENT,
                 "align": "left",
             }
-            self.s.widget("text-label", AWAY, y, w, SMALL_LINE, props, rules=[rule])
+            self.s.widget("text-label", AWAY, y, w, SMALL_LINE, props, rules=rules)
 
     def shown_value(
         self,
@@ -7402,18 +7420,20 @@ def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
 
 def holder_condition(measure: str, k: int, n: int) -> str:
     """The condition under which member *k* of *n* is the first that holds the
-    extreme *measure* (``max`` or ``min``) of rule pvs ``{0}`` .. ``{n-1}``: it
-    equals the extreme, and it is strictly beyond every member before it. Of two
-    members *j* < *k* both holding it, *k* would be beyond *j*, which equals the
-    extreme: so at most one condition holds, and none while a member has no value
-    (the formula engine's reduction is then no number)."""
-    beyond = ">" if measure == "max" else "<"
-    every = ", ".join(f"{{{i}}}" for i in range(n))
-    test = f"{{{k}}} == {measure}(({every},))"
-    if k:
-        before = ", ".join(f"{{{i}}}" for i in range(k))
-        test += f" and {{{k}}} {beyond} {measure}(({before},))"
-    return test
+    extreme *measure* (``max`` or ``min``) of rule pvs ``{0}`` .. ``{n-1}`` among
+    the members that have a value: it has a value, no member before it is as far
+    or farther, and none after it is farther; a member with no value (``{j} !=
+    {j}``) is passed over. Of two members both holding it the first wins (the
+    tie rule), so at most one condition holds, and exactly one while any member
+    has a value."""
+    first, rest = (">=", ">") if measure == "max" else ("<=", "<")
+    terms = [f"{{{k}}} == {{{k}}}"]
+    for j in range(n):
+        if j == k:
+            continue
+        beaten = first if j < k else rest  # an earlier member wins a tie
+        terms.append(f"not ({{{j}}} {beaten} {{{k}}})")
+    return " and ".join(terms)
 
 
 def _over_all_tooltip(tile: KeyTile) -> str:

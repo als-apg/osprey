@@ -244,17 +244,18 @@ def test_hidden_labels_sharing_a_box_are_shown_one_at_a_time(screens, panel_grap
         held: tuple[str, ...] | None = None
         seen = set()
         for node in group:
-            (rule,) = node["rules"]
+            (rule,) = [r for r in node["rules"] if r["targetProperty"] == "x"]
             (condition,) = rule["conditions"]
             pvs = tuple(pv["name"] for pv in rule["pvs"])
             test = condition["expression"]
-            match = re.match(r"\{(\d+)\} == (max|min)\(", test)
+            match = re.match(r"\{(\d+)\} == \{\1\}", test)
             k = int(match.group(1)) if match else -1
+            forms = {layout.holder_condition(m, k, len(pvs)) for m in ("max", "min")}
             proved = (
                 match is not None
                 and rule["targetProperty"] == "x"
                 and rule["default"] == layout.AWAY
-                and test == layout.holder_condition(match.group(2), k, len(pvs))
+                and test in forms
                 and (held is None or pvs == held)
                 and k not in seen
             )

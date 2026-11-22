@@ -438,7 +438,8 @@ def test_a_count_reads_k_of_n_on_the_figure_s_baseline_and_the_line_keeps_a_marg
     h = highest["geometry"]
     (note,) = [
         n for n in _by_type(doc, "text-label")
-        if n["props"]["text"] == "one of 3 has no value" and n["geometry"]["x"] == h["x"]
+        if n["props"]["text"] == "one of 3 has no value"
+        and h["x"] < n["geometry"]["x"] < h["x"] + h["width"]  # at the slot's right
     ]  # fmt: skip
     tile = next(
         n for n in _by_type(doc, "rectangle")
@@ -490,16 +491,24 @@ def _hidden(node: dict) -> bool:
 
 
 def _shown(lines: list[dict], values: list[float]) -> list[str]:
-    """The texts of the parked *lines* whose rule moves them in for *values*."""
-    return [
-        line["props"]["text"]
-        for line in lines
-        for rule in line["rules"]
-        if rule["targetProperty"] == "x" and _holds(rule["conditions"][0]["expression"], values)
-    ]
+    """The texts of the parked *lines* whose rule moves them in for *values*, as
+    their text rule sets them."""
+    shown = []
+    for line in lines:
+        rules = {r["targetProperty"]: r for r in line["rules"]}
+        if not _holds(rules["x"]["conditions"][0]["expression"], values):
+            continue
+        said = rules.get("text")
+        if said is None:
+            shown.append(line["props"]["text"])
+        else:
+            held = [c["value"] for c in said["conditions"] if _holds(c["expression"], values)]
+            shown.append(held[0] if held else said["default"])
+    return shown
 
 
 def test_the_highest_s_line_names_the_first_member_that_holds_it(tmp_path):
+    nan = float("nan")
     graph, view = _over_all_card(tmp_path)
     doc = stub_render(view, graph)
     _count, highest = _figures(doc)
@@ -507,7 +516,9 @@ def test_the_highest_s_line_names_the_first_member_that_holds_it(tmp_path):
     assert len(lines) == 3  # one per member, in the one slot of the line, all hidden
     assert _shown(lines, [1.0, 5.0, 2.0]) == ["highest of 3 · Out2Cur-RB"]
     assert _shown(lines, [7.0, 7.0, 2.0]) == ["highest of 3 · Out1Cur-RB"]  # a tie: the first
-    assert _shown(lines, [1.0, float("nan"), 2.0]) == []  # no value: the note says so
+    # a member with no value is passed over: the highest of those with one
+    assert _shown(lines, [1.0, float("nan"), 2.0]) == ["Out3Cur-RB"]  # the note beside it
+    assert _shown(lines, [nan, nan, nan]) == []  # none has a value: no holder
     # what the figure is over is its tooltip, member by member
     tooltip = highest["props"]["tooltip"].splitlines()
     assert tooltip == ["max over 3 channels", "Out1Cur-RB", "Out2Cur-RB", "Out3Cur-RB"]
@@ -3020,3 +3031,21 @@ def test_a_device_with_two_own_channels_of_a_role_gets_one_figure_over_both(tmp_
     assert over.title == "Highest pressure"  # the role's word, after the generic word
     assert over.names == ("Pressure-RB", "Pressure2-RB")  # each short of the device's id
     assert ("State", "XR01-IP1:State-Sts") in _default_tiles(graph, "XR01:IP1")
+
+
+@pytest.mark.parametrize("measure", ["max", "min"])
+@pytest.mark.parametrize("left_out", [0, 12, 24])  # the first, a middle and the last member
+def test_a_member_with_no_value_never_removes_the_holder_line(measure, left_out):
+    """Of 25 members with distinct values, one without a value: exactly one line
+    holds, and it names the extreme among the others; ties go to the first."""
+    n = 25
+    values = [float((7 * i) % n) for i in range(n)]  # distinct, in no order
+    values[left_out] = float("nan")
+    tests = [layout.holder_condition(measure, k, n) for k in range(n)]
+    held = [k for k, test in enumerate(tests) if _holds(test, values)]
+    known = [v for v in values if v == v]
+    want = max(known) if measure == "max" else min(known)
+    assert held == [values.index(want)]
+    tied = [3.0] * n
+    tied[left_out] = float("nan")
+    assert [k for k, test in enumerate(tests) if _holds(test, tied)] == [0 if left_out else 1]
