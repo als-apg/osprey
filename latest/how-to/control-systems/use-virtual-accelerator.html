@@ -1578,7 +1578,19 @@ the shot’s charge times the share of the bunch still alive times
 shot times <code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code>, plus noise, floored at <code class="docutils literal notranslate"><span class="pre">sum_floor</span></code>. Positions
 are the sum-weighted mix of the stored beam, at zero, and the bunch’s
 centroid, plus <code class="docutils literal notranslate"><span class="pre">position_noise</span></code>; where the sum is at the floor they are
-<code class="docutils literal notranslate"><span class="pre">floor_noise</span></code>. With the pilot tone on, every sample whose index is a
+<code class="docutils literal notranslate"><span class="pre">floor_noise</span></code>.</p>
+<p>A monitor reads that position through its own read-out faults: the
+<code class="docutils literal notranslate"><span class="pre">offset</span></code>, <code class="docutils literal notranslate"><span class="pre">gain</span></code>, <code class="docutils literal notranslate"><span class="pre">polarity</span></code>, <code class="docutils literal notranslate"><span class="pre">noise</span></code> and <code class="docutils literal notranslate"><span class="pre">roll</span></code> a scenario states
+on the monitor’s orbit reading (<code class="docutils literal notranslate"><span class="pre">&lt;orbit</span> <span class="pre">address&gt;/offset</span></code> and so on) act on
+its <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> and <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> arrays too, in the orbit reading’s order: the
+roll turns the (x, y) pair, then the offset is subtracted, the polarity
+applied, the noise added and the gain multiplied in. A fault is stated once,
+in the unit the orbit reading publishes, and is converted to the arrays’
+metres through that reading’s calibration; a monitor with no orbit reading
+wired has no fault to state. The sum carries no fault, and a sample with no
+beam reads <code class="docutils literal notranslate"><span class="pre">floor_noise</span></code> alone. The model’s trajectory response, below, is
+the deck’s and shows no read-out fault, as its orbit response shows none.</p>
+<p>With the pilot tone on, every sample whose index is a
 multiple of <code class="docutils literal notranslate"><span class="pre">tone_period</span></code> carries a spike in all three arrays. The noise is
 keyed on the record’s address, the shot and the sample, so a shot reads the
 same in every run.</p>

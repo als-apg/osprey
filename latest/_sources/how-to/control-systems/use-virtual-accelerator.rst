@@ -1011,7 +1011,21 @@ the shot's charge times the share of the bunch still alive times
 shot times ``sum_per_stored``, plus noise, floored at ``sum_floor``. Positions
 are the sum-weighted mix of the stored beam, at zero, and the bunch's
 centroid, plus ``position_noise``; where the sum is at the floor they are
-``floor_noise``. With the pilot tone on, every sample whose index is a
+``floor_noise``.
+
+A monitor reads that position through its own read-out faults: the
+``offset``, ``gain``, ``polarity``, ``noise`` and ``roll`` a scenario states
+on the monitor's orbit reading (``<orbit address>/offset`` and so on) act on
+its ``turn_x`` and ``turn_y`` arrays too, in the orbit reading's order: the
+roll turns the (x, y) pair, then the offset is subtracted, the polarity
+applied, the noise added and the gain multiplied in. A fault is stated once,
+in the unit the orbit reading publishes, and is converted to the arrays'
+metres through that reading's calibration; a monitor with no orbit reading
+wired has no fault to state. The sum carries no fault, and a sample with no
+beam reads ``floor_noise`` alone. The model's trajectory response, below, is
+the deck's and shows no read-out fault, as its orbit response shows none.
+
+With the pilot tone on, every sample whose index is a
 multiple of ``tone_period`` carries a spike in all three arrays. The noise is
 keyed on the record's address, the shot and the sample, so a shot reads the
 same in every run.

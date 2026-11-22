@@ -857,7 +857,14 @@ on <code class="docutils literal notranslate"><span class="pre">Frequency</span>
 (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-rf-setpoints"><span class="std std-ref">RF setpoints</span></a>). A monitor’s
 roll turns the beam position in the deck’s unit, before the monitor’s
 conversion to the unit it publishes, and its offset, gain, noise and polarity
-then act on the published reading.</p>
+then act on the published reading: the offset is subtracted, the polarity
+applied, the noise added and the gain multiplied in, in that order.</p>
+<p>A monitor’s faults are the monitor’s, not one record’s. On a turn-by-turn
+ring (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>) the faults stated on a monitor’s orbit reading
+act on its <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> and <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> arrays through the same chain in the
+same order, sample by sample, so an offset stated once shifts the orbit
+reading and every turn alike. The <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">noise</span></code> values stay in the
+unit the orbit reading publishes; the arrays show them in metres.</p>
 <p>Four read-only arrays sit beside them: <code class="docutils literal notranslate"><span class="pre">tunes</span></code>, <code class="docutils literal notranslate"><span class="pre">chromaticity</span></code>,
 <code class="docutils literal notranslate"><span class="pre">beta_at_monitors</span></code> and <code class="docutils literal notranslate"><span class="pre">orbit_at_monitors</span></code>, the last two one row per
 monitor element in lattice order. A <code class="docutils literal notranslate"><span class="pre">single_pass</span></code> model has no tunes, so it
