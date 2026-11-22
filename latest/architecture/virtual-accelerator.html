@@ -931,6 +931,10 @@ driven at a frequency higher by <code class="docutils literal notranslate"><span
 energy whose path has the design length, and the RF frequency that centres
 the beam is lower than the design one by that much. A <code class="docutils literal notranslate"><span class="pre">single_pass</span></code> model
 declares no such fault.</p>
+<p>Radiation is not a fault but a statement about the deck: <code class="docutils literal notranslate"><span class="pre">pyat.radiation:</span>
+<span class="pre">true</span></code> in a model’s settings gives the magnets of the model’s copy their
+radiating pass methods before any error is seeded, for the build and for the
+response matrix alike (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-radiation"><span class="std std-ref">A radiating ring</span></a>).</p>
 <p>A readout fault never moves the orbit; it changes what a monitor reports.
 <code class="docutils literal notranslate"><span class="pre">diff</span></code> is where it becomes visible, as a served reading that has parted from
 the composite’s own value.</p>

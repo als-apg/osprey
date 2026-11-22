@@ -1099,6 +1099,47 @@ commanded.</p>
 </pre></div>
 </div>
 </section>
+<section id="a-radiating-ring">
+<span id="va-radiation"></span><h3>A radiating ring<a class="headerlink" href="#a-radiating-ring" title="Link to this heading">#</a></h3>
+<p>A pyAT deck radiates through the pass methods of its elements. A deck that
+states radiating pass methods is tracked as written. For a deck that does
+not, the model’s <code class="docutils literal notranslate"><span class="pre">pyat</span></code> settings can switch radiation on:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">radiation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>With <code class="docutils literal notranslate"><span class="pre">radiation:</span> <span class="pre">true</span></code> every bend, quadrupole, sextupole, octupole,
+multipole and wiggler of the model’s copy of the deck gets its radiating
+pass method. The cavities and the deck file stay as they are. The key is a
+<code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">false</span></code>; absent or <code class="docutils literal notranslate"><span class="pre">false</span></code> leaves the deck’s own pass methods,
+so it does not strip a deck that already radiates. A <code class="docutils literal notranslate"><span class="pre">single_pass</span></code> model
+refuses <code class="docutils literal notranslate"><span class="pre">true</span></code>.</p>
+<p>What changes:</p>
+<ul class="simple">
+<li><p>The beam loses energy in every magnet and the cavity makes it up. The
+closed orbit is the six-dimensional one at the synchronous phase, where
+the cavity returns the energy lost per turn, and it carries the small
+horizontal sawtooth of an energy that falls between cavities.</p></li>
+<li><p>The orbit readings, the optics and the response matrix are those of the
+radiating ring. Tracked motion is damped. The radiation is the mean energy
+loss, without quantum excitation: a tracked bunch does not grow to an
+equilibrium size.</p></li>
+<li><p>A voltage below the energy loss per turn leaves no closed orbit. A ring
+refuses the write that takes it there and keeps its last value; a
+turn-by-turn ring (<a class="reference internal" href="#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>) accepts it and its orbit
+readings read NaN.</p></li>
+<li><p>With the RF off on a turn-by-turn ring, a tracked bunch loses the energy
+loss per turn every turn. It moves inwards by the dispersion times the
+relative energy lost, and it is lost where that reaches a declared
+aperture.</p></li>
+<li><p>A closed-orbit solve costs several times that of the same deck without
+radiation; tracking a shot costs about the same.</p></li>
+</ul>
+</section>
 <section id="an-injection-chain">
 <span id="va-injection-chain"></span><h3>An injection chain<a class="headerlink" href="#an-injection-chain" title="Link to this heading">#</a></h3>
 <p>A lattice answers a corrector write, but nothing in it injects. Software that
@@ -1459,7 +1500,8 @@ serving.</p></li>
 <li><p>With the RF off the ring has no closed orbit: its orbit readings read NaN
 and its settings stay writable. The stored beam adds nothing to the sum, so
 the samples before the trigger read the floor, and a bunch with declared
-apertures is lost within some hundred turns.</p></li>
+apertures is lost within some hundred turns. On a radiating ring
+(<a class="reference internal" href="#va-radiation"><span class="std std-ref">A radiating ring</span></a>) it also loses energy every turn.</p></li>
 </ul>
 <p><strong>Cost.</strong> Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
@@ -1890,6 +1932,7 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-pyat-lattice">A pyAT lattice</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rf-setpoints">RF setpoints</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-radiating-ring">A radiating ring</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#an-injection-chain">An injection chain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-by-turn-data-from-an-injection-chain">Turn-by-turn data from an injection chain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>
