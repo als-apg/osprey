@@ -164,6 +164,31 @@ def test_a_hover_label_is_one_line(screens):
     assert broken == []
 
 
+def test_no_hover_label_is_longer_than_its_bound(screens):
+    """A hover label is drawn as one line over what stands beside its box: on
+    every screen it holds at most :data:`HOVER_LABEL_MOST` characters, and on a
+    link it is the link's own label, which opens its tooltip."""
+    long, other = [], []
+    for name, doc in screens.items():
+        for node in _nodes(doc["root"]):
+            said = str(node["props"].get("hoverLabel", ""))
+            if len(said) > layout.HOVER_LABEL_MOST:
+                long.append((name, said))
+            tip = str(node["props"].get("tooltip", ""))
+            if said and node["props"].get("actions") and not tip.startswith(said.rstrip("…")):
+                other.append((name, said, tip))
+    assert long == []
+    assert other == []
+
+
+def test_a_hover_label_past_its_bound_is_cut_and_keeps_one_line():
+    bound = layout.HOVER_LABEL_MOST
+    assert layout._hover_text("open XR01:QF1") == "open XR01:QF1"
+    cut = layout._hover_text("x" * (bound + 30))
+    assert len(cut) == bound and cut.endswith("…")
+    assert layout._hover_text("first line\nsecond line") == "first line"
+
+
 def test_a_link_over_more_cut_labels_than_a_bubble_shows_counts_the_rest():
     screen = layout._Screen("card-x", "x")
     many = layout.TOOLTIP_LINES + 5

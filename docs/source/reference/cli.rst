@@ -1778,7 +1778,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    once under the rows, a name with no separator breaks where a small letter
    meets a capital, and a text still longer than its box is cut there with an
    ellipsis and listed. The engine writes the whole text as a tooltip on a box
-   over the cut label (a link drawn over it carries that whole text too in its tooltip, several cut labels joined one per line, a text another line holds left out; its one-line hover label stays the link's label); a viewer that
+   over the cut label (a link drawn over it carries that whole text too in its tooltip, several cut labels joined one per line, a text another line holds left out; its one-line hover label is the link's own label, at most 40 characters and cut
+   with an ellipsis past that, the basis of an inferred relation said in the
+   tooltip only); a viewer that
    shows tooltips shows it, and no viewer has to shrink or clip a label. A
    value display is as wide as the widest text the facility
    states it can show: its longest state word, else its limits as the display

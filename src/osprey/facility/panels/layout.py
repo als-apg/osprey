@@ -419,6 +419,7 @@ RACK_COLUMN = RACK_LABEL_WIDTH + RACK_WIDTH + 2 * RACK_PAD + 2 * COLUMN_GAP  # t
 # ``max_expression_len`` (canopy/formula_engine/config.py at 166989aa: 2048).
 RULE_EXPRESSION_LIMIT = 2048
 TOOLTIP_LINES = 24  # a card's sources line shows this many statements on hover
+HOVER_LABEL_MOST = 40  # characters of a hover label, one line at its box; the rest cut
 TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
@@ -3121,7 +3122,8 @@ class _Page:
                 self.small(x + GAP / 2, vy + ROW, _STATED_WORD, fg=MUTED_TEXT)
             why = f" · {_INFERRED_WORD}: {member.inferred}" if member.inferred else ""
             if member.link is not None:
-                self.nav(x, y, w, height, replace(member.link, label=f"open {member.thing}{why}"))
+                link = replace(member.link, label=f"open {member.thing}")
+                self.nav(x, y, w, height, link, why=why)
         self.y += -(-len(members) // per) * (height + GAP)
 
     def card_front(self, front: Front) -> None:
@@ -3368,7 +3370,7 @@ class _Page:
         self.text(x, y + half - 1, _cut(second, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=half, align="center")  # fmt: skip
         why = f" · {_INFERRED_WORD}: {end.inferred}" if end.inferred else ""
         if end.link is not None:
-            self.nav(x, y, w, FAR_BOX_HEIGHT, replace(end.link, label=f"open {end.thing}{why}"))
+            self.nav(x, y, w, FAR_BOX_HEIGHT, replace(end.link, label=f"open {end.thing}"), why=why)
         else:
             self.s.widget(
                 "rectangle", x, y, w, FAR_BOX_HEIGHT,
@@ -4960,19 +4962,21 @@ class _Page:
             self.light(x, top, part, rule=rule, size=MOSAIC_LIGHT, tile=True, tooltip=tooltip)
         return max(ROW, height)
 
-    def nav(self, x, y, w, h, link: Link, *, outline: bool = False) -> None:
+    def nav(self, x, y, w, h, link: Link, *, outline: bool = False, why: str = "") -> None:
         """A box over what is drawn there that opens *link*'s screen.
 
         Every link is one: a button's text is a label under an *outline* in
         the border role, a symbol or a tile has a transparent box that shows
-        the link's label while the pointer is on it. A screen the write does not
-        produce (*screens* gives no file for it) gets no box: what is drawn there
-        names it as text.
+        the link's label while the pointer is on it, one line, cut past
+        :data:`HOVER_LABEL_MOST` characters (:func:`_hover_text`). *why* (the
+        basis of a relation, its source) is said in the tooltip only, after the
+        label. A screen the write does not produce (*screens* gives no file for
+        it) gets no box: what is drawn there names it as text.
         """
         file = self.screens(link.target)
         if file is None:
             return
-        tip = self.s.link_tip(link.label, x, y, w, h)
+        tip = self.s.link_tip(link.label + why, x, y, w, h)
         props: dict[str, Any] = {
             "lineColor": BOX_BORDER if outline else TRANSPARENT,
             "lineWidth": LINE_WIDTH if outline else 0,
@@ -4987,7 +4991,7 @@ class _Page:
             ],
         }
         if not outline:  # the viewer draws it on one line at the box: the label alone
-            props[_HOVER_LABEL] = link.label
+            props[_HOVER_LABEL] = _hover_text(link.label)
         self.s.widget("rectangle", x, y, w, h, props, tags=(_need("clickable text"),))
 
     # -- the strip ------------------------------------------------------------
@@ -6845,7 +6849,23 @@ def _block_label(block: ChainBlock) -> float:
 def _hover_box(g: Mapping[str, float], text: str) -> dict[str, Any]:
     """A transparent box over *g* that shows *text* while the pointer is on it."""
     props = {"lineColor": TRANSPARENT, "lineWidth": 0, "fill": False, _TOOLTIP: text}
-    return {"type": "rectangle", "props": {**props, _HOVER_LABEL: text}, "geometry": dict(g)}
+    return {
+        "type": "rectangle",
+        "props": {**props, _HOVER_LABEL: _hover_text(text)},
+        "geometry": dict(g),
+    }
+
+
+def _hover_text(text: str) -> str:
+    """*text* as a hover label: the viewer draws it as one line at its box, over
+    what is beside it, so it is held to :data:`HOVER_LABEL_MOST` characters,
+    its first line only, cut with an ellipsis; the whole stays in the tooltip."""
+    line = text.split("\n", 1)[0]
+    if len(line) <= HOVER_LABEL_MOST and line == text:
+        return text
+    return (
+        line[: HOVER_LABEL_MOST - 1].rstrip() + _ELLIPSIS if len(line) > HOVER_LABEL_MOST else line
+    )
 
 
 def _fit(text: str, w: float, size: float) -> str:
