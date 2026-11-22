@@ -87,7 +87,7 @@ async def test_a_write_the_in_process_simulator_took_is_journalled(view):
     document = json.loads(_journal(view).read_text())
     assert result.outcome is WriteOutcome.CONFIRMED
     assert document["seq"] == 1
-    assert document["writes"] == [[1, "A:SP", 4.5]]
+    assert [entry[:3] for entry in document["writes"]] == [[1, "A:SP", 4.5]]
     assert len(document["active_set_sha256"]) == 64
     await connector.disconnect()
 
@@ -100,7 +100,9 @@ async def test_a_refused_write_is_not_journalled(view, monkeypatch):
     def rejecting_set(_values):
         raise ValueError("refused by the engine")
 
-    monkeypatch.setattr(connector._composite, "set", rejecting_set)
+    # Whichever of the two the installed connectors write through.
+    for method in ("write", "set"):
+        monkeypatch.setattr(connector._composite, method, rejecting_set, raising=False)
     rejected = await connector.write_channel("A:SP", 1.0)
 
     assert readback.outcome is WriteOutcome.REFUSED
@@ -219,7 +221,7 @@ async def test_a_second_connector_keeps_what_the_first_wrote_after_a_scenario_ch
     assert (await second.read_channel("A:SP")).value == 7.0
     assert (await first.read_channel("A:SP")).value == 7.0
     writes = json.loads(_journal(view).read_text())["writes"]
-    assert [entry[1:] for entry in writes] == [["A:SP", 7.0]]
+    assert [entry[1:3] for entry in writes] == [["A:SP", 7.0]]
     await first.disconnect()
     await second.disconnect()
 
@@ -237,7 +239,8 @@ async def test_a_rewrite_of_the_same_active_set_keeps_the_session_writes(view):
     assert (await connector.read_channel("A:SP")).value == 7.0
     other = await _connected(view)
     assert (await other.read_channel("A:SP")).value == 7.0
-    assert json.loads(_journal(view).read_text())["writes"] == [[1, "A:SP", 7.0]]
+    writes = json.loads(_journal(view).read_text())["writes"]
+    assert [entry[:3] for entry in writes] == [[1, "A:SP", 7.0]]
     await connector.disconnect()
     await other.disconnect()
 

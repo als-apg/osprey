@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from lume.model import LUMEModel
+from lume.variables import ScalarVariable, Variable
 
+from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.texture import TextureModel
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -408,3 +412,232 @@ def test_a_command_reaches_its_status_and_the_readbacks_it_starts() -> None:
     assert reach[POSITION_SP] == {POSITION_SP}
     assert reach[HEAT_SP] == {HEAT_SP, HEAT_RB}
     assert reach[INTERLOCK] == {INTERLOCK, STATUS}
+
+
+# ---------------------------------------------------------------------------
+# Replay
+# ---------------------------------------------------------------------------
+
+
+def test_a_replayed_command_fires_at_its_entry_time() -> None:
+    model, clock = _clocked()
+    clock[0] = T0 + FOR_S - 0.5
+
+    model.replay([(MOVE, 1, T0)])
+
+    assert model.get(STATUS) == "MOVING"
+    clock[0] = T0 + FOR_S
+    assert model.get(STATUS) == "DONE"
+
+
+def test_a_replayed_entry_without_a_time_fires_nothing() -> None:
+    model, _clock = _clocked()
+
+    model.replay([(POSITION_SP, 4.0, None), (MOVE, 1, None)])
+
+    assert model.get(STATUS) == "DONE"
+    assert model.get(POSITION_RB) == 4.0
+
+
+@pytest.mark.parametrize(
+    ("entries", "readback"),
+    [
+        ([(POSITION_SP, 4.0, T0), (MOVE, 1, T0 + 0.1)], 4.0),
+        ([(MOVE, 1, T0), (POSITION_SP, 4.0, T0 + 0.1)], 1.0),
+    ],
+    ids=["command-after-target", "command-before-target"],
+)
+def test_replay_holds_its_entries_in_order(
+    entries: list[tuple[str, Any, float]], readback: float
+) -> None:
+    model, _clock = _clocked()
+
+    model.replay(entries)
+
+    assert model.get(POSITION_SP) == 4.0
+    assert model.get(POSITION_RB) == readback
+
+
+def test_a_refused_replay_holds_nothing() -> None:
+    model, _clock = _clocked()
+
+    with pytest.raises(ValueError):
+        model.replay([(MOVE, 1, T0), (INTERLOCK, "NOT-A-LABEL", T0)])
+
+    assert model.get(STATUS) == "DONE"
+    assert model.get(INTERLOCK) == "OK"
+
+
+# ---------------------------------------------------------------------------
+# A command the composite serves, whichever model serves it
+# ---------------------------------------------------------------------------
+
+
+class _Plain(LUMEModel):
+    """A physics model holding what it is written."""
+
+    def __init__(self, wiring: Any) -> None:
+        self._variables: dict[str, Variable] = {
+            str(entry["address"]): ScalarVariable(name=str(entry["address"]), read_only=False)
+            for entry in wiring
+        }
+        self.inputs: dict[str, float] = dict.fromkeys(self._variables, 0.0)
+
+    @property
+    def supported_variables(self) -> dict[str, Variable]:
+        return self._variables
+
+    def reset(self) -> None:
+        self.inputs = dict.fromkeys(self._variables, 0.0)
+
+    def _set(self, values: dict[str, Any]) -> None:
+        self.inputs.update({name: float(value) for name, value in values.items()})
+
+    def _get(self, names: list[str]) -> dict[str, Any]:
+        return {name: self.inputs[name] for name in names}
+
+
+@pytest.fixture
+def plain_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Engine ``plain`` builds a :class:`_Plain` over its wiring."""
+    real = Composite._engine
+    plain = SimpleNamespace(build=lambda _model, wiring, _deck, _settings, **_: _Plain(wiring))
+    monkeypatch.setattr(
+        Composite, "_engine", staticmethod(lambda name: plain if name == "plain" else real(name))
+    )
+
+
+def _physics_command(variables: dict[str, Any]) -> None:
+    """Serve ``MOVE`` by physics model ``M`` instead of the texture."""
+    variables["models"] = [
+        {
+            "name": "M",
+            "engine": "plain",
+            "served": True,
+            "settings": {},
+            "deck": None,
+            "wiring": [
+                {
+                    "id": "w1",
+                    "address": MOVE,
+                    "direction": "write",
+                    "engine_role": "setpoint",
+                    "plane": None,
+                    "refresh": "pass",
+                }
+            ],
+        }
+    ]
+    variables["channels"][0]["owner"] = "M"
+
+
+def _composite(
+    tmp_path: Path, *, physics: bool = False, scenarios: list[dict[str, Any]] | None = None
+) -> tuple[Composite, list[float]]:
+    variables, seeds = _documents()
+    if physics:
+        _physics_command(variables)
+    view = tmp_path / "view"
+    view.mkdir()
+    documents = {
+        "served_models.json": {"models": [m["name"] for m in variables["models"]]},
+        ADDRESSES_FILE: {
+            "channels": sorted(channel["address"] for channel in variables["channels"]),
+            "status": [],
+        },
+        VARIABLES_FILE: variables,
+        SEEDS_FILE: seeds,
+        "scenarios.json": {"scenarios": [{"name": "nominal"}, *(scenarios or [])]},
+    }
+    for name, document in documents.items():
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
+    clock = [T0]
+    composite = Composite(
+        view, state_dir=tmp_path / "state", clock=lambda: clock[0], model_log=False
+    )
+    return composite, clock
+
+
+@pytest.mark.usefixtures("plain_engine")
+@pytest.mark.parametrize("physics", [False, True], ids=["texture", "physics"])
+def test_a_command_fires_its_status_whichever_model_serves_it(
+    tmp_path: Path, physics: bool
+) -> None:
+    composite, clock = _composite(tmp_path, physics=physics)
+
+    composite.set({MOVE: 1})
+
+    assert composite.get(STATUS) == "MOVING"
+    clock[0] = T0 + FOR_S
+    assert composite.get(STATUS) == "DONE"
+
+
+@pytest.mark.usefixtures("plain_engine")
+@pytest.mark.parametrize("physics", [False, True], ids=["texture", "physics"])
+def test_a_command_moves_the_readback_it_starts_whichever_model_serves_it(
+    tmp_path: Path, physics: bool
+) -> None:
+    composite, _clock = _composite(tmp_path, physics=physics)
+
+    composite.set({POSITION_SP: 4.0})
+    assert composite.get(POSITION_RB) == 1.0
+    composite.set({MOVE: 1})
+
+    assert composite.get(POSITION_RB) == 4.0
+
+
+@pytest.mark.usefixtures("plain_engine")
+@pytest.mark.parametrize("physics", [False, True], ids=["texture", "physics"])
+def test_a_replayed_command_fires_at_its_time_whichever_model_serves_it(
+    tmp_path: Path, physics: bool
+) -> None:
+    composite, clock = _composite(tmp_path, physics=physics)
+    clock[0] = T0 + FOR_S - 0.5
+
+    composite.replay([(POSITION_SP, 4.0, T0 - 1.0), (MOVE, 1, T0)])
+
+    assert composite.get(STATUS) == "MOVING"
+    assert composite.get(POSITION_RB) == 4.0
+    clock[0] = T0 + FOR_S
+    assert composite.get(STATUS) == "DONE"
+
+
+def test_a_write_returns_the_instant_its_response_runs_from(tmp_path: Path) -> None:
+    composite, clock = _composite(tmp_path)
+    clock[0] = T0 + 7.0
+
+    at = composite.write({MOVE: 1})
+
+    assert at == T0 + 7.0
+    clock[0] = at + FOR_S - 0.001
+    assert composite.get(STATUS) == "MOVING"
+    clock[0] = at + FOR_S
+    assert composite.get(STATUS) == "DONE"
+
+
+def test_a_restore_fires_no_response(tmp_path: Path) -> None:
+    composite, _clock = _composite(tmp_path)
+
+    composite.restore({MOVE: 1})
+
+    assert composite.get(STATUS) == "DONE"
+
+
+@pytest.mark.parametrize("replayed", [False, True], ids=["live", "replayed"])
+def test_a_command_a_fault_holds_fires_no_response(tmp_path: Path, replayed: bool) -> None:
+    composite, _clock = _composite(
+        tmp_path, scenarios=[{"name": "stuck", "channel_faults": {MOVE: "stuck"}}]
+    )
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "active_scenarios").write_text("stuck\n", encoding="utf-8")
+
+    if replayed:
+        composite.replay([(POSITION_SP, 4.0, T0), (MOVE, 1, T0)])
+    else:
+        composite.set({POSITION_SP: 4.0})
+        composite.set({MOVE: 1})
+
+    assert composite.get(STATUS) == "DONE"
+    assert composite.get(POSITION_RB) == 1.0
