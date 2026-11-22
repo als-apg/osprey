@@ -343,11 +343,16 @@ def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_pat
 
 
 def _over_all_card(
-    tmp_path, metrics: str = "", words: str = "", n: int = 3, two_state: bool = True
+    tmp_path,
+    metrics: str = "",
+    words: str = "",
+    n: int = 3,
+    two_state: bool = True,
+    load: str = "Out{}Cur-RB",
 ):
     """A supply with *n* outlets (a lamp each, ``bool`` when *two_state*) and *n*
-    loads (a value each); *metrics* card rows and *words* state-label rows as
-    given."""
+    loads (a value each, named by *load* with the outlet's number); *metrics*
+    card rows and *words* state-label rows as given."""
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 
@@ -358,14 +363,14 @@ def _over_all_card(
                 on["value_type"] = "bool"
             document["channels"].append(on)
             document["channels"].append(
-                {"id": f"XR01-PS1:Out{i}Cur-RB", "on": {"device": "XR01:PS1"}}
+                {"id": f"XR01-PS1:{load.format(i)}", "on": {"device": "XR01:PS1"}}
             )
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER
         + "PowerSupply,outlet,*:Out*On-Sts,device,lamp,,,,,stated,S,1,l\n"
-        + "PowerSupply,load,*:Out*Cur-RB,device,value,A,,,,stated,S,1,l\n"
+        + f"PowerSupply,load,*:{load.format('*')},device,value,A,,,,stated,S,1,l\n"
     )
     if metrics.startswith("view,"):  # a whole file, its own header
         (tables / "metrics.csv").write_text(metrics)
@@ -3049,3 +3054,124 @@ def test_a_member_with_no_value_never_removes_the_holder_line(measure, left_out)
     tied = [3.0] * n
     tied[left_out] = float("nan")
     assert [k for k, test in enumerate(tests) if _holds(test, tied)] == [0 if left_out else 1]
+
+
+def test_a_holder_name_too_long_for_its_line_keeps_the_end_that_tells_members_apart(tmp_path):
+    """Members whose names differ only at the end: a name cut to fit its line
+    keeps that end, so the lines of two members never read alike; a name that
+    fits is never cut; every line's tooltip is the member's whole name."""
+    nan = float("nan")
+    load = "OutletLoadCurrentReadbackMeasuredOnTheSupplySide{}"
+    graph, view = _over_all_card(tmp_path, load=load)
+    doc = stub_render(view, graph)
+    _count, highest = _figures(doc)
+    lines = [n for n in _slot(doc, highest) if _hidden(n)]
+    names = [load.format(i) for i in (1, 2, 3)]
+    assert [line["props"]["tooltip"].splitlines()[0] for line in lines] == names
+    for values in ([1.0, 5.0, 2.0], [1.0, nan, 2.0]):  # every member, one missing
+        said = [
+            _shown(lines, [9.0 if k == i else 0.0 if v == v else v for k, v in enumerate(values)])
+            for i in range(3)
+            if values[i] == values[i]
+        ]
+        texts = [t for (t,) in said]
+        assert all(t.endswith(name[-1]) or t.endswith(name[-1] + layout._ELLIPSIS)
+                   for t, name in zip(texts, [n for i, n in enumerate(names) if values[i] == values[i]],
+                                      strict=True))  # fmt: skip
+        assert len(set(texts)) == len(texts)  # no two members read alike
+        assert all(layout._ELLIPSIS in t for t in texts)  # too long for the line: cut
+    graph, view = _over_all_card(tmp_path / "short")
+    short_doc = stub_render(view, graph)
+    short = [n for n in _slot(short_doc, _figures(short_doc)[1]) if _hidden(n)]
+    assert len(short) == 3
+    for line in short:  # short names fit: never cut
+        rules = {r["targetProperty"]: r for r in line["rules"]}
+        assert layout._ELLIPSIS not in rules["text"]["default"]
+        assert layout._ELLIPSIS not in rules["text"]["conditions"][0]["value"]
+
+
+@pytest.mark.parametrize(
+    ("text", "sibling"),
+    [
+        ("AB:CD:Supply3", "AB:CD:Supply1"),  # differs at the end
+        ("AB:CD:X3:Tail", "AB:CD:X1:Tail"),  # differs in the middle
+        ("Loop3:Tail:End", "Loop1:Tail:End"),  # differs at the front
+    ],
+)
+def test_a_name_cut_among_its_siblings_keeps_the_part_that_differs(text, sibling):
+    """At every width the two cuts read apart, each keeps the character that
+    differs, and each fits."""
+    siblings = [text, sibling]
+    for width in range(30, 200, 5):
+        cut = layout._cut_apart(text, siblings, width, layout.SMALL_SIZE)
+        other = layout._cut_apart(sibling, siblings, width, layout.SMALL_SIZE)
+        if cut:
+            assert "3" in cut and "1" in other and cut != other
+            assert layout.text_width(cut, layout.SMALL_SIZE) <= width
+            assert cut == text or getattr(cut, "whole", None) == text
+
+
+def _figure_value(doc: dict, figure: dict, values: list[float]):
+    """The figure's formula evaluated as the formula engine would over *values*:
+    numpy's reductions and ``where``; a value that is no number shows no text."""
+    import numpy as np
+
+    pv = figure["rules"][0]["formula"]
+    (formula,) = [f for f in doc["formulas"] if f"formula://{f['name']}" == pv]
+    expression = formula["expression"]
+    for key in sorted(formula["bindings"], key=len, reverse=True):
+        expression = expression.replace(f"{{{key}}}", repr(values[int(key[1:])]))
+    names = {
+        "__builtins__": {},
+        "max": np.max, "min": np.min, "where": np.where, "abs": np.abs,
+        "floor": np.floor, "log10": np.log10, "pow": np.power,
+        "inf": float("inf"), "nan": float("nan"),
+    }  # fmt: skip
+    with np.errstate(all="ignore"):
+        out = float(eval(expression, names))
+    return out if out == out else None
+
+
+def _colour(figure: dict, values: list[float]):
+    """The figure's text colour for *values*, as its colour rule sets it."""
+    import numpy as np
+
+    (rule,) = [r for r in figure["rules"] if r["targetProperty"] == "foregroundColor"]
+    every = float(np.max(values))  # the rule reads the bare largest member
+    held = [c["value"] for c in rule["conditions"] if _holds(c["expression"], [every])]
+    return held[0] if held else rule["default"]
+
+
+def test_a_highest_with_members_missing_shows_the_highest_of_the_rest_muted(tmp_path):
+    """Three positions missing of six: the figure is the true highest of the
+    others, muted, a bound; all present: the highest in the page's text; none: no
+    number, so the figure keeps its dash."""
+    nan = float("nan")
+    graph, view = _over_all_card(tmp_path, n=6)
+    doc = stub_render(view, graph)
+    _count, highest = _figures(doc)
+    assert highest["props"]["foregroundColor"] == layout.PAGE_TEXT  # at rest: no rule applied
+    for gone in ((0, 2, 4), (1, 3, 5), (0, 1, 5)):
+        values = [nan if i in gone else float(10 * i + 3) for i in range(6)]
+        rest = max(v for v in values if v == v)
+        assert _figure_value(doc, highest, values) == rest
+        assert _colour(highest, values) == layout.MUTED_TEXT
+    whole = [float(10 * i + 3) for i in range(6)]
+    assert _figure_value(doc, highest, whole) == max(whole)
+    assert _colour(highest, whole) == layout.PAGE_TEXT
+    assert _figure_value(doc, highest, [nan] * 6) is None
+    assert emit._long_formulas(doc, "card") == []
+
+
+def test_a_lowest_passes_over_a_missing_member_too():
+    import numpy as np
+
+    tokens = ["{a}", "{b}", "{c}"]
+    expression = layout.partial_extreme("min", tokens, lambda v: v)
+    for values, want in (([3.0, np.nan, 1.0], 1.0), ([np.nan, 2.0, np.nan], 2.0)):
+        text = expression
+        for t, v in zip(tokens, values, strict=True):
+            text = text.replace(t, repr(v))
+        names = {"__builtins__": {}, "min": np.min, "where": np.where,
+                 "inf": float("inf"), "nan": float("nan")}  # fmt: skip
+        assert float(eval(text, names)) == want

@@ -1662,9 +1662,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    among the members with a value (a tie goes to the first), so a page whose
    channels have not answered shows none, up to 32 members, past which it says
    "highest of N" and ``check`` names the tile; the figure's tooltip names what
-   it is over, member by member; while any member has no value the figure is a
-   dash and the line says "one of N has no value", beside the holder's name
-   where the tile names one, or each lamp shows its dashed outline), its relations as
+   it is over, member by member; a name too long for the line is cut so the
+   part that tells it from the other members survives, and each line's tooltip
+   is the member's whole name; while any member has no value the line says
+   "one of N has no value", beside the holder's name where the tile names one,
+   or each lamp shows its dashed outline, and a sum is a dash, while the
+   highest or the lowest is that of the members that report, drawn muted, a
+   bound and not the whole, where its formula fits the engine's length, else a
+   dash; with no member reporting it is a dash), its relations as
    a chain of blocks (the device's own block showing only roles one channel of
    it plays: a role played per connector or member is not rows there), its
    drawings (a drawing none of whose parts has a place is a compact row of

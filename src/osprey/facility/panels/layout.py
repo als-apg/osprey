@@ -29,6 +29,7 @@ import contextvars
 import itertools
 import json
 import math
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -2586,8 +2587,10 @@ class _Page:
         """A key tile's figure over every channel of its role: "k of N" true, the
         largest, the smallest or the sum, from one formula. A count reads as one:
         "of N" follows the figure on its baseline. Under the figure is one slot:
-        while any member has no value the figure is a dash and the slot says so,
-        so no part is shown as whole. With values, the largest's or smallest's
+        while any member has no value the slot says so, and the figure is a dash,
+        so no part is shown as whole; but a largest or smallest is the extreme of
+        the members that report (:func:`partial_extreme`), drawn muted, as a
+        bound, where the formula fits the engine. With values, the largest's or smallest's
         slot names the member that holds it, or says "highest of N" past
         :data:`.describe.HOLDER_MAX` members. A count's slot is a row of small
         lamps, one per member in order, where they fit; each shows its own
@@ -2597,29 +2600,42 @@ class _Page:
         keys = [f"c{i}" for i in range(len(members))]
         tokens = [f"{{{key}}}" for key in keys]
         counted = tile.shown_as == "count_true"
-        if counted:
-            figure = "+".join(f"1*(abs({t})>0)" for t in tokens)  # no value: no count
-        elif tile.shown_as == "sum":
-            figure = " + ".join(tokens)
-        else:  # max or min: a reduction over one tuple
-            figure = f"{tile.shown_as}(({', '.join(tokens)},))"
-        if not counted:
-            scaled = f"({figure}) / {_number(tile.scale)}" if tile.scale else figure
+
+        def shaped(value: str) -> str:
+            scaled = f"({value}) / {_number(tile.scale)}" if tile.scale else value
             shape = (
                 fixed_expression("{v}", tile.precision)
                 if tile.precision is not None
                 else significant_expression("{v}")
             )
-            figure = shape.replace("{v}", f"({scaled})")
+            return shape.replace("{v}", f"({scaled})")
+
+        partial = False  # the figure is the extreme of the members that report
+        if counted:
+            figure = "+".join(f"1*(abs({t})>0)" for t in tokens)  # no value: no count
+        elif tile.shown_as == "sum":
+            figure = shaped(" + ".join(tokens))
+        else:  # max or min: a reduction over one tuple
+            figure = partial_extreme(tile.shown_as, tokens, shaped)
+            partial = len(figure) <= RULE_EXPRESSION_LIMIT
+            if not partial:  # too long to pass over a missing member: a dash then
+                figure = shaped(f"{tile.shown_as}(({', '.join(tokens)},))")
         bindings = dict(zip(keys, members, strict=True))
         reads = frozenset(members)
-        if len(figure) > RULE_EXPRESSION_LIMIT or not self.budget.take([(1, reads)]):
+        every: dict[str, Any] = {  # the bare largest member: a number while all report
+            "name": "",
+            "kind": "scalar",
+            "expression": f"max(({', '.join(tokens)},))",
+            "bindings": bindings,
+        }
+        if len(figure) > RULE_EXPRESSION_LIMIT or not self.budget.take([(1 + partial, reads)]):
             self.small(x, y, _NEEDS_SERVER, fg=MUTED_TEXT)
             return
         name = f"figure-{len(self.s.formulas)}"
         self.s.formulas.append(
             {"name": name, "kind": "scalar", "expression": figure, "bindings": bindings}
         )
+        every["name"] = f"every-{len(self.s.formulas)}"
         pv = _FORMULA_PREFIX + name
         high = KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE - KEY_NOTE_MARGIN
         if counted:  # the widest count it can print, then "of N" right after it
@@ -2639,6 +2655,20 @@ class _Page:
             "default": NO_VALUE,
             "formula": pv,
         }
+        rules: list[dict[str, Any]] = [rule]
+        if partial:  # muted while a member is missing: the figure is then a bound
+            self.s._rules += 1
+            rules.append(
+                {
+                    "id": f"r-{self.s._rules:04d}",
+                    "name": f"{tile.title} figure, every member reporting",
+                    "targetProperty": "foregroundColor",
+                    "pvs": [{"name": _FORMULA_PREFIX + every["name"], "trigger": True}],
+                    "conditions": [{"expression": "{0} == {0}", "value": PAGE_TEXT}],
+                    "default": MUTED_TEXT,
+                }
+            )
+            self.s.formulas.append(every)
         props = {
             "text": NO_VALUE,
             "fontSize": KEY_VALUE_SIZE,
@@ -2647,7 +2677,7 @@ class _Page:
             "align": "left",
             _TOOLTIP: _over_all_tooltip(tile),
         }
-        self.s.widget("text-label", x, y, number_w, high, props, rules=[rule])
+        self.s.widget("text-label", x, y, number_w, high, props, rules=rules)
         if beside:
             top = on_baseline(y, high, KEY_VALUE_SIZE, SMALL_LINE, SMALL_SIZE)
             self.small(beside_x, top, beside, fg=MUTED_TEXT)
@@ -2660,12 +2690,6 @@ class _Page:
         # formula into each condition, and the shaped figure is too long for that
         held = tile.shown_as in _HOLDS and not tile.names
         shown = _HOLDS[tile.shown_as].format(len(members)) if held else ""
-        every: dict[str, Any] = {
-            "name": f"every-{len(self.s.formulas)}",
-            "kind": "scalar",
-            "expression": f"max(({', '.join(tokens)},))",
-            "bindings": bindings,
-        }
         missing = {
             "id": f"r-{self.s._rules + 1:04d}",
             "name": f"{tile.title} every member reports",
@@ -2676,7 +2700,8 @@ class _Page:
         }
         if len(engine_expression(missing, {every["name"]: every})) > RULE_EXPRESSION_LIMIT:
             return  # too many members to say which way: the figure's dash says it alone
-        self.s.formulas.append(every)
+        if not partial:
+            self.s.formulas.append(every)
         self.s._rules += 1
         note = {
             "text": _A_MEMBER_MISSING.format(len(members)),
@@ -2753,7 +2778,10 @@ class _Page:
         a member with no value never removes it, and none shows before the
         channels answer, when the viewer applies no rule. While a member has no
         value the line says the name alone, in *short_w*, and the note beside it
-        says one has no value. Left out when the screen's rules do not fit."""
+        says one has no value. A name too long for the line is cut so the part
+        that tells it from the other members survives (:func:`_cut_apart`); each
+        line's tooltip is the member's whole name. Left out when the screen's
+        rules do not fit."""
         members = tile.channels
         n = len(members)
         every = " and ".join(f"{{{j}}} == {{{j}}}" for j in range(n))
@@ -2762,8 +2790,10 @@ class _Page:
             test = holder_condition(tile.shown_as, k, n)
             if max(len(test), len(every)) > RULE_EXPRESSION_LIMIT:
                 return
-            words = _HOLDS[tile.shown_as].format(n) + f" · {short}"
-            lines.append((test, _cut(words, w, SMALL_SIZE), _cut(short, short_w, SMALL_SIZE)))
+            held = _HOLDS[tile.shown_as].format(n) + " · "
+            room = w - text_width(held, SMALL_SIZE) + TEXT_PAD
+            text = held + _cut_apart(short, tile.names, room, SMALL_SIZE)
+            lines.append((test, text, _cut_apart(short, tile.names, short_w, SMALL_SIZE)))
         if not self.budget.take([(2 * len(lines), frozenset(members))]):
             return
         pvs = [{"name": m, "trigger": True} for m in members]
@@ -2793,6 +2823,7 @@ class _Page:
                 "foregroundColor": MUTED_TEXT,
                 "backgroundColor": TRANSPARENT,
                 "align": "left",
+                _TOOLTIP: "\n".join(dict.fromkeys((tile.names[k], members[k]))),
             }
             self.s.widget("text-label", AWAY, y, w, SMALL_LINE, props, rules=rules)
 
@@ -7096,6 +7127,49 @@ def _cut(
     return ""
 
 
+def _cut_apart(text: str, siblings: Sequence[str], width: float, size: float) -> str:
+    """*text*, one of *siblings*, cut to fit *width* at *size* so the part that
+    tells it from the others survives: whole while it fits; else the words the
+    siblings share at the front go first, word by word from their end
+    ("front…differing end"),
+    then the shared words at the end ("…differing…"), and only then the
+    differing part itself, from its front; with nothing shared it is cut in the
+    middle. The shared parts end and start at a
+    separator (any character not a letter or digit), so a cut never splits a
+    word the siblings both use. The whole shows on hover (:class:`_Cut`)."""
+    if text_width(text, size) <= width:
+        return text
+    cuts = _CUTS.get()
+    if cuts is not None:
+        cuts.append(text)
+    others = [s for s in siblings if s != text] or [text]
+    front = min(len(os.path.commonprefix([text, s])) for s in others)
+    back = min(len(os.path.commonprefix([text[::-1], s[::-1]])) for s in others)
+    while front and text[front - 1].isalnum():
+        front -= 1
+    back = min(back, len(text) - front)
+    while back and text[len(text) - back].isalnum():
+        back -= 1
+    head, differing, tail = text[:front], text[front : len(text) - back], text[len(text) - back :]
+    lead = _ELLIPSIS if head else ""
+    words = [k for k in range(len(head) - 1, 0, -1) if not head[k - 1].isalnum()]
+    tries = [head[:k] + _ELLIPSIS + differing + tail for k in [*words, 0] if head]
+    tries += [lead + differing + tail[:k] + _ELLIPSIS for k in range(len(tail) - 1, -1, -1)]
+    if head or tail:  # the differing part alone, from its front
+        tries += [
+            lead + differing[k:] + (_ELLIPSIS if tail else "") for k in range(1, len(differing))
+        ]
+    else:  # nothing shared: cut in the middle, the front and the end kept
+        tries += [
+            text[: (len(text) - k + 1) // 2] + _ELLIPSIS + text[len(text) - (len(text) - k) // 2 :]
+            for k in range(1, len(text))
+        ]
+    for kept in tries:
+        if text_width(kept, size) <= width:
+            return _Cut(kept, text)
+    return ""
+
+
 def _chip(title: str, item: object) -> tuple[str, Link | None]:
     """A card's chip for a related thing: "<relation>: <thing>", its card when it has one."""
     if isinstance(item, Link):
@@ -7416,6 +7490,19 @@ def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
             ends[lane] = left + w
         out.append(lane)
     return out
+
+
+def partial_extreme(measure: str, tokens: Sequence[str], shaped: Callable[[str], str]) -> str:
+    """The figure of a largest or smallest (*measure* ``max`` or ``min``) over
+    *tokens* that passes over a member with no value: each member with no value
+    (``{t} != {t}``) stands in as the measure's far end, minus or plus infinity,
+    which never wins; *shaped* rounds the reduction for print. With no member
+    reporting it is no number, so the label keeps its dash: the engine's
+    reductions are numpy's, which give no number over one that is missing."""
+    far = "-inf" if measure == "max" else "inf"
+    each = ", ".join(f"where({t} == {t}, {t}, {far})" for t in tokens)
+    none = " * ".join(f"({t} != {t})" for t in tokens)
+    return f"where({none}, nan, {shaped(f'{measure}(({each},))')})"
 
 
 def holder_condition(measure: str, k: int, n: int) -> str:
