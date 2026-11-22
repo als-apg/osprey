@@ -85,6 +85,7 @@ __all__ = [
     "need",
     "ordered_slots",
     "paired_nominal_error",
+    "record_missing",
     "record_writable",
     "relation_types",
     "report",
@@ -2417,12 +2418,8 @@ class _Records:
                     "remove `writable`; only a setpoint is writable",
                 )
             bounds = [slot for slot in LIMIT_BOUNDS if record.get(slot) is not None]
-            if (
-                record.get("writable") is True
-                and channel.get("role") == "setpoint"
-                and value_type in _NUMERIC_TYPES
-                and (record.get("min_value") is None or record.get("max_value") is None)
-            ):
+            missing = record_missing(record, str(channel.get("role")), value_type)
+            if record.get("writable") is True and missing:
                 yield self._error(
                     "limit-invalid",
                     "limit",
@@ -3429,6 +3426,28 @@ def tolerance_warnings(
     return lines
 
 
+def record_missing(record: Mapping[str, Any], role: str, value_type: str) -> tuple[str, ...] | None:
+    """The slots a channel's limits record must still state for the channel to be writable.
+
+    Args:
+        record: The channel's limits record.
+        role: The channel's role; only a setpoint is ever writable.
+        value_type: The channel's value type.
+
+    Returns:
+        None for any role but setpoint and for ``writable: false``: no
+        slot the record lacks makes it writable. Otherwise the slots it
+        lacks, empty when it is writable: on a float or int channel the
+        unstated edges of ``min_value`` and ``max_value``; on any other,
+        ``("writable",)`` unless it says ``writable: true``.
+    """
+    if role != "setpoint" or record.get("writable") is False:
+        return None
+    if value_type in _NUMERIC_TYPES:
+        return tuple(edge for edge in _LIMIT_EDGES if record.get(edge) is None)
+    return () if record.get("writable") is True else ("writable",)
+
+
 def record_writable(record: Mapping[str, Any], role: str, value_type: str) -> bool:
     """Whether a channel's limits record leaves it writable.
 
@@ -3442,12 +3461,7 @@ def record_writable(record: Mapping[str, Any], role: str, value_type: str) -> bo
         numeric channel, whether the record carries both ``min_value`` and
         ``max_value``; on any other, whether it says ``writable: true``.
     """
-    writable = record.get("writable")
-    if role != "setpoint" or writable is False:
-        return False
-    if value_type in _NUMERIC_TYPES:
-        return record.get("min_value") is not None and record.get("max_value") is not None
-    return writable is True
+    return record_missing(record, role, value_type) == ()
 
 
 def tolerance_bound(channel: Mapping[str, Any]) -> float | None:

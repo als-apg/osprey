@@ -22,6 +22,8 @@ from osprey.facility.validate import (
     StageReport,
     known_classes,
     ordered_slots,
+    record_missing,
+    record_writable,
     run_stages,
     schema_document,
     signal_roles,
@@ -1202,6 +1204,37 @@ class TestLimitRules:
         assert {slot: attributes[slot].get("range") for slot in LIMIT_BOUNDS} == dict.fromkeys(
             LIMIT_BOUNDS, "float"
         )
+
+    @pytest.mark.parametrize(
+        ("record", "role", "value_type", "answer"),
+        [
+            ({"min_value": 0.0}, "setpoint", "float", ("max_value",)),
+            ({"max_step": 0.5}, "setpoint", "float", ("min_value", "max_value")),
+            ({"min_value": 0.0, "max_value": 1.0}, "setpoint", "float", ()),
+            ({"min_value": 0.0, "max_value": 1.0, "writable": False}, "setpoint", "float", None),
+            ({"min_value": 0.0}, "readback", "float", None),
+            ({}, "setpoint", "bool", ("writable",)),
+            ({"writable": True}, "setpoint", "bool", ()),
+        ],
+        ids=[
+            "one-edge",
+            "no-edge",
+            "both-edges",
+            "locked",
+            "readback",
+            "bool-unstated",
+            "bool-writable",
+        ],
+    )
+    def test_a_record_says_what_it_lacks_to_be_writable(
+        self,
+        record: dict[str, Any],
+        role: str,
+        value_type: str,
+        answer: tuple[str, ...] | None,
+    ) -> None:
+        assert record_missing(record, role, value_type) == answer
+        assert record_writable(record, role, value_type) is (answer == ())
 
     def test_integral_bounds_on_an_int_channel(self, tmp_path: Path) -> None:
         files = _with_channels(
