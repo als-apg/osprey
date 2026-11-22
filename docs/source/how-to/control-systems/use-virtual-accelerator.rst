@@ -534,6 +534,68 @@ A pyAT lattice
 ``decks/<model>.json``, and the container builds the model from that copy when
 ``simulation.models`` serves it. No code and no image are involved.
 
+.. _va-rf-setpoints:
+
+RF setpoints
+------------
+
+A wiring record on a cavity element sets one of three cavity attributes, in
+pyAT's words: ``Frequency`` (Hz), ``Voltage`` (V) and ``TimeLag`` (m). Each is
+a setpoint written through the record's calibration, and a record of
+direction ``read`` on the same element and attribute reads it back. With
+invented addresses, for a ring whose RF wavelength is 0.6 m:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     wiring:
+       - address: RING:RF:FREQ:SP
+         element: CAV
+         engine: {attribute: Frequency}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}  # MHz
+       - address: RING:RF:VOLT:SP
+         element: CAV
+         engine: {attribute: Voltage}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}  # MV
+       - address: RING:RF:VOLT:RB
+         element: CAV
+         engine: {attribute: Voltage}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}
+       - address: RING:RF:PHASE:SP
+         element: CAV
+         engine: {attribute: TimeLag}
+         calibration: {curve: {linear: {gain: 1.6667e-3, offset: 0.0}}}  # deg
+
+- **Phase is a calibration.** pyAT states a cavity's phase as a time lag, the
+  length by which the cavity's wave lags the reference particle. One RF
+  wavelength is 360 degrees, so a phase setpoint in degrees is a linear curve
+  of gain ``wavelength / 360``.
+- **Several cavities.** A record naming ``slices`` writes every cavity it
+  lists. A frequency or a time lag lands in full on each. A voltage lands
+  times the slice's ``weight``, so a setpoint that is the total over two
+  cavities states ``weight: 0.5`` on each.
+- **The RF switch.** On a turn-by-turn ring (:ref:`va-turn-by-turn`) the
+  ``rf_switch`` and a voltage setpoint work together: the setpoint reads what
+  was commanded whether the RF is on or off, a voltage written while the RF
+  is off is delivered when it is switched on, and a voltage of ``0`` is not
+  a switched-off RF.
+
+Each RF setpoint carries one fault (:ref:`how-to-run-scenarios`), in the
+setpoint's own unit: ``cal_offset`` on a frequency (a frequency offset) and on
+a time lag (a phase offset), ``cal_factor`` on a voltage (a scale error). The
+cavity gets the faulty value; the setpoint and its readback show what was
+commanded.
+
+.. code-block:: yaml
+
+   faults:
+     RING:
+       RING:RF:PHASE:SP: {cal_offset: 30.0}
+       RING:RF:VOLT:SP: {cal_factor: 1.02}
+       RING:RF:FREQ:SP: {cal_offset: 1.0e-4}
+
 .. _va-injection-chain:
 
 An injection chain
@@ -700,7 +762,9 @@ and without ``stored_current`` there is no stored beam. Each wiring record's
 - ``turns_tracked``: the turns the last shot tracked, the ring's; it names no
   element.
 - ``rf_switch``: ``0`` sets every cavity's voltage to zero, anything else
-  restores the deck's voltages. It starts at ``1`` and names no element.
+  restores the voltages the cavities had, or the one a voltage setpoint
+  (:ref:`va-rf-setpoints`) commanded meanwhile. It starts at ``1`` and names
+  no element.
 - ``pilot_tone``: non-zero turns the pilot tone on. It starts at ``0`` and
   names no element.
 - ``stored``: a setting that holds what is written and drives no physics,

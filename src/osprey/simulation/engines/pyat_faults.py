@@ -87,8 +87,17 @@ FAULT_SEPARATOR = "/"
 ROLL = "roll"
 ROLL_IDENTITY = 0.0
 
-#: The engine attributes whose setpoints carry a calibration fault.
-CALIBRATED_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "KickAngle"})
+#: Engine attribute -> the supply calibration fields a setpoint on it carries.
+#: A magnet supply takes both. A cavity setpoint takes the one that names a
+#: real error of it: a frequency offset, a voltage scale error, a phase
+#: (time lag) offset.
+SUPPLY_FIELDS: dict[str, tuple[str, ...]] = {
+    "PolynomB": ("cal_factor", "cal_offset"),
+    "KickAngle": ("cal_factor", "cal_offset"),
+    "Frequency": ("cal_offset",),
+    "Voltage": ("cal_factor",),
+    "TimeLag": ("cal_offset",),
+}
 
 MIN_MONITOR_GAIN = 0.1
 MAX_MONITOR_GAIN = 10.0
@@ -420,7 +429,9 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
     its x-axis readback or else its first one. A monitor has one readback per
     axis: a second address of the same reading is stated under the record's
     ``also``, which this engine never sees. A setpoint (``direction: write``) on ``PolynomB`` or
-    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``.
+    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``; a cavity setpoint
+    carries one of the two (:data:`SUPPLY_FIELDS`): ``cal_offset`` on
+    ``Frequency`` and on ``TimeLag``, ``cal_factor`` on ``Voltage``.
 
     Every element a record that is no monitor reading binds (its ``element``
     or each of its ``slices``) carries ``dx``, ``dy`` and ``roll``; one bound
@@ -483,8 +494,8 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
                     f"{first} and {address} both read {axis} of monitor {element}, which has "
                     f"one reading per axis; state {address} under `also` of {first}'s record"
                 )
-        elif _slot(record, "direction") == "write" and attribute in CALIBRATED_ATTRIBUTES:
-            for field in SUPPLY_IDENTITY:
+        elif _slot(record, "direction") == "write":
+            for field in SUPPLY_FIELDS.get(attribute, ()):
                 declare(address, field, element)
     for element, axes in monitors.items():
         for address in axes.values():
@@ -669,6 +680,7 @@ __all__ = [
     "MISALIGNMENT_BOUNDS",
     "MULTIPOLE_INDICES",
     "READOUT_IDENTITY",
+    "SUPPLY_FIELDS",
     "SUPPLY_IDENTITY",
     "bpm_read",
     "error_elements",

@@ -164,7 +164,12 @@ _INDEX_PLANES: dict[int, str] = {0: "x", 1: "y"}
 
 #: The kind of device an element attribute drives, for the attributes that
 #: are not a strength's polynomial coefficient.
-_ATTRIBUTE_KINDS: dict[str, str] = {"KickAngle": "kick", "Frequency": "rf"}
+_ATTRIBUTE_KINDS: dict[str, str] = {
+    "KickAngle": "kick",
+    "Frequency": "rf",
+    "Voltage": "rf",
+    "TimeLag": "rf",
+}
 
 Deck = str | os.PathLike[str]
 
