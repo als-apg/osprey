@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import LIMIT_BOUNDS, record_writable
+from osprey.facility.validate import LIMIT_BOUNDS, record_missing, record_writable
 from osprey.facility.views import ViewInputs
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 
@@ -64,14 +64,22 @@ def limits_document(records: FacilityRecords) -> dict[str, Any]:
     Returns:
         ``_version`` first, then one entry per limits record, sorted by address.
     """
-    rows = (records.document.get("limits") or {}).get("records") or []
     document: dict[str, Any] = {"_version": LIMITS_VERSION}
+    for address, row, role, value_type in _rows(records):
+        document[address] = _entry(row, role, value_type)
+    return document
+
+
+def _rows(records: FacilityRecords) -> list[tuple[str, Mapping[str, Any], str, str]]:
+    """Each limits record with its channel's role and value type, sorted by address."""
+    rows = (records.document.get("limits") or {}).get("records") or []
+    resolved = []
     for row in sorted(rows, key=lambda row: str(row["address"])):
         address = str(row["address"])
         channel = records.record("channel", address) or {}
         value_type = str(channel.get("value_type") or DEFAULT_VALUE_TYPE)
-        document[address] = _entry(row, str(channel.get("role")), value_type)
-    return document
+        resolved.append((address, row, str(channel.get("role")), value_type))
+    return resolved
 
 
 #: How many addresses a finding lists unless every one is asked for.
@@ -88,9 +96,11 @@ def limits_findings(
     *every*:
     the setpoints with no limits record, which the target serves writable with
     no range when *unlisted_writable* (its limits mode is ``optional``) and
-    refuses otherwise; and the limits records that state one edge of
-    ``min_value`` and ``max_value``, which are served not writable until they
-    state both. A finding with no address is left out.
+    refuses otherwise; and the limits records that serve their setpoint not
+    writable for want of a slot
+    (:func:`~osprey.facility.validate.record_missing`), each line naming the
+    slots its record states and the ones it lacks. A finding with no address
+    is left out.
 
     Args:
         records: The facility file's records.
@@ -107,11 +117,11 @@ def limits_findings(
         for channel in document.get("channels") or []
         if channel.get("role") == "setpoint" and str(channel["id"]) not in rows
     )
-    one_edged = sorted(
-        (address, row)
-        for address, row in rows.items()
-        if (row.get("min_value") is None) != (row.get("max_value") is None)
-    )
+    short = [
+        (address, row, missing)
+        for address, row, role, value_type in _rows(records)
+        if (missing := record_missing(row, role, value_type))
+    ]
     lines: list[str] = []
     if open_setpoints:
         served = (
@@ -121,18 +131,21 @@ def limits_findings(
         )
         lines.append(f"limits: {len(open_setpoints)} setpoints have no limits record; {served}")
         lines.extend(_listed([f"  {address}" for address in open_setpoints], every))
-    if one_edged:
+    if short:
         lines.append(
-            f"limits: {len(one_edged)} limits records state one edge; each is served not "
-            "writable until it states both"
+            f"limits: {len(short)} limits records serve their setpoint not writable; "
+            "stating what each line lacks makes it writable"
         )
-        listed = []
-        for address, row in one_edged:
-            stated = "min_value" if row.get("min_value") is not None else "max_value"
-            missing = "max_value" if stated == "min_value" else "min_value"
-            listed.append(f"  {address}: {stated} {row[stated]}, no {missing}")
-        lines.extend(_listed(listed, every))
+        lines.extend(
+            _listed([_lacking(address, row, missing) for address, row, missing in short], every)
+        )
     return lines
+
+
+def _lacking(address: str, row: Mapping[str, Any], missing: tuple[str, ...]) -> str:
+    stated = [f"{slot} {row[slot]}" for slot in LIMIT_BOUNDS if row.get(slot) is not None]
+    lacks = ["no writable: true" if slot == "writable" else f"no {slot}" for slot in missing]
+    return f"  {address}: " + ", ".join([*stated, *lacks])
 
 
 def _listed(lines: list[str], every: bool) -> list[str]:
