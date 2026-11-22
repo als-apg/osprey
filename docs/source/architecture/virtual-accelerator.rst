@@ -363,7 +363,15 @@ on ``Frequency`` and on ``TimeLag``, ``cal_factor`` on ``Voltage``
 (:ref:`va-rf-setpoints`). A monitor's
 roll turns the beam position in the deck's unit, before the monitor's
 conversion to the unit it publishes, and its offset, gain, noise and polarity
-then act on the published reading.
+then act on the published reading: the offset is subtracted, the polarity
+applied, the noise added and the gain multiplied in, in that order.
+
+A monitor's faults are the monitor's, not one record's. On a turn-by-turn
+ring (:ref:`va-turn-by-turn`) the faults stated on a monitor's orbit reading
+act on its ``turn_x`` and ``turn_y`` arrays through the same chain in the
+same order, sample by sample, so an offset stated once shifts the orbit
+reading and every turn alike. The ``offset`` and ``noise`` values stay in the
+unit the orbit reading publishes; the arrays show them in metres.
 
 Four read-only arrays sit beside them: ``tunes``, ``chromaticity``,
 ``beta_at_monitors`` and ``orbit_at_monitors``, the last two one row per
