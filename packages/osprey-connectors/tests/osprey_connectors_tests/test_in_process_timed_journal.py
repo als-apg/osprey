@@ -8,8 +8,10 @@ a response nor revives one that ended.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -307,3 +309,72 @@ async def test_every_process_ends_a_response_at_the_instant_the_journal_carries(
     assert [await _read(first, STATUS), await _read(second, STATUS)] == [MOVING, MOVING]
     clock.now = written + FOR_S
     assert [await _read(first, STATUS), await _read(second, STATUS)] == [DONE, DONE]
+
+
+# ---------------------------------------------------------------------------
+# Both edges reach a subscriber, through the write and the tick
+# ---------------------------------------------------------------------------
+
+EDGE_TICK_S = 0.05
+EDGE_FOR_S = 0.3
+#: The hang ceiling past the tick that is due to post the falling edge: twenty ticks.
+EDGE_CEILING_S = 20 * EDGE_TICK_S
+
+
+@pytest.fixture
+async def ticking(
+    tmp_path: Path,
+    writes_on: None,  # noqa: ARG001 - a fixture, used for its effect
+) -> Any:
+    """A connector on the real clock, ticking every ``EDGE_TICK_S``."""
+    connector = VAInProcessConnector()
+    await connector.connect(
+        {
+            "simulator_view": str(render(tmp_path, for_s=EDGE_FOR_S, tick_s=EDGE_TICK_S)),
+            "response_delay_ms": 0,
+        }
+    )
+    yield connector
+    await connector.disconnect()
+
+
+async def _edges(connector: VAInProcessConnector) -> tuple[list[object], list[float], float]:
+    """Subscribe to the status, write its command, wait for the falling edge.
+
+    Returns the values the subscriber saw, when each arrived, and when the
+    write began, in ``time.monotonic`` seconds.
+    """
+    seen: list[object] = []
+    arrived: list[float] = []
+    done = asyncio.Event()
+
+    def callback(reading: Any) -> None:
+        seen.append(reading.value)
+        arrived.append(time.monotonic())
+        if len(seen) == 3:
+            done.set()
+
+    await connector.subscribe(STATUS, callback)
+    assert seen == [DONE], "the current value, sent on subscribing"
+    written = time.monotonic()
+    await connector.write_channel(MOVE, 1, confirm=False)
+    assert seen == [DONE, MOVING], "the rising edge, sent with the write"
+    await asyncio.wait_for(done.wait(), timeout=EDGE_FOR_S + EDGE_TICK_S + EDGE_CEILING_S)
+    return seen, arrived, written
+
+
+@pytest.mark.wallclock
+async def test_a_subscriber_sees_the_idle_then_the_non_idle_then_the_idle_edge(
+    ticking: VAInProcessConnector,
+) -> None:
+    seen, arrived, written = await _edges(ticking)
+
+    assert seen == [DONE, MOVING, DONE]
+    assert EDGE_FOR_S <= arrived[2] - written <= EDGE_FOR_S + EDGE_TICK_S + EDGE_CEILING_S
+
+
+@pytest.mark.wallclock
+async def test_a_read_agrees_with_the_last_edge(ticking: VAInProcessConnector) -> None:
+    seen, _arrived, _written = await _edges(ticking)
+
+    assert await _read(ticking, STATUS) == seen[-1] == DONE
