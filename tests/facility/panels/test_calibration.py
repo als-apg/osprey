@@ -357,7 +357,8 @@ def test_a_cell_of_several_live_numbers_is_as_tall_as_its_lines(panel_graph) -> 
             for b in boxes
         ), f
     legend = next(n for n in nodes(doc) if n["props"].get("text") == "design only")
-    assert legend["geometry"]["y"] >= max(f["y"] + f["height"] for f in fields)
+    g = legend["geometry"]  # on the count line over the cells, never among them
+    assert g["y"] + g["height"] <= min(f["y"] for f in fields)
 
 
 def test_a_long_basis_and_date_wrap_whole_instead_of_being_cut(panel_graph) -> None:

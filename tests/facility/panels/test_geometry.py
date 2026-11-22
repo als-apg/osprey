@@ -353,12 +353,67 @@ def test_conditions_several_calibration_rows_share_are_stated_once_under_them(pa
     texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
     words = " ".join(n["props"]["text"] for n in texts)
     assert words.count("support frame") == 1  # once, not per row
-    assert "Roll, Yaw: in the support frame" in words
+    assert "Roll, Yaw" not in words  # the marks point at the rows: titles not said again
     assert "at 20 C" in words  # a row's own conditions stay with it
     gain = next(n for n in texts if n["props"]["text"] == "Gain")
-    shared = next(n for n in texts if n["props"]["text"].startswith("Roll, Yaw:"))
+    shared = next(n for n in texts if n["props"]["text"].startswith("in the support frame"))
     assert shared["geometry"]["y"] > gain["geometry"]["y"]  # under the rows
     assert not any(n["props"]["text"].endswith("…") for n in texts if "frame" in n["props"]["text"])
+
+
+def test_shared_conditions_stand_apart_under_a_rule_tied_to_their_rows_by_a_mark(panel_graph):
+    """The shared line must not read as the last row's note: half a row of space and
+    a thin rule set it off, and a reference mark, readable at the card's small size,
+    follows the title of every row it holds for and starts the line; a second shared
+    text gets the next mark."""
+    from osprey.facility.panels.view import CalibrationRow, Calibrations, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    def row(title: str, conditions: str | None) -> CalibrationRow:
+        return CalibrationRow(
+            title, conditions, "0.1 mrad", None, "stated", "stated", False, None, None, None
+        )
+
+    frame, warm = "in the support frame", "at 20 C"
+    rows = (row("Roll", frame), row("Gain", warm), row("Yaw", frame), row("Offset", warm))
+    rows += (row("Tilt", "alone"),)
+    view = View(
+        Target("card", "device", "XR01:PS1"), "XR01:PS1", (),
+        (Section("calibration", (Calibrations(rows),)),),
+    )  # fmt: skip
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
+
+    def at(text: str) -> dict[str, Any]:
+        return next(n for n in texts if n["props"]["text"] == text)
+
+    marks = {m: [n for n in texts if n["props"]["text"] == m] for m in ("1", "2")}
+    for mark, titles in (("1", ("Roll", "Yaw")), ("2", ("Gain", "Offset"))):
+        assert len(marks[mark]) == len(titles) + 1  # after each title, and at its line
+        for title in titles:
+            g = at(title)["geometry"]
+            assert any(
+                m["geometry"]["y"] == g["y"] and m["geometry"]["x"] > g["x"] for m in marks[mark]
+            )
+        assert all(m["props"]["fontSize"] >= layout.SMALL_SIZE for m in marks[mark])
+    first = at(frame)  # the text alone: its mark points at its rows
+    second = at(warm)
+    assert first["geometry"]["y"] < second["geometry"]["y"]  # in the order the rows state
+    line_mark = max(marks["1"], key=lambda m: m["geometry"]["y"])
+    assert line_mark["geometry"]["y"] == first["geometry"]["y"]
+    assert line_mark["geometry"]["x"] < first["geometry"]["x"]
+    assert "alone" in " ".join(n["props"]["text"] for n in texts)  # its own row keeps it
+    last = max(
+        n["geometry"]["y"] + n["geometry"]["height"]
+        for n in texts
+        if n["geometry"]["y"] < first["geometry"]["y"] - layout.ROW_GAP
+    )
+    rules = [
+        n for n in _nodes(doc["root"])
+        if n["type"] == "line" and last <= n["geometry"]["y"] <= first["geometry"]["y"]
+    ]  # fmt: skip
+    (rule,) = rules  # one thin rule between the rows and the shared lines
+    assert rule["geometry"]["y"] - last >= (layout.ROW + layout.ROW_GAP) / 2
 
 
 def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
@@ -525,3 +580,135 @@ def test_frames_pair_only_with_their_own_role(screens, panel_graph):
     view = channel_list(panel_graph, "XR01:PS1")
     unstated = [s for s in view.sections if s.grouping is None]
     assert all(view.sections.index(s) >= len(view.sections) - len(unstated) for s in unstated)
+
+
+def _texts_at(doc: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    found: dict[str, list[dict[str, Any]]] = {}
+    for node in _nodes(doc["root"]):
+        text = node["props"].get("text") or node["props"].get("label")
+        if isinstance(text, str):
+            found.setdefault(text, []).append(node)
+    return found
+
+
+def test_one_short_row_of_chips_shares_its_caption_s_line(screens):
+    """A section of chips that fit beside their caption is one line high."""
+    seen = 0
+    for doc in screens.values():
+        texts = _texts_at(doc)
+        for caption in ("SETS", "CALIBRATION"):
+            for head in texts.get(caption, []):
+                y = head["geometry"]["y"]
+                beside = [
+                    n
+                    for n in _nodes(doc["root"])
+                    if n["type"] == "rectangle"
+                    and n["props"].get("actions")
+                    and n["geometry"]["x"] > head["geometry"]["x"] + head["geometry"]["width"]
+                    and abs(n["geometry"]["y"] - y) < layout.ROW
+                ]
+                seen += bool(beside)
+    assert seen >= 3  # the fixture's sets and calibration chips
+
+
+def test_a_count_shares_its_heading_s_line(screens):
+    for name in ("set/set-xr-quad", "calibration/calibration-xr-quad-centre"):
+        doc = screens[f"{name}.screen.json"]
+        texts = _texts_at(doc)
+        (head,) = texts["MEMBERS"]
+        count = next(
+            n for t, ns in texts.items() if t.endswith("ROWS") or " ROWS · " in t for n in ns
+        )
+        assert count["geometry"]["y"] == head["geometry"]["y"], name
+        assert count["props"]["foregroundColor"] == head["props"]["foregroundColor"]  # muted
+
+
+def test_a_one_line_legend_sits_on_the_line_it_explains(screens):
+    doc = screens["calibration/calibration-xr-quad-centre.screen.json"]
+    texts = _texts_at(doc)
+    (head,) = texts["MEMBERS"]
+    for word in ("design only", "surveyed"):
+        assert texts[word][0]["geometry"]["y"] == head["geometry"]["y"]
+
+
+def test_a_strip_with_nothing_placed_draws_no_legend_of_looks(panel_graph):
+    from osprey.facility.panels.view import TrayEntry
+    from tests.facility.panels._views import strip_view, stub_render
+
+    doc = stub_render(
+        strip_view([], (TrayEntry("XR01:QF1", None, "no position", None),)), panel_graph
+    )
+    assert not any(layout._LOOKS_LEGEND == t for t in _texts_at(doc))
+
+
+def test_the_header_names_the_page_once(screens):
+    twice = {}
+    for name, doc in screens.items():
+        words = [
+            n["props"].get("text") or n["props"].get("label")
+            for n in _nodes(doc["root"])
+            if n["geometry"]["y"] < layout.HEADER_HEIGHT
+            and n["type"] in ("text-label", "pv-button")
+        ]
+        words = [w for w in words if w and w != "›" and not w.startswith("model ")]
+        repeated = {w for w in words if words.count(w) > 1}
+        if repeated:
+            twice[name] = repeated
+    assert twice == {}
+
+
+def _items(doc: dict[str, Any]) -> dict[str, dict[int, tuple[float, float, float, float]]]:
+    """Per item kind, per stated order: the box its widgets take (x0, y0, x1, y1)."""
+    found: dict[str, dict[int, tuple[float, float, float, float]]] = {}
+    for node in _nodes(doc["root"]):
+        comment = (node.get("meta") or {}).get("comment", "")
+        tags = dict(t.split(": ", 1) for t in comment.split("; ") if ": " in t)
+        if "item" not in tags or "order" not in tags:
+            continue
+        g = node["geometry"]
+        box = (g["x"], g["y"], g["x"] + g["width"], g["y"] + g["height"])
+        held = found.setdefault(tags["item"], {}).get(int(tags["order"]))
+        if held is not None:
+            box = (min(held[0], box[0]), min(held[1], box[1]),
+                   max(held[2], box[2]), max(held[3], box[3]))  # fmt: skip
+        found[tags["item"]][int(tags["order"])] = box
+    return found
+
+
+def test_items_read_in_the_order_their_view_states(screens):
+    """Every widget of a view item names it (kind, and its order where the view
+    states one); the items read on the screen in that order along the way their
+    kind reads (:data:`layout.ITEM_TAGS`): across, left to right and on in rows
+    below; down, top to bottom and on in columns to the right."""
+    wrong, seen = [], set()
+    for name, doc in screens.items():
+        for kind, boxes in _items(doc).items():
+            assert kind in layout.ITEM_TAGS, kind
+            seen.add(kind)
+            ordered = [boxes[k] for k in sorted(boxes)]
+            for i in range(1, len(ordered)):
+                before, done = ordered[i - 1], ordered[:i]
+                x0, y0 = ordered[i][0], ordered[i][1]
+                if layout.ITEM_TAGS[kind] == "across":
+                    on = x0 > before[0] or y0 >= max(b[3] for b in done) - 0.01
+                else:
+                    on = (
+                        y0 > before[1]
+                        or (y0 == before[1] and x0 > before[0])
+                        or x0 >= max(b[2] for b in done) - 0.01
+                    )
+                if not on:
+                    wrong.append((name, kind))
+    assert wrong == []
+    assert {"key-tile", "chain-block", "grid-row", "rack-unit", "strip-element"} <= seen
+
+
+def test_item_tags_are_no_part_of_a_drawing():
+    from osprey.facility.panels.emit import _without_meta
+
+    plain = {"root": {"children": [{"id": "w-0001", "props": {}}]}, "metadata": {}}
+    tagged = {"root": {"children": [{"id": "w-0001", "props": {}, "meta": {"comment": "item: x"}}]},
+              "metadata": {}}  # fmt: skip
+    assert _without_meta(plain, "0") == _without_meta(tagged, "0")
+    with pytest.raises(ValueError, match="no item kind"):
+        layout.item_tags("no-such-kind")

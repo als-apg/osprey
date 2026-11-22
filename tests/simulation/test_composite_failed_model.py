@@ -27,7 +27,6 @@ from lume.variables import ScalarVariable, StrVariable, Variable
 from lume_pyat.exceptions import OrbitSolveError
 
 from osprey.cli.sim import sim_group
-from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
@@ -36,6 +35,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, Composite
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 from osprey_connectors.simulation.view import SCHEMAS
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests._by_path import load_module
@@ -348,7 +348,7 @@ def stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     real = importlib.metadata.entry_points
 
     def entry_points(**selection: Any) -> Any:
-        if selection == {"group": ENTRY_POINT_GROUP, "name": "stub"}:
+        if selection == {"group": ENGINE_GROUP, "name": "stub"}:
             return [SimpleNamespace(load=lambda: STUB)]
         return real(**selection)
 
