@@ -2692,3 +2692,36 @@ def test_a_device_with_two_own_channels_of_a_role_gets_no_default_tile_for_it(tm
     tiles = _default_tiles(graph, "XR01:IP1")
     assert all(channel not in own for _title, channel in tiles)  # two are no single figure
     assert ("State", "XR01-IP1:State-Sts") in tiles  # a role of one own channel still is
+
+
+def test_short_control_rows_use_the_width_in_columns(panel_graph) -> None:
+    """Rows that end at their button stand side by side in as many columns as fit
+    the panel, filled downward, each on the panel's columns moved over; an
+    entry's rows stand one under the other."""
+    from dataclasses import replace
+
+    from osprey.facility.panels.view import Control, ControlGroup, Operate
+
+    presses = tuple(
+        Control(f"Reset {i}", f"XR01-PS1:Reset{i}-Cmd", press_value=1.0) for i in range(1, 7)
+    )
+    operate = Operate((ControlGroup("action", "reset", presses, ""),))
+    card = device_card(panel_graph, "XR01:PS1")
+    sections = tuple(
+        replace(s, items=(operate,)) if any(isinstance(i, Operate) for i in s.items) else s
+        for s in card.sections
+    )
+    assert sections != card.sections  # the card has an operate block to replace
+    doc = stub_render(replace(card, sections=sections), panel_graph)
+    buttons = [
+        n["geometry"] for n in _by_type(doc, "pv-button")
+        if str(n["props"].get("label", "")).startswith("Reset")
+    ]  # fmt: skip
+    assert len(buttons) == 6
+    xs = sorted({g["x"] for g in buttons})
+    ys = sorted({g["y"] for g in buttons})
+    assert 2 <= len(xs) <= layout.CONTROL_COLUMNS_MOST  # side by side
+    assert len(ys) == -(-6 // len(xs))  # filled downward, balanced
+    first = sorted(buttons, key=lambda g: (g["x"], g["y"]))
+    assert [g["y"] for g in first[: len(ys)]] == ys  # the first column read down first
+    assert max(g["x"] + g["width"] for g in buttons) <= layout.MARGIN + layout.STRIP_WIDTH

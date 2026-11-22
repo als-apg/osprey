@@ -277,6 +277,7 @@ CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
 CONTROL_TAG_HEIGHT = 18
 CONTROL_NAME_MOST = 220  # an operate row's name column at the widest
+CONTROL_COLUMNS_MOST = 3  # short operate rows (actions, read-only) side by side at the most
 TITLE_ROOM = 200  # what a panel's title keeps of its line when a legend joins it
 GRID_ROW = ROW + ROW_GAP
 GRID_VALUE = 100
@@ -3608,10 +3609,34 @@ class _Page:
             if self.gridded(group):
                 self.entry_grid(group)  # many of one role: a grid, not a long list
                 continue
-            for control, name in self.control_rows(group):
-                self.control_row(group, control, name, columns)
+            self.control_block(group, columns)
             # what the group writes, under its rows from the names on, never cut
             self.writes_line(group, STRIP_WIDTH - (columns.name - self.x0), columns.name)
+
+    def control_block(self, group: ControlGroup, at: _ControlColumns) -> None:
+        """A group's rows. Rows that end at their button or value (actions, read-only
+        values) use the width: as many columns of rows, side by side, as fit the
+        panel, up to :data:`CONTROL_COLUMNS_MOST`, filled downward, each column on
+        the panel's columns moved over; an entry's or a choice's rows run on to
+        the right and stand one under the other."""
+        rows = self.control_rows(group)
+        short = group.kind in ("action", WITHHELD)
+        width = at.hint - at.badge  # a short row ends at its button
+        fit = int((STRIP_WIDTH + COLUMN_GAP) // (width + COLUMN_GAP)) if short else 1
+        columns = max(1, min(fit, CONTROL_COLUMNS_MOST, len(rows)))
+        per = -(-len(rows) // columns)
+        top, foot = self.y, self.y
+        for k, (control, name) in enumerate(rows):
+            dx = (k // per) * (width + COLUMN_GAP)
+            if not k % per:
+                self.y = top
+            moved = _ControlColumns(
+                at.badge + dx, at.name + dx, at.name_w, at.now + dx, at.value + dx,
+                at.live_w, at.box + dx, at.hint + dx,
+            )  # fmt: skip
+            self.control_row(group, control, name, moved)
+            foot = max(foot, self.y)
+        self.y = foot
 
     @staticmethod
     def gridded(group: ControlGroup) -> bool:
