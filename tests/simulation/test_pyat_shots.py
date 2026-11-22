@@ -600,6 +600,38 @@ class TestAnotherRing:
 
 
 #: BPM01's orbit readings, published in millimetres over a deck in metres.
+class TestElementApertures:
+    """An ``apertures`` item is written on the deck a shot is tracked through."""
+
+    @staticmethod
+    def _sum(demo: dict[str, Any], apertures: list[dict[str, Any]]) -> np.ndarray:
+        settings = _settings(demo)
+        settings["pyat"]["turn_by_turn"].update(
+            launch={"x": 2.0e-3}, aperture={"x": 0.05, "y": 0.05}, apertures=apertures
+        )
+        model = engine.build(MODEL, [*demo["wiring"], *_turn_records()], demo["deck"], settings, {})
+        engine.advance(model, 0.0)
+        _baselined(model)
+        _arm(model, ARM_1)
+        _deliver(model, 11.0)
+        return np.asarray(_value(model, SUM_1))[TRIGGER:]
+
+    def test_the_sum_falls_where_an_elements_aperture_cuts_the_beam(self, demo):
+        kept = self._sum(demo, [])
+        cut = self._sum(
+            demo,
+            [{"class": "Quadrupole", "shape": "rectangular", "x": [-0.01, 0.001], "y": 0.01}],
+        )
+        assert np.all(kept > 0.5)
+        # The first monitor reads turn 1 before the beam meets a quadrupole.
+        assert np.all(cut[1:] < 0.5 * kept[1:])
+
+    def test_a_later_item_wins_on_the_elements_both_select(self, demo):
+        tight = {"class": "Quadrupole", "shape": "rectangular", "x": [-0.01, 0.001], "y": 0.01}
+        wide = {"class": "Quadrupole", "x": 0.05, "y": 0.05}
+        np.testing.assert_array_equal(self._sum(demo, [tight, wide]), self._sum(demo, []))
+
+
 POSITION_X_1 = "SR:DIAG:BPM:01:POSITION:X"
 POSITION_Y_1 = "SR:DIAG:BPM:01:POSITION:Y"
 MM = 1.0e-3

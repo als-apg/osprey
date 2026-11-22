@@ -876,9 +876,14 @@ plain float.
        coordinate left out is ``0``, but for ``x`` and ``y``.
    * - ``aperture``
      - none
-     - ``{x, y, shape}``: positive half-axes in metres, both required, and
-       ``elliptical`` (the default) or ``rectangular``; set on every element
-       with a length.
+     - The ring's aperture, ``{x, y, shape}``: ``elliptical`` (the default)
+       or ``rectangular``, with ``x`` and ``y`` both required, each a positive
+       half-axis in metres. A rectangle may state a plane as a ``[low, high]``
+       pair of limits instead. Set on every element with a length.
+   * - ``apertures``
+     - none
+     - The apertures of single elements, a list of items read in order; see
+       *Apertures per element* below.
    * - ``sum_per_charge``
      - ``1.0``
      - Sum per unit of the shot's charge.
@@ -904,10 +909,59 @@ plain float.
      - ``1.0``
      - Pilot-tone spike size.
 
-Every number but ``launch``, and ``alpha`` and ``dispersion`` in ``twiss``, is
-finite and not negative; an unknown key, also inside ``launch``, ``jitter``,
-``twiss``, ``mismatch`` or ``aperture``, stops the build. The apertures
-decide when an RF-off bunch is lost; they are the facility's to calibrate.
+Every number but ``launch``, ``alpha`` and ``dispersion`` in ``twiss``, and a
+rectangle's limits is finite and not negative; an unknown key, also inside
+``launch``, ``jitter``, ``twiss``, ``mismatch``, ``aperture`` or an
+``apertures`` item, stops the build. The apertures decide when an RF-off bunch
+is lost; they are the facility's to calibrate.
+
+**Apertures per element.** A vacuum chamber is not one pipe: it narrows in the
+bends and opens to one side at a septum. ``aperture`` states the ring's
+chamber, and each ``apertures`` item states the chamber of the elements it
+selects, in the same ``shape``, ``x`` and ``y``:
+
+.. code-block:: yaml
+
+   - name: RING
+     settings:
+       pyat:
+         turn_by_turn:
+           injection_element: INJ_POINT
+           aperture: {x: 0.012, y: 0.012}
+           apertures:
+             - {class: Dipole, x: 0.018, y: 0.005}
+             - {s: [3.2, 9.6], x: 0.020, y: 0.005}
+             - {element: SEPT, shape: rectangular, x: [-0.020, 0.006], y: 0.010}
+
+An item selects by exactly one key:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Key
+     - The elements it selects
+   * - ``class``
+     - Every element of that pyAT class, subclasses included, that has a
+       length: ``Dipole``, ``Quadrupole``, ``Sextupole``, ``Drift``.
+   * - ``element``
+     - Every deck element of that name, also one without a length.
+   * - ``s``
+     - ``[from, to]`` in metres from the deck's first element: every element
+       with a length whose midpoint lies in the range.
+
+An element takes the last item that selects it, and the ring's ``aperture``
+where no item does, so the list reads from general to specific. With no
+``aperture``, an element no item selects keeps what the deck states. An item
+that selects nothing in the deck stops the build, as does a class pyAT does
+not have or a range that ends beyond the deck.
+
+The tracker checks an aperture at the element's entrance and exit, in the
+element's own frame. So the chamber moves and rolls with an element a scenario
+misaligns: a quadrupole displaced by 1 mm carries its opening 1 mm with it. An
+element that takes no misalignment, a drift for one, keeps its chamber on the
+design axis. A cavity checks no aperture; state the chamber of the drifts
+beside it.
 
 **The injected beam.** A shot launches one bunch in six dimensions, in
 pyAT's coordinates: ``x`` and ``y`` in metres, ``px`` and ``py`` in radians,
@@ -1064,7 +1118,9 @@ same in every run.
 
 **Cost.** Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
-0.13 ms per particle and turn, growing with the deck. During it a read
+0.13 ms per particle and turn, growing with the deck. Apertures per element
+add nothing measurable to it: the tracker checks every element's opening
+either way. During it a read
 answers at once with the last posted value; a write, a model RPC call and a
 response-matrix request wait until it ends and are then served, never
 refused. A client timeout shorter than the tracking is the client's.
