@@ -1326,6 +1326,12 @@ holds <code class="docutils literal notranslate"><span class="pre">0</span></cod
 <span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">stored</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:TURNS</span>
 <span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turns_tracked</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:SURVIVED</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turns_survived</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:REACHED</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">monitors_reached</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:STATUS</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">shot_status</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:ARM</span>
 <span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
 <span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">arm</span><span class="p p-Indicator">}</span>
@@ -1355,8 +1361,9 @@ monitor <code class="docutils literal notranslate"><span class="pre">element</sp
 <li><p><code class="docutils literal notranslate"><span class="pre">armed</span></code>: whether that monitor waits for a shot.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">turn_x</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_y</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code>: the monitor’s arrays, positions in
 metres and the sum signal.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>: the turns the last shot tracked, the ring’s; it names no
-element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>, <code class="docutils literal notranslate"><span class="pre">turns_survived</span></code>, <code class="docutils literal notranslate"><span class="pre">monitors_reached</span></code>,
+<code class="docutils literal notranslate"><span class="pre">shot_status</span></code>: the ring’s read-outs of its last shot, each optional; see
+<em>The shot’s outcome</em> below. They name no element.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>: <code class="docutils literal notranslate"><span class="pre">0</span></code> sets every cavity’s voltage to zero, anything else
 restores the voltages the cavities had, or the one a voltage setpoint
 (<a class="reference internal" href="#va-rf-setpoints"><span class="std std-ref">RF setpoints</span></a>) commanded meanwhile. It starts at <code class="docutils literal notranslate"><span class="pre">1</span></code> and names
@@ -1661,14 +1668,15 @@ disarms it, and arming an armed monitor changes nothing. <code class="docutils l
 what was written; <code class="docutils literal notranslate"><span class="pre">armed</span></code> is the state.</p></li>
 <li><p>A restore, a scenario’s start state and a write a <code class="docutils literal notranslate"><span class="pre">stuck</span></code> or
 <code class="docutils literal notranslate"><span class="pre">disconnected</span></code> fault holds never arm.</p></li>
-<li><p>A shot reaches the armed monitors only. Their arrays and <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>
-are posted, then their <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops to <code class="docutils literal notranslate"><span class="pre">0</span></code>; every other monitor keeps
+<li><p>A shot reaches the armed monitors only. Their arrays and the shot’s
+read-outs are posted, then their <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops to <code class="docutils literal notranslate"><span class="pre">0</span></code>; every other monitor keeps
 its arrays. A shot with no monitor armed changes nothing.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">armed</span></code> at <code class="docutils literal notranslate"><span class="pre">0</span></code> guarantees the shot’s arrays are already served, on
 Channel Access and PVAccess both, so a client may time a shot on <code class="docutils literal notranslate"><span class="pre">armed</span></code>
 alone. A shot that arrives before the drop finds those monitors unarmed.</p></li>
 <li><p>A reset or a scenario change returns every monitor to unarmed, every array
-to zeros and <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code> to <code class="docutils literal notranslate"><span class="pre">0</span></code>, and is not mistaken for a shot.</p></li>
+to zeros and every read-out of the shot to <code class="docutils literal notranslate"><span class="pre">0</span></code>, and is not mistaken for a
+shot.</p></li>
 </ul>
 <p><strong>Shots.</strong></p>
 <ul class="simple">
@@ -1677,15 +1685,71 @@ more than one between two passes tracks once, with the latest charge. A
 counter that falls is not a shot.</p></li>
 <li><p>A zero-charge shot is still a shot: the arrays read the floor, the noise
 and any stored beam, and <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops.</p></li>
-<li><p>A tracking that fails leaves the armed monitors’ arrays at zeros and
+<li><p>A shot that is not tracked leaves the armed monitors’ arrays at zeros and
 <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code> at <code class="docutils literal notranslate"><span class="pre">0</span></code>; <code class="docutils literal notranslate"><span class="pre">armed</span></code> still drops and the ring keeps
-serving.</p></li>
+serving. <code class="docutils literal notranslate"><span class="pre">shot_status</span></code> says why, below.</p></li>
 <li><p>With the RF off the ring has no closed orbit: its orbit readings read NaN
 and its settings stay writable. The stored beam adds nothing to the sum, so
 the samples before the trigger read the floor, and a bunch with declared
 apertures is lost within some hundred turns. On a radiating ring
 (<a class="reference internal" href="#va-radiation"><span class="std std-ref">A radiating ring</span></a>) it also loses energy every turn.</p></li>
 </ul>
+<p><strong>The shot’s outcome.</strong> Four records of the ring, posted with the arrays, say
+what became of the last shot that reached an armed monitor. All are <code class="docutils literal notranslate"><span class="pre">0</span></code> at
+the start and after a reset.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>: the turns the shot was tracked for: the block’s
+<code class="docutils literal notranslate"><span class="pre">turns</span></code> for a tracked shot, whatever became of the beam, and <code class="docutils literal notranslate"><span class="pre">0</span></code> for a
+shot that was not tracked. It does not say the beam survived.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">turns_survived</span></code>: the last turn on which at least one particle was alive
+at the last monitor, counting turns from 1. The last monitor is, of the
+monitors that read the shot, the one the beam meets last on its way round
+from the injection element. <code class="docutils literal notranslate"><span class="pre">0</span></code> is a beam that never reached it; the
+block’s <code class="docutils literal notranslate"><span class="pre">turns</span></code> is a beam still there at the end. A lost particle stays
+lost, so the beam reached that monitor on every turn up to this one.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">monitors_reached</span></code>: how many of the monitors that read the shot saw at
+least one particle alive on the first turn. The beam meets them in ring
+order from the injection element, so with <code class="docutils literal notranslate"><span class="pre">turns_survived</span></code> at <code class="docutils literal notranslate"><span class="pre">0</span></code> the
+beam was lost between the monitor of that number and the next.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">shot_status</span></code>: how the shot ended.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 90.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Value</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>No shot since the start or the last reset.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
+<td><p>Tracked and read out. The beam may still be lost: read
+<code class="docutils literal notranslate"><span class="pre">turns_survived</span></code> and <code class="docutils literal notranslate"><span class="pre">monitors_reached</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
+<td><p>Not set up: the bunch could not be built from the ring’s state and
+settings, so nothing was tracked. A mismatch factor that is not above
+<code class="docutils literal notranslate"><span class="pre">0</span></code> does this, and so does a bunch to match to the ring’s own optics
+(a <code class="docutils literal notranslate"><span class="pre">twiss</span></code> block that leaves a function out) on a ring that has no
+periodic optics just then. The reason is logged as a warning.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">3</span></code></p></td>
+<td><p>An unexpected error in the tracking or the read-out: a defect, not
+the beam. It is logged as an error with its traceback.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</li>
+</ul>
+<p>With <code class="docutils literal notranslate"><span class="pre">2</span></code> and <code class="docutils literal notranslate"><span class="pre">3</span></code> the arrays are zeros and the other three records <code class="docutils literal notranslate"><span class="pre">0</span></code>.
+Both are logged under <code class="docutils literal notranslate"><span class="pre">simulation_turn_by_turn</span></code>, naming the model and the
+shot. All four count over the monitors that read the shot: arm every monitor
+to have them speak for the whole ring.</p>
 <p><strong>Cost.</strong> Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
 0.13 ms per particle and turn, growing with the deck. Apertures per element

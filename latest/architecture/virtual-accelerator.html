@@ -672,8 +672,12 @@ current refreshes <code class="docutils literal notranslate"><span class="pre">f
 too. It reads a chain’s shot counter, charge and stored current as model
 inputs; a rise of the counter outside a baseline is a shot, which the next
 advance tracks through the deck for the monitors a client write armed. The
-arrays and turns tracked are emitted in one advance and <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops in a
-later one, so a client sees the arrays before <code class="docutils literal notranslate"><span class="pre">armed</span></code> reads <code class="docutils literal notranslate"><span class="pre">0</span></code>. Its
+arrays and the shot’s read-outs (the turns tracked, the turns survived, the
+monitors reached and the shot’s status) are emitted in one advance and
+<code class="docutils literal notranslate"><span class="pre">armed</span></code> drops in a later one, so a client sees the arrays before <code class="docutils literal notranslate"><span class="pre">armed</span></code>
+reads <code class="docutils literal notranslate"><span class="pre">0</span></code>. A shot that cannot be tracked completes the same handshake: its
+status says whether the bunch could not be set up or an unexpected error was
+raised, and the cause is logged. Its
 outputs refresh <code class="docutils literal notranslate"><span class="pre">event</span></code> and its settings <code class="docutils literal notranslate"><span class="pre">pass</span></code>. Tracking runs inside the
 advance and holds the serving loop for its length, a read answering from the
 last post meanwhile. Such a ring without a closed orbit, as with its RF
