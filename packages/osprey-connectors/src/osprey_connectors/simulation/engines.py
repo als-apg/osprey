@@ -39,10 +39,16 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
     from lume.model import LUMEModel
+
+#: A value the engine contract leaves to the engine: the deck, settings and
+#: wiring an engine reads, and the facility records it is handed. The package
+#: names its open values ``osprey_connectors._contract_types.ContractAny``, but
+#: this module stays stdlib-only, so its one open value is named here.
+_EngineAny: TypeAlias = Any  # type: ignore[explicit-any]
 
 __all__ = [
     "ENGINE_GROUP",
@@ -209,38 +215,42 @@ class EnginePlugin(Protocol):
     name of this table.
     """
 
-    def locate(self, deck: Any, element: str, *, model: str | None = None) -> tuple[float, float]:
+    def locate(
+        self, deck: _EngineAny, element: str, *, model: str | None = None
+    ) -> tuple[float, float]:
         """An element's entrance and length along the deck."""
         ...
 
-    def prepare(self, deck: Any, settings: Any, *, model: str | None = None) -> Any:
+    def prepare(
+        self, deck: _EngineAny, settings: _EngineAny, *, model: str | None = None
+    ) -> _EngineAny:
         """The model's settings, checked against the deck and normalised once."""
         ...
 
     def start_values(
         self,
-        deck: Any,
-        wiring: Any,
-        settings: Any,
+        deck: _EngineAny,
+        wiring: _EngineAny,
+        settings: _EngineAny,
         *,
         readbacks: Mapping[str, str | None] | None = None,
         value_types: Mapping[str, str] | None = None,
-        shapes: Mapping[str, Any] | None = None,
-    ) -> Mapping[str, Any]:
+        shapes: Mapping[str, _EngineAny] | None = None,
+    ) -> Mapping[str, _EngineAny]:
         """Each wired channel's operating point, derived from the deck."""
         ...
 
-    def describe(self, wiring_record: Any) -> Mapping[str, Any]:
+    def describe(self, wiring_record: _EngineAny) -> Mapping[str, _EngineAny]:
         """What a wiring record is: its engine_role, plane and refresh, and any marks."""
         ...
 
     def build(
         self,
         model: str,
-        wiring: Any,
-        deck: Any,
-        settings: Any,
-        active: Mapping[str, Any] = ...,
+        wiring: _EngineAny,
+        deck: _EngineAny,
+        settings: _EngineAny,
+        active: Mapping[str, _EngineAny] = ...,
     ) -> LUMEModel:
         """The LUME model that serves one model's wiring over its deck."""
         ...
@@ -281,7 +291,7 @@ class Table:
 Calibration = Linear | Table
 
 
-def field(record: Any, name: str) -> Any:
+def field(record: _EngineAny, name: str) -> _EngineAny:
     """Return one field of a record read by key or by attribute.
 
     Args:
@@ -298,7 +308,7 @@ def field(record: Any, name: str) -> Any:
     return getattr(record, name, None)
 
 
-def curve_from_record(curve: Any) -> Calibration | None:
+def curve_from_record(curve: _EngineAny) -> Calibration | None:
     """Turn a facility-file curve into a :data:`Calibration`.
 
     Args:
