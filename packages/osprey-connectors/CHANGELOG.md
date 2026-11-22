@@ -20,26 +20,6 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
-## [2026.11.15] - 2026-11-21
-
-### Added
-
-- `EPICSConnector` exposes `selected_gateway_role` and `write_gateway_configured`, read-only properties for the gateway role `connect()` selected and whether a write gateway is configured. (#2314)
-- The simulated composite serves each further address a wiring record states
-  under `also` as the record's `address`: one value at one instant for a read,
-  and a write to either writes the record. `Binding.also`, `Binding.addresses`
-  and `SimulatorView.record_address` name them.
-
-### Changed
-
-- **Breaking change:** simulation engines register under the entry-point group
-  `osprey_connectors.simulation.engines`, which replaces
-  `osprey.simulation.engines`; the old group is no longer read. Framework
-  2026.11.0 registers its engines only under the old group, so it moves from
-  the supported to the retired framework releases in the compatibility table,
-  with this break recorded as the reason. A framework patch release registers
-  the new group.
-
 ## [2026.11.14] - 2026-11-19
 
 ### Added
