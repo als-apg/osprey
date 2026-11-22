@@ -2820,6 +2820,51 @@ def test_numbered_actions_stand_in_number_order(tmp_path) -> None:
     assert channels == [f"XR01-PS1:BO{k}-Cmd" for k in (0, 1, 2, 10, 11)]
 
 
+def test_a_device_s_channels_and_its_card_rows_stand_in_number_order(tmp_path) -> None:
+    """The channels of a thing come by name, numbers by value, so every list drawn
+    from them (the channel grid, a role's rows, a block's lines) reads 2 before 10."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import ChannelGrid
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def words(document) -> None:
+        for k in (1, 10, 11, 2, 3):
+            document["channels"].append({"id": f"XR01-PS1:Word{k}", "on": {"device": "XR01:PS1"}})
+
+    tables = copy_tables(tmp_path / "panels")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", words), tables)
+    numbered = [c.name for c in graph.channels("XR01:PS1") if "Word" in c.name]
+    assert numbered == [f"XR01-PS1:Word{k}" for k in (1, 2, 3, 10, 11)]
+    (grid,) = [
+        i for s in device_card(graph, "XR01:PS1").sections for i in s.items
+        if isinstance(i, ChannelGrid)
+    ]  # fmt: skip
+    listed = [channel for _short, channel in grid.rows if "Word" in channel]
+    assert listed == numbered
+
+
+def test_groups_of_one_kind_that_follow_each_other_carry_one_tag(panel_graph) -> None:
+    """Two entry groups, each with its line of what it writes, are one run: the
+    kind's tag stands once, at its head; each group keeps its own rows."""
+    from dataclasses import replace
+
+    from osprey.facility.panels.view import Control, ControlGroup, Operate
+
+    groups = tuple(
+        ControlGroup("entry", role, (Control(role, f"XR01-PS1:{role}-SP"),), f"writes {role}")
+        for role in ("Low", "High")
+    )
+    card = device_card(panel_graph, "XR01:PS1")
+    sections = tuple(
+        replace(s, items=(Operate(groups),)) if any(isinstance(i, Operate) for i in s.items) else s
+        for s in card.sections
+    )
+    doc = stub_render(replace(card, sections=sections), panel_graph)
+    tags = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "ENTRY"]
+    assert len(tags) == 2  # the legend's and the run's, not one per group
+    assert len(_by_type(doc, "pv-text-input")) == 2
+
+
 def test_a_plot_pairs_with_a_drawing_and_fills_its_half(tmp_path):
     """A curve's plot stretches; the drawing beside it does not. The section after
     the curve is drawn first, and where it takes at most half the width the curve

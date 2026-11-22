@@ -3963,28 +3963,36 @@ class _Page:
         rows = [g for g in operate.groups if not self.gridded(g)]
         columns = self.control_columns(rows)
         groups = list(operate.groups)
+        previous: str | None = None  # the kind of the group drawn last, under its tag
         while groups:
             group = groups.pop(0)
             if self.gridded(group):
                 self.entry_grid(group)  # many of one role: a grid, not a long list
+                previous = None  # a grid carries no tag: the next group says its kind
                 continue
+            # groups of one kind that follow each other are one run: one tag at its head
+            tag = group.kind != previous
+            previous = group.kind
             if group.kind == "entry":  # its Apply and what it will write run to the right
-                self.control_block(group, columns)
+                self.control_block(group, columns, tag=tag)
                 self.writes_line(group, STRIP_WIDTH - (columns.name - self.x0), columns.name)
                 continue
             run = [group]  # the short groups of its kind that follow it stand beside it
             while groups and groups[0].kind == group.kind and not self.gridded(groups[0]):
                 run.append(groups.pop(0))
-            self.short_groups(run, columns)
+            self.short_groups(run, columns, tag=tag)
 
-    def short_groups(self, run: Sequence[ControlGroup], at: _ControlColumns) -> None:
+    def short_groups(
+        self, run: Sequence[ControlGroup], at: _ControlColumns, *, tag: bool = True
+    ) -> None:
         """Groups of one kind whose rows end at their buttons (actions, choices,
         read-only values), in cells side by side, row by row: one, two or up to
         :data:`CONTROL_COLUMNS_MOST` to a row, whichever makes the run least tall
         (the fewer on a tie). Each cell holds its group's rows on the panel's
         columns moved over, a choice's segments wrapping within the cell, and what
         it writes under them. A run of choices alone, which show no value, has its
-        segments start right after its longest name."""
+        segments start right after its longest name. Without *tag* the run follows a group
+        of its kind that said it, and draws no tag of its own."""
         if all(g.kind == "choice" for g in run):  # no value to show: segments after the name
             names = [name for g in run for _c, name in self.control_rows(g)]
             name_w = min(max(text_width(n, BLOCK_TEXT_SIZE) for n in names), at.name_w)
@@ -4011,7 +4019,8 @@ class _Page:
                 self.y = top
                 dx = j * (cell + COLUMN_GAP)
                 # the kind's tag once, at the head of the run of its kind
-                self.control_block(group, _moved(at, dx), room=cell, tag=not first and not j)
+                head = tag and not first and not j
+                self.control_block(group, _moved(at, dx), room=cell, tag=head)
                 self.writes_line(group, cell - (at.name - at.badge), at.name + dx)
                 foot = max(foot, self.y)
             self.y = foot

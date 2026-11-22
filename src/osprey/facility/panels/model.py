@@ -878,6 +878,8 @@ class PanelGraph:
                     held = True
             if not held:
                 self._unheld.append(channel)
+        for found in self._channels.values():  # numbers by value: 2 before 10
+            found.sort(key=lambda channel: name_order(channel.name))
 
     def _read_edges(self, records: FacilityDocument) -> None:
         self._edges: dict[_Key, dict[str, list[Edge]]] = {}
@@ -1070,7 +1072,8 @@ class PanelGraph:
         return {relation: list(found) for relation, found in edges.items()}
 
     def channels(self, thing_id: str, kind: ThingKind | None = None) -> list[Channel]:
-        """The channels on the thing (``on`` it or, for a device, ``endpoint_of`` it).
+        """The channels on the thing (``on`` it or, for a device, ``endpoint_of`` it),
+        by name, numbers by value (:func:`~osprey.facility.panels.order.name_order`).
 
         Raises:
             KeyError: No such thing, or it is excluded.
