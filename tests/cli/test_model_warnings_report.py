@@ -26,6 +26,7 @@ from rich.console import Console
 
 from osprey.cli.main import cli
 from osprey.deployment import status_display
+from tests._scoped_stdlib import scoped
 from tests._text import flat
 from tests.cli._lifecycle_build import invoke_build_in
 from tests.cli._reporters import ConsoleReporter, installed
@@ -153,7 +154,7 @@ def no_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
             return subprocess.CompletedProcess(argv, 0, "", "")
         raise AssertionError(f"a read-only verb ran: {argv}")
 
-    monkeypatch.setattr(status_display.subprocess, "run", _run)
+    scoped(monkeypatch, status_display, "subprocess", run=_run)
 
 
 @pytest.mark.usefixtures("no_runtime")

@@ -53,6 +53,7 @@ from osprey.cli.deploy_scaffold_templates import (
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey_connectors.errors import ConfigurationError
+from tests._scoped_stdlib import scoped
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 #: The ``osprey`` the emitted unit names. Frozen, because the real resolver
@@ -407,21 +408,23 @@ def findmnt(monkeypatch: pytest.MonkeyPatch):
             f"the findmnt seam was called without an answer installed: argv={list(argv)}"
         )
 
-    monkeypatch.setattr("osprey.cli.deploy_scaffold.shutil.which", lambda name: None)
-    monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", unexpected_run)
+    scoped(monkeypatch, "osprey.cli.deploy_scaffold", "shutil", which=lambda name: None)
+    scoped(monkeypatch, "osprey.cli.deploy_scaffold", "subprocess", run=unexpected_run)
 
     def install(fstype: str = "", *, present: bool = True, returncode: int = 0) -> list[list[str]]:
         calls: list[list[str]] = []
-        monkeypatch.setattr(
-            "osprey.cli.deploy_scaffold.shutil.which",
-            lambda name: "/usr/bin/findmnt" if present and name == "findmnt" else None,
+        scoped(
+            monkeypatch,
+            "osprey.cli.deploy_scaffold",
+            "shutil",
+            which=lambda name: "/usr/bin/findmnt" if present and name == "findmnt" else None,
         )
 
         def fake_run(argv, **kwargs):
             calls.append(list(argv))
             return subprocess.CompletedProcess(list(argv), returncode, f"{fstype}\n", "")
 
-        monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.deploy_scaffold", "subprocess", run=fake_run)
         return calls
 
     return install
@@ -657,29 +660,33 @@ def test_detection_passes_over_local_storage(fstype: str, home: Path, findmnt) -
 
 def test_a_findmnt_that_hangs_is_not_waited_on(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A stuck mount is exactly where findmnt blocks, so the call is bounded."""
-    monkeypatch.setattr(
-        "osprey.cli.deploy_scaffold.shutil.which",
-        lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
+    scoped(
+        monkeypatch,
+        "osprey.cli.deploy_scaffold",
+        "shutil",
+        which=lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
     )
 
     def timing_out(argv, **kwargs):
         assert kwargs.get("timeout"), "the call has to carry a timeout"
         raise subprocess.TimeoutExpired(list(argv), kwargs["timeout"])
 
-    monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", timing_out)
+    scoped(monkeypatch, "osprey.cli.deploy_scaffold", "subprocess", run=timing_out)
 
     assert detect_network_home(home) is None
 
 
 def test_an_unrunnable_findmnt_is_not_an_error(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "osprey.cli.deploy_scaffold.shutil.which",
-        lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
+    scoped(
+        monkeypatch,
+        "osprey.cli.deploy_scaffold",
+        "shutil",
+        which=lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
     )
 
     def unrunnable(argv, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
         raise OSError("Permission denied")
 
-    monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", unrunnable)
+    scoped(monkeypatch, "osprey.cli.deploy_scaffold", "subprocess", run=unrunnable)
 
     assert detect_network_home(home) is None

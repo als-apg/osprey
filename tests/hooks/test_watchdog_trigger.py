@@ -26,6 +26,7 @@ import osprey.templates.claude_code.claude.hooks.osprey_watchdog_trigger as trig
 from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR
 from osprey_connectors.posture_store import DISPATCH_RUN_ENV_VAR
 from osprey_connectors_tests._harness._ports import bound_socket
+from tests._scoped_stdlib import scoped
 
 HOOK = Path(trigger.__file__)
 SESSION_KEY = "pool-key-1"
@@ -183,7 +184,7 @@ class _Spawns:
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
         self.error = error
         self.tmp = tmp_path
-        monkeypatch.setattr(subprocess, "Popen", self._popen)
+        scoped(monkeypatch, trigger, "subprocess", Popen=self._popen)
         monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
 
     def _popen(self, argv: list[str], **kwargs: Any) -> None:

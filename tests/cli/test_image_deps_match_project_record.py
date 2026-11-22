@@ -31,6 +31,7 @@ from click.testing import CliRunner
 
 from osprey.cli import build_environment
 from osprey.cli.main import cli
+from tests._scoped_stdlib import scoped
 
 OSPREY_SPEC = "osprey-framework==1.2.3"
 
@@ -90,11 +91,11 @@ def build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """
 
     def run(profile_yaml: str, *, skip_deps: bool = False) -> Path:
-        monkeypatch.setattr(
-            build_environment.subprocess,
-            "run",
-            lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, "", ""),
-        )
+        def ok(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        scoped(monkeypatch, build_environment, "subprocess", run=ok)
+        scoped(monkeypatch, "osprey.cli.build_cmd", "subprocess", run=ok)
         repo = tmp_path / "proj"
         repo.mkdir(exist_ok=True)
         (repo / "data").mkdir(exist_ok=True)

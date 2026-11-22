@@ -20,6 +20,7 @@ import pytest
 
 from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
+from tests._scoped_stdlib import scoped
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
         recorded.append(cmd)
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
     monkeypatch.setenv("UV", "/opt/bin/uv")
     return recorded
 
@@ -82,7 +83,7 @@ class TestWithoutUv:
     @pytest.fixture
     def pip_only(self, calls, monkeypatch):
         monkeypatch.delenv("UV", raising=False)
-        monkeypatch.setattr("osprey.cli.build_environment.shutil.which", lambda name: None)
+        scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda name: None)
         return calls
 
     def test_a_prerelease_pin_admits_prereleases(self, pip_only, tmp_path):

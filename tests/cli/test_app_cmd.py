@@ -17,6 +17,7 @@ import osprey
 from osprey.cli.app_cmd import app
 from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT, WRITER_TAG
 from osprey.interfaces.design_system.panels.validator import refusing, validate_entry
+from tests._scoped_stdlib import scoped
 from tests.apps import _installed
 from tests.apps._installed import DIST, MODULE, NAME, entry_point
 from tests.cli._lifecycle_build import invoke_build
@@ -753,7 +754,7 @@ class _Js:
 def js(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Js:
     stub = _Js()
     monkeypatch.setattr("osprey.cli.app_cmd._run", stub.run)
-    monkeypatch.setattr("osprey.cli.app_cmd.shutil.which", lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, "osprey.cli.app_cmd", "shutil", which=lambda name: f"/usr/bin/{name}")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     return stub
 
@@ -763,7 +764,7 @@ def test_an_application_with_no_js_runs_no_js_tool(
     runner: CliRunner, lifecycle_repo: Path, js: _Js, monkeypatch: pytest.MonkeyPatch, node: bool
 ) -> None:
     if not node:
-        monkeypatch.setattr("osprey.cli.app_cmd.shutil.which", lambda _name: None)
+        scoped(monkeypatch, "osprey.cli.app_cmd", "shutil", which=lambda _name: None)
     app_dir = _panel(lifecycle_repo)
     _write(app_dir, "tests/test_server.py", "")
 
@@ -776,7 +777,7 @@ def test_an_application_with_no_js_runs_no_js_tool(
 def test_panel_js_with_no_node_fails_naming_node(
     runner: CliRunner, lifecycle_repo: Path, js: _Js, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("osprey.cli.app_cmd.shutil.which", lambda _name: None)
+    scoped(monkeypatch, "osprey.cli.app_cmd", "shutil", which=lambda _name: None)
     _write(_app(lifecycle_repo), "panel/main.js", "")
 
     result = _check(runner, lifecycle_repo)
