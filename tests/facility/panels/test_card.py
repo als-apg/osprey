@@ -136,8 +136,10 @@ def test_a_setpoint_is_typed_checked_and_applied(panel_graph) -> None:
     assert hint["geometry"]["x"] > field["geometry"]["x"]
     now = [n for n in _by_type(doc, "pv-label") if n["props"]["pv"] == "XR01-QF1:Current-SP"]
     assert now and now[0]["geometry"]["x"] < field["geometry"]["x"]  # the live value first
-    for kind in ("ACTION", "CHOICE", "ENTRY", "READ ONLY"):  # the legend
-        assert [n for n in _by_type(doc, "text-label") if n["props"]["text"] == kind]
+    legend = {n["props"]["text"] for n in _by_type(doc, "text-label")} & {
+        "ACTION", "CHOICE", "ENTRY", "READ ONLY"
+    }  # fmt: skip
+    assert "ENTRY" in legend  # the legend names the kinds the panel draws, and no other
 
 
 def test_written_apply_shows_what_it_writes_from_the_same_local(panel_graph, tmp_path) -> None:
@@ -1045,7 +1047,7 @@ def test_a_choice_of_one_stated_segment_is_an_action_with_the_status_beside_it(t
         for n in _by_type(doc, "text-label")
         if n["props"]["text"] in ("ACTION", "CHOICE")
     ]
-    assert tags == ["ACTION", "CHOICE", "ACTION"]  # the legend's two, then the group's
+    assert tags == ["ACTION", "ACTION"]  # the legend's, for the one kind drawn, then the row's
     beside = [
         n for n in nodes(doc)
         if n.get("rules") and n["props"].get("tooltip") == "XR01-PS1:On-Sts"
@@ -1064,17 +1066,31 @@ def test_a_choice_of_one_stated_segment_is_an_action_with_the_status_beside_it(t
     ]  # the off value stated: a choice of both
 
 
-def test_press_groups_stand_side_by_side_and_entries_take_the_width(tmp_path) -> None:
+def test_each_control_is_one_row_on_one_set_of_columns(tmp_path) -> None:
+    """Every control a row: its kind's tag, its name once, what it is now, the field
+    or the button in one column for all rows, then what it does. The legend of the
+    kinds stands on the panel's title line."""
     roles = (
         "PowerSupply,reset,*:On-Cmd,device,action,,,1,Reset,stated,S,1,l\n"
         "PowerSupply,start,*:On-Cmd,device,action,,,1,Start,stated,S,1,l\n"
     )
     graph = _roles_graph(tmp_path, roles)
     doc = stub_render(device_card(graph, "XR01:PS1"), graph)
-    reset, start = sorted(_by_type(doc, "pv-button"), key=lambda n: n["geometry"]["x"])
-    assert reset["geometry"]["y"] == start["geometry"]["y"]
-    third = (layout.STRIP_WIDTH - 2 * layout.COLUMN_GAP) / 3 + layout.COLUMN_GAP
-    assert abs(start["geometry"]["x"] - reset["geometry"]["x"] - third) < 0.1
+    buttons = [
+        n for n in _by_type(doc, "pv-button")
+        if n["geometry"]["x"] != layout.APPLY_AWAY and n["props"].get("label") in ("Reset", "Start")
+    ]  # fmt: skip
+    reset, start = sorted(buttons, key=lambda n: n["geometry"]["y"])
+    assert reset["geometry"]["y"] < start["geometry"]["y"]  # a row each
+    fields = _by_type(doc, "pv-text-input")
+    column = {reset["geometry"]["x"], start["geometry"]["x"], *(f["geometry"]["x"] for f in fields)}
+    assert len(column) == 1  # buttons and fields in one column
+    texts = [n["props"]["text"] for n in _by_type(doc, "text-label")]
+    for name in ("Reset", "Start"):
+        assert texts.count(name) == 1, name  # its name once, beside its tag
+    head = next(n for n in _by_type(doc, "text-label") if n["props"]["text"].endswith("· OPERATE"))
+    tags = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "ACTION"]
+    assert any(t["geometry"]["y"] == head["geometry"]["y"] for t in tags)  # the legend's
 
 
 FRONTS_HEADER = (

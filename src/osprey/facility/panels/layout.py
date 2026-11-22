@@ -276,7 +276,8 @@ LADDER_TICK = 18  # a set point's mark across the ladder's line
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
 CONTROL_TAG_HEIGHT = 18
-OPERATE_COLUMNS = 3  # press groups side by side; an entry group takes the width
+CONTROL_NAME_MOST = 220  # an operate row's name column at the widest
+TITLE_ROOM = 200  # what a panel's title keeps of its line when a legend joins it
 GRID_ROW = ROW + ROW_GAP
 GRID_VALUE = 100
 GRID_NAME_LEAST = 80  # a grid row's name, however wide its value and unit
@@ -1268,6 +1269,22 @@ def light_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
         for prop in (*symbols.LIGHT_PROPS, symbols.MARK_PROP)
     )
     return rules, frozenset(rule.channels)
+
+
+@dataclass(frozen=True)
+class _ControlColumns:
+    """Where the columns of an operate panel's rows start: the kind's tag, the name
+    (*name_w* wide), the word "now", the live value (*live_w* wide), the field or
+    the buttons, and what a row does."""
+
+    badge: float
+    name: float
+    name_w: float
+    now: float
+    value: float
+    live_w: float
+    box: float
+    hint: float
 
 
 @dataclass(frozen=True)
@@ -3553,89 +3570,144 @@ class _Page:
         return bottom
 
     def operate(self, operate: Operate) -> None:
-        """The legend of the kinds of control, then each group: its tag, its title,
-        its controls in a row, the line of what it writes; with no group, its note."""
+        """The controls, one row each on one set of columns (:class:`_ControlColumns`):
+        the kind's tag, the name, what it is now, the field or the button, what it
+        does, what it will write. The legend of the kinds stands on the title line.
+        A group of many entries of one role is a grid (:meth:`entry_grid`); with no
+        group, the note."""
         if not operate.groups:
             self.small(self.x0, self.y, operate.note or "", fg=MUTED_TEXT)
             self.y += SMALL_LINE + ROW_GAP
             return
-        x = self.x0
-        for kind, meaning in CONTROL_LEGEND:
-            x = self.control_tag(x, self.y, kind)
-            x = self.small(x + GAP / 2, self.y, meaning, fg=MUTED_TEXT) + WORD_GAP
-        self.y += CONTROL_TAG_HEIGHT + 2 * GAP
-        presses = [g for g in operate.groups if g.kind != "entry"]
-        for start in range(0, len(presses), OPERATE_COLUMNS):
-            row = presses[start : start + OPERATE_COLUMNS]
-            width = (STRIP_WIDTH - COLUMN_GAP * (OPERATE_COLUMNS - 1)) / OPERATE_COLUMNS
-            if len(row) == 1:
-                width = STRIP_WIDTH
-            top, bottom = self.y, self.y
-            for k, group in enumerate(row):
-                self.y = top
-                self.control_group(group, self.x0 + k * (width + COLUMN_GAP), width)
-                bottom = max(bottom, self.y)
-            self.y = bottom
+        drawn = {_READ_ONLY_TAG if g.kind == WITHHELD else g.kind.upper() for g in operate.groups}
+        self.control_legend(drawn)
+        rows = [g for g in operate.groups if not self.gridded(g)]
+        columns = self.control_columns(rows)
         for group in operate.groups:
-            if group.kind == "entry" and len(group.controls) > ENTRIES_IN_ONE_COLUMN:
+            if self.gridded(group):
                 self.entry_grid(group)  # many of one role: a grid, not a long list
-            elif group.kind == "entry":  # a row each: name, now, field, Apply
-                self.control_group(group, self.x0, STRIP_WIDTH)
+                continue
+            for control, name in self.control_rows(group):
+                self.control_row(group, control, name, columns)
+            # what the group writes, under its rows from the names on, never cut
+            self.writes_line(group, STRIP_WIDTH - (columns.name - self.x0), columns.name)
 
-    def control_group(self, group: ControlGroup, x0: float, width: float) -> None:
-        """One group in a column from *x0*, *width* wide: its tag and title, its
-        controls (an action with a status beside it shows the live word), the line
-        of what it writes."""
-        withheld = group.kind == WITHHELD
-        x = self.control_tag(x0, self.y, _READ_ONLY_TAG if withheld else group.kind.upper())
-        if group.title:
-            self.small(
-                x + GAP, self.y, _cut(group.title, x0 + width - x - GAP, SMALL_SIZE), fg=MUTED_TEXT
+    @staticmethod
+    def gridded(group: ControlGroup) -> bool:
+        return group.kind == "entry" and len(group.controls) > ENTRIES_IN_ONE_COLUMN
+
+    def control_legend(self, drawn: set[str]) -> None:
+        """What each kind of control the panel *drawn* does, in one line at the right
+        of the panel's title line when it fits there, else as the panel's first line."""
+        parts = [
+            (
+                kind,
+                meaning,
+                text_width(kind, SMALL_SIZE) + 2 * GAP + GAP / 2 + text_width(meaning, SMALL_SIZE),
             )
-        self.y += CONTROL_TAG_HEIGHT + ROW_GAP + 2
-        if withheld:  # where the presses would stand: each channel's value, read only
-            for control in group.controls:
-                tx = self.small(x0, self.y + (ROW - SMALL_LINE) / 2, control.label, fg=MUTED_TEXT)
-                room = max(x0 + width - tx - GAP, GRID_VALUE / 2)
-                self.shown_value(
-                    tx + GAP, self.y, room, control.channel, "word",
-                    self.graph_words(control.channel), size=BLOCK_TEXT_SIZE,
-                )  # fmt: skip
-                self.y += ROW + ROW_GAP
-            self.small(x0, self.y, group.writes, fg=MUTED_TEXT)
-            self.s.widget(
-                "rectangle", x0, self.y, width, SMALL_LINE,
-                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0,
-                 _TOOLTIP: group.rule or ""},
-            )  # fmt: skip
-            self.y += SMALL_LINE + GAP
-            return
-        if group.kind == "entry":
-            for control in group.controls:
-                self.entry(control)
-        else:
-            x = x0
-            for control in group.controls:
-                if x > x0 and x + CONTROL_WIDTH > x0 + width:
-                    x = x0
-                    self.y += CONTROL_HEIGHT + GAP
-                self.press(x, self.y, control, group.kind == "choice")
-                x += CONTROL_WIDTH + GAP
-                # what it is now, beside it: a status channel of its own, not the command
-                status = control.status
-                if group.kind == "action" and status is not None and status != control.channel:
-                    room = min(VALUE_WIDTH, x0 + width - x)
-                    if room > GRID_VALUE / 2:
-                        self.shown_value(
-                            x, self.y + (CONTROL_HEIGHT - ROW) / 2, room, status, "word",
-                            self.graph_words(status), size=BLOCK_TEXT_SIZE,
-                        )  # fmt: skip
-                        x += room + GAP
+            for kind, meaning in CONTROL_LEGEND
+            if kind in drawn
+        ]
+        width = sum(w for *_, w in parts) + WORD_GAP * (len(parts) - 1)
+        head = self.y - ROW - ROW_GAP  # the title line the frame drew just now
+        on_title = width <= STRIP_WIDTH - TITLE_ROOM
+        x, y = (self.x0 + STRIP_WIDTH - width, head) if on_title else (self.x0, self.y)
+        for kind, meaning, _w in parts:
+            x = self.control_tag(x, y, kind)
+            x = self.small(x + GAP / 2, y, meaning, fg=MUTED_TEXT) + WORD_GAP
+        if not on_title:
+            self.y += CONTROL_TAG_HEIGHT + 2 * GAP
+
+    def control_rows(self, group: ControlGroup) -> list[tuple[Control | None, str]]:
+        """The rows of a group and the name each row stands under: one row for a
+        choice, its segments side by side, under the group's title; else a row per
+        control under its own label (an action alone in its group under the
+        group's title, which is then its name)."""
+        if group.kind == "choice":
+            return [(None, group.title or group.controls[0].label)]
+        title = group.title if len(group.controls) == 1 and group.kind == "action" else None
+        rows: list[tuple[Control | None, str]] = [(c, title or c.label) for c in group.controls]
+        return rows
+
+    def control_columns(self, groups: Sequence[ControlGroup]) -> _ControlColumns:
+        """Where each column of the rows starts: one set for the whole panel, each
+        as wide as its widest entry."""
+        kinds = {_READ_ONLY_TAG if g.kind == WITHHELD else g.kind.upper() for g in groups}
+        badge = max((text_width(k, SMALL_SIZE) + 2 * GAP for k in kinds), default=0)
+        names = [name for g in groups for _c, name in self.control_rows(g)]
+        name_w = min(
+            max((text_width(n, BLOCK_TEXT_SIZE) for n in names), default=0), CONTROL_NAME_MOST
+        )
+        live = [
+            c.channel if g.kind in ("entry", WITHHELD) else c.status
+            for g in groups for c in g.controls
+        ]  # fmt: skip
+        live_w = max([VALUE_WIDTH, *(self.value_span(ch) for ch in live if ch is not None)])
+        # the field or one button; a choice's further segments run on into the hint
+        # column of their own row, whose line of what it writes goes under it
+        box_w = max(VALUE_WIDTH, CONTROL_WIDTH) if any(g.kind != WITHHELD for g in groups) else 0
+        # an entry row needs, after its field: Apply, "will write" and the value
+        entry_tail = 2 * BLOCK_GAP + GAP + text_width(_WILL_WRITE, SMALL_SIZE) + GAP + VALUE_WIDTH
+        fixed = badge + GAP + GAP + text_width(_NOW, SMALL_SIZE) + GAP + live_w + 2 * GAP
+        name_w = max(min(name_w, STRIP_WIDTH - fixed - box_w - GAP - entry_tail), BLOCK_LABEL)
+        x_name = self.x0 + badge + GAP
+        x_now = x_name + name_w + GAP
+        x_value = x_now + text_width(_NOW, SMALL_SIZE) + GAP
+        x_box = x_value + live_w + 2 * GAP
+        return _ControlColumns(
+            self.x0, x_name, name_w, x_now, x_value, live_w, x_box, x_box + box_w + GAP
+        )
+
+    def control_row(
+        self, group: ControlGroup, control: Control | None, name: str, at: _ControlColumns
+    ) -> None:
+        """One row on the panel's columns: tag, name, now, the field or the buttons,
+        and for an entry Apply and what it will write."""
+        y = self.y
+        mid = y + (CONTROL_HEIGHT - ROW) / 2  # a row of text centred on a button's height
+        withheld = group.kind == WITHHELD
+        self.control_tag(
+            at.badge,
+            y + (CONTROL_HEIGHT - CONTROL_TAG_HEIGHT) / 2,
+            _READ_ONLY_TAG if withheld else group.kind.upper(),
+        )
+        self.text(
+            at.name,
+            mid,
+            _cut(name, at.name_w, BLOCK_TEXT_SIZE),
+            size=BLOCK_TEXT_SIZE,
+            w=at.name_w,
+            h=ROW,
+        )
+        if group.kind == "entry" and control is not None:
+            self.small(at.now, mid + (ROW - SMALL_LINE) / 2, _NOW, fg=MUTED_TEXT)
+            self.number(at.value, mid, at.live_w, ROW, control.channel, None, None, TEXT_SIZE)
+            self.apply_controls(control, at.box, mid, apply_at=at.hint)
             self.y += CONTROL_HEIGHT + ROW_GAP
-        for line in _prose(group.writes, width, SMALL_SIZE):
-            self.small(x0, self.y, line, fg=MUTED_TEXT)
-            self.y += SMALL_LINE
-        self.y += GAP
+            return
+        if withheld and control is not None:
+            self.shown_value(
+                at.value, mid, at.live_w, control.channel, "word",
+                self.graph_words(control.channel), size=BLOCK_TEXT_SIZE,
+            )  # fmt: skip
+        elif group.kind == "action" and control is not None:
+            status = control.status
+            if status is not None and status != control.channel:  # what it is now
+                self.shown_value(
+                    at.value, mid, at.live_w, status, "word", self.graph_words(status),
+                    size=BLOCK_TEXT_SIZE,
+                )  # fmt: skip
+            self.press(at.box, y, control, False)
+        else:  # a choice: its segments side by side, shaded while the status reads them
+            x = at.box
+            for segment in group.controls:
+                if x > at.box and x + CONTROL_WIDTH > self.x0 + STRIP_WIDTH:
+                    x = at.box  # a segment past the edge starts a line under the row
+                    self.y += CONTROL_HEIGHT + ROW_GAP
+                    y = self.y
+                self.press(x, y, segment, True)
+                x += CONTROL_WIDTH + GAP
+        self.y += CONTROL_HEIGHT + ROW_GAP
 
     def graph_words(self, channel: str) -> tuple[tuple[str, str], ...]:
         return tuple(self.graph.state_words(channel).items())
@@ -3707,21 +3779,6 @@ class _Page:
             }
         self.s.widget("pv-button", x, y, w, h, props, rules=rules)
 
-    def entry(self, control: Control) -> None:
-        """Type, check, Apply: the name, the live value (now), a field that writes a
-        local value on Enter (new), Apply, which writes the new value to the
-        channel, and what it will write (:meth:`apply_controls`)."""
-        x = self.x0
-        self.text(x, self.y, control.label, size=BLOCK_TEXT_SIZE, w=2 * BLOCK_LABEL, h=ROW)
-        x += 2 * BLOCK_LABEL + GAP
-        self.small(x, self.y + (ROW - SMALL_LINE) / 2, _NOW, fg=MUTED_TEXT)
-        x += text_width(_NOW, SMALL_SIZE) + GAP
-        now_w = max(VALUE_WIDTH, self.value_span(control.channel))
-        self.number(x, self.y, now_w, ROW, control.channel, None, None, TEXT_SIZE)
-        x += now_w + 2 * GAP
-        self.apply_controls(control, x, self.y)
-        self.y += ROW + ROW_GAP
-
     def entry_cell(self, control: Control, x: float, y: float, w: float) -> None:
         """One entry of a grid, *w* wide: its name and live value, then the field and
         Apply, then what Apply will write."""
@@ -3746,23 +3803,31 @@ class _Page:
         self.y += -(-len(group.controls) // ENTRY_COLUMNS) * high
         self.writes_line(group, STRIP_WIDTH)
 
-    def writes_line(self, group: ControlGroup, width: float) -> None:
-        """A group's muted line of what it writes; over many channels, their names
-        on hover."""
+    def writes_line(self, group: ControlGroup, width: float, x: float | None = None) -> None:
+        """A group's muted line of what it writes, from *x* (the panel's edge); over
+        many channels their names on hover, for a withheld group its rule."""
+        x = self.x0 if x is None else x
         top = self.y
         for line in _prose(group.writes, width, SMALL_SIZE):
-            self.small(self.x0, self.y, line, fg=MUTED_TEXT)
+            self.small(x, self.y, line, fg=MUTED_TEXT)
             self.y += SMALL_LINE
+        hover = group.rule if group.kind == WITHHELD else None
         if len(group.controls) > ENTRIES_IN_ONE_COLUMN:
-            names = ", ".join(dict.fromkeys(c.channel for c in group.controls))
+            hover = ", ".join(dict.fromkeys(c.channel for c in group.controls))
+        if hover:
             self.s.widget(
-                "rectangle", self.x0, top, width, self.y - top,
-                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: names},
+                "rectangle", x, top, width, self.y - top,
+                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: hover},
             )  # fmt: skip
         self.y += GAP
 
     def apply_controls(
-        self, control: Control, x: float, y: float, will_at: tuple[float, float] | None = None
+        self,
+        control: Control,
+        x: float,
+        y: float,
+        will_at: tuple[float, float] | None = None,
+        apply_at: float | None = None,
     ) -> None:
         """From (*x*, *y*): a field that writes a local value on Enter (new), Apply,
         which writes the new value to the channel, then (at *will_at*, else beside)
@@ -3792,7 +3857,7 @@ class _Page:
             _TOOLTIP: f"new value for {control.channel}: Enter keeps it here, nothing is written",
         }
         self.s.widget("pv-text-input", x, y, VALUE_WIDTH, ROW, props)
-        x += VALUE_WIDTH + GAP
+        x = apply_at if apply_at is not None else x + VALUE_WIDTH + GAP
         width = 2 * BLOCK_GAP
         self.text(x, y, _TYPE_FIRST, size=SMALL_SIZE, w=width, h=ROW, fg=MUTED_TEXT)
         name = f"draft-{len(self.s.formulas)}"
