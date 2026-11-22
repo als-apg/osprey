@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from osprey.facility.panels import emit, load_graph, targets
+from osprey.facility.panels.classes import DRAWING_RULE
 from osprey.facility.panels.emit import (
     FORMAT_VERSION,
     SCREEN_SUFFIX,
@@ -159,6 +160,7 @@ def test_files_sit_under_their_view_kind_with_an_index(panel_graph, tmp_path):
     index = json.loads((out / "index.json").read_text())
     assert index["format"] == FORMAT_VERSION
     assert index["facility_hash"] == panel_graph.content_hash
+    assert index["drawing_rule"] == DRAWING_RULE  # how ``drawing`` is taken
     assert len(index["screens"]) == len(targets(panel_graph))
     entry = next(e for e in index["screens"] if e["kind"] == "rollup" and e["by"] == "system")
     assert set(entry) >= {"id", "kind", "thing_kind", "thing", "by", "title", "file", "bytes"}

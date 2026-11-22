@@ -7,8 +7,10 @@ A scenario faults a model in two spellings, both under ``faults.<model>``:
 
 An engine may also declare faults keyed by something other than a channel --
 the pyat engine's element errors, ``<element>/dx`` and the like, keyed by the
-served deck element's name. Those take the engine-name spelling, or the map
-spelling with the element in place of the address, ``{<element>: {dx: ...}}``.
+served deck element's name, and its ring-length error,
+``lattice/circumference_error``, keyed by the word ``lattice``. Those take
+the engine-name spelling, or the map spelling with the element or ``lattice``
+in place of the address, ``{<element>: {dx: ...}}``.
 
 The engine plug-in names what a model built from a wiring declares through
 ``fault_variables(wiring, settings)``: fault name -> a slot carrying ``address``,

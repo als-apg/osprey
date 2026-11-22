@@ -14,8 +14,9 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   split device.
 * :class:`KickVariable` -- the same conversion onto ``KickAngle``, shared out
   over the slices by their weights.
-* :class:`RFVariable` -- a frequency, written to every cavity the record
-  names.
+* :class:`RFVariable` -- a cavity's frequency or time lag, written to every
+  cavity the record names; :class:`RFVoltageVariable` -- its voltage, which
+  the RF switch holds while it is off.
 * :class:`MonitorVariable` -- a solved orbit reading on the record's
   ``axis``, in the hardware units the facility publishes it in.
 * :class:`EnergyVariable` -- the deck energy (``attribute: energy``, no
@@ -124,6 +125,12 @@ ENERGY_ATTRIBUTE = "energy"
 #: strength's polynomial coefficient.
 KICK_ATTRIBUTE = "KickAngle"
 FREQUENCY_ATTRIBUTE = "Frequency"
+VOLTAGE_ATTRIBUTE = "Voltage"
+TIME_LAG_ATTRIBUTE = "TimeLag"
+
+#: The cavity attribute the RF switch keeps a cavity's voltage in while the
+#: cavity is off, and NaN while it is on. No pyAT pass method reads it.
+HELD_VOLTAGE = "switch_held_voltage"
 
 #: The engine-block signal of the ring's RF switch.
 RF_SWITCH_SIGNAL = "rf_switch"
@@ -402,10 +409,18 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
             curve = self.calibration if own is None else own
             weighted = to_physics(curve, delivered) * factor * binding.weight
             if binding.index is None:
-                setattr(element, binding.attribute, weighted)
+                self._put(element, binding.attribute, weighted)
             else:
                 error = multipole_error(element, binding.attribute, binding.index)
                 getattr(element, binding.attribute)[binding.index] = weighted + error
+
+    def _put(self, element: Any, attribute: str, value: float) -> None:
+        """Write a whole-attribute value onto one bound element."""
+        setattr(element, attribute, value)
+
+    def _held(self, element: Any, attribute: str) -> Any:
+        """What one bound element holds on the attribute."""
+        return getattr(element, attribute)
 
     def _get(self, simulator: PyATSimulator) -> float:
         """Return the hardware value the lattice is presently holding.
@@ -416,7 +431,7 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
         """
         first = self.bindings[0]
         element = simulator.element(first.element_name)
-        held = getattr(element, first.attribute)
+        held = self._held(element, first.attribute)
         if first.index is not None:
             held = held[first.index] - multipole_error(element, first.attribute, first.index)
         physics = float(held) / first.weight
@@ -546,12 +561,56 @@ class KickVariable(CalibratedSetpoint):
 
 
 class RFVariable(CalibratedSetpoint):
-    """The cavity frequency, written to every cavity the record names.
+    """A cavity setpoint, written to every cavity the record names.
 
-    One setpoint over every cavity, each of them carrying the whole frequency:
-    the cavities of one lattice run at one frequency, so the slices replicate
-    it exactly as a split magnet's pieces replicate a strength.
+    ``Frequency`` and ``TimeLag`` are one setpoint over every cavity, each of
+    them carrying the whole value: the cavities of one lattice run at one
+    frequency, so the slices replicate it exactly as a split magnet's pieces
+    replicate a strength.
+
+    ``TimeLag`` is pyAT's: a length, in metres, by which the cavity's wave
+    lags the reference particle. A facility that sets a phase states the
+    conversion as the record's calibration -- one RF wavelength per 360
+    degrees.
     """
+
+
+def _held_voltage(cavity: Any) -> float:
+    """The voltage the RF switch holds for ``cavity``; NaN while the cavity is on."""
+    return float(getattr(cavity, HELD_VOLTAGE, math.nan))
+
+
+class RFVoltageVariable(RFVariable):
+    """The cavity voltage, shared over the cavities the record names.
+
+    A voltage *is* divisible: the beam gains the sum of what the cavities
+    give, so a setpoint that is the total over ``n`` cavities gives each slice
+    its share as the slice's weight, exactly as a kick is shared.
+
+    The RF switch owns the same attribute. While it holds a cavity off, the
+    cavity's ``Voltage`` is zero and the commanded voltage sits in
+    :data:`HELD_VOLTAGE`; a write then lands there and a read comes from
+    there, so the setpoint reads what was commanded whatever the switch says,
+    and switching on delivers the voltage last commanded.
+    """
+
+    def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:
+        """The bound voltages, and the held voltage of every cavity a switch seeded."""
+        targets = super().snapshot_targets(simulator)
+        held = [
+            (index, HELD_VOLTAGE)
+            for index, _ in targets
+            if index is not None and hasattr(simulator.lattice[index], HELD_VOLTAGE)
+        ]
+        return [*targets, *held]
+
+    def _put(self, element: Any, attribute: str, value: float) -> None:
+        on = math.isnan(_held_voltage(element))
+        setattr(element, attribute if on else HELD_VOLTAGE, value)
+
+    def _held(self, element: Any, attribute: str) -> Any:
+        held = _held_voltage(element)
+        return getattr(element, attribute) if math.isnan(held) else held
 
 
 class MonitorVariable(PyATReadOnlyScalarVariable):
@@ -837,29 +896,30 @@ class EnergyVariable(PyATLatticeScalarVariable):
 class RFSwitchVariable(PyATLatticeScalarVariable):
     """The ring's RF switch: zero turns every cavity off, anything else on.
 
-    Off writes a voltage of zero on every ``at.RFCavity``; on writes back the
-    voltage each cavity held in the deck, captured once at construction from
-    the model's own lattice, so off then on restores them exactly however
-    often it is repeated. The deck voltages are a construction constant, not
-    a retained setpoint: the lattice still carries the switch's state.
+    Off moves every ``at.RFCavity``'s voltage into the cavity's
+    :data:`HELD_VOLTAGE` and writes zero in its place; on moves it back, so
+    off then on restores the voltages exactly however often either is
+    repeated. A voltage setpoint written while the switch is off lands in the
+    held attribute (:class:`RFVoltageVariable`), and on delivers it. The
+    lattice carries the whole state: a cavity is off exactly while it holds a
+    voltage there, which is why a voltage setpoint of zero is still on.
 
-    It touches nothing but the cavity voltages -- not the ring energy the
-    lattice-level base writes -- and declares exactly those as its snapshot
-    targets, so a batch the model rolls back puts the voltages back too.
+    It touches nothing but those two cavity attributes -- not the ring energy
+    the lattice-level base writes -- and declares exactly those as its
+    snapshot targets, so a batch the model rolls back puts them back too.
 
     Attributes:
-        deck_voltages: Each cavity's deck voltage, in volts, keyed by its
-            index in the lattice.
+        cavities: The index of every cavity in the lattice.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    deck_voltages: dict[int, float]
+    cavities: tuple[int, ...]
 
     @model_validator(mode="after")
     def _check_the_cavities(self) -> RFSwitchVariable:
         """Refuse a switch with no cavity to switch."""
-        if not self.deck_voltages:
+        if not self.cavities:
             raise ValueError(f"RF switch {self.name!r}: the deck holds no RF cavities to switch")
         return self
 
@@ -873,7 +933,8 @@ class RFSwitchVariable(PyATLatticeScalarVariable):
             record: The wiring record: ``address``, the engine block's
                 ``signal: rf_switch`` and no element, and the computed
                 ``default`` -- on (``1``) when it states none.
-            lattice: The model's own lattice, still at the deck's voltages.
+            lattice: The model's own lattice, every cavity on. Each cavity
+                is given its :data:`HELD_VOLTAGE` attribute, at NaN.
             **scalar_fields: ``ScalarVariable`` fields, each winning over the
                 one the record states.
 
@@ -887,33 +948,44 @@ class RFSwitchVariable(PyATLatticeScalarVariable):
 
         fields = _scalar_fields(record, scalar_fields, writable=True)
         fields.setdefault("default_value", SIGNALS[RF_SWITCH_SIGNAL])
-        voltages = {
-            index: float(element.Voltage)
-            for index, element in enumerate(lattice)
-            if isinstance(element, pyat.RFCavity)
-        }
-        if not voltages:
+        cavities = tuple(
+            index for index, element in enumerate(lattice) if isinstance(element, pyat.RFCavity)
+        )
+        if not cavities:
             raise ValueError(
                 f"wiring {_record_id(record)}: the RF switch needs RF cavities; the deck holds none"
             )
-        return cls(deck_voltages=voltages, **fields)
+        for index in cavities:
+            setattr(lattice[index], HELD_VOLTAGE, math.nan)
+        return cls(cavities=cavities, **fields)
 
     def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:  # noqa: ARG002
-        """Every cavity's ``Voltage``, in ring order: all a write touches."""
-        return [(index, "Voltage") for index in self.deck_voltages]
+        """Every cavity's voltage and held voltage, in ring order: all a write touches."""
+        return [
+            (index, attribute)
+            for index in self.cavities
+            for attribute in (VOLTAGE_ATTRIBUTE, HELD_VOLTAGE)
+        ]
 
     def _set(self, simulator: PyATSimulator, value: float) -> None:
-        """Zero every cavity's voltage for ``0``; else restore the deck's."""
+        """Hold every cavity's voltage and zero it for ``0``; else put it back."""
         ring = simulator.lattice
         on = value != 0.0
-        for index, voltage in self.deck_voltages.items():
-            ring[index].Voltage = voltage if on else 0.0
+        for index in self.cavities:
+            cavity = ring[index]
+            held = _held_voltage(cavity)
+            if on and not math.isnan(held):
+                cavity.Voltage = held
+                setattr(cavity, HELD_VOLTAGE, math.nan)
+            elif not on and math.isnan(held):
+                setattr(cavity, HELD_VOLTAGE, float(cavity.Voltage))
+                cavity.Voltage = 0.0
 
     def _get(self, simulator: PyATSimulator) -> float:
-        """``1.0`` when any cavity holds a voltage, else ``0.0``."""
+        """``0.0`` when every cavity's voltage is held, else ``1.0``."""
         ring = simulator.lattice
         return (
-            1.0 if any(float(ring[index].Voltage) != 0.0 for index in self.deck_voltages) else 0.0
+            1.0 if any(math.isnan(_held_voltage(ring[index])) for index in self.cavities) else 0.0
         )
 
 
@@ -943,7 +1015,8 @@ def variable_from_wiring(
     * ``axis`` and no ``attribute``: a :class:`MonitorVariable`;
     * ``attribute: energy`` and no element: the :class:`EnergyVariable`;
     * ``attribute: KickAngle``: a :class:`KickVariable`;
-    * ``attribute: Frequency``: an :class:`RFVariable`;
+    * ``attribute: Frequency`` or ``TimeLag``: an :class:`RFVariable`;
+    * ``attribute: Voltage``: an :class:`RFVoltageVariable`;
     * any other attribute on an element or slices: a :class:`StrengthVariable`.
 
     A record naming no element, no slices and no deck property (an optics
@@ -976,8 +1049,10 @@ def variable_from_wiring(
     kind: type[CalibratedSetpoint] = StrengthVariable
     if attribute == KICK_ATTRIBUTE:
         kind = KickVariable
-    elif attribute == FREQUENCY_ATTRIBUTE:
+    elif attribute in (FREQUENCY_ATTRIBUTE, TIME_LAG_ATTRIBUTE):
         kind = RFVariable
+    elif attribute == VOLTAGE_ATTRIBUTE:
+        kind = RFVoltageVariable
     return kind.from_wiring(record, deck_energy_gev=deck_energy_gev, **scalar_fields)
 
 
@@ -1342,6 +1417,7 @@ __all__ = [
     "PyATWritableEnumVariable",
     "RFSwitchVariable",
     "RFVariable",
+    "RFVoltageVariable",
     "RF_SWITCH_SIGNAL",
     "ReadbackCalibration",
     "StrengthVariable",

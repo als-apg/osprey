@@ -118,6 +118,37 @@ def test_a_lights_mark_gets_a_line_of_its_size():
         assert ink <= drawn["geometry"]["width"]
 
 
+def test_every_widget_stands_on_whole_pixels(screens):
+    """Edges on fractions of a pixel draw soft: every box, and every point of a
+    line or shape, is on a whole pixel."""
+    off = []
+    for name, doc in screens.items():
+        for node in _nodes(doc["root"]):
+            g = node["geometry"]
+            points = node["props"].get("points") or ()
+            values = [g["x"], g["y"], g["width"], g["height"]]
+            values += [v for p in points for v in (p["x"], p["y"])]
+            if any(not float(v).is_integer() for v in values):
+                off.append((name, node["id"]))
+    assert off == []
+
+
+def test_the_canvas_ends_one_margin_under_the_content(screens):
+    """Every screen, of every kind, ends :data:`layout.PAGE_END` under its lowest
+    widget; nothing more, so the viewer draws it as large as it can."""
+    wrong = {}
+    for name, doc in screens.items():
+        bottom = max(
+            n["geometry"]["y"] + n["geometry"]["height"]
+            for n in _nodes(doc["root"])
+            if n["type"] != "absolute-canvas" and n["geometry"]["x"] != layout.APPLY_AWAY
+        )
+        height = doc["metadata"]["size"]["height"]
+        if height != doc["root"]["geometry"]["height"] or height - bottom != layout.PAGE_END:
+            wrong[name] = height - bottom
+    assert wrong == {}
+
+
 def test_no_widget_reaches_outside_the_canvas(screens):
     outside = []
     for name, doc in screens.items():
@@ -321,12 +352,67 @@ def test_conditions_several_calibration_rows_share_are_stated_once_under_them(pa
     texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
     words = " ".join(n["props"]["text"] for n in texts)
     assert words.count("support frame") == 1  # once, not per row
-    assert "Roll, Yaw: in the support frame" in words
+    assert "Roll, Yaw" not in words  # the marks point at the rows: titles not said again
     assert "at 20 C" in words  # a row's own conditions stay with it
     gain = next(n for n in texts if n["props"]["text"] == "Gain")
-    shared = next(n for n in texts if n["props"]["text"].startswith("Roll, Yaw:"))
+    shared = next(n for n in texts if n["props"]["text"].startswith("in the support frame"))
     assert shared["geometry"]["y"] > gain["geometry"]["y"]  # under the rows
     assert not any(n["props"]["text"].endswith("…") for n in texts if "frame" in n["props"]["text"])
+
+
+def test_shared_conditions_stand_apart_under_a_rule_tied_to_their_rows_by_a_mark(panel_graph):
+    """The shared line must not read as the last row's note: half a row of space and
+    a thin rule set it off, and a reference mark, readable at the card's small size,
+    follows the title of every row it holds for and starts the line; a second shared
+    text gets the next mark."""
+    from osprey.facility.panels.view import CalibrationRow, Calibrations, Section, Target, View
+    from tests.facility.panels._views import stub_render
+
+    def row(title: str, conditions: str | None) -> CalibrationRow:
+        return CalibrationRow(
+            title, conditions, "0.1 mrad", None, "stated", "stated", False, None, None, None
+        )
+
+    frame, warm = "in the support frame", "at 20 C"
+    rows = (row("Roll", frame), row("Gain", warm), row("Yaw", frame), row("Offset", warm))
+    rows += (row("Tilt", "alone"),)
+    view = View(
+        Target("card", "device", "XR01:PS1"), "XR01:PS1", (),
+        (Section("calibration", (Calibrations(rows),)),),
+    )  # fmt: skip
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in _nodes(doc["root"]) if n["type"] == "text-label"]
+
+    def at(text: str) -> dict[str, Any]:
+        return next(n for n in texts if n["props"]["text"] == text)
+
+    marks = {m: [n for n in texts if n["props"]["text"] == m] for m in ("1", "2")}
+    for mark, titles in (("1", ("Roll", "Yaw")), ("2", ("Gain", "Offset"))):
+        assert len(marks[mark]) == len(titles) + 1  # after each title, and at its line
+        for title in titles:
+            g = at(title)["geometry"]
+            assert any(
+                m["geometry"]["y"] == g["y"] and m["geometry"]["x"] > g["x"] for m in marks[mark]
+            )
+        assert all(m["props"]["fontSize"] >= layout.SMALL_SIZE for m in marks[mark])
+    first = at(frame)  # the text alone: its mark points at its rows
+    second = at(warm)
+    assert first["geometry"]["y"] < second["geometry"]["y"]  # in the order the rows state
+    line_mark = max(marks["1"], key=lambda m: m["geometry"]["y"])
+    assert line_mark["geometry"]["y"] == first["geometry"]["y"]
+    assert line_mark["geometry"]["x"] < first["geometry"]["x"]
+    assert "alone" in " ".join(n["props"]["text"] for n in texts)  # its own row keeps it
+    last = max(
+        n["geometry"]["y"] + n["geometry"]["height"]
+        for n in texts
+        if n["geometry"]["y"] < first["geometry"]["y"] - layout.ROW_GAP
+    )
+    rules = [
+        n for n in _nodes(doc["root"])
+        if n["type"] == "line" and last <= n["geometry"]["y"] <= first["geometry"]["y"]
+    ]  # fmt: skip
+    (rule,) = rules  # one thin rule between the rows and the shared lines
+    assert rule["geometry"]["y"] - last >= (layout.ROW + layout.ROW_GAP) / 2
 
 
 def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
@@ -338,3 +424,60 @@ def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
     # a name that fits, or one with separators, breaks as before
     assert layout._wrap_label("PowerSupply", 400, layout.SMALL_SIZE, 2) == ["PowerSupply"]
     assert layout._wrap_label("XR01-PS1:On-Sts", 400, layout.SMALL_SIZE, 2) == ["XR01-PS1:On-Sts"]
+
+
+def _items(doc: dict[str, Any]) -> dict[str, dict[int, tuple[float, float, float, float]]]:
+    """Per item kind, per stated order: the box its widgets take (x0, y0, x1, y1)."""
+    found: dict[str, dict[int, tuple[float, float, float, float]]] = {}
+    for node in _nodes(doc["root"]):
+        comment = (node.get("meta") or {}).get("comment", "")
+        tags = dict(t.split(": ", 1) for t in comment.split("; ") if ": " in t)
+        if "item" not in tags or "order" not in tags:
+            continue
+        g = node["geometry"]
+        box = (g["x"], g["y"], g["x"] + g["width"], g["y"] + g["height"])
+        held = found.setdefault(tags["item"], {}).get(int(tags["order"]))
+        if held is not None:
+            box = (min(held[0], box[0]), min(held[1], box[1]),
+                   max(held[2], box[2]), max(held[3], box[3]))  # fmt: skip
+        found[tags["item"]][int(tags["order"])] = box
+    return found
+
+
+def test_items_read_in_the_order_their_view_states(screens):
+    """Every widget of a view item names it (kind, and its order where the view
+    states one); the items read on the screen in that order along the way their
+    kind reads (:data:`layout.ITEM_TAGS`): across, left to right and on in rows
+    below; down, top to bottom and on in columns to the right."""
+    wrong, seen = [], set()
+    for name, doc in screens.items():
+        for kind, boxes in _items(doc).items():
+            assert kind in layout.ITEM_TAGS, kind
+            seen.add(kind)
+            ordered = [boxes[k] for k in sorted(boxes)]
+            for i in range(1, len(ordered)):
+                before, done = ordered[i - 1], ordered[:i]
+                x0, y0 = ordered[i][0], ordered[i][1]
+                if layout.ITEM_TAGS[kind] == "across":
+                    on = x0 > before[0] or y0 >= max(b[3] for b in done) - 0.01
+                else:
+                    on = (
+                        y0 > before[1]
+                        or (y0 == before[1] and x0 > before[0])
+                        or x0 >= max(b[2] for b in done) - 0.01
+                    )
+                if not on:
+                    wrong.append((name, kind))
+    assert wrong == []
+    assert {"key-tile", "chain-block", "grid-row", "rack-unit", "strip-element"} <= seen
+
+
+def test_item_tags_are_no_part_of_a_drawing():
+    from osprey.facility.panels.emit import _without_meta
+
+    plain = {"root": {"children": [{"id": "w-0001", "props": {}}]}, "metadata": {}}
+    tagged = {"root": {"children": [{"id": "w-0001", "props": {}, "meta": {"comment": "item: x"}}]},
+              "metadata": {}}  # fmt: skip
+    assert _without_meta(plain, "0") == _without_meta(tagged, "0")
+    with pytest.raises(ValueError, match="no item kind"):
+        layout.item_tags("no-such-kind")

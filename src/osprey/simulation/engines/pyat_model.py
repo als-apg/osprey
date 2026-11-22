@@ -23,7 +23,8 @@ never a channel address and the two rosters cannot collide. A monitor readback
 carries ``offset``, ``gain``, ``noise`` and ``polarity`` on its own axis, and a
 monitor carries one ``roll``, on its x-axis readback or its only readback. A
 setpoint on ``PolynomB`` or ``KickAngle`` carries ``cal_factor`` and
-``cal_offset``. Each fault is bound to an element attribute no pyAT pass
+``cal_offset``; a cavity setpoint carries ``cal_offset`` on ``Frequency`` and
+``TimeLag`` and ``cal_factor`` on ``Voltage``. Each fault is bound to an element attribute no pyAT pass
 method reads (``readout_<field>_<axis>``, ``readout_roll``, and a setpoint's
 :func:`~osprey.simulation.engines.pyat_faults.supply_attribute` pair), so
 seeding or writing a fault changes what the element carries and never the
@@ -96,13 +97,13 @@ from pydantic import ConfigDict, model_validator
 
 from osprey.simulation.engines.pyat import SOLVES
 from osprey.simulation.engines.pyat_faults import (
-    CALIBRATED_ATTRIBUTES,
     FAULT_BOUNDS,
     FAULT_SEPARATOR,
     POLARITY_OPTIONS,
     READOUT_IDENTITY,
     ROLL,
     ROLL_IDENTITY,
+    SUPPLY_FIELDS,
     SUPPLY_IDENTITY,
     supply_attribute,
 )
@@ -244,15 +245,13 @@ def _monitor_faults(
 def _calibration_faults(
     channels: Iterable[Variable], seeds: Mapping[str, float]
 ) -> list[FaultVariable]:
-    """Declare each magnet setpoint's own calibration, on its first bound element."""
+    """Declare each magnet or cavity setpoint's own calibration, on its first bound element."""
     faults: list[FaultVariable] = []
     for variable in channels:
-        if not (
-            isinstance(variable, CalibratedSetpoint)
-            and variable.bindings[0].attribute in CALIBRATED_ATTRIBUTES
-        ):
+        if not isinstance(variable, CalibratedSetpoint):
             continue
-        for field, identity in SUPPLY_IDENTITY.items():
+        for field in SUPPLY_FIELDS.get(variable.bindings[0].attribute or "", ()):
+            identity = SUPPLY_IDENTITY[field]
             name = _fault_name(variable.name, field)
             faults.append(
                 PyATWritableScalarVariable(
@@ -537,7 +536,8 @@ class PyATLatticeModel(LUMEPyATModel):
                 f"fault seeds name {unknown}, which the model does not declare; a monitor "
                 f"readback takes {sorted(READOUT_IDENTITY)} (and {ROLL!r} on its x-axis or "
                 f"only readback), a PolynomB or KickAngle setpoint takes "
-                f"{sorted(SUPPLY_IDENTITY)}"
+                f"{sorted(SUPPLY_IDENTITY)}, a Frequency or TimeLag setpoint 'cal_offset' "
+                f"and a Voltage setpoint 'cal_factor'"
             )
         planes = tune_planes(lattice)
         _check_readbacks(channels, planes, solve)
