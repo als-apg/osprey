@@ -3037,9 +3037,16 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
         groups.setdefault(title, []).append(_value_row(graph, channel))
     roled = [k for k in groups if not k.startswith("record type")]
     typed = sorted(k for k in groups if k.startswith("record type"))
-    pairs = [(k, groups[k]) for k in (*roled, *typed)]
+    unstated = f"record type {_NOT_STATED}"
+    sections = [
+        Section(k, tuple(groups[k]), "role" if k in roled else "record type")
+        for k in (*roled, *typed)
+        if k != unstated
+    ]  # a stated group of its grouping each; the rest stand alone after them
+    if unstated in groups:
+        sections.append(Section(unstated, tuple(groups[unstated])))
     if last:
-        pairs.append((_INTERNAL_COUNT.format(len(last)), last))
+        sections.append(Section(_INTERNAL_COUNT.format(len(last)), tuple(last)))
     crumbs = (
         *_crumbs(graph, index, graph.place_of(thing.id, "device")),
         Link(thing.id, Target("card", "device", thing.id)),
@@ -3048,7 +3055,7 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
         Target("channels", "device", device_id),
         f"{device_id} · all channels",
         crumbs,
-        _sections(pairs),
+        tuple(sections),
         alias=thing.short_name,
     )
 

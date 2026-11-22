@@ -1770,7 +1770,21 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
-   the layout cut to fit. Every widget that draws a view item names it in its
+   the layout cut to fit. Frames in a row whose content needs at most half
+   the width each stand in two columns when they have one role
+   (live values, references, an action block, a picture with its curve; two
+   groups of a channel list only as stated groups of one grouping, a group of
+   no stated kind alone), read downward, split where the taller column is least
+   tall, so short frames stack beside a long one; a frame keeps its own height
+   unless matching its neighbour's foot adds at most a third of it, and the page
+   under a shorter column stays plain; content that stretches (a curve's plot) is drawn
+   after the next frame and, where that one takes at most half, fills the other
+   half. A screen shows what it is for first: sections of
+   nothing but links follow the rest, key numbers with no data yet fold into
+   one line, on the band's last row where it fits there, else under it, and a roll-up's summed state is larger than what it sums, a
+   child it does not sum set apart in a dashed outline on the same row where
+   all fit one row at their content's width, its counts one muted line on the
+   heading's line. Every widget that draws a view item names it in its
    ``meta`` comment, which a viewer does not read: ``item: <kind>``, then
    ``thing: <id>`` where the item stands for one thing and ``order: <n>`` where
    the view states an order (a rack unit's by where it stands in the rack, not
