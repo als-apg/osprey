@@ -23,7 +23,7 @@ from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
 from osprey.cli.chat_cmd import chat
 from osprey.cli.query_cmd import query
 from osprey.cli.web_cmd import web
-from tests.cli._scoped_subprocess import patch_subprocess
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli.test_host_launch_record import (  # noqa: F401 - fixtures requested by name
     _config,
     _deploy,

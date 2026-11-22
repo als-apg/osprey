@@ -30,6 +30,7 @@ from osprey.deployment.web_terminals.env_production import (
     ensure_env_production,
     migrate_users_env,
 )
+from tests._scoped_stdlib import scoped
 
 # A local-mode web-terminals config with one credential to carry, so the
 # generator has something to write and the refusals have something to name.
@@ -313,10 +314,17 @@ def stubbed_start_stack(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=0),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=0),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=0),
     )
 
 

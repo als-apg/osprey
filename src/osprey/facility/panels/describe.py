@@ -51,6 +51,7 @@ from osprey.facility.panels.model import (
     ThingKind,
     calibration_numbers,
 )
+from osprey.facility.panels.order import name_order
 from osprey.facility.panels.tables import (
     CONTROLS,
     CURVE_PREFIX,
@@ -1583,6 +1584,8 @@ def _operate(
             labelled = all(h.role.label for h in found)
             joined = [h for h in found if h.join is not None]  # never pressed: read only
             found = [h for h in found if h.join is None]
+            if kind != "choice":  # a choice's segments keep their values' order
+                found.sort(key=lambda h: name_order(h.channel))
             items = []
             for hit in found:
                 press = _press(graph, hit) if kind != "entry" else None
@@ -2477,7 +2480,7 @@ def _loose(
             if edge.port is None and edge.other not in ported and edge.other_kind == "device":
                 seen.setdefault(edge.other, edge)
     by_class: dict[str, list[tuple[FarEnd, tuple[BlockRow, ...]]]] = {}
-    for other in sorted(seen):
+    for other in sorted(seen, key=name_order):
         try:
             cls = graph.thing(other, seen[other].other_kind).cls or seen[other].other_kind
         except KeyError:
@@ -2496,7 +2499,10 @@ def _loose(
                     break
         end = _far_end(graph, index, other, seen[other].other_port)
         by_class.setdefault(cls, []).append((end, tuple(found)))
-    return tuple((cls, tuple(things)) for cls, things in sorted(by_class.items()))
+    return tuple(
+        (cls, tuple(things))
+        for cls, things in sorted(by_class.items(), key=lambda kv: name_order(kv[0]))
+    )
 
 
 def _front_writes(controls: list[Control], device: str) -> str:
@@ -2731,11 +2737,6 @@ def ring_group(graph: PanelGraph, thing: Thing, recipe: str, members: str) -> li
     return list(found.values())
 
 
-def _number_key(text: str) -> list[object]:
-    """Natural order: the numbers in a name compared as numbers (VTC9 before VTC10)."""
-    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", text)]
-
-
 def ring_strip(
     graph: PanelGraph, index: _Index, thing: Thing, recipe: str, section: CardSection
 ) -> RingStrip | None:
@@ -2758,7 +2759,7 @@ def ring_strip(
         members.sort(key=lambda m: (where[m.id], m.id))
     else:
         ordered = RING_BY_NUMBER
-        members.sort(key=lambda m: _number_key(m.id))
+        members.sort(key=lambda m: name_order(m.id))
     out = []
     for member in members:
         rows: list[BlockRow] = []
@@ -2796,7 +2797,7 @@ def ring_strip(
             if held.get(member.id) is not None:
                 first.setdefault(held[member.id] or "", i)
         if ordered == RING_BY_NUMBER:  # no ring position: the places in number order
-            named = sorted(first, key=_number_key)
+            named = sorted(first, key=name_order)
             first = {place: n for n, place in enumerate(named)}
         last = len(members)
         rank = {
@@ -3037,9 +3038,16 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
         groups.setdefault(title, []).append(_value_row(graph, channel))
     roled = [k for k in groups if not k.startswith("record type")]
     typed = sorted(k for k in groups if k.startswith("record type"))
-    pairs = [(k, groups[k]) for k in (*roled, *typed)]
+    unstated = f"record type {_NOT_STATED}"
+    sections = [
+        Section(k, tuple(groups[k]), "role" if k in roled else "record type")
+        for k in (*roled, *typed)
+        if k != unstated
+    ]  # a stated group of its grouping each; the rest stand alone after them
+    if unstated in groups:
+        sections.append(Section(unstated, tuple(groups[unstated])))
     if last:
-        pairs.append((_INTERNAL_COUNT.format(len(last)), last))
+        sections.append(Section(_INTERNAL_COUNT.format(len(last)), tuple(last)))
     crumbs = (
         *_crumbs(graph, index, graph.place_of(thing.id, "device")),
         Link(thing.id, Target("card", "device", thing.id)),
@@ -3048,7 +3056,7 @@ def channel_list(graph: PanelGraph, device_id: str) -> View:
         Target("channels", "device", device_id),
         f"{device_id} · all channels",
         crumbs,
-        _sections(pairs),
+        tuple(sections),
         alias=thing.short_name,
     )
 
@@ -3599,7 +3607,7 @@ def _band(graph: PanelGraph, place: Thing, view: str) -> Band | None:
             if row.cls is not None and thing.cls != row.cls:
                 continue
             chosen += [c for c in graph.channels(thing.id, thing.kind) if c.signal == row.signal]
-        chosen = sorted({c.name: c for c in chosen}.values(), key=lambda c: c.name)
+        chosen = sorted({c.name: c for c in chosen}.values(), key=lambda c: name_order(c.name))
         pairs: list[tuple[str, str, str, float]] = []
         if row.measure == "count_in_tolerance":
             for channel in chosen:
@@ -3619,7 +3627,7 @@ def _annotations(
     graph: PanelGraph, thing: Thing, signals: Iterable[str]
 ) -> tuple[tuple[str, str | None], ...]:
     """Per stated signal, the device's first channel (by name) stating it, with its unit."""
-    channels = sorted(graph.channels(thing.id, "device"), key=lambda c: c.name)
+    channels = sorted(graph.channels(thing.id, "device"), key=lambda c: name_order(c.name))
     found = []
     for signal in signals:
         channel = next((c for c in channels if c.signal == signal), None)
@@ -4083,7 +4091,7 @@ def _sets_within(index: _Index, devices: Iterable[str]) -> list[Item]:
     """A link to the set view of every set one of *devices* is a member of, in set id
     order."""
     found = {group for device in devices for group in index.sets_of.get(device, ())}
-    return [Link(group, Target("set", "group", group)) for group in sorted(found)]
+    return [Link(group, Target("set", "group", group)) for group in sorted(found, key=name_order)]
 
 
 def _devices_in(graph: PanelGraph, place_id: str) -> list[str]:
@@ -4275,7 +4283,7 @@ def home(graph: PanelGraph) -> View:
                 break
         (tops if thing.id in machines or not machines else others).append(_node(thing.id, link, ()))
     by_class: dict[str, list[Node]] = {}
-    for group in sorted(index.sets):
+    for group in sorted(index.sets, key=name_order):
         if scope is not None and group not in scope.groups:
             continue
         cls = index.set_class[group]
@@ -4304,7 +4312,9 @@ def home(graph: PanelGraph) -> View:
         places.append(Group(_MACHINES if machines else _TOP_PLACES, "chips", tuple(tops)))
     if others:
         places.append(Group(_OTHER_PLACES, "chips", tuple(others)))
-    sets: list[Item] = [Group(cls, "chips", tuple(by_class[cls])) for cls in sorted(by_class)]
+    sets: list[Item] = [
+        Group(cls, "chips", tuple(by_class[cls])) for cls in sorted(by_class, key=name_order)
+    ]
     if groups:
         sets.append(Group(_OTHER_GROUPS, "chips", tuple(groups)))
     sections = _sections(

@@ -18,6 +18,7 @@ import pytest
 from osprey.agent_runner import launcher
 from osprey.agent_runner.errors import AgentCliUnavailableError
 from osprey.agent_runner.launcher import CLI_NAME, build_claude_launch_argv
+from tests._scoped_stdlib import scoped
 from tests.agent_runner.test_cli_version_pin import BAD_PINS
 
 #: These tests are about the real lookup, not the suite-wide stand-in.
@@ -33,7 +34,12 @@ def installed(monkeypatch):
     """Put a ``claude`` on PATH that reports the given version (or raises it)."""
 
     def install(version, path=GLOBAL):
-        monkeypatch.setattr("shutil.which", lambda name, **_k: path if name == CLI_NAME else None)
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda name, **_k: path if name == CLI_NAME else None,
+        )
         probed: list[str] = []
 
         def probe(executable):
@@ -50,7 +56,7 @@ def installed(monkeypatch):
 
 @pytest.fixture
 def nothing_installed(monkeypatch):
-    monkeypatch.setattr("shutil.which", lambda *_a, **_k: None)
+    scoped(monkeypatch, "osprey.utils.shell_resolver", "shutil", which=lambda *_a, **_k: None)
     monkeypatch.setattr(
         launcher, "_probe_cli_version", lambda exe: pytest.fail(f"nothing to probe, got {exe}")
     )
@@ -65,7 +71,7 @@ def no_download(monkeypatch):
         assert not {"npx", "npm"} & {Path(str(word)).name for word in argv}, argv
         return real_run(argv, *args, **kwargs)
 
-    monkeypatch.setattr(launcher.subprocess, "run", run)
+    scoped(monkeypatch, launcher, "subprocess", run=run)
 
 
 class TestPinnedProject:
@@ -149,7 +155,12 @@ class TestPinnedProject:
     def test_the_headless_path_refuses_a_bad_pin_before_looking_for_anything(
         self, monkeypatch, pin
     ):
-        monkeypatch.setattr("shutil.which", lambda *_a, **_k: pytest.fail("looked"))
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda *_a, **_k: pytest.fail("looked"),
+        )
 
         with pytest.raises(ValueError, match="claude_code.cli_version") as headless:
             launcher.agent_cli_path({"cli_version": pin})

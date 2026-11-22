@@ -665,13 +665,17 @@ class TestBuildChannelsFromSelections:
         # omitting it does not raise.
         assert db.build_channels_from_selections({"system": "SR", "signal": "X"}) == ["SR:X"]
 
-    def test_unknown_selection_keys_are_ignored(self, tree_only_db) -> None:
-        assert tree_only_db.build_channels_from_selections(
-            {"system": "SR", "device": "BPM", "signal": "X", "not_a_level": "Z"}
-        ) == ["SR:BPM:X"]
+    def test_unknown_selection_keys_are_refused(self, tree_only_db) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"selections name no level 'not_a_level'; levels: system, device, signal",
+        ):
+            tree_only_db.build_channels_from_selections(
+                {"system": "SR", "device": "BPM", "signal": "X", "not_a_level": "Z"}
+            )
 
     def test_values_absent_from_the_tree_are_rendered_anyway(self, tree_only_db) -> None:
-        """Characterized as-is, not endorsed: selections are never validated.
+        """Characterized as-is, not endorsed: selected values are never validated.
 
         The method is a name formatter, not a lookup. It happily returns a
         channel name that corresponds to nothing in the tree and is not a key of

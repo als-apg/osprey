@@ -1473,7 +1473,6 @@ env:
     OSPREY_AUTH_PW_ALICE: alice
     OSPREY_AUTH_PW_BOB: bob
     OSPREY_AUTH_PW_CAROL: carol
-data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.10.0'
 # What this profile was materialized from. Emitted, not hand-written: a
@@ -1491,6 +1490,13 @@ deploy_services: true
 panel_presets: {}
 # Bundled template rendered as CLAUDE.md, the agent's instructions.
 claude_md_template: CLAUDE.md.j2
+
+# --- Facility data tree ------------------------------------------------------
+# Path (relative to this profile) of the data tree the build copies. `osprey
+# init` materializes it from the preset's packaged tree and sets this key; a
+# layer under tiers/ inherits it and resolves it against this
+# profile's directory. Full replacement, not a fallback.
+data: data
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
@@ -1554,8 +1560,8 @@ claude_md_template: CLAUDE.md.j2
 # --- Optimizer web panel -----------------------------------------------------
 # The OPTIMIZER tab for the web terminal (requires the optimizer block): where
 # a person reviews and starts the run an agent drafted. The sidecar takes the
-# optimizer_web slot of this deployment's port block; the override below pins
-# it outside that block.
+# optimizer_web slot of this deployment's port block; a `port` key in this
+# block pins it outside that block.
 #
 # optimizer_web:
 #   port: <host port>

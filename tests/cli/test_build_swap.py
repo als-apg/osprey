@@ -29,6 +29,7 @@ from osprey.cli import build_cmd
 from osprey.cli.build_cmd import build
 from osprey.cli.build_environment import _ProjectVenvPlan
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import CI_FLAGS
 
 # A plan with nothing to install, for builds whose environment step is faked.
@@ -145,7 +146,7 @@ def _refuse_to_delete_marked_trees(monkeypatch, *, silently: bool = False) -> No
             raise OSError(errno.ENOTEMPTY, "Directory not empty", str(target))
         return real_rmtree(target, *args, **kwargs)
 
-    monkeypatch.setattr(build_cmd.shutil, "rmtree", rmtree)
+    scoped(monkeypatch, build_cmd, "shutil", rmtree=rmtree)
     monkeypatch.setattr(build_cmd, "_LEFTOVER_RETRY_SECONDS", 0)
 
 

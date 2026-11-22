@@ -1,10 +1,12 @@
 """The pyat engine's turn tracking: injected particles read per monitor and turn.
 
 Pure functions over a lattice and plain numbers. A declared bunch is a fixed
-shape of particles matched to the optics at the injection, built from
-deterministic normal quantiles, never from random draws. A shot launches it
-at the launch coordinates plus a centroid jitter keyed on the model and the
-shot number, so the same shot replays identically in any process. The ring is
+shape of particles in the optics it arrives with -- the ring's own at the
+injection unless others are stated, their beta functions times a mismatch
+factor -- built from deterministic normal quantiles, never from random
+draws. A shot launches it at the launch coordinates, plus a static offset,
+plus a centroid jitter in all six coordinates keyed on the model and the shot
+number, so the same shot replays identically in any process. The ring is
 rotated to start at the injection element, tracked for some turns with
 losses, and every monitor reads, per turn, the survivors' centroid in ``x``
 and ``y`` and the share of particles alive. One particle without jitter is the
@@ -16,6 +18,7 @@ here, so this module is imported only when a pyat model tracks turns.
 
 from __future__ import annotations
 
+import copy
 import math
 import time
 from collections.abc import Sequence
@@ -61,6 +64,10 @@ SLICE_S = 0.05
 
 #: The subkey of a bunch's per-shot draw, between the model's key and the shot.
 BUNCH_SUBKEY = b":bunch"
+
+#: The index of each pyAT coordinate's jitter draw in a shot's keyed normals:
+#: ``x`` and ``y`` take the first two, then ``px``, ``py``, ``delta``, ``ct``.
+JITTER_DRAWS: tuple[int, ...] = (0, 2, 1, 3, 4, 5)
 
 
 @dataclass(frozen=True)
@@ -185,11 +192,20 @@ def declared_bunch(
     emittance_y: float = 0.0,
     sigma_delta: float = 0.0,
     sigma_z: float = 0.0,
+    beta: Sequence[float] | None = None,
+    alpha: Sequence[float] | None = None,
+    dispersion: Sequence[float] | None = None,
+    mismatch: Sequence[float] = (1.0, 1.0),
 ) -> np.ndarray:
-    """The declared bunch's shape, matched to the periodic optics at ``injection``.
+    """The declared bunch's shape in the optics it arrives with.
 
-    The optics are solved on a 4D copy of ``lattice``; ``lattice`` is not
-    changed.
+    Each of ``beta``, ``alpha`` and ``dispersion`` left out is the ring's own
+    at ``injection``, solved on a 4D copy of ``lattice``; with all three
+    stated nothing is solved, so a ring without periodic optics still takes a
+    stated beam. ``mismatch`` then multiplies the beta function of each plane
+    and leaves ``alpha`` and the emittance alone: a factor above 1 is a bunch
+    wider in position and narrower in angle than those optics', which beats in
+    size as it goes round. ``lattice`` is not changed.
 
     Args:
         lattice: The ring.
@@ -199,27 +215,41 @@ def declared_bunch(
         emittance_y: Vertical emittance, metre-radians.
         sigma_delta: Relative energy spread.
         sigma_z: Bunch length, metres.
+        beta: ``(beta_x, beta_y)`` the bunch arrives with, metres.
+        alpha: ``(alpha_x, alpha_y)`` the bunch arrives with.
+        dispersion: ``(eta_x, eta_px, eta_y, eta_py)`` the bunch arrives with.
+        mismatch: The factor on the beta function in ``x`` and ``y``.
 
     Returns:
         ``(6, particles)`` float64 offsets from the launch.
 
     Raises:
-        ValueError: ``particles`` is below 1, or the ring has no periodic
-            optics at ``injection``.
+        ValueError: ``particles`` is below 1, a mismatch factor is not a
+            finite number above 0, or an optics function is left out and the
+            ring has no periodic optics at ``injection``.
     """
     if int(particles) < 1:
         raise ValueError(f"a bunch takes 1 or more particles, not {int(particles)}")
-    try:
-        _, _, optics = lattice.disable_6d(copy=True).get_optics(refpts=[int(injection)])
-    except Exception as error:
+    factors = np.asarray(mismatch, dtype=np.float64)
+    if factors.shape != (2,) or not np.all(np.isfinite(factors) & (factors > 0.0)):
         raise ValueError(
-            f"the lattice has no periodic optics at element {int(injection)} to match "
-            f"the bunch to: {error}"
-        ) from error
+            f"a mismatch factor is a finite number above 0 per plane, not {tuple(mismatch)}"
+        )
+    if beta is None or alpha is None or dispersion is None:
+        try:
+            _, _, optics = lattice.disable_6d(copy=True).get_optics(refpts=[int(injection)])
+        except Exception as error:
+            raise ValueError(
+                f"the lattice has no periodic optics at element {int(injection)} to match "
+                f"the bunch to: {error}"
+            ) from error
+        beta = optics["beta"][0] if beta is None else beta
+        alpha = optics["alpha"][0] if alpha is None else alpha
+        dispersion = optics["dispersion"][0] if dispersion is None else dispersion
     return bunch_shape(
-        optics["beta"][0],
-        optics["alpha"][0],
-        optics["dispersion"][0],
+        (np.asarray(beta, dtype=np.float64) * factors).tolist(),
+        alpha,
+        dispersion,
         particles,
         emittance_x=emittance_x,
         emittance_y=emittance_y,
@@ -234,31 +264,33 @@ def launched_bunch(
     *,
     key: str,
     shot: int,
-    jitter: tuple[float, float] = (0.0, 0.0),
+    jitter: Sequence[float] = (0.0,) * 6,
+    offset: Sequence[float] = (0.0,) * 6,
 ) -> np.ndarray:
     """The particles shot ``shot`` launches, ``(6, particles)``.
 
-    The launch, plus the bunch's fixed shape, plus a centroid jitter in ``x``
-    and ``y``: the jitter sigmas times the first two normals of the stream
-    keyed on ``key`` and ``shot``. Nothing else varies from shot to shot.
+    The launch, plus the static ``offset``, plus the bunch's fixed shape, plus
+    a centroid jitter: each coordinate's sigma times its own normal
+    (:data:`JITTER_DRAWS`) of the stream keyed on ``key`` and ``shot``.
+    Nothing else varies from shot to shot.
 
     Args:
         launch: ``(x, px, y, py, delta, ct)`` in pyAT's units.
         shape: The bunch's offsets from the launch, ``(6, particles)``.
         key: The model's id.
         shot: The shot number.
-        jitter: The centroid jitter's sigma in ``x`` and ``y``, metres.
+        jitter: The centroid jitter's sigma per coordinate, in the launch's
+            order and units.
+        offset: A static offset per coordinate, added to the launch.
     """
     from osprey_connectors.simulation.series import keyed_normals
 
-    start = np.asarray(launch, dtype=np.float64).reshape(6, 1)
-    offset = np.zeros((6, 1), dtype=np.float64)
-    jitter_x, jitter_y = (float(sigma) for sigma in jitter)
-    if (jitter_x, jitter_y) != (0.0, 0.0):
-        normals = keyed_normals(shot_key(key, shot), np.arange(2))
-        offset[0, 0] = jitter_x * normals[0]
-        offset[2, 0] = jitter_y * normals[1]
-    return np.asarray(start + offset + np.asarray(shape, dtype=np.float64), dtype=np.float64)
+    start = np.asarray(launch, dtype=np.float64) + np.asarray(offset, dtype=np.float64)
+    sigmas = np.asarray(jitter, dtype=np.float64)
+    if sigmas.any():
+        normals = keyed_normals(shot_key(key, shot), np.arange(6))
+        start = start + sigmas * normals[list(JITTER_DRAWS)]
+    return np.asarray(start.reshape(6, 1) + np.asarray(shape, dtype=np.float64), dtype=np.float64)
 
 
 def write_apertures(
@@ -301,8 +333,76 @@ def write_apertures(
                 setattr(element, attribute, values.copy())
 
 
+@dataclass(frozen=True)
+class PulsedKick:
+    """A kick one element gives the bunch on the first turns of a shot.
+
+    Attributes:
+        element: The element's index in the lattice.
+        plane: 0 for a horizontal kick, 1 for a vertical one.
+        angle: The kick at full pulse, in radians.
+        pulse: The share of ``angle`` given on each turn, from the first; the
+            turns after the last get none.
+    """
+
+    element: int
+    plane: int
+    angle: float
+    pulse: tuple[float, ...] = (1.0,)
+
+
+def applies_kick_angle(element: at.Element) -> bool:
+    """Whether ``element``'s pass method applies a ``KickAngle``.
+
+    Asked of the tracker itself: a copy of the element is given a kick angle
+    and a particle on its axis is tracked through it.
+    """
+    probe = copy.deepcopy(element)
+    probe.KickAngle = np.array([1.0e-6, 0.0])
+    particle = np.zeros((6, 1), order="F")
+    at.lattice_track(at.Lattice([probe], energy=1.0e9), particle, nturns=1, in_place=True)
+    return bool(abs(particle[1, 0]) > 1.0e-9)
+
+
+def pulsed_lattices(
+    lattice: at.Lattice, kicks: Sequence[PulsedKick], turns: int
+) -> list[at.Lattice]:
+    """The lattice of each of the first turns of a shot, while a pulse lasts.
+
+    Each is ``lattice`` with a copy of every kicked element in its place, the
+    turn's share of the kick added to the kick angle the element holds.
+    ``lattice`` and its elements are not changed.
+
+    Args:
+        lattice: The lattice a shot tracks.
+        kicks: The pulsed kicks, by element index in ``lattice``.
+        turns: The turns the shot tracks.
+
+    Returns:
+        One lattice per turn up to the longest pulse, ``turns`` at most.
+    """
+    length = min(turns, max((len(kick.pulse) for kick in kicks), default=0))
+    stages = []
+    for turn in range(length):
+        stage = lattice.copy()
+        for kick in kicks:
+            if turn >= len(kick.pulse):
+                continue
+            element = copy.deepcopy(stage[kick.element])
+            angle = np.array(getattr(element, "KickAngle", (0.0, 0.0)), dtype=np.float64)
+            angle[kick.plane] += kick.angle * kick.pulse[turn]
+            element.KickAngle = angle
+            stage[kick.element] = element
+        stages.append(stage)
+    return stages
+
+
 def track_particles(
-    lattice: at.Lattice, particles: np.ndarray, refpts: np.ndarray, turns: int
+    lattice: at.Lattice,
+    particles: np.ndarray,
+    refpts: np.ndarray,
+    turns: int,
+    first: Sequence[at.Lattice] = (),
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Track ``particles`` and reduce them per reference point and turn, each ``(refpts, turns)``.
 
@@ -316,6 +416,8 @@ def track_particles(
         particles: ``(6, particles)`` launch coordinates.
         refpts: The element indexes read, in the lattice's order.
         turns: The turns tracked, 1 or more.
+        first: The lattices the first turns track instead, one per turn, each
+            with ``lattice``'s elements at the same indexes.
 
     Returns:
         The share of ``particles`` alive, and the survivors' centroid in
@@ -333,10 +435,11 @@ def track_particles(
         done = 0
         step = 1
         while done < turns:
-            nturns = min(step, turns - done)
+            staged = done < len(first)
+            nturns = 1 if staged else min(step, turns - done)
             started = time.perf_counter()
             tracked, _, _ = at.lattice_track(
-                lattice,
+                first[done] if staged else lattice,
                 coordinates,
                 nturns=nturns,
                 refpts=refpts,
@@ -352,7 +455,8 @@ def track_particles(
             sum_x[:, span] += np.where(live, x, 0.0).sum(axis=0)
             sum_y[:, span] += np.where(live, y, 0.0).sum(axis=0)
             done += nturns
-            step = max(1, int(SLICE_S * nturns / elapsed)) if elapsed > 0.0 else 2 * nturns
+            if not staged:
+                step = max(1, int(SLICE_S * nturns / elapsed)) if elapsed > 0.0 else 2 * nturns
     with np.errstate(invalid="ignore", divide="ignore"):
         centroid_x = np.where(alive > 0, sum_x / alive, np.nan)
         centroid_y = np.where(alive > 0, sum_y / alive, np.nan)
@@ -369,7 +473,9 @@ def track_shot(
     shape: np.ndarray | None = None,
     key: str = "",
     shot: int = 0,
-    jitter: tuple[float, float] = (0.0, 0.0),
+    jitter: Sequence[float] = (0.0,) * 6,
+    offset: Sequence[float] = (0.0,) * 6,
+    pulsed: Sequence[PulsedKick] = (),
 ) -> TurnReading:
     """Track one shot from the injection element for ``turns`` turns.
 
@@ -388,7 +494,11 @@ def track_shot(
             particle at the launch when ``None``.
         key: The model's id, which keys the jitter.
         shot: The shot number, which keys the jitter.
-        jitter: The centroid jitter's sigma in ``x`` and ``y``, metres.
+        jitter: The centroid jitter's sigma per coordinate, in the launch's
+            order and units.
+        offset: A static offset per coordinate, added to the launch.
+        pulsed: The kicks pulsed on the shot's first turns, by element index
+            in ``lattice``.
 
     Returns:
         The reading per monitor and turn.
@@ -407,8 +517,13 @@ def track_shot(
     refpts = places[order].astype(np.uint32)
     if shape is None:
         shape = np.zeros((6, 1), dtype=np.float64)
-    particles = launched_bunch(launch, shape, key=key, shot=shot, jitter=jitter)
-    alive, x, y = track_particles(rotated, particles, refpts, turns)
+    particles = launched_bunch(launch, shape, key=key, shot=shot, jitter=jitter, offset=offset)
+    kicks = [
+        PulsedKick((kick.element - start) % length, kick.plane, kick.angle, kick.pulse)
+        for kick in pulsed
+    ]
+    first = pulsed_lattices(rotated, kicks, turns)
+    alive, x, y = track_particles(rotated, particles, refpts, turns, first)
     rows = np.argsort(order)  # each caller's monitor's row in ring order
     return TurnReading(x=x[rows], y=y[rows], alive=alive[rows])
 

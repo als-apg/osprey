@@ -31,7 +31,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 _MIN_DISTINCT_COLOURS = 10
 
 
-def test_saved_scatter3d_artifact_exports_a_drawn_plot(tmp_path, monkeypatch):
+def test_saved_scatter3d_artifact_exports_a_drawn_plot(tmp_path):
     if not chromium_available():
         pytest.skip("Playwright Chromium is not installed")
 
@@ -40,11 +40,6 @@ def test_saved_scatter3d_artifact_exports_a_drawn_plot(tmp_path, monkeypatch):
 
     from osprey.mcp_server.export import converter
     from osprey.stores.artifact_store import serialize_object
-
-    def _no_install() -> None:
-        pytest.skip("Chromium launch failed as missing; this test never installs a browser")
-
-    monkeypatch.setattr(converter, "_install_chromium", _no_install)
 
     figure = go.Figure(
         go.Scatter3d(
@@ -63,7 +58,10 @@ def test_saved_scatter3d_artifact_exports_a_drawn_plot(tmp_path, monkeypatch):
     html_path.write_bytes(content)
     png_path = tmp_path / "export.png"
 
-    result = asyncio.run(converter.convert_html_to_image(html_path, png_path, fmt="png"))
+    try:
+        result = asyncio.run(converter.convert_html_to_image(html_path, png_path, fmt="png"))
+    except converter.PlaywrightNotInstalledError as exc:
+        pytest.skip(str(exc))
 
     assert result == png_path.resolve()
     with image.open(result) as img:

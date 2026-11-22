@@ -348,7 +348,7 @@ def _demo_line_monitors(demo_line: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _demo_line_physics(entry: dict[str, Any], hardware: float) -> float:
-    from osprey.simulation.engines.calibration import curve_from_record, to_physics
+    from osprey_connectors.simulation.engines import curve_from_record, to_physics
 
     return float(to_physics(curve_from_record(entry["calibration"]["curve"]), hardware))
 

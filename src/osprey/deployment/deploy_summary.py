@@ -1408,7 +1408,7 @@ def log_endpoint_summary(config: dict, compose_files: list[str]) -> None:
     out, so it is printed as the verb's own output rather than logged: an
     INFO record is not rendered on a normal run, and a fact that only a
     ``--verbose`` run shows is a fact the deploy did not report. Every exit
-    path of ``deploy_up`` calls this function, so all of them inherit the
+    path of ``_start_stack`` calls this function, so all of them inherit the
     printed form from here.
 
     The logged block stays as it was, at the same level, so file and

@@ -40,6 +40,7 @@ from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
 from tests._by_path import load_module
 from tests._live import wait_until
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest
+from tests._scoped_stdlib import scoped
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SUMMARY = _REPO_ROOT / "scripts" / "ci" / "diag_summary.py"
@@ -491,7 +492,7 @@ def _record_started_calls(monkeypatch) -> list[list[str]]:
         started.append(list(argv))
         return real_run(argv, *args, **kwargs)
 
-    monkeypatch.setattr(ci_diagnostics.subprocess, "run", _run)
+    scoped(monkeypatch, ci_diagnostics, "subprocess", run=_run)
     return started
 
 
@@ -763,7 +764,7 @@ def test_a_capture_that_times_out_is_marked_incomplete(slow_engine, tmp_path, mo
             return real_run(cmd, *args, **kwargs)
         return subprocess.CompletedProcess(cmd, 0, _fake_engine_stdout(cmd[1:]), "")
 
-    monkeypatch.setattr(ci_diagnostics.subprocess, "run", router)
+    scoped(monkeypatch, ci_diagnostics, "subprocess", run=router)
     monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_DEADLINE", _CALL_BOUND)
     snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", slow_engine.name)
     started = _record_started_calls(monkeypatch)

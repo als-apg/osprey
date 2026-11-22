@@ -67,6 +67,7 @@ from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, reso
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
 from tests._preset_data import bundle_data_root
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 
@@ -197,7 +198,7 @@ def test_prepare_compose_files_no_services_renders_nothing(
     An attached project (``deploy_services: false``) scaffolds no ``services/``
     templates, so the root render must be skipped too — every consumer is
     guarded on non-empty ``deployed_services`` before invoking compose
-    (deploy_up's early return; the web branch's services sub-invocation).
+    (_start_stack's early return; the web branch's services sub-invocation).
     """
     config_path = _write_config(tmp_path, deployed_services=[])
 
@@ -1712,7 +1713,7 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         # Return non-zero so the function bails before trying to copy a wheel.
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop here")
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    scoped(monkeypatch, "osprey.deployment.wheel_build", "subprocess", run=_fake_run)
     # A failed build now aborts the deploy rather than falling back to the
     # released package; the interpreter assertion below is what this test is for.
     with pytest.raises(DevModeUnavailableError):
@@ -3872,7 +3873,8 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    for spawner in ("osprey.deployment.wheel_build", "osprey.deployment.lock_constraints"):
+        scoped(monkeypatch, spawner, "subprocess", run=_fake_run)
     return calls
 
 
@@ -4080,7 +4082,7 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
             )
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess, "run", _failing_build)
+    scoped(monkeypatch, "osprey.deployment.wheel_build", "subprocess", run=_failing_build)
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -4392,7 +4394,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    scoped(monkeypatch, "osprey.deployment.wheel_build", "subprocess", run=_fake_run)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()
@@ -9375,7 +9377,7 @@ def test_stage_control_identity_stale_removal_failure_only_warns(
         raise PermissionError(errno.EACCES, "denied", path)
 
     monkeypatch.setattr(compose_generator.os, "remove", refuse)
-    monkeypatch.setattr(compose_generator.shutil, "rmtree", refuse)
+    scoped(monkeypatch, compose_generator, "shutil", rmtree=refuse)
     with caplog.at_level(logging.WARNING):
         assert _stage_control_identity(out_dir, "services/bluesky_web") is False
     assert "stale control-identity file" in caplog.text

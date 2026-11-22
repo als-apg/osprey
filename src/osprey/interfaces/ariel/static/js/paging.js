@@ -18,6 +18,7 @@
 import { entriesApi } from './api.js';
 import { mergeFilter, requestFilter, splitFilters } from './filter-state.js';
 import { isAbort, runSearch, searchPage } from './search.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /** @typedef {import('./filter-state.js').Filter} Filter */
 /** @typedef {import('./search.js').SearchRequest} SearchRequest */
@@ -61,8 +62,10 @@ export const PAGE_SIZE = 20;
 /** @type {BrowsePaging|SearchPaging|null} */
 let paging = null;
 
-/** @type {AbortController|null} */
-let controller = null;
+/** The paging runs: a newer run or a reset aborts and retires this one. */
+const runs = createLatestRequest();
+/** @type {import('/design-system/js/latest-request.js').LatestToken|null} */
+let run = null;
 
 let loading = false;
 
@@ -72,11 +75,10 @@ let loading = false;
  * @returns {AbortSignal}
  */
 function begin(next) {
-  controller?.abort();
-  controller = new AbortController();
+  run = runs.begin();
   paging = next;
   loading = true;
-  return controller.signal;
+  return run.signal;
 }
 
 /**
@@ -113,8 +115,7 @@ export function totalText() {
 
 /** Abort any request in flight and forget the paging state. */
 export function reset() {
-  controller?.abort();
-  controller = null;
+  runs.cancel();
   paging = null;
   loading = false;
 }
@@ -262,7 +263,7 @@ export async function loadMore() {
   const mine = paging;
   if (!mine || !canLoadMore() || loading) return null;
   if (mine.kind === 'search' && mine.held) return null;
-  const signal = controller?.signal;
+  const signal = run?.signal;
   loading = true;
   try {
     if (mine.kind === 'browse') {

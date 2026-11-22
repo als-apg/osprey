@@ -12,6 +12,7 @@ from osprey.interfaces.design_system.panels.page_ready import (
     FAILED,
     MARKUP_VALUES,
     READY_IMPORT,
+    WRITER_TAG,
     route_problem,
 )
 
@@ -27,6 +28,12 @@ INLINE_THEME = (
     "'/design-system/js/theme-manager.js'; initTheme();</script>"
 )
 PENDING = '<html data-page-ready="pending">'
+WRITER = WRITER_TAG
+WRITER_PROBLEM = (
+    f"does not load the page-ready writer first; add `{WRITER_TAG}` ahead of every other "
+    "module or deferred script, so a script that fails to load marks the page failed"
+)
+ASYNC_PROBLEM = "loads an own module `async`; drop `async` so it runs after the page-ready writer"
 
 TRUE_PROBLEM = (
     'carries data-page-ready="true", which marks it before its first state is drawn; '
@@ -53,8 +60,8 @@ def _panel_index(root: Path) -> Path:
 @pytest.mark.parametrize(
     ("page", "expected"),
     [
-        (f"{PENDING}{INLINE_MARK}</html>", None),
-        (f"{PENDING}{INLINE_THEME}{INLINE_MARK}</html>", None),
+        (f"{PENDING}{WRITER}{INLINE_MARK}</html>", None),
+        (f"{PENDING}{WRITER}{INLINE_THEME}{INLINE_MARK}</html>", None),
         (f"<html>{INLINE_MARK}</html>", PENDING_PROBLEM),
         (f"<html>{INLINE_THEME}{INLINE_MARK}</html>", PENDING_PROBLEM),
         ('<html data-page-ready="true"></html>', TRUE_PROBLEM),
@@ -64,9 +71,33 @@ def _panel_index(root: Path) -> Path:
             "data-page-ready='yes' is not a declared value (true or pending)",
         ),
         (f'<html data-page-ready="failed">{INLINE_MARK}</html>', FAILED_PROBLEM),
+        (f"{PENDING}{INLINE_MARK}</html>", WRITER_PROBLEM),
+        (f"{PENDING}{INLINE_MARK}{WRITER}</html>", WRITER_PROBLEM),
+        (
+            f"{PENDING}{WRITER.replace('<script ', '<script async ')}{INLINE_MARK}</html>",
+            WRITER_PROBLEM,
+        ),
+        (
+            f'{PENDING}<script src="/design-system/js/theme-boot.js"></script>{WRITER}'
+            f"{INLINE_MARK}</html>",
+            None,
+        ),
+        (
+            f'{PENDING}<script defer src="x.js"></script>{WRITER}{INLINE_MARK}</html>',
+            WRITER_PROBLEM,
+        ),
+        (
+            f'{PENDING}{WRITER}{INLINE_MARK}<script type="module" async src="x.js"></script></html>',
+            ASYNC_PROBLEM,
+        ),
+        (
+            f"{PENDING}{WRITER}{INLINE_MARK}"
+            '<script async src="https://cdn.example/x.js"></script></html>',
+            None,
+        ),
     ],
     ids=[
-        "pending-and-mark",
+        "pending-writer-and-mark",
         "pending-start-up-and-mark",
         "mark-without-pending",
         "start-up-and-mark-without-pending",
@@ -74,6 +105,13 @@ def _panel_index(root: Path) -> Path:
         "pending-and-start-up-only",
         "undeclared-value",
         "failed-in-markup",
+        "pending-mark-no-writer-tag",
+        "writer-tag-after-a-module",
+        "writer-tag-async",
+        "writer-tag-after-theme-boot",
+        "writer-tag-after-a-deferred-script",
+        "own-async-module-after-the-writer",
+        "vendor-async-script",
     ],
 )
 def test_a_panel_takes_the_late_route_only(page: str, expected: str | None, tmp_path: Path) -> None:
@@ -111,6 +149,43 @@ def test_the_judge_and_the_writer_name_the_same_values() -> None:
     assert MARKUP_VALUES[1] == "pending"
     assert f"const PENDING = '{MARKUP_VALUES[1]}';" in writer
     assert f"const FAILED = '{FAILED}';" in writer
+
+
+def test_a_pending_page_on_the_general_route_loads_the_writer_first(tmp_path: Path) -> None:
+    where = tmp_path / "x.html"
+    assert route_problem(f"{PENDING}{INLINE_MARK}</html>", where) == WRITER_PROBLEM
+    assert route_problem(f"{PENDING}{WRITER}{INLINE_MARK}</html>", where) is None
+    # A shell with no script of its own is dressed by the page that opens it.
+    shell = WEB_TERMINAL_STATIC / "attached-window.html"
+    assert route_problem(shell.read_text(encoding="utf-8"), shell) is None
+
+
+def test_the_writer_tag_is_recognised_however_its_address_is_spelled(tmp_path: Path) -> None:
+    for tag, where in (
+        (
+            '<script type="module" src="{{ prefixed(\'/design-system/js/page-ready.js\') }}">'
+            "</script>",
+            tmp_path / "x.html",
+        ),
+        (
+            '<script type="module" src="{{ root }}/design-system/js/page-ready.js"></script>',
+            tmp_path / "x.html",
+        ),
+        (
+            '<script type="module" src="js/page-ready.js"></script>',
+            DESIGN_SYSTEM_STATIC / "theme-lab.html",
+        ),
+    ):
+        assert route_problem(f"{PENDING}{tag}{INLINE_MARK}</html>", where) is None, tag
+        assert route_problem(f"{PENDING}{tag}{INLINE_MARK}</html>", where, panel=True) is None
+
+
+def test_the_writer_judges_an_own_script_by_origin_and_vendor_path() -> None:
+    shell_boot = WEB_TERMINAL_STATIC / "js" / "shell-boot.js"
+    for judge in (DESIGN_SYSTEM_STATIC / "js" / "page-ready.js", shell_boot):
+        source = judge.read_text(encoding="utf-8")
+        assert "file.origin === window.location.origin" in source, judge.name
+        assert "file.pathname.includes('/vendor/')" in source, judge.name
 
 
 def test_the_general_route_still_accepts_the_three_routes(tmp_path: Path) -> None:

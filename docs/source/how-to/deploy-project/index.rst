@@ -18,7 +18,7 @@ up to date.
    - Overriding service images, and mirroring every image into one registry
    - Where the deeper reference lives: compose templates, networking, and the ``.env`` chain each have their own subpage
 
-   **Prerequisites:** Docker or Podman installed locally.
+   **Prerequisites:** Docker Engine 20.10 or newer (Docker Desktop 4.0 or newer on macOS and Windows) or Podman 4.1 or newer, and a supported compose provider (see :ref:`compose-provider-compatibility`).
 
 .. tip::
 
@@ -334,7 +334,7 @@ networks. The ``optimizer`` service does the same with the optimizer and its
 Redis job store. So these containers must resolve each other by name. On
 Podman, that depends on which networking backend the host runs:
 
-* **netavark** (Podman 4.0+ default) — ships aardvark-dns, which serves
+* **netavark** — ships aardvark-dns, which serves
   container-name DNS on every network a container is attached to. **Required.**
 * **cni** (the legacy backend, still configured on some RHEL 8 hosts) — has no
   aardvark-dns. A dual-homed container receives only its *first* network's

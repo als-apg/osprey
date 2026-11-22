@@ -24,9 +24,10 @@ class PlanSessionWriteRequest(BaseModel):
     layered directory catalog's file contract) — it is never exec'd by this
     route. The remaining three fields become the generated `PLAN_METADATA`
     block prepended to it, and are exactly `plan_metadata.PlanMetadata`'s
-    fields: which channels the plan touches is not declared here at all, it is
-    read off the role-typed fields of the ``body``'s own `PARAMS` model, so
-    there is nothing here for an author to keep in sync with the code.
+    three required fields: which channels the plan touches is not declared
+    here at all, it is read off the role-typed fields of the ``body``'s own
+    `PARAMS` model, so there is nothing here for an author to keep in sync
+    with the code.
 
     Unknown keys are rejected too (``extra="forbid"``), uniform with
     `plan_metadata.PlanMetadata` — a stale client still POSTing a retired key

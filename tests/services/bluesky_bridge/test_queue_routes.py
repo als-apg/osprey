@@ -19,6 +19,7 @@ refusal path and consumed on success.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from typing import Any
 
@@ -26,7 +27,7 @@ import pytest
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import (
@@ -64,6 +65,9 @@ _GRID_SCAN_ARGS: dict[str, Any] = {
     "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
+
+# The complete set that draft is queued with: every field `grid_scan` declares.
+_GRID_SCAN_RESOLVED: dict[str, Any] = {**_GRID_SCAN_ARGS, "snake_axes": False}
 
 
 @pytest.fixture
@@ -169,12 +173,12 @@ def test_enqueue_on_an_idle_queue_is_ungated_and_threads_the_run_id(
     (add_kwargs,) = manager.kwargs_for("item_add")
     assert add_kwargs["item"]["item_type"] == "plan"
     assert add_kwargs["item"]["name"] == "grid_scan"
-    assert add_kwargs["item"]["kwargs"] == _GRID_SCAN_ARGS
+    assert add_kwargs["item"]["kwargs"] == _GRID_SCAN_RESOLVED
     # The OSPREY run id and the plan's identity ride the item metadata into
     # start docs.
     assert add_kwargs["item"]["meta"] == {
         qb.RUN_ID_META_KEY: body["run_id"],
-        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS},
+        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _GRID_SCAN_RESOLVED},
     }
 
     # Arming checks bypass the client's status cache: the capability probe is
@@ -517,7 +521,7 @@ def test_validation_gate_refusal_releases_the_reservation(
     install_backend(manager)
     revision = _make_draft(client)
 
-    def _reject(_request: Any) -> None:
+    def _reject(_request: Any, _plans: Any) -> None:
         raise HTTPException(status_code=409, detail="session plan has no passing record")
 
     monkeypatch.setattr(queue, "_validate_launchable_request", _reject)
@@ -562,6 +566,337 @@ def test_enqueue_refuses_a_non_admissible_session_plan(
 
 
 # ---------------------------------------------------------------------------
+# POST /queue/items — the item states every argument the plan runs with
+# ---------------------------------------------------------------------------
+
+_DEFAULTS_PLAN = "defaults_probe"
+
+
+class _DefaultedParams(BaseModel):
+    """One required field, one channel list only a factory default names, one
+    scalar default, and a rule that judges two fields together."""
+
+    span: float = Field(..., gt=0)
+    correctors: MovableChannels = Field(default_factory=lambda: ["COR_DEFAULT"])
+    limit: float = 10.0
+
+    @model_validator(mode="after")
+    def _span_within_limit(self) -> _DefaultedParams:
+        if self.span > self.limit:
+            raise ValueError("span must not exceed limit")
+        return self
+
+
+#: The complete set a draft stating ``span`` alone resolves to, in the
+#: order the plan declares its fields.
+_DEFAULTED_RESOLVED: dict[str, Any] = {"span": 1.0, "correctors": ["COR_DEFAULT"], "limit": 10.0}
+
+
+def _register(monkeypatch: pytest.MonkeyPatch, spec: PlanSpec[Any]) -> list[int]:
+    """Serve *spec* from the plan registry beside the shipped plans.
+
+    Returns a list that grows by one entry per registry read, so a test can
+    count the readings a request takes.
+    """
+    real = plan_loader.get_facility_plans
+    reads: list[int] = []
+
+    def _with_spec() -> plan_loader.FacilityPlans:
+        reads.append(1)
+        found = real()
+        return dataclasses.replace(found, plans={**found.plans, spec.name: spec})
+
+    monkeypatch.setattr(plan_loader, "get_facility_plans", _with_spec)
+    return reads
+
+
+def _defaulted_draft(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, args: dict[str, Any]
+) -> tuple[int, list[int]]:
+    """Register the defaults probe plan and stage *args* for it in the draft."""
+    reads = _register(monkeypatch, _probe_spec(_DefaultedParams, name=_DEFAULTS_PLAN))
+    resp = client.patch(
+        "/draft",
+        json={"plan_name": _DEFAULTS_PLAN, "plan_args_patch": args, "client_id": "test"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["revision"], reads
+
+
+def test_enqueue_refuses_a_device_only_a_default_names(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A channel the plan's own default supplies is judged at enqueue like a
+    typed one, so a worker lacking it refuses the add instead of the run."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("COR1"))
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 1.0})
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert detail["devices"] == ["COR_DEFAULT"]
+    assert "item_add" not in manager.method_names()
+    assert draft._launching == set()
+
+
+def test_the_queued_item_states_every_parameter(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The item, and the identity stamp its run's start document carries, hold
+    the complete resolved set, defaults included."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("COR_DEFAULT"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 1.0})
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200, resp.text
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    item = add_kwargs["item"]
+    assert item["kwargs"] == _DEFAULTED_RESOLVED
+    assert list(item["kwargs"]) == list(_DEFAULTED_RESOLVED)
+    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _DEFAULTED_RESOLVED
+
+
+@pytest.mark.parametrize(
+    ("args", "field"),
+    [
+        pytest.param({}, "span", id="required-field-missing"),
+        pytest.param({"span": 20.0}, None, id="cross-field-rule-broken"),
+    ],
+)
+def test_enqueue_refuses_arguments_the_plan_does_not_accept(
+    client: TestClient,
+    connector,
+    monkeypatch: pytest.MonkeyPatch,
+    args: dict[str, Any],
+    field: str | None,
+) -> None:
+    """A set the plan's own model refuses is refused at enqueue, never queued
+    to fail when the run starts; the pinned revision stays usable."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("COR_DEFAULT"))
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, args)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == qb.REASON_INVALID_ITEM
+    assert detail["retryable"] is False
+    assert detail["plan"] == _DEFAULTS_PLAN
+    assert detail["field"] == field
+    assert detail["detail"].startswith(f"plan {_DEFAULTS_PLAN!r} arguments are not valid: ")
+    assert "item_add" not in manager.method_names()
+    assert draft._launching == set()
+    assert draft._last_launched_revision == 0
+
+
+def test_a_typed_value_wins_over_the_default(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("COR1"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 1.0, "correctors": ["COR1"]})
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200, resp.text
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    assert add_kwargs["item"]["kwargs"] == {**_DEFAULTED_RESOLVED, "correctors": ["COR1"]}
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param({"span": 1.0}, id="defaults-left-out"),
+        pytest.param({"span": 20.0}, id="a-set-the-model-refuses"),
+    ],
+)
+def test_an_external_worker_lane_queues_the_arguments_as_typed(
+    client: TestClient,
+    connector,
+    monkeypatch: pytest.MonkeyPatch,
+    args: dict[str, Any],
+) -> None:
+    """On that lane the facility's manager binds the item against its own plan
+    signature: the bridge's model fills nothing and refuses nothing."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("COR_DEFAULT"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    app_module.set_queue_backend(QueueBackend(manager, external_worker=True))
+    revision, _ = _defaulted_draft(client, monkeypatch, args)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200, resp.text
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    assert add_kwargs["item"]["kwargs"] == args
+
+
+def test_a_refused_resolution_releases_the_revision(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal consumes nothing: once the plan accepts the staged set, the
+    very same revision is queued."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("COR_DEFAULT"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 20.0})
+
+    refused = client.post("/queue/items", json={"draft_revision": revision})
+    assert refused.status_code == 400, refused.text
+    assert draft._launching == set()
+
+    spec = plan_loader.get_facility_plans().plans[_DEFAULTS_PLAN]
+
+    class _Wider(_DefaultedParams):
+        limit: float = 100.0
+
+    monkeypatch.setattr(spec, "schema", _Wider)
+    added = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert added.status_code == 200, added.text
+    assert draft._last_launched_revision == revision
+
+
+def test_a_factory_that_raises_refuses_the_enqueue(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A default factory that raises is refused like any set the plan does not
+    accept: a 400, never a 500, and the revision stays usable."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("COR_DEFAULT"))
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 1.0})
+    spec = plan_loader.get_facility_plans().plans[_DEFAULTS_PLAN]
+
+    def _broken() -> list[str]:
+        raise RuntimeError("no default today")
+
+    class _Broken(_DefaultedParams):
+        correctors: MovableChannels = Field(default_factory=_broken)
+
+    monkeypatch.setattr(spec, "schema", _Broken)
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == qb.REASON_INVALID_ITEM
+    assert detail["retryable"] is False
+    assert detail["plan"] == _DEFAULTS_PLAN
+    assert detail["detail"].startswith(f"plan {_DEFAULTS_PLAN!r} arguments are not valid: ")
+    assert "RuntimeError: no default today" in detail["detail"]
+    assert "item_add" not in manager.method_names()
+    assert draft._launching == set()
+    assert draft._last_launched_revision == 0
+
+
+def test_the_registry_is_read_once_per_enqueue(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One enqueue judges one reading of the plan registry: the session-plan
+    check, the resolution and the device check all read the same one."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("COR_DEFAULT"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    install_backend(manager)
+    revision, reads = _defaulted_draft(client, monkeypatch, {"span": 1.0})
+    reads.clear()
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200, resp.text
+    assert len(reads) == 1
+
+
+@pytest.mark.parametrize("session_refusal", [False, True], ids=["catalog", "session-check-409"])
+def test_an_unreadable_plan_registry_refuses_the_enqueue(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch, session_refusal: bool
+) -> None:
+    """A set the bridge could not resolve is never queued. The refusal is the
+    first answer of the enqueue, ahead of the session-plan check's 409, and
+    says a retry can succeed."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
+    )
+    install_backend(manager)
+    revision = _make_draft(client)
+
+    def _unreadable() -> Any:
+        raise OSError("plan directory is not readable")
+
+    def _session_reject(*_args: Any) -> None:
+        raise HTTPException(status_code=409, detail="session plan has no passing record")
+
+    monkeypatch.setattr(plan_loader, "get_facility_plans", _unreadable)
+    if session_refusal:
+        monkeypatch.setattr(queue, "_validate_launchable_request", _session_reject)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 503, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == qb.REASON_PLAN_REGISTRY_UNREADABLE
+    assert detail["retryable"] is True
+    assert "item_add" not in manager.method_names()
+    assert manager.kwargs_for("status") == [{"reload": False}]
+    assert draft._launching == set()
+    assert draft._last_launched_revision == 0
+
+
+def test_the_owner_kwarg_is_added_after_resolution(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The owner rides beside the resolved set, never through the plan's model:
+    the identity stamp holds the plan's arguments alone."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("COR_DEFAULT"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    install_backend(manager)
+    revision, _ = _defaulted_draft(client, monkeypatch, {"span": 1.0})
+
+    resp = client.post(
+        "/queue/items", json={"draft_revision": revision}, headers={"X-Osprey-Owner": _OWNER}
+    )
+
+    assert resp.status_code == 200, resp.text
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    item = add_kwargs["item"]
+    assert item["kwargs"] == {**_DEFAULTED_RESOLVED, qb.RESERVED_OWNER_KWARG: _OWNER}
+    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _DEFAULTED_RESOLVED
+
+
+# ---------------------------------------------------------------------------
 # POST /queue/items — add-time device pre-check
 # ---------------------------------------------------------------------------
 
@@ -582,14 +917,19 @@ def _devices(*names: str, uid: str | None = None) -> dict[str, Any]:
     return reply
 
 
-def _probe_spec(schema: type[BaseModel]) -> PlanSpec[Any]:
+def _probe_spec(schema: type[BaseModel], *, name: str = "probe") -> PlanSpec[Any]:
     """A `PlanSpec` around *schema*, with the roles the loader would record."""
     return PlanSpec(
-        name="probe",
+        name=name,
         plan=lambda devices, params: None,
         schema=schema,
         roles=tuple(channel_roles(schema)),
     )
+
+
+def _grid_scan_spec() -> PlanSpec[Any]:
+    """The shipped `grid_scan` spec, as the registry serves it."""
+    return plan_loader.get_facility_plans().plans["grid_scan"]
 
 
 class _NestedTarget(BaseModel):
@@ -873,30 +1213,19 @@ def test_the_sentence_points_at_the_inline_list_at_exactly_the_page_size(
     assert "available_count" not in detail
 
 
-def test_a_declared_field_absent_from_the_params_is_not_checked(
-    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_declared_field_absent_from_the_params_is_not_checked() -> None:
     """A declared field the params do not carry yields no channel names to
     check, and the manager is never asked. Fail-open: params that supply
     nothing under a role-typed field are params this check has nothing to say
     about, never grounds to refuse an enqueue whose names may be perfectly
     good."""
-    connector("virtual_accelerator")
-    manager = FakeManager(
-        status=status_doc(),
-        devices_allowed=_devices("BPM1"),
-        item_add={"success": True, "item": {"item_uid": "u1"}},
+    manager = FakeManager(devices_allowed=_devices("BPM1"))
+
+    await queue._check_devices_exist(
+        QueueBackend(manager), _probe_spec(_AbsentFieldParams), _GRID_SCAN_ARGS, status_doc()
     )
-    install_backend(manager)
-    revision = _make_draft(client)
-    spec = plan_loader.get_facility_plans().plans["grid_scan"]
-    monkeypatch.setattr(spec, "schema", _AbsentFieldParams)
-    monkeypatch.setattr(spec, "roles", tuple(channel_roles(_AbsentFieldParams)))
 
-    resp = client.post("/queue/items", json={"draft_revision": revision})
-
-    assert resp.status_code == 200
-    assert "devices_allowed" not in manager.method_names()
+    assert manager.method_names() == []
 
 
 def test_enqueue_passes_when_the_worker_holds_every_named_device(
@@ -1003,31 +1332,6 @@ def test_the_refusal_sentence_leads_with_a_movable_channel(client: TestClient, c
 
     assert "referenced device 'COR1'" in detail["detail"]
     assert detail["devices"] == ["BPM1", "COR1"]
-
-
-async def test_an_unreadable_plan_registry_skips_the_precheck(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The registry re-scans the session-plan directory on every call, so it
-    can fail on I/O. That must skip the pre-check rather than raise through an
-    enqueue whose device names may be perfectly good.
-
-    Driven directly rather than through the route: the launch validation gate
-    reads the same registry a step earlier, so a route-level failure would be
-    reporting on that call rather than this one.
-    """
-
-    def _unreadable() -> Any:
-        raise OSError("plan directory is not readable")
-
-    monkeypatch.setattr(plan_loader, "get_facility_plans", _unreadable)
-    manager = FakeManager(devices_allowed=_devices("BPM1"))
-
-    await queue._check_devices_exist(
-        QueueBackend(manager), "grid_scan", _GRID_SCAN_ARGS, status_doc()
-    )
-
-    assert manager.method_names() == []
 
 
 def test_an_unreadable_device_list_does_not_block_the_enqueue(
@@ -1230,8 +1534,8 @@ async def test_an_unchanged_devices_allowed_uid_fetches_the_device_tree_once() -
     backend = QueueBackend(manager)
     status = status_doc(devices_allowed_uid="d-1")
 
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status)
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status)
+    await queue._check_devices_exist(backend, _grid_scan_spec(), _GRID_SCAN_ARGS, status)
+    await queue._check_devices_exist(backend, _grid_scan_spec(), _GRID_SCAN_ARGS, status)
 
     assert manager.method_names() == ["devices_allowed"]
 
@@ -1249,11 +1553,11 @@ async def test_a_moved_devices_allowed_uid_refetches_the_device_tree() -> None:
     backend = QueueBackend(manager)
 
     await queue._check_devices_exist(
-        backend, "grid_scan", _GRID_SCAN_ARGS, status_doc(devices_allowed_uid="d-1")
+        backend, _grid_scan_spec(), _GRID_SCAN_ARGS, status_doc(devices_allowed_uid="d-1")
     )
     with pytest.raises(HTTPException) as excinfo:
         await queue._check_devices_exist(
-            backend, "grid_scan", _GRID_SCAN_ARGS, status_doc(devices_allowed_uid="d-2")
+            backend, _grid_scan_spec(), _GRID_SCAN_ARGS, status_doc(devices_allowed_uid="d-2")
         )
 
     assert manager.method_names().count("devices_allowed") == 2
@@ -1269,8 +1573,8 @@ async def test_a_manager_stating_no_devices_allowed_uid_is_never_cached() -> Non
     manager = FakeManager(devices_allowed=_devices("BPM1", "COR1"))
     backend = QueueBackend(manager)
 
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status_doc())
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status_doc())
+    await queue._check_devices_exist(backend, _grid_scan_spec(), _GRID_SCAN_ARGS, status_doc())
+    await queue._check_devices_exist(backend, _grid_scan_spec(), _GRID_SCAN_ARGS, status_doc())
 
     assert manager.method_names().count("devices_allowed") == 2
 

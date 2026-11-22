@@ -7,14 +7,17 @@
  * snapshot, the Settings drawer's file list, panel/preset getters, action
  * closures, and the navigation callbacks (revealArtifact / revealSetting /
  * showPanel / focusPanel / applyPreset) — is passed in via
- * `deps`, so this module imports nothing, touches no DOM, and is unit-testable
- * in isolation. The caller (palette.js) rebuilds the registry each time the
- * palette opens, then fuzzy-filters the returned items by their `searchText`.
+ * `deps`, so this module imports only the design system's newest-request rule,
+ * touches no DOM, and is unit-testable in isolation. The caller (palette.js)
+ * rebuilds the registry each time the palette opens, then fuzzy-filters the
+ * returned items by their `searchText`.
  *
  * It also builds the Sessions and Artifacts async providers (the palette's
  * groups that answer from the session model and the artifacts panel), with
  * the same rule: every reader and verb is injected.
  */
+
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /**
  * A navigable palette item, or a non-navigable Settings status decoration.
@@ -631,7 +634,8 @@ export function createArtifactsProvider(deps) {
   let pendingQ = null;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let timer = null;
-  let seq = 0;
+  /** The artifact reads: a newer query or a fresh start retires this one. */
+  const reads = createLatestRequest();
 
   /** @param {PaletteArtifact} artifact */
   function open(artifact) {
@@ -677,13 +681,13 @@ export function createArtifactsProvider(deps) {
   function schedule(q) {
     if (timer) clearTimeout(timer);
     pendingQ = q;
-    const token = ++seq;
+    const token = reads.begin();
     timer = setTimeout(() => {
       timer = null;
       read(q)
         .catch(() => [])
         .then((hits) => {
-          if (token !== seq) return;
+          if (!token.isCurrent()) return;
           pendingQ = null;
           answer = { q, hits };
           onChange();
@@ -699,7 +703,7 @@ export function createArtifactsProvider(deps) {
       pendingQ = null;
       if (timer) clearTimeout(timer);
       timer = null;
-      seq++;
+      reads.cancel();
     },
     search(q) {
       const needle = q.trim();

@@ -46,6 +46,7 @@ from osprey.deployment.staleness import DriftState, check_drift, profile_fingerp
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build_in, rendered_config, stub_build
 
 
@@ -240,7 +241,7 @@ class TestGitTrackedProbe:
         def explode(*args: object, **kwargs: object) -> None:
             raise FileNotFoundError("git")
 
-        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", explode)
+        scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=explode)
 
         selection = resolve_variant_selection(repo)
 
@@ -258,7 +259,7 @@ class TestGitTrackedProbe:
         def hang(cmd: list[str], **kwargs: object) -> None:
             raise subprocess.TimeoutExpired(cmd, _GIT_PROBE_TIMEOUT_S)
 
-        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", hang)
+        scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=hang)
 
         selection = resolve_variant_selection(repo)
 
@@ -277,7 +278,7 @@ class TestGitTrackedProbe:
         def fail(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             return subprocess.CompletedProcess(args, 128, "", "fatal: boom\n")
 
-        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", fail)
+        scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=fail)
 
         selection = resolve_variant_selection(repo)
 

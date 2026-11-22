@@ -179,10 +179,7 @@ def _project_container(
         if panel.launch_token:
             block["launch_token_env"] = launch_token_env(manifest.name)
         if panel.roster_grant is not None:
-            block["roster_grant"] = {
-                "panel_id": panel.id,
-                "single_user_alias": panel.roster_grant.single_user_alias,
-            }
+            block["roster_grant"] = {"panel_id": panel.id}
     return {"template": template, "config": block}
 
 

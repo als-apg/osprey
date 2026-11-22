@@ -209,3 +209,42 @@ describe('a failed write', () => {
     expect(document.querySelector('.memory-error')?.textContent).toBe(banner);
   });
 });
+
+describe('a listing from before a close', () => {
+  test('landing after the newer listing does not replace it', async () => {
+    /** @type {Array<(files: string[]) => void>} */
+    const answers = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            answers.push((names) =>
+              resolve({
+                ok: true,
+                json: async () => ({
+                  files: names.map((filename) => ({ ...FILE, filename })),
+                  line_limit: 200,
+                  line_warning: 180,
+                }),
+              })
+            );
+          })
+      )
+    );
+    const panel = /** @type {HTMLElement} */ (document.getElementById('tab-memory'));
+    initMemoryGallery();
+    panel.dispatchEvent(new Event('drawer:tab-activate'));
+    document.getElementById('settings-drawer')?.dispatchEvent(new Event('drawer:close'));
+    panel.dispatchEvent(new Event('drawer:tab-activate'));
+    expect(answers).toHaveLength(2);
+
+    answers[1](['newer.md']);
+    await flush();
+    answers[0](['older.md']);
+    await flush();
+
+    const names = [...document.querySelectorAll('.memory-file-name')].map((el) => el.textContent);
+    expect(names).toEqual(['newer.md']);
+  });
+});

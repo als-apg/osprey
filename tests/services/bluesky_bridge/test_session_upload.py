@@ -20,11 +20,13 @@ environment cycle that emptied the namespace.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from osprey.services.bluesky_bridge.plan_fields import resolve_plan_args
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.queue_backend import (
     REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
@@ -131,6 +133,45 @@ def test_installed_plan_validates_kwargs_and_resolves_worker_devices() -> None:
     run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
 
     assert list(namespace["sample_scan"](channel="motor", steps=3)) == [("move", motor, 3)]
+
+
+COUNTED_PLAN_SOURCE = """from pydantic import BaseModel, Field
+
+from osprey.services.bluesky_bridge.plan_fields import MovableChannels
+
+
+class _Counted:
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        return [f"motor{self.calls}"]
+
+
+class PARAMS(BaseModel):
+    channels: MovableChannels = Field(default_factory=_Counted())
+
+
+def build_plan(devices, params):
+    return iter([("move", devices[name]) for name in params.channels])
+"""
+
+
+def test_a_session_run_uses_the_queued_factory_default() -> None:
+    """The set the bridge queued is the set the run uses: the wrapper's
+    validation of a complete set calls no factory of its own."""
+    motor1 = FakeDevice("motor1")
+    namespace = worker_namespace(motor1=motor1, motor2=FakeDevice("motor2"))
+    run_upload_script(namespace, "counted_scan", COUNTED_PLAN_SOURCE)
+    plan_function = namespace["counted_scan"]
+    params_model = inspect.getclosurevars(plan_function).nonlocals["params_model"]
+    factory = params_model.model_fields["channels"].default_factory
+    resolved = resolve_plan_args(params_model, {})
+    assert factory.calls == 1
+
+    assert list(plan_function(**resolved)) == [("move", motor1)]
+    assert factory.calls == 1
 
 
 def test_installed_plan_rejects_kwargs_its_schema_refuses() -> None:

@@ -59,6 +59,7 @@
  * already handled.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import {
   REASON_SWITCH_FAILED,
   STOP_NOT_TAKEN_SENTENCE,
@@ -280,15 +281,16 @@ let pending = null;
 let synthesized = null;
 
 /**
- * Monotonic id for reads, so a slow one cannot overwrite a newer answer.
+ * The roster reads: a newer read retires this one, so a slow one cannot
+ * overwrite a newer answer.
  *
  * A 5 s tick fires a GET, the operator confirms a switch, the POST's own
  * re-read lands — and the tick's older GET resolves afterwards carrying the
  * PRE-switch roster, repainting the chip as the machine the deployment just
- * left. Every read takes a ticket here and drops its answer if a later read
- * has since been issued.
+ * left. Every read begins here and drops its answer once a later read has
+ * begun.
  */
-let readSeq = 0;
+const reads = createLatestRequest();
 
 /** @type {ReturnType<typeof setInterval>|null} */
 let idleTimer = null;
@@ -623,7 +625,7 @@ export async function refetch() {
   if (!chip) return;
   if (!pending) startIdlePolling();
 
-  const seq = ++readSeq;
+  const token = reads.begin();
   try {
     const session = sessionSource?.();
     const data = await targetRequest(
@@ -633,13 +635,13 @@ export async function refetch() {
     );
     // A newer read has been issued since this one left — most importantly the
     // re-read a mutation does — so this answer is already history.
-    if (seq !== readSeq) return;
+    if (!token.isCurrent()) return;
     view = data;
     reconcilePending();
   } catch (err) {
     // Same stale guard as the success path: a read a newer one superseded must
     // not blank the chip.
-    if (seq !== readSeq) return;
+    if (!token.isCurrent()) return;
     // Unknown beats wrong: a chip that cannot read the roster says nothing
     // rather than naming a machine nobody confirmed.
     console.error('osprey web_terminal: could not read the control-target roster', err);

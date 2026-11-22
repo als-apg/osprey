@@ -148,7 +148,8 @@ def test_a_stated_precision_wins_and_needs_no_rule(tmp_path) -> None:
     path.write_text("\n".join(rows) + "\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
     doc = stub_render(place_view(with_symbols(graph, SYMBOLS), "XR/XR01"), graph)
-    stated = [n for n in _band_numbers(doc) if n["props"]["precision"] == 4]
+    numbers = [n for n in nodes(doc) if n["type"] == "pv-label"]
+    stated = [n for n in numbers if n["props"]["precision"] == 4]
     assert len(stated) == 1 and not _rules(doc, stated[0])
     assert PANELS_DIR != tables
 
@@ -255,7 +256,9 @@ def test_each_value_sits_under_its_own_name_and_a_lower_lane_has_a_leader(tmp_pa
         if name["geometry"]["y"] > top_lane:  # the lower lane: a leader down to it
             g = name["geometry"]
             ends = [_points(n)[-1] for n in lines]
-            assert (centre, g["y"]) in [(pytest.approx(x), pytest.approx(y)) for x, y in ends]
+            assert (centre, g["y"]) in [
+                (pytest.approx(x, abs=0.5), pytest.approx(y, abs=0.5)) for x, y in ends
+            ]  # on whole pixels
 
 
 def _points(line: dict) -> list[tuple[float, float]]:

@@ -92,12 +92,39 @@ def _write_compose(tmp_path, name, services):
     return str(path)
 
 
+@pytest.fixture(autouse=True)
+def reserved_ports(monkeypatch):
+    """The ports this test owns; only these can read as taken.
+
+    The preflight probes every binding it derives, including ports a test never
+    set (a service's other published port, a layout default). Anything else
+    listening on the machine running the test would then read as a conflict the
+    test did not stage. Every probe of a port outside this set reads free; a
+    port in it goes to the real connect, so a test that closes its listener
+    still sees the real "free" afterwards. A test that patches ``_port_is_free``
+    itself overrides this wrapper.
+
+    Yields:
+        The mutable set of reserved ports; a test adds each port it binds.
+    """
+    reserved = set()
+    real_probe = host_ports._port_is_free
+
+    def probe(host_ip, host_port):
+        return host_port not in reserved or real_probe(host_ip, host_port)
+
+    monkeypatch.setattr(host_ports, "_port_is_free", probe)
+    return reserved
+
+
 @pytest.fixture
-def listening_port():
+def listening_port(reserved_ports):
     """Bind, listen, and yield a loopback ``(socket, port)``; close on teardown."""
     with bound_socket() as sock:
         sock.listen(1)
-        yield sock, sock.getsockname()[1]
+        port = sock.getsockname()[1]
+        reserved_ports.add(port)
+        yield sock, port
 
 
 class TestParsing:
@@ -1226,11 +1253,12 @@ class TestHostNetworkConflicts:
             == []
         )
 
-    def test_every_port_recorded_for_the_service_is_excused(self, monkeypatch):
+    def test_every_port_recorded_for_the_service_is_excused(self, monkeypatch, reserved_ports):
         with bound_socket() as first, bound_socket() as second, bound_socket() as third:
             for sock in (first, second, third):
                 sock.listen(1)
             ports = [sock.getsockname()[1] for sock in (first, second, third)]
+            reserved_ports.update(ports)
             self._own_host_dispatcher(monkeypatch)
             bindings = [
                 HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
@@ -1345,16 +1373,11 @@ class TestHostNetworkConflicts:
         assert [c.kind for c in found] == conflicts
 
     def test_own_bridge_container_does_not_excuse_the_port_it_moves_to_on_the_host(
-        self, monkeypatch
+        self, monkeypatch, listening_port
     ):
         # graphdb is moving onto the host network; its old compose-network
         # container publishes other ports, so it cannot be what holds port_host.
-        # The test states which host ports are held: port_host is, and graphdb's
-        # second host port (its HTTP default) is free.
-        port = 17687
-        monkeypatch.setattr(
-            host_ports, "_port_is_free", lambda host_ip, host_port: host_port != port
-        )
+        _, port = listening_port
         ps_json = json.dumps(
             {
                 "Names": "proj-graphdb",
@@ -1365,6 +1388,11 @@ class TestHostNetworkConflicts:
         )
         monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
         config = _host_config(graphdb={"network": "host", "port_host": port})
+        # The HTTP default is derived too; only the reserved port_host can read taken.
+        assert {b.host_port for b in derive_host_network_bindings(config)} == {
+            port,
+            default_port("graphdb_http"),
+        }
 
         conflicts = find_port_conflicts([], project_name="proj", config=config)
         assert [(c.service, c.kind) for c in conflicts] == [("graphdb", "external")]

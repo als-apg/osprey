@@ -485,6 +485,20 @@ START_REFUSAL = RefusalWording(
     closing=None,
 )
 
+#: ``osprey down``: a stop refused.
+DOWN_REFUSAL = RefusalWording(
+    summary_tail="will not stop containers from another copy of this repo",
+    why_stopped=(
+        "Stopping from here would stop that copy's containers along with this one's, since "
+        "both run under the same project name, so it stopped."
+    ),
+    renamed=START_REFUSAL.renamed,
+    live_remedy="stop that deployment where it lives: `osprey down --repo {path}`",
+    leftovers=START_REFUSAL.leftovers,
+    elsewhere="run `osprey down` there",
+    closing=None,
+)
+
 
 class ForeignCheckoutError(RuntimeError):
     """Same-named containers were created from a different repo path — nothing was touched.

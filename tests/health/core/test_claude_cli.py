@@ -14,6 +14,7 @@ import pytest
 from osprey.health.core import claude_cli as mod
 from osprey.health.core.claude_cli import claude_cli, claude_cli_pinned
 from osprey.health.models import Status
+from tests._scoped_stdlib import scoped
 from tests.health._fakes import FakeProc
 
 
@@ -92,7 +93,7 @@ class TestClaudeCliPinned:
     def _install(monkeypatch, version, path="/usr/local/bin/claude"):
         from osprey.agent_runner import launcher
 
-        monkeypatch.setattr("shutil.which", lambda *_a, **_k: path)
+        scoped(monkeypatch, "osprey.utils.shell_resolver", "shutil", which=lambda *_a, **_k: path)
 
         def probe(_exe):
             if isinstance(version, BaseException):
@@ -169,7 +170,7 @@ class TestClaudeCliPinned:
         def refuse(argv, *_a, **_k):
             raise AssertionError(f"the check ran {argv}")
 
-        monkeypatch.setattr(launcher.subprocess, "run", refuse)
+        scoped(monkeypatch, launcher, "subprocess", run=refuse)
         monkeypatch.setattr(asyncio, "create_subprocess_exec", refuse)
         (row,) = await claude_cli_pinned(self.CONFIG)()
         assert row.status == Status.ERROR

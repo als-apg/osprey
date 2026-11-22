@@ -445,7 +445,8 @@ Once the panel is written and validated:
    (``web_terminals.panel_not_served``) for each invalid panel in the render it
    builds. The panels list, ``GET /api/panels``, carries every panel the
    running web terminal skipped under ``refused``, including one added after
-   the build.
+   the build. A finding that only reports does not count: the panel is served
+   and the log names it.
 
 .. warning::
 
@@ -627,16 +628,19 @@ server's tools.
          validator enforces both: it must **boot the shared theme before the page
          paints** (so it never flashes the wrong colors), and it must use **only
          design tokens** for color — never a raw hex value. It must also say
-         when it can be driven: ``<html data-page-ready="pending">`` and a
-         ``markPageReady()`` call. Copy OSPREY's reference panel and you start
-         compliant.
+         when it can be driven: ``<html data-page-ready="pending">``, the
+         page-ready script loaded first, and a ``markPageReady()`` call. A
+         module of its own loaded ``async`` is refused. Copy OSPREY's
+         reference panel and you start compliant.
 
       .. tab-item:: Serving & discovery
 
          Discovered panels are served straight from disk, with no proxy. They
          run at an opaque origin, not the terminal's own; see
          :ref:`web-terminal-panels-opaque-origin`. Discovery is
-         **fail-closed**: only a fully valid panel is ever served. The
+         **fail-closed**: a panel that breaks a rule is not served. The
+         exception is a rule that only reports, such as a class with no CSS
+         rule: its finding is logged and the panel is served. The
          ``allow_runtime_panels`` switch is deliberately off by default because
          it is also what lets the agent register panels at runtime. Turning it
          on is your explicit decision to trust the panels the terminal makes

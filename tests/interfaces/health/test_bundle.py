@@ -26,6 +26,7 @@ from osprey.interfaces.design_system.panels.validator import (
     PanelRule,
     PanelValidationError,
     assert_valid_panel,
+    refusing,
     validate_panel,
 )
 
@@ -44,7 +45,7 @@ def test_bundle_directory_is_present() -> None:
 
 
 def test_bundle_validates_with_no_errors() -> None:
-    assert validate_panel(_BUNDLE_DIR) == []
+    assert refusing(validate_panel(_BUNDLE_DIR)) == []
 
 
 def test_assert_valid_panel_does_not_raise_for_bundle() -> None:

@@ -44,7 +44,7 @@ FULL: dict[str, Any] = {
         "launch_token": True,
         "read_timeout_s": 30,
         "agent_routes": [["GET", "/api/state"], ["POST", "/api/write"]],
-        "roster_grant": {"single_user_alias": True},
+        "roster_grant": {},
     },
     "tools": {
         "module": "knob_demo.tools",
@@ -313,6 +313,14 @@ def test_unknown_keys_are_refused_at_every_level(path: str) -> None:
 def test_pre_amendment_keys_are_refused() -> None:
     assert _refusal(_with("panel.path", "/panel/knob-demo")).field == "panel.path"
     assert _refusal(_with("tools.container", "knob-demo")).field == "tools.container"
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_the_single_user_alias_key_is_refused_naming_roster_grant(value: bool) -> None:
+    err = _refusal(_with("panel.roster_grant.single_user_alias", value))
+    assert err.field == "panel.roster_grant.single_user_alias"
+    assert err.rule == "retired_key"
+    assert "roster_grant: {}" in err.message
 
 
 # --- compose keys name their home -------------------------------------------------

@@ -401,7 +401,7 @@ deployment runs against a simulator. Each model record names an ``engine``, a
 deck; a model of the ``injection`` engine names no deck.
 
 **Engines are plug-ins.** An engine is a module registered in the
-``osprey.simulation.engines`` entry-point group under the name a model's
+``osprey_connectors.simulation.engines`` entry-point group under the name a model's
 ``engine`` gives. OSPREY ships ``pyat`` and ``injection``. The build reaches the engine to read
 the deck (where each element sits, each wired channel's operating point, what
 each wiring record is) without building a model, and stops with
@@ -477,7 +477,10 @@ are an injection chain's records with ``engine: {signal: shot}``,
 ``{signal: charge}`` and ``{signal: stored_current}``; and its wiring adds
 records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
 ``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
-``rf_switch``, ``pilot_tone`` and ``stored``. Each array channel is declared
+``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
+``offset_<coordinate>`` and ``mismatch_<plane>``, and a ``pulsed_kick`` record
+per pulsed magnet, naming its ``element`` and stating ``plane`` and optionally
+``scale`` and ``pulse``. Each array channel is declared
 ``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. Each
 ``arm`` and the chain's ``request`` are marked ``command`` by their engines. The build
 stops ``engine-invalid`` on a malformed block, a turn record on a ring

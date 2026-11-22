@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT
+from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT, WRITER_TAG
 from osprey.profiles.web_panels import (
     BUILD_PANELS,
     ROSTER_PANEL_ID,
@@ -357,14 +357,18 @@ button.addEventListener('click',()=>theme(root.dataset.theme==='dark'?'light':'d
 #: document is parsed and its cells answer a click. The script that wires the
 #: cells is therefore the one that sets the page-ready mark, as its last
 #: statement: a module runs after the document is parsed, a wiring that throws
-#: never reaches the call and is marked failed by ``page-ready.js``, and a page
-#: whose design system did not load stays pending.
+#: never reaches the call and is marked failed by ``page-ready.js``, which the
+#: page loads first so that a script of its own that does not load marks it
+#: failed too.
 _PANEL_PAGE = (
     """<!DOCTYPE html>
 <html lang="en" data-page-ready="pending">
 <head>
 <meta charset="UTF-8">
 <script src="/design-system/js/theme-boot.js"></script>
+"""
+    + WRITER_TAG
+    + """
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <link rel="stylesheet" href="/design-system/css/primitives.css">

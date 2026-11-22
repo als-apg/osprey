@@ -31,9 +31,10 @@ from pathlib import Path
 
 import pytest
 
+from osprey.cli import profile_panels
 from osprey.interfaces import common_middleware
 from osprey.interfaces.artifacts import app as artifacts_app
-from osprey.interfaces.design_system.panels.page_ready import route_problem
+from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG, route_problem
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
 WEB_TERMINAL_STATIC = SRC / "interfaces" / "web_terminal" / "static"
@@ -76,6 +77,7 @@ def _python_pages() -> dict[str, tuple[str, Path]]:
         "artifact notebook page": (artifacts_app._NOTEBOOK_SNIPPET, artifacts),
         "artifact markdown page": (markdown, artifacts),
         "refusal page": (common_middleware._refusal_page(401, "no session"), Path(__file__)),
+        "roster panel page": (profile_panels._PANEL_PAGE, Path(profile_panels.__file__)),
     }
 
 
@@ -132,7 +134,11 @@ def test_each_route_is_read_from_the_markup_and_the_scripts_it_loads() -> None:
     assert route_problem(f"<html>{inline_mark}</html>", where) is None
     assert route_problem('<html data-page-ready="true"></html>', where) is None
     assert route_problem(f'<html data-page-ready="pending">{inline_theme}</html>', where)
-    assert route_problem(f'<html data-page-ready="pending">{inline_mark}</html>', where) is None
+    assert route_problem(f'<html data-page-ready="pending">{inline_mark}</html>', where)
+    assert (
+        route_problem(f'<html data-page-ready="pending">{WRITER_TAG}{inline_mark}</html>', where)
+        is None
+    )
     assert route_problem(f"<html>{inline_theme}{inline_mark}</html>", where) is not None
     assert route_problem('<html data-page-ready="yes"></html>', where) is not None
     assert route_problem('<html data-page-ready="failed"></html>', where) is not None

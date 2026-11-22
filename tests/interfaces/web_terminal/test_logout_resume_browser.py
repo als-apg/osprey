@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from osprey.interfaces._serving import authorize_browser_context
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import wait_for_last_active, wait_for_page_ready
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 from tests.interfaces.web_terminal._user_terminal import launch_landing, launch_terminal
 
@@ -105,8 +105,10 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         )
         assert scope == user, f"multi-user page must be stamped with its render, got {scope!r}"
         pointer_key = f"osprey-pty-session--{scope}"
-        # Let the page's own debounced last-active write settle before ours.
-        page.wait_for_timeout(600)
+        # The server holds the key this load minted, so the page's own
+        # debounced write has landed and cannot overwrite ours.
+        startup = page.evaluate("(k) => localStorage.getItem(k)", pointer_key)
+        wait_for_last_active(page, startup)
         page.evaluate("([k, id]) => localStorage.setItem(k, id)", [pointer_key, stored_id])
         _put_last_active(base_url, stored_id)
 
@@ -147,7 +149,10 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         authorize_browser_context(page.context)
 
         # --- Return with the server's answer withheld: the pointer is gone ---
-        page.route("**/api/sessions/last-active", lambda route: route.abort())
+        page.route(
+            "**/api/sessions/last-active",
+            lambda route: route.abort() if route.request.method == "GET" else route.continue_(),
+        )
         with page.expect_websocket() as cut_ws:
             page.goto(base_url, wait_until="load")
             wait_for_page_ready(page)
@@ -159,7 +164,10 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         page.unroute("**/api/sessions/last-active")
 
         # --- A later login: the server's last-active is resumed ---
-        page.wait_for_timeout(600)
+        # The server holds the key the cut load minted, so that load's
+        # debounced write has landed and cannot overwrite ours.
+        minted = page.evaluate("(k) => localStorage.getItem(k)", pointer_key)
+        wait_for_last_active(page, minted)
         _put_last_active(base_url, stored_id)
         with page.expect_websocket() as return_ws:
             page.goto(base_url, wait_until="load")

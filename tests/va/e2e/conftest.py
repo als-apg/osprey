@@ -345,14 +345,14 @@ def _monitor_addresses(facility: Path) -> list[str]:
     from importlib import metadata
 
     from osprey.facility import TEXTURE
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
     monitors: set[str] = set()
     for model in models:
         if model.get("engine") == TEXTURE or not model.get("wiring"):
             continue
-        describe = metadata.entry_points(group=ENTRY_POINT_GROUP)[str(model["engine"])].load()
+        describe = metadata.entry_points(group=ENGINE_GROUP)[str(model["engine"])].load()
         for record in model["wiring"]:
             described = describe.describe({**record, "direction": "read"})
             if described["engine_role"] == "monitor" or (

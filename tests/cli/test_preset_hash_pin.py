@@ -2,7 +2,7 @@
 
 ``preset_hash`` is stamped into ``.osprey-manifest.json`` at build time, and
 each login's digest into the provenance header of the file ``osprey
-init`` materializes from it; the deploy-side staleness advisory compares both,
+init`` materializes from it; the drift and preset-update checks compare both,
 so a hash that moves reports drift on every already-deployed project. The
 digests below are deliberately hardcoded rather than recomputed — a test that
 derives its expectation from the code under test would pin nothing.
@@ -54,7 +54,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
 # application's ``.provenance``. An application is deploy-visible source as a
 # preset is: moving its digest reports every copy in a deployment as drifted.
 PINNED_APP_TREE_DIGESTS: dict[str, str] = {
-    "orbit-bump": ("sha256:bd7fb3748979a0fdf5cbf3c08e67a63b266d8aa035f526743946aac67d54e3d2"),
+    "orbit-bump": ("sha256:16252d7985ac14b8f7668c9296a517057ce925f661afb8d7d3bb374b4da4e779"),
 }
 
 

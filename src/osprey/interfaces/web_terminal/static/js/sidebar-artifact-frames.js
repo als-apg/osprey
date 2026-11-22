@@ -4,10 +4,12 @@
  * The artifacts panel's event stream, as the sidebar's session tree
  * (sidebar-artifacts.js) follows it:
  *
- *   - `artifact` counts once per run (`exec_id`, else id), only when
- *     `operator_visible`, by its listed form; a counted run only takes the new
- *     status. `artifact_updated` sets the status and re-places an entry whose
- *     owner changed. A frame whose owner is no known row refreshes the model.
+ *   - `artifact` lists once per run (`exec_id`, else id), only when
+ *     `operator_visible`; a listed run only takes the new status. The counts
+ *     are the summary's: an `artifact` frame asks it again for its owner.
+ *     `artifact_updated` sets the status and re-places an entry whose owner
+ *     changed, asking again for both owners. A frame whose owner is no known
+ *     row refreshes the model.
  *   - `artifact_deleted` and a reconnect re-fetch the summary.
  *   - every update and delete also goes to `tileChanged`, for the artifact's
  *     own tile if it has one (artifact-tiles.js), whatever the tree shows.

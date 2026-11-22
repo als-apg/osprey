@@ -27,6 +27,7 @@ from osprey.deployment.compose_watch import (
     watched_compose_up,
 )
 from osprey.deployment.errors import CapturedProcessTimeout
+from tests._scoped_stdlib import scoped
 
 
 class _Lines(PhaseReporter):
@@ -126,7 +127,7 @@ def test_containers_are_listed_by_their_compose_project_label(monkeypatch):
         seen.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="a\tUp 1 second\nb\tCreated\n")
 
-    monkeypatch.setattr(compose_watch.subprocess, "run", fake_run)
+    scoped(monkeypatch, compose_watch, "subprocess", run=fake_run)
     containers = compose_watch.project_containers("podman", "proj")
 
     assert containers == [ContainerState("a", "Up 1 second"), ContainerState("b", "Created")]

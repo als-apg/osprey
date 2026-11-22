@@ -104,6 +104,59 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.composite.WriteRefusedError": (
         "a caller reads which channel a refused write names"
     ),
+    "osprey_connectors.simulation.engines.Calibration": (
+        "an engine names a wiring record's curve in this type"
+    ),
+    "osprey_connectors.simulation.engines.EnginePlugin": (
+        "an out-of-tree engine implements this protocol"
+    ),
+    "osprey_connectors.simulation.engines.FacilityDefectError": (
+        "an engine raises it for a request its facility file cannot answer"
+    ),
+    "osprey_connectors.simulation.engines.Linear": (
+        "an engine reads a straight-line curve in this type"
+    ),
+    "osprey_connectors.simulation.engines.NoInverse": (
+        "an engine catches a curve with no way back by this type"
+    ),
+    "osprey_connectors.simulation.engines.OPTIONAL_NAMES": (
+        "an out-of-tree engine reads the optional names it may add"
+    ),
+    "osprey_connectors.simulation.engines.REST_MASS_GEV": (
+        "an out-of-tree engine reads the electron rest mass it computes rigidity with"
+    ),
+    "osprey_connectors.simulation.engines.RIGIDITY_PER_MOMENTUM": (
+        "an out-of-tree engine converts momentum to rigidity with this factor"
+    ),
+    "osprey_connectors.simulation.engines.TIME_CONTRACT": (
+        "an out-of-tree evolving engine reads the time contract it meets"
+    ),
+    "osprey_connectors.simulation.engines.Table": ("an engine reads a sampled curve in this type"),
+    "osprey_connectors.simulation.engines.brho": (
+        "an out-of-tree engine computes a beam's rigidity with it"
+    ),
+    "osprey_connectors.simulation.engines.check_inverse": (
+        "an engine checks a record's way back with it at build"
+    ),
+    "osprey_connectors.simulation.engines.curve_from_record": (
+        "an engine reads a wiring record's curve with it"
+    ),
+    "osprey_connectors.simulation.engines.energy_factor": (
+        "an engine scales a physics value to another energy with it"
+    ),
+    "osprey_connectors.simulation.engines.evaluate": ("an engine applies a curve with it"),
+    "osprey_connectors.simulation.engines.field": (
+        "an engine reads a record's field by attribute or by key with it"
+    ),
+    "osprey_connectors.simulation.engines.shifted": (
+        "an engine moves a curve along its hardware axis with it"
+    ),
+    "osprey_connectors.simulation.engines.to_hardware": (
+        "an engine converts a physics value back to hardware units with it"
+    ),
+    "osprey_connectors.simulation.engines.to_physics": (
+        "an engine converts a hardware value to physics units with it"
+    ),
     "osprey_connectors.simulation.logbook.PlotSeries": "a plot spec lists its series in this type",
     "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
         "the framework's archive rewrite reads the burst window"

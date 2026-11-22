@@ -81,14 +81,45 @@ WATCHED: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "interfaces/design_system/panels/validator.py",
-        "the panel page rules osprey app check applies",
+        "the panel rules osprey app check applies, and which of them only report",
         "step 6 (panel)",
+    ),
+    (
+        "interfaces/design_system/panels/page_ready.py",
+        "the page-ready rule osprey app check applies to a panel",
+        "step 6 (panel); step 8 (verify)",
+    ),
+    (
+        "bluesky_tool_names.py",
+        "the queue tool names an application's tools may not take",
+        "Contract snapshot; Writes and approvals",
     ),
     (
         "interfaces/design_system/static/css/primitives.css",
         "the design-system primitive classes a panel may use",
         "step 6 (panel)",
     ),
+)
+
+#: The modules ``osprey app check`` reaches through ``cli/app_cmd.py`` and the watched
+#: modules it imports that decide nothing an application author writes, each with why,
+#: relative to the ``osprey`` package directory.
+NOT_CONTRACT: tuple[tuple[str, str], ...] = (
+    ("apps/errors.py", "the shape a violation is printed in"),
+    ("apps/origin.py", "where an application's directory is, deployment or installed"),
+    (
+        "cli/application_material.py",
+        "which panel files the build fetched rather than the author wrote",
+    ),
+    ("cli/output.py", "how the CLI prints a line or a failure"),
+    ("cli/repo_resolver.py", "how the command finds the deployment repository"),
+    ("interfaces/design_system/errors.py", "the shared shape of a validator finding"),
+    (
+        "interfaces/design_system/panels/manifest.py",
+        "the manifest of a discovered panel; an application's panel has none",
+    ),
+    ("utils/config_writer.py", "how the profile is read and written back"),
+    ("utils/workspace.py", "the deployment's directory names"),
 )
 
 _SKIP_DIRS = frozenset({"__pycache__", "node_modules", ".pytest_cache"})

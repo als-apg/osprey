@@ -27,8 +27,8 @@ import pytest
 
 from osprey.agent_runner import launcher
 from osprey.cli.chat_cmd import chat
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 
 #: The richest provider env block — a base URL, a tier model per tier, and a
 #: secret variable that is not ANTHROPIC_API_KEY. The injection tests need all

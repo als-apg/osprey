@@ -29,6 +29,7 @@
 import { renderState, clearState } from '/design-system/js/panel-state.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { icon } from '/design-system/js/icons.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { copyText } from '/design-system/js/clipboard.js';
 import { messageOf } from './utils.js';
 import {
@@ -76,8 +77,8 @@ const SIDEBAR_KEY = 'cf-channels-filters';
  *   answerWords: string,
  *   values: Map<string, ValueRow>|null,
  *   valuesReason: string,
- *   searchSeq: number,
- *   valuesSeq: number,
+ *   searches: ReturnType<typeof createLatestRequest>,
+ *   valueReads: ReturnType<typeof createLatestRequest>,
  *   canPlot: boolean,
  *   csvStatus: string,
  *   debounce: number|undefined,
@@ -124,8 +125,8 @@ export function mountChannels(container, params = {}) {
     answerWords: '',
     values: null,
     valuesReason: '',
-    searchSeq: 0,
-    valuesSeq: 0,
+    searches: createLatestRequest(),
+    valueReads: createLatestRequest(),
     canPlot: false,
     csvStatus: '',
     debounce: undefined,
@@ -223,8 +224,8 @@ function currentFilters() {
 async function runSearch() {
   if (!view) return;
   const current = view;
-  const seq = ++current.searchSeq;
-  current.valuesSeq++;
+  const token = current.searches.begin();
+  current.valueReads.cancel();
   if (!current.answer) {
     renderState(body(), { icon: 'search', message: 'Searching' });
   }
@@ -234,13 +235,13 @@ async function runSearch() {
   try {
     answer = await searchDirectory(filters);
   } catch (err) {
-    if (view !== current || seq !== current.searchSeq) return;
+    if (view !== current || !token.isCurrent()) return;
     current.answer = null;
     current.answerWords = filters.q ?? '';
     showFailure(`Directory did not answer: ${messageOf(err)}`, true);
     return;
   }
-  if (view !== current || seq !== current.searchSeq) return;
+  if (view !== current || !token.isCurrent()) return;
   current.answer = answer;
   current.answerWords = filters.q ?? '';
   current.values = null;
@@ -254,20 +255,20 @@ async function runSearch() {
 async function readPageValues() {
   if (!view?.answer) return;
   const current = view;
-  const seq = ++current.valuesSeq;
+  const token = current.valueReads.begin();
   const names = current.answer?.rows.map((row) => row.name) ?? [];
   /** @type {ValueRow[]} */
   let rows;
   try {
-    rows = await readValues(names);
+    rows = await readValues(names, token.signal);
   } catch (err) {
-    if (view !== current || seq !== current.valuesSeq) return;
+    if (view !== current || !token.isCurrent()) return;
     current.values = new Map();
     current.valuesReason = messageOf(err);
     renderTable();
     return;
   }
-  if (view !== current || seq !== current.valuesSeq) return;
+  if (view !== current || !token.isCurrent()) return;
   current.values = new Map(rows.map((row) => [row.name, row]));
   renderTable();
 }

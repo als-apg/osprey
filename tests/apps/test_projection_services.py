@@ -37,7 +37,7 @@ KNOB: dict[str, Any] = {
         "label": "Knob",
         "container": "knob-demo",
         "launch_token": True,
-        "roster_grant": {"single_user_alias": True},
+        "roster_grant": {},
     },
 }
 
@@ -85,7 +85,7 @@ def test_runtime_container_projects_the_bundled_template() -> None:
 def test_panel_container_carries_the_roster_grant_and_launch_token_name() -> None:
     services = _services(_project([_manifest(KNOB)], {"apps": {"knob-demo": {}}}))
     panel = services["knob-demo"]["config"]
-    assert panel["roster_grant"] == {"panel_id": "knob-demo", "single_user_alias": True}
+    assert panel["roster_grant"] == {"panel_id": "knob-demo"}
     assert panel["launch_token_env"] == launch_token_env("knob-demo")
     other = services["knob-cache"]["config"]
     assert "roster_grant" not in other

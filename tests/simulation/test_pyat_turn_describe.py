@@ -59,6 +59,12 @@ def _record(signal: str, address: str, *, element: str | None = None, write: boo
     return record
 
 
+def _kick(address: str, *, element: str | None = "Q", write: bool = True, **words: Any):
+    record = _record("pulsed_kick", address, element=element, write=write)
+    record["engine"].update(words)
+    return record
+
+
 def kind_of(record: dict[str, Any]) -> str:
     return str(record["engine"]["signal"])
 
@@ -92,7 +98,9 @@ class TestPrepareBlock:
         assert block.samples == turn.DEFAULT_TRIGGER_SAMPLE + turn.DEFAULT_TURNS
         assert block.particles == turn.DEFAULT_PARTICLES
         assert block.launch == (0.0,) * 6
-        assert block.jitter == turn.DEFAULT_JITTER
+        assert block.jitter == turn.DEFAULT_JITTER == (5e-5, 0.0, 3e-5, 0.0, 0.0, 0.0)
+        assert block.twiss == turn.InjectedTwiss(None, None, None)
+        assert block.mismatch == (1.0, 1.0)
         assert block.aperture is None
         assert block.readout.tone_period == turn.DEFAULT_TONE_PERIOD
 
@@ -108,7 +116,9 @@ class TestPrepareBlock:
             emittance_y=1e-11,
             sigma_delta=1e-3,
             sigma_z=3e-3,
-            jitter={"x": 1e-5, "y": 0},
+            jitter={"x": 1e-5, "y": 0, "px": 2e-6, "delta": 1e-4, "ct": 3e-4},
+            twiss={"beta": [7.0, 3.0], "alpha": [0.4, -0.2], "dispersion": [0.1, 0, 0, 0]},
+            mismatch={"x": 1.5},
             aperture={"x": 3e-3, "y": 5e-3, "shape": "rectangular"},
             sum_per_charge=2,
             sum_per_stored=0.5,
@@ -126,7 +136,11 @@ class TestPrepareBlock:
         assert block.launch == (1e-3, 0.0, 0.0, -2e-4, 1e-3, 0.0)
         assert (block.emittance_x, block.emittance_y) == (2e-9, 1e-11)
         assert (block.sigma_delta, block.sigma_z) == (1e-3, 3e-3)
-        assert block.jitter == (1e-5, 0.0)
+        assert block.jitter == (1e-5, 2e-6, 0.0, 0.0, 1e-4, 3e-4)
+        assert block.twiss == turn.InjectedTwiss(
+            beta=(7.0, 3.0), alpha=(0.4, -0.2), dispersion=(0.1, 0.0, 0.0, 0.0)
+        )
+        assert block.mismatch == (1.5, 1.0)
         assert block.aperture == turn.Aperture("rectangular", 3e-3, 5e-3)
         readout = block.readout
         assert readout.sum_per_charge == 2.0 and isinstance(readout.sum_per_charge, float)
@@ -163,6 +177,23 @@ class TestPrepareBlock:
             ({"injection_element": "INJ", "sigma_z": float("nan")}, ".sigma_z is nan"),
             ({"injection_element": "INJ", "jitter": {"x": -1}}, ".jitter.x is -1"),
             ({"injection_element": "INJ", "jitter": {"q": 1}}, "jitter carries unknown keys q"),
+            ({"injection_element": "INJ", "jitter": {"delta": -1e-4}}, ".jitter.delta is -0.0001"),
+            ({"injection_element": "INJ", "mismatch": {"x": 0}}, ".mismatch is {'x': 0}"),
+            ({"injection_element": "INJ", "mismatch": {"x": -2}}, ".mismatch.x is -2"),
+            ({"injection_element": "INJ", "mismatch": {"z": 2}}, "mismatch carries unknown keys z"),
+            ({"injection_element": "INJ", "mismatch": 1.5}, ".mismatch is not a map"),
+            ({"injection_element": "INJ", "twiss": {"beta": [1.0]}}, ".twiss.beta is [1.0]"),
+            ({"injection_element": "INJ", "twiss": {"beta": [0, 1]}}, ".twiss.beta is [0, 1]"),
+            ({"injection_element": "INJ", "twiss": {"beta": 4.0}}, ".twiss.beta is 4.0"),
+            (
+                {"injection_element": "INJ", "twiss": {"alpha": [0, "a"]}},
+                ".twiss.alpha is 'a'",
+            ),
+            (
+                {"injection_element": "INJ", "twiss": {"dispersion": [0, 0]}},
+                ".twiss.dispersion is [0, 0]",
+            ),
+            ({"injection_element": "INJ", "twiss": {"gamma": [1, 1]}}, "twiss carries unknown"),
             ({"injection_element": "INJ", "aperture": {"x": 1e-3}}, ".aperture lacks y"),
             ({"injection_element": "INJ", "aperture": {"x": 0, "y": 1}}, ".aperture.x is 0"),
             (
@@ -208,6 +239,9 @@ class TestDescribe:
             (_record("turn_sum", "B1:TBT:S", element="BPM1"), ("output", "event", "turn_sum")),
             (_record("turns_tracked", "SR:TURNS"), ("output", "event", "turns_tracked")),
             (_record("rf_switch", "SR:RF", write=True), ("setpoint", "pass", "rf_switch")),
+            (_record("offset_x", "SR:INJ:DX", write=True), ("setpoint", "pass", "offset_x")),
+            (_record("offset_ct", "SR:INJ:DCT", write=True), ("setpoint", "pass", "offset_ct")),
+            (_record("mismatch_y", "SR:INJ:MY", write=True), ("setpoint", "pass", "mismatch_y")),
             (_record("pilot_tone", "SR:TONE", write=True), ("setpoint", "pass", "pilot_tone")),
             (_record("stored", "SR:BUSY", write=True), ("setpoint", "pass", "stored")),
             (
@@ -244,7 +278,12 @@ class TestDescribe:
             "rf_switch",
             "pilot_tone",
             "stored",
+            *(f"offset_{key}" for key in turn.LAUNCH_KEYS),
+            "mismatch_x",
+            "mismatch_y",
+            "pulsed_kick",
         }
+        assert turn.BEAM_SIGNALS <= turn.SETTING_SIGNALS & turn.RING_SIGNALS
 
     @pytest.mark.parametrize(
         ("record", "text"),
@@ -264,6 +303,9 @@ class TestDescribe:
             (_record("turns_tracked", "SR:TURNS", element="BPM1"), "names an element"),
             (_record("rf_switch", "SR:RF", element="Q", write=True), "names an element"),
             (_record("pilot_tone", "SR:TONE", element="Q", write=True), "names an element"),
+            (_record("offset_px", "SR:INJ:DPX", element="Q", write=True), "names an element"),
+            (_record("mismatch_x", "SR:INJ:MX"), "is a setting; wire it with direction write"),
+            (_record("offset_z", "SR:INJ:DZ", write=True), "unknown signal 'offset_z'"),
         ],
         ids=lambda value: value["address"] if isinstance(value, dict) else str(value)[:30],
     )
@@ -278,6 +320,40 @@ class TestDescribe:
         with pytest.raises(ValueError, match="B1:ARM") as caught:
             engine.describe(record)
         assert "attribute" in str(caught.value)
+
+    def test_a_pulsed_kick_is_a_setting_of_its_element(self) -> None:
+        described = engine.describe(_kick("K:KICK", plane="x", scale=2.0e-4, pulse=[1.0, 0.5]))
+        assert described["engine_role"] == "setpoint"
+        assert described["kind"] == "pulsed_kick"
+        assert described["plane"] is None  # no corrector: the closed orbit never sees it
+        assert engine.describe(_kick("K:KICK", plane="y"))["refresh"] == "pass"
+
+    @pytest.mark.parametrize(
+        ("record", "text"),
+        [
+            (_kick("K:NONE", element=None, plane="x"), "names no element"),
+            (_kick("K:READ", write=False, plane="x"), "is a setting; wire it with direction write"),
+            (_kick("K:PLANE"), "states no plane; use x or y"),
+            (_kick("K:Z", plane="z"), "plane 'z'; use x or y"),
+            (_kick("K:SCALE", plane="x", scale="big"), "scale 'big' is not a number"),
+            (_kick("K:NAN", plane="x", scale=float("nan")), "is not a number"),
+            (_kick("K:EMPTY", plane="x", pulse=[]), "pulse [] is not a list of numbers"),
+            (_kick("K:WORD", plane="x", pulse=[1.0, "half"]), "is not a list of numbers"),
+            (_kick("K:ONE", plane="x", pulse=1.0), "is not a list of numbers"),
+            (_kick("K:MORE", plane="x", attribute="KickAngle"), "beside attribute"),
+        ],
+        ids=lambda value: value["address"] if isinstance(value, dict) else str(value)[:30],
+    )
+    def test_pulsed_kick_refusals(self, record: dict[str, Any], text: str) -> None:
+        with pytest.raises(ValueError, match=record["address"]) as caught:
+            engine.describe(record)
+        assert text in str(caught.value)
+
+    def test_a_kicks_words_are_refused_on_another_signal(self) -> None:
+        record = _record("pilot_tone", "SR:TONE", write=True)
+        record["engine"]["plane"] = "x"
+        with pytest.raises(ValueError, match="beside plane"):
+            engine.describe(record)
 
     def test_slices_are_no_monitor_element(self) -> None:
         record = _record("turn_x", "B1:TBT:X")
@@ -378,6 +454,28 @@ def _shapes(length: int = SAMPLES) -> dict[str, list[int]]:
 
 
 class TestStartValues:
+    def test_an_offset_starts_at_zero_and_a_mismatch_at_the_blocks(self, deck: Path) -> None:
+        records = [
+            _record("offset_x", "SR:INJ:DX", write=True),
+            _record("offset_delta", "SR:INJ:DE", write=True),
+            _record("mismatch_x", "SR:INJ:MX", write=True),
+            _record("mismatch_y", "SR:INJ:MY", write=True),
+        ]
+        values = engine.start_values(
+            deck,
+            records,
+            _settings(launch={"x": 1e-3}, mismatch={"y": 1.5}),
+            readbacks={},
+            value_types={},
+            shapes={},
+        )
+        assert values == {
+            "SR:INJ:DE": 0.0,
+            "SR:INJ:DX": 0.0,
+            "SR:INJ:MX": 1.0,
+            "SR:INJ:MY": 1.5,
+        }
+
     def test_every_record_has_a_start_value(self, deck: Path) -> None:
         orbit = {"id": "SR/B1:X", "address": "B1:X", "element": "BPM1", "engine": {"axis": "x"}}
         values = engine.start_values(
@@ -480,6 +578,24 @@ class TestStartValues:
             deck, [_record("stored", "Q:MODE", element="Q", write=True)], _settings()
         )
         assert values == {"Q:MODE": 0.0}
+
+    def test_a_pulsed_kick_starts_at_zero(self, deck: Path) -> None:
+        values = engine.start_values(deck, [_kick("K:KICK", plane="x")], _settings())
+        assert values == {"K:KICK": 0.0}
+
+    @pytest.mark.parametrize(("element", "count"), [("NOPE", 0), ("D", 2)])
+    def test_a_pulsed_kicks_element_is_held_once(
+        self, deck: Path, element: str, count: int
+    ) -> None:
+        with pytest.raises(engine.ElementStop) as caught:
+            engine.start_values(deck, [_kick("K:KICK", element=element, plane="x")], _settings())
+        assert caught.value.count == count
+
+    def test_a_pulsed_kicks_element_must_apply_a_kick_angle(self, deck: Path) -> None:
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(deck, [_kick("K:KICK", element="INJ", plane="x")], _settings())
+        assert caught.value.record_id == "SR/K:KICK"
+        assert "element INJ applies no kick angle" in caught.value.detail
 
     def test_block_refusal_reaches_start_values(self, deck: Path) -> None:
         with pytest.raises(FacilityBuildError) as caught:

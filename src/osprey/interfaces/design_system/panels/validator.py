@@ -25,21 +25,30 @@ alone (this is why they are cheap and never flake):
    :data:`PANEL_STYLESHEETS` (tokens, base, primitives). Each one missing
    is an error.
 3. **Page-ready mark.** The entry HTML takes the late route to the page-ready
-   mark: ``data-page-ready="pending"`` on its ``<html>`` and a script it loads
-   calling ``markPageReady()``, as ``panels/page_ready.py`` reads it.
+   mark: ``data-page-ready="pending"`` on its ``<html>``, the writer's tag
+   ``<script type="module" src="/design-system/js/page-ready.js">`` ahead of its
+   other module and deferred scripts, and a script it loads calling
+   ``markPageReady()``, as ``panels/page_ready.py`` reads it.
 4. **Token-only (no raw hex colors).** The panel's HTML/CSS/JS must style
    through ``var(--…)`` design tokens, never raw ``#rgb``/``#rrggbb``
    color literals. Third-party builds under the panel's ``vendor/``
    directory are not panel source and are skipped. Each hex-color-shaped literal is flagged with its file
    and line (see :data:`_HEX_COLOR_PATTERN` for exactly what counts as a
    color shape, and the false-positive caveat documented there).
+5. **Classes have a rule (report-only).** Every class the panel's own HTML or
+   JS sets has a rule in a ``<style>`` block of its HTML, one of its own
+   ``.css`` files, or a design-system sheet the entry page links.
+
+Each rule states its :class:`PanelConsequence`: a finding of a rule that
+refuses stops the panel, and a finding of a rule that reports is printed or
+logged and stops nothing. Checks 1-4 refuse; check 5 reports.
 
 This module deliberately does **not** attempt to prove a panel honors the
 runtime ``?theme=`` query parameter — that is undecidable statically and
 belongs to the separate runtime/browser check. Everything here is
-decidable, and every check *fails closed*: :func:`assert_valid_panel`
-raises a bundled :class:`PanelValidationError` if *any* check fails; no
-check is weakened to let a panel pass.
+decidable, and every check whose rule refuses *fails closed*:
+:func:`assert_valid_panel` raises a bundled :class:`PanelValidationError`
+if *any* of them fails; no check is weakened to let a panel pass.
 
 The idiom is the design system's shared fail-closed one
 (``design_system/errors.py``, also used by ``generator/validate.py`` and
@@ -60,7 +69,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -71,15 +80,17 @@ from osprey.interfaces.design_system.panels.manifest import (
     PanelManifestError,
     parse_manifest,
 )
-from osprey.interfaces.design_system.panels.page_ready import route_problem
+from osprey.interfaces.design_system.panels.page_ready import DESIGN_SYSTEM_STATIC, route_problem
 
 __all__ = [
     "MANIFEST_FILENAME",
     "PANEL_STYLESHEETS",
     "missing_stylesheets",
+    "PanelConsequence",
     "PanelRule",
     "PanelFinding",
     "PanelValidationError",
+    "refusing",
     "validate_entry",
     "validate_panel",
     "assert_valid_panel",
@@ -158,6 +169,9 @@ _HEX_COLOR_PATTERN = re.compile(
 
 #: File suffixes scanned (alongside the entry HTML) for raw hex colors.
 _HEX_SCAN_SUFFIXES = (".css", ".js")
+#: File suffixes whose markup or script sets classes.
+_CLASS_SETTING_SUFFIXES = (".html", ".js", ".mjs")
+_JS_SUFFIXES = (".js", ".mjs")
 
 #: A directory segment (relative to the panel dir) whose files are third-party
 #: builds fetched by ``osprey vendor fetch`` rather than panel source; they
@@ -165,27 +179,51 @@ _HEX_SCAN_SUFFIXES = (".css", ".js")
 _VENDOR_SEGMENT = "vendor"
 
 
+class PanelConsequence(StrEnum):
+    """What a finding of a rule does to its panel."""
+
+    #: A finding of this rule stops the panel: discovery does not serve it,
+    #: :func:`assert_valid_panel` raises, a check fails.
+    REFUSE = "refuse"
+    #: A finding of this rule is printed or logged and stops nothing.
+    REPORT = "report"
+
+
 class PanelRule(StrEnum):
-    """Machine-readable identifier for each kind of panel validation failure."""
+    """Machine-readable identifier for each kind of panel finding, with its consequence.
+
+    Each member is declared as ``(id, consequence)``; the id is the member's value.
+    """
+
+    consequence: PanelConsequence
+
+    def __new__(cls, value: str, consequence: PanelConsequence) -> PanelRule:
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.consequence = consequence
+        return member
 
     #: The panel directory has no ``manifest.json``.
-    MANIFEST_MISSING = "manifest_missing"
+    MANIFEST_MISSING = "manifest_missing", PanelConsequence.REFUSE
     #: ``manifest.json`` is not valid JSON, or fails the manifest schema
     #: (each underlying :class:`~.manifest.ManifestFinding` is folded in).
-    MANIFEST_INVALID = "manifest_invalid"
+    MANIFEST_INVALID = "manifest_invalid", PanelConsequence.REFUSE
     #: The manifest's declared ``entry`` file does not exist in the dir.
-    ENTRY_MISSING = "entry_missing"
+    ENTRY_MISSING = "entry_missing", PanelConsequence.REFUSE
     #: The entry HTML does not reference one of the design-system stylesheets.
-    MISSING_DESIGN_SYSTEM_LINK = "missing_design_system_link"
+    MISSING_DESIGN_SYSTEM_LINK = "missing_design_system_link", PanelConsequence.REFUSE
     #: The entry HTML does not reference the pre-paint theme-boot script.
-    MISSING_THEME_BOOT = "missing_theme_boot"
+    MISSING_THEME_BOOT = "missing_theme_boot", PanelConsequence.REFUSE
     #: The entry HTML does not reference the shared web-font stylesheet, so the
     #: panel (and everything copied from it) falls back to system fonts.
-    MISSING_FONT_LINK = "missing_font_link"
+    MISSING_FONT_LINK = "missing_font_link", PanelConsequence.REFUSE
     #: A raw hex color literal appears where a ``var(--…)`` token belongs.
-    RAW_HEX_COLOR = "raw_hex_color"
+    RAW_HEX_COLOR = "raw_hex_color", PanelConsequence.REFUSE
     #: The entry page never reaches the page-ready mark by the late route.
-    PAGE_READY = "page_ready"
+    PAGE_READY = "page_ready", PanelConsequence.REFUSE
+    #: The panel's HTML or JS sets a class that no stylesheet of the panel or
+    #: linked design-system sheet has a rule for.
+    UNDEFINED_CLASS = "undefined_class", PanelConsequence.REPORT
 
 
 @dataclass(frozen=True)
@@ -205,11 +243,16 @@ class PanelFinding(SourcedFinding):
 
 
 class PanelValidationError(BundledValidationError[PanelFinding]):
-    """Raised by :func:`assert_valid_panel`, bundling every :class:`PanelFinding`.
+    """Raised by :func:`assert_valid_panel`, bundling every refusing :class:`PanelFinding`.
 
     Attributes:
-        errors: Every panel finding, in the order they were found.
+        errors: Every refusing panel finding, in the order they were found.
     """
+
+
+def refusing(findings: Iterable[PanelFinding]) -> list[PanelFinding]:
+    """Those of *findings* whose rule refuses the panel, in order."""
+    return [f for f in findings if f.rule.consequence is PanelConsequence.REFUSE]
 
 
 def _from_manifest_finding(finding: ManifestFinding) -> PanelFinding:
@@ -381,36 +424,138 @@ def _check_no_raw_hex_colors(path: Path, text: str) -> list[PanelFinding]:
     return errors
 
 
+def _own_files(panel_dir: Path, suffixes: Iterable[str]) -> set[Path]:
+    """The panel's own files with one of *suffixes*: every one under *panel_dir*
+    except those under a ``vendor/`` segment (see :data:`_VENDOR_SEGMENT`)."""
+    return {
+        path
+        for suffix in suffixes
+        for path in panel_dir.rglob(f"*{suffix}")
+        if _VENDOR_SEGMENT not in path.relative_to(panel_dir).parts[:-1]
+    }
+
+
 def _hex_scan_files(panel_dir: Path, entry_path: Path | None) -> list[Path]:
     """Collect the files to scan for raw hex colors, in a stable order.
 
-    The entry HTML (if resolved) plus every sibling ``.css``/``.js`` under
-    the panel dir, except files under a ``vendor/`` segment of the panel dir
-    (see :data:`_VENDOR_SEGMENT`). Deduplicated and sorted so error order is
-    deterministic.
+    The entry HTML (if resolved) plus the panel's own ``.css``/``.js`` files
+    (:func:`_own_files`). Deduplicated and sorted so error order is deterministic.
     """
-    files: set[Path] = set()
+    files = _own_files(panel_dir, _HEX_SCAN_SUFFIXES)
     if entry_path is not None:
         files.add(entry_path)
-    for suffix in _HEX_SCAN_SUFFIXES:
-        files.update(
-            path
-            for path in panel_dir.rglob(f"*{suffix}")
-            if _VENDOR_SEGMENT not in path.relative_to(panel_dir).parts[:-1]
-        )
     return sorted(files)
+
+
+_LINK = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
+_STYLE_BLOCK = re.compile(r"<style\b[^>]*>(.*?)</style\s*>", re.IGNORECASE | re.DOTALL)
+_HREF = re.compile(r"""\bhref\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+_DESIGN_SYSTEM_CSS = re.compile(r"^/design-system/css/([\w.-]+\.css)$")
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_JS_LINE_COMMENT = re.compile(r"^\s*//.*$", re.MULTILINE)
+_CSS_STRING = re.compile(r"""(["'])(?:\\.|(?!\1).)*\1""")
+_CSS_CLASS = re.compile(r"\.(-?[A-Za-z_][\w-]*)")
+#: Where markup or JS sets a class. A class only read (``classList.contains``) or taken
+#: off (``classList.remove``) styles nothing; a state that carries no style belongs in a
+#: ``data-`` attribute or ``hidden``, not in a class.
+_MARKUP_CLASS = re.compile(r"""\bclass\s*=\s*\\?(["'])(.*?)\\?\1""", re.DOTALL)
+_JS_CLASS = (
+    _MARKUP_CLASS,
+    re.compile(r"""\.className\s*=\s*(["'`])(.*?)\1"""),
+    re.compile(r"""\.classList\.(?:add|toggle)\(\s*(["'`])(.*?)\1"""),
+    re.compile(r"""[{,]\s*["']?class["']?\s*:\s*(["'`])(.*?)\1"""),
+)
+_CLASS_NAME = re.compile(r"^-?[A-Za-z_][\w-]*$")
+
+
+def _class_rule_text(path: Path) -> str:
+    """One file's text as the class rule reads it: a byte that is not UTF-8 becomes a
+    replacement character, so a rule that only reports never raises on a file's bytes."""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _class_rule_files(panel_dir: Path, suffixes: Iterable[str]) -> set[Path]:
+    """The panel's own regular files with one of *suffixes* (:func:`_own_files`)."""
+    return {path for path in _own_files(panel_dir, suffixes) if path.is_file()}
+
+
+def _defined_classes(entry_html: str, panel_dir: Path, html_files: Iterable[Path]) -> set[str]:
+    """The classes a selector names in the panel's own CSS files, the ``<style>`` blocks
+    of its own HTML, or a design-system sheet the entry page links."""
+    css = [_class_rule_text(path) for path in sorted(_class_rule_files(panel_dir, (".css",)))]
+    for tag in _LINK.findall(entry_html):
+        href = _HREF.search(tag)
+        sheet_name = _DESIGN_SYSTEM_CSS.match(href.group(1)) if href is not None else None
+        if sheet_name is not None:
+            sheet = DESIGN_SYSTEM_STATIC / "css" / sheet_name.group(1)
+            if sheet.is_file():
+                css.append(sheet.read_text(encoding="utf-8"))
+    for path in html_files:
+        css += _STYLE_BLOCK.findall(_class_rule_text(path))
+    defined: set[str] = set()
+    for text in css:
+        defined.update(_CSS_CLASS.findall(_CSS_STRING.sub("", _BLOCK_COMMENT.sub("", text))))
+    return defined
+
+
+def _used_classes(path: Path) -> set[str]:
+    """The literal classes one HTML or JS file sets."""
+    text = _class_rule_text(path)
+    patterns: Sequence[re.Pattern[str]] = (_MARKUP_CLASS,)
+    if path.name.endswith(_JS_SUFFIXES):
+        text = _JS_LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", text))
+        patterns = _JS_CLASS
+    return {
+        name
+        for pattern in patterns
+        for match in pattern.finditer(text)
+        for name in match.group(2).split()
+        if _CLASS_NAME.match(name)
+    }
+
+
+def _check_classes_defined(
+    entry_path: Path, entry_html: str, panel_dir: Path
+) -> list[PanelFinding]:
+    """Report each of the panel's own HTML and JS files that sets a class with no rule.
+
+    Args:
+        entry_path: The panel's entry HTML; the design-system sheets it links count.
+        entry_html: Its full text.
+        panel_dir: The panel directory whose own files set and define classes.
+
+    Returns:
+        One :class:`PanelRule.UNDEFINED_CLASS` finding per file, in file order.
+    """
+    setting = _class_rule_files(panel_dir, _CLASS_SETTING_SUFFIXES)
+    setting.add(entry_path)
+    html_files = sorted(path for path in setting if path.suffix == ".html" or path == entry_path)
+    defined = _defined_classes(entry_html, panel_dir, html_files)
+    undefined = [(path, sorted(_used_classes(path) - defined)) for path in sorted(setting)]
+    return [
+        PanelFinding(
+            rule=PanelRule.UNDEFINED_CLASS,
+            message=(
+                "no rule in the panel's or the linked design-system stylesheets for "
+                f"class {', '.join(names)}"
+            ),
+            source=str(path),
+        )
+        for path, names in undefined
+        if names
+    ]
 
 
 def validate_entry(entry_path: Path, panel_dir: Path) -> list[PanelFinding]:
     """Run every rule that reads a panel's entry page and its own files, without a manifest.
 
-    The design-system references, the page-ready mark, then raw hex colours over the
-    entry page and every ``.css``/``.js`` file of the panel. Never stops at the first
-    failure.
+    The design-system references, the page-ready mark, raw hex colours over the
+    entry page and every ``.css``/``.js`` file of the panel, then a rule for every
+    class the panel's own HTML and JS set. Never stops at the first failure.
 
     Args:
         entry_path: The panel's entry HTML file.
-        panel_dir: The panel directory whose files the hex-colour rule scans.
+        panel_dir: The panel directory whose own files the file rules read.
 
     Returns:
         Every :class:`PanelFinding`, in check order. Empty if the page passes.
@@ -422,6 +567,7 @@ def validate_entry(entry_path: Path, panel_dir: Path) -> list[PanelFinding]:
     ]
     for path in _hex_scan_files(panel_dir, entry_path):
         errors.extend(_check_no_raw_hex_colors(path, path.read_text(encoding="utf-8")))
+    errors.extend(_check_classes_defined(entry_path, entry_html, panel_dir))
     return errors
 
 
@@ -440,7 +586,7 @@ def validate_panel(panel_dir: str | Path) -> list[PanelFinding]:
         Every :class:`PanelFinding`, in check order. Empty if the panel
         is fully valid. When the manifest is missing/invalid or its entry
         file is absent, the HTML-dependent checks (design-system link,
-        theme boot, page-ready mark) are skipped for the unknown entry — but sibling
+        theme boot, page-ready mark, class rules) are skipped for the unknown entry — but sibling
         ``.css``/``.js`` files are still scanned for raw hex colors, since
         that check does not depend on the manifest.
     """
@@ -461,20 +607,21 @@ def validate_panel(panel_dir: str | Path) -> list[PanelFinding]:
 
 
 def assert_valid_panel(panel_dir: str | Path) -> None:
-    """Validate a panel directory and raise if anything failed.
+    """Validate a panel directory and raise when a finding refuses it.
 
-    The fail-closed door: any check failing raises, and the raised error
-    carries *every* failure, not just the first.
+    The fail-closed door: a finding of a rule that refuses raises, and the raised
+    error carries *every* refusing finding, not just the first. A report-only
+    finding never raises.
 
     Args:
         panel_dir: The panel directory.
 
     Raises:
-        PanelValidationError: If :func:`validate_panel` found any failures.
+        PanelValidationError: If :func:`validate_panel` found a refusing finding.
     """
-    errors = validate_panel(panel_dir)
-    if errors:
-        raise PanelValidationError(errors)
+    refused = refusing(validate_panel(panel_dir))
+    if refused:
+        raise PanelValidationError(refused)
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
@@ -482,11 +629,11 @@ def _main(argv: Sequence[str] | None = None) -> int:
 
     Usage: ``python -m osprey.interfaces.design_system.panels.validator <panel_dir>``.
 
-    Exits ``0`` when the panel passes, ``1`` after printing every failure
-    (one ``"{source}: {message}"`` line per :class:`PanelFinding`), and ``2``
-    on a usage error. Runnable so the panel-authoring skill and the build
-    gates can invoke the validator directly rather than only via the
-    :func:`assert_valid_panel` import form.
+    Prints every finding on stderr, one ``"{source}: {message}"`` line each; a
+    report-only one ends in ``[<rule>: report]``. Exits ``1`` when a finding
+    refuses the panel, ``0`` otherwise, and ``2`` on a usage error. Runnable so
+    the panel-authoring skill and the build gates can invoke the validator
+    directly rather than only via the :func:`assert_valid_panel` import form.
     """
     import sys
 
@@ -498,11 +645,18 @@ def _main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    errors = validate_panel(args[0])
-    if errors:
-        for error in errors:
-            print(str(error), file=sys.stderr)
-        print(f"PANEL INVALID: {len(errors)} error(s) in {args[0]}", file=sys.stderr)
+    findings = validate_panel(args[0])
+    for finding in findings:
+        if finding.rule.consequence is PanelConsequence.REFUSE:
+            print(str(finding), file=sys.stderr)
+        else:
+            print(
+                f"{finding} [{finding.rule.value}: {finding.rule.consequence.value}]",
+                file=sys.stderr,
+            )
+    refused = refusing(findings)
+    if refused:
+        print(f"PANEL INVALID: {len(refused)} error(s) in {args[0]}", file=sys.stderr)
         return 1
 
     print(f"PANEL OK: {args[0]}")

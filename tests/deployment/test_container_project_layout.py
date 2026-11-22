@@ -562,35 +562,6 @@ def _contexts(repo: Path) -> dict[str, Path]:
     return {entry.name: entry for entry in sorted(image_dir.iterdir()) if entry.is_dir()}
 
 
-def _staleness_reasons_as_the_container_sees_them(context: Path, scratch: Path) -> list[str]:
-    """Run the staleness advisory over a context as if it were mounted at ``/app/<name>``.
-
-    The advisory hashes the profile ``build_args.profile_path_abs`` names. In a
-    context that path is the CONTAINER's, which on this machine is nothing at
-    all — and "nothing at all" makes the advisory fail open and return no
-    reasons, which would make a test of it vacuous. So the manifest's container
-    paths are re-pointed at the copy of that same tree sitting here, which is
-    exactly the file the container would be hashing.
-
-    Only the manifest is copied because that is all
-    :func:`~osprey.deployment.staleness.staleness_reasons` reads.
-    """
-    from osprey.deployment.staleness import build_manifest_path, staleness_reasons
-
-    manifest_path = build_manifest_path(context)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    runtime_root = f"/app/{context.name}"
-    build_args = manifest.get("build_args") or {}
-    for key in ("profile_path", "profile_path_abs"):
-        value = build_args.get(key)
-        if isinstance(value, str) and value.startswith(f"{runtime_root}/"):
-            build_args[key] = str(context / value[len(runtime_root) + 1 :])
-
-    scratch.mkdir(parents=True, exist_ok=True)
-    (scratch / manifest_path.name).write_text(json.dumps(manifest), encoding="utf-8")
-    return staleness_reasons(scratch)
-
-
 @pytest.mark.slow
 def test_a_real_build_produces_one_context_per_image(built_repo: Path) -> None:
     """One rule, applied once per image this repo has to build.
@@ -761,24 +732,16 @@ def test_every_launched_process_in_a_context_names_the_image_interpreter(
 
 @pytest.mark.slow
 @pytest.mark.parametrize("tier", [None, *RENDER_WRITES])
-def test_a_produced_context_reports_neither_drift_nor_staleness(
-    built_repo: Path, tier: str | None, tmp_path: Path
-) -> None:
-    """An untouched image reports itself untouched — by BOTH readers, not just the gate.
+def test_a_produced_context_reports_no_drift(built_repo: Path, tier: str | None) -> None:
+    """An untouched image reports itself untouched.
 
-    Two independent things read a build's provenance inside a container and an
-    operator meets both: :func:`check_drift`, the gate every lifecycle verb goes
-    through, and :func:`staleness_reasons`, the advisory behind the warning
-    ``osprey up`` prints. They must agree, and on a freshly built
-    image the agreement they owe is "nothing has changed".
-
-    They agree only if they hash the SAME file. The gate reads ``profile.yml``
-    off the repo root; the advisory reads whatever ``build_args.profile_path_abs``
-    names — so for a render image, pointing that at the render DELTA (the file
-    the render came from) hashes the delta against a stamp taken from the root
-    profile, and every render container prints "profile has changed" on a build
-    nobody touched, forever. A false drift report is the one thing the whole
-    relocation exists to prevent, and an advisory that cries wolf on every
+    :func:`check_drift`, the gate every lifecycle verb goes through, reads a
+    build's provenance inside a container, and on a freshly built image the
+    answer it owes is "nothing has changed". It hashes ``profile.yml`` off the
+    repo root against the stamp, so that stamp must be taken from the same
+    file: a render image stamped from the render DELTA would report drift on a
+    build nobody touched, forever. A false drift report is the one thing the
+    whole relocation exists to prevent, and a gate that cries wolf on every
     container is how operators learn to ignore the real one.
     """
     from osprey.deployment.staleness import DriftState, check_drift
@@ -789,8 +752,6 @@ def test_a_produced_context_reports_neither_drift_nor_staleness(
     report = check_drift(context)
     assert report.state is DriftState.CLEAN, report.message
     assert report.changed_keys == ()
-
-    assert _staleness_reasons_as_the_container_sees_them(context, tmp_path / name) == []
 
 
 @pytest.mark.slow

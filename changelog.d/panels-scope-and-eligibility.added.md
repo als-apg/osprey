@@ -1,3 +1,0 @@
-Panels: `draw.json` takes `write_under`, the places a write keeps to (with the devices placed there, the devices in no place joined to them and the groups of those devices), and `check` holds a write to the same scope. A device gets a card only when it has a channel its card shows or a drawing; `cards.csv` states the exceptions, `keep` or `drop`, selecting devices by class (or `*`), place, id pattern, attribute (`name=value`) and condition (`no-channel`, `no-drawing`). `check` reports the devices the default leaves without a card and how many devices each `cards.csv` row decides.
-
-The home screen lists the top places that hold a device of a model first, as the machines, and the other top places below them.

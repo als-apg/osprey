@@ -73,7 +73,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
 
     ``default`` waits for a deck or a deckless engine; the description waits for an engine, which every model but a ``texture`` one names. Each filled slot
     is recorded in the record's ``provenance.defaults``. The engine is reached
-    through the ``osprey.simulation.engines`` entry-point group, read once per
+    through the ``osprey_connectors.simulation.engines`` entry-point group, read once per
     build. A record the engine has no start value for, or cannot describe, is
     left without what it lacks and stops; the model's other records are still
     filled. A description that contradicts the facility file stops the model.
@@ -87,7 +87,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     Raises:
         RuntimeError: The stage ran before S2 produced the document.
     """
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
     document: dict[str, Any] = need(validated.document)
     channels: dict[str, dict[str, Any]] = {c["id"]: c for c in document.get("channels", [])}
@@ -98,7 +98,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
 
     setpoint_of = simulated_pairs(channels)
     pairs = frozenset(setpoint_of)
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engines = metadata.entry_points(group=ENGINE_GROUP)
     errors: list[FacilityBuildError] = []
     for model in document.get("models", []):
         if model.get("engine") == TEXTURE:
@@ -169,7 +169,7 @@ def _fill_model(
     setpoint_of: Mapping[str, str],
     pairs: frozenset[str],
 ) -> list[FacilityBuildError]:
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
     name = model["engine"]
     if name not in engines.names:
@@ -180,7 +180,7 @@ def _fill_model(
                 stating_files(model, None, fallback=_MODELS_FILE),
                 "install the engine's package, or name an engine the environment registers",
                 record_kind="model",
-                detail=f"engine {name} is not registered under {ENTRY_POINT_GROUP}",
+                detail=f"engine {name} is not registered under {ENGINE_GROUP}",
             )
         ]
     engine = engines[name].load()

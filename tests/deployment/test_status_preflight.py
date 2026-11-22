@@ -28,6 +28,7 @@ from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+from tests._scoped_stdlib import scoped
 
 _CONFIGS: dict[str, dict] = {}
 
@@ -140,7 +141,7 @@ def runtime_calls(monkeypatch):
             return _Result(calls["inspect_stdout"])
         raise AssertionError(f"unexpected command: {cmd}")
 
-    monkeypatch.setattr(status_display.subprocess, "run", _fake_run)
+    scoped(monkeypatch, status_display, "subprocess", run=_fake_run)
     return calls
 
 
@@ -181,7 +182,7 @@ def test_status_annotates_the_state_cell_from_a_fresh_preflight_marker(
     _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "restarting")])
     output = rendered.export_text()
 
-    assert "(preflight:" in output
+    assert status_display.PREFLIGHT_ANNOTATION_PREFIX in output
     assert "control writes are armed" in output
 
 
@@ -195,7 +196,7 @@ def test_status_truncates_a_long_preflight_reason_to_keep_the_table_shape(
     _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "restarting")])
     output = rendered.export_text()
 
-    assert "(preflight:" in output
+    assert status_display.PREFLIGHT_ANNOTATION_PREFIX in output
     assert "..." in output
     assert finding not in output
     assert finding[:20] in output
@@ -238,7 +239,7 @@ def test_status_reads_started_at_from_inspect_when_ps_omits_it(tmp_path, runtime
     )
     output = rendered.export_text()
 
-    assert "(preflight: no write token)" in output
+    assert status_display.preflight_annotation("no write token").strip() in output
     inspects = [c for c in runtime_calls["argvs"] if c[:2] == ["docker", "inspect"]]
     assert len(inspects) == 1
 
@@ -255,7 +256,7 @@ def test_status_leaves_the_row_unchanged_when_there_is_no_preflight_marker(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "(preflight:" not in output
+    assert status_display.PREFLIGHT_ANNOTATION_PREFIX not in output
     # No marker, no inspect: the read side costs nothing on a healthy deployment.
     assert [c for c in runtime_calls["argvs"] if c[:2] == ["docker", "inspect"]] == []
 
@@ -276,7 +277,7 @@ def test_status_ignores_a_preflight_marker_older_than_the_container(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "(preflight:" not in output
+    assert status_display.PREFLIGHT_ANNOTATION_PREFIX not in output
 
 
 @pytest.mark.parametrize(
@@ -294,7 +295,7 @@ def test_status_ignores_an_unparseable_preflight_marker(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "(preflight:" not in output
+    assert status_display.PREFLIGHT_ANNOTATION_PREFIX not in output
 
 
 def test_status_leaves_an_uncreated_container_unchanged_despite_a_preflight_marker(
@@ -309,7 +310,7 @@ def test_status_leaves_an_uncreated_container_unchanged_despite_a_preflight_mark
     output = rendered.export_text()
 
     assert "Not created" in output
-    assert "(preflight:" not in output
+    assert status_display.PREFLIGHT_ANNOTATION_PREFIX not in output
 
 
 def test_status_survives_an_unreadable_preflight_marker_directory(
@@ -326,4 +327,4 @@ def test_status_survives_an_unreadable_preflight_marker_directory(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "(preflight:" not in output
+    assert status_display.PREFLIGHT_ANNOTATION_PREFIX not in output

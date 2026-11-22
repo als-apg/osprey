@@ -18,6 +18,7 @@
  */
 
 import { entriesApi } from './api.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /** Id of the element the declared sections render into. */
 export const ENTRY_FIELDS_MOUNT_ID = 'entry-fields';
@@ -50,7 +51,8 @@ const BUILT_IN_OVERRIDES = /** @type {Record<string, string>} */ ({
  * @typedef {Object} RenderedField
  * @property {EntryFieldDescriptor} descriptor
  * @property {HTMLInputElement|HTMLSelectElement} control
- * @property {number} requestSeq - Sequence of the latest options request.
+ * @property {ReturnType<typeof createLatestRequest>} optionReads - The field's options
+ *   requests: a newer one retires this one.
  */
 
 /** @type {RenderedField[]} */
@@ -108,7 +110,7 @@ export async function renderEntryFields(fields, mount) {
   const sectionRows = new Map();
   for (const descriptor of fields || []) {
     const { group, control } = buildInputGroup(descriptor);
-    rendered.push({ descriptor, control, requestSeq: 0 });
+    rendered.push({ descriptor, control, optionReads: createLatestRequest() });
     const overrideId = BUILT_IN_OVERRIDES[descriptor.name];
     const builtIn = overrideId ? document.getElementById(overrideId) : null;
     const builtInGroup = builtIn?.closest('.input-group') || builtIn;
@@ -363,15 +365,15 @@ async function loadOptions(field) {
     if (value !== undefined) params[parentName] = value;
   }
 
-  const seq = ++field.requestSeq;
+  const token = field.optionReads.begin();
   try {
     const options = await entriesApi.getEntryFieldOptions(descriptor.options_endpoint, params);
-    if (seq !== field.requestSeq) return;
+    if (!token.isCurrent()) return;
     const fallback = descriptor.default;
     const wanted = select.value || (fallback != null ? String(fallback) : '');
     setOptions(select, options, wanted);
   } catch (err) {
-    if (seq !== field.requestSeq) return;
+    if (!token.isCurrent()) return;
     console.warn(`Failed to load choices for entry field '${descriptor.name}':`, err);
   }
 }

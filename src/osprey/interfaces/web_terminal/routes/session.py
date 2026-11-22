@@ -17,6 +17,7 @@ import binascii
 import json
 import logging
 import re
+import shutil
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -632,7 +633,6 @@ def _remove_transcript_files(tid: str, sessions_dir: Path | None) -> int:
     transcript directory; how many were there."""
     if sessions_dir is None:
         return 0
-    import shutil
 
     removed = 0
     jsonl = sessions_dir / f"{tid}.jsonl"

@@ -38,10 +38,11 @@ from click.testing import CliRunner
 
 import osprey.cli.deploy_cmd as deploy_cmd
 from osprey.cli.deploy_cmd import up_verb
-from osprey.deployment import container_lifecycle, docker_desktop
+from osprey.deployment import compose_generator, container_lifecycle, docker_desktop
 from osprey.deployment.compose_generator import (
     LABELS_OVERRIDE_FILENAME,
     REPO_ID_LABEL,
+    prepare_compose_files,
     repo_identity,
     resolve_project_name,
 )
@@ -53,6 +54,7 @@ from osprey.deployment.deployment_record import (
 from osprey.deployment.web_terminals import provision
 from osprey.utils.workspace import container_image_context
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -187,7 +189,8 @@ def started(monkeypatch):
         # whole process, and any reader that strips its stdout must not meet None.
         return subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     def _fake_image_build(_config, _dev_mode, _env, build_context=None, **_kwargs):
         record["build_context"] = build_context
@@ -199,7 +202,7 @@ def started(monkeypatch):
     def _forbidden(*args, **kwargs):
         raise AssertionError("osprey up must not render compose files")
 
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _forbidden)
+    monkeypatch.setattr(compose_generator, "prepare_compose_files", _forbidden)
     return record
 
 
@@ -986,11 +989,24 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, monkeypatch, ca
 
 @pytest.mark.usefixtures("started")
 def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, monkeypatch):
+    """The record names exactly the services compose was handed: the build's
+    files' and the web file the start writes."""
     import yaml
+
+    from osprey.deployment.web_terminals.artifacts import web_compose_file
+    from osprey.deployment.web_terminals.render import render_web_terminals
+    from osprey_connectors.config import load_project_config
+
+    def _write_web_file(config, *args, repo_root, **kwargs):
+        web_file = web_compose_file(repo_root)
+        web_file.parent.mkdir(parents=True, exist_ok=True)
+        web_file.write_text(
+            render_web_terminals(config)["docker-compose.web.yml"], encoding="utf-8"
+        )
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     (lifecycle_repo / ".env.users").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
-    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", _write_web_file)
     monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
     render_build(
         lifecycle_repo,
@@ -1000,8 +1016,16 @@ def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, mo
                 "build_dir": "./build",
                 "deployed_services": [],
                 "claude_code": {"provider": "anthropic"},
+                "deploy": {"fqdn": "example.invalid"},
                 "registry": {"url": "registry.example.org/demo"},
-                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "users": ["alice"],
+                        "default_tier": "assistant",
+                        "renders": {"assistant": tier_render("assistant", "ex-assistant")},
+                    }
+                },
             }
         ),
         with_compose=False,
@@ -1010,8 +1034,18 @@ def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, mo
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 0, result.output
+    config = load_project_config(str(container_lifecycle.as_built_config_path(lifecycle_repo)))
+    handed = [
+        lifecycle_repo / path
+        for path in container_lifecycle.as_built_compose_files(config, lifecycle_repo)
+    ] + [web_compose_file(lifecycle_repo)]
     record = read_deployment_record(lifecycle_repo)
     assert record is not None
+    assert set(record.compose_services or ()) == {
+        name
+        for file in handed
+        for name in container_lifecycle.rendered_compose_services(file) or {}
+    }
     assert {"nginx", "web-alice"} <= set(record.compose_services or ())
 
 
@@ -1444,50 +1478,6 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
     assert "⚠ Minted a login password" in result.output
 
 
-# ---------------------------------------------------------------------------
-# The legacy path is untouched
-# ---------------------------------------------------------------------------
-
-
-def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
-    """``osprey up`` keeps its render-then-start shape until Phase 3 deletes it.
-
-    The shared tail must not have changed what the old verb does, or every
-    project still on it would start something other than what it started
-    yesterday.
-    """
-    rendered: list = []
-
-    def _prepare(
-        config_path,
-        dev_mode=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
-        expose_network=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
-    ):
-        rendered.append(config_path)
-        return {"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _prepare)
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
-    # Every start builds the project image agent-record runs on; no build here.
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr=""),
-    )
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-    assert rendered == [str(tmp_path / "config.yml")]
-    # And the legacy path still writes its .env where it always did.
-    assert (tmp_path / ".env").is_file()
-
-
 def test_up_as_built_is_reachable_without_a_working_directory_in_the_repo(
     lifecycle_repo, started, tmp_path, monkeypatch
 ):
@@ -1627,6 +1617,9 @@ def built_repo(_real_build):
     # makes no file, so the preset's application package gets a stand-in wheel.
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(wheel_build, "_build_wheel", _fake_wheel)
+        # `osprey build` is the renderer, so the start's no-render guard, which
+        # a test may have installed already, does not hold for it.
+        patch.setattr(compose_generator, "prepare_compose_files", prepare_compose_files)
         result = _CliRunner().invoke(
             build_cmd,
             ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],

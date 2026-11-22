@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from osprey.services.bluesky_bridge import qserver_supervisor as supervisor
+from tests._scoped_stdlib import scoped
 
 #: A stand-in `start-re-manager` that, like the real one, has a child of its
 #: own (the manager or worker) and then stays alive whatever happens to it.
@@ -399,7 +400,7 @@ def test_the_probe_is_the_health_checks_ping(monkeypatch: pytest.MonkeyPatch) ->
         calls.append(argv)
         return subprocess.CompletedProcess(argv, 0)
 
-    monkeypatch.setattr(supervisor.subprocess, "run", run)
+    scoped(monkeypatch, supervisor, "subprocess", run=run)
 
     assert supervisor.ping_manager() is True
     assert calls == [["qserver", "ping"]]
@@ -421,7 +422,7 @@ def test_a_ping_that_fails_times_out_or_cannot_run_is_no_answer(
             raise failure
         return failure
 
-    monkeypatch.setattr(supervisor.subprocess, "run", run)
+    scoped(monkeypatch, supervisor, "subprocess", run=run)
 
     assert supervisor.ping_manager() is False
 

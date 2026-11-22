@@ -379,7 +379,8 @@ _yaml.indent(mapping=2, sequence=4, offset=2)
 
 # Appended when the resolved profile has no ``mcp_servers:`` section — the
 # facility's own tool servers, which bundled presets never carry.
-_MCP_SERVERS_APPENDIX = """
+_MCP_SERVERS_APPENDIX: tuple[str, str] = (
+    """\
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
 # framework ones. An entry is either stdio (command/args/env) or remote (url,
@@ -388,8 +389,10 @@ _MCP_SERVERS_APPENDIX = """
 # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
 # prompts the operator on every call.
 # A Python server's package lives at mcp_servers/<package>/ beside this file;
-# the build copies it to __BUILD__/_mcp_servers/<package>/ for `-m <package>`.
-#
+# the build copies it to __BUILD__/_mcp_servers/<package>/ for `-m <package>`.""".replace(
+        "__BUILD__", BUILD_OUTPUT_DIR
+    ),
+    """\
 # mcp_servers:
 #   my_server:
 #     command: "{current_python_env}"
@@ -412,25 +415,28 @@ _MCP_SERVERS_APPENDIX = """
 #     transport: http
 #     permissions:
 #       allow: [get_twiss]
-""".replace("__BUILD__", BUILD_OUTPUT_DIR)
+""".replace("__BUILD__", BUILD_OUTPUT_DIR),
+)
 
 # Appended when the resolved profile has no ``artifact_server:`` block.
-_EXTENSION_TYPES_APPENDIX = """
+_EXTENSION_TYPES_APPENDIX: tuple[str, str] = (
+    """\
 # --- Artifacts gallery: extension types -------------------------------------
 # Facility artifact kinds, each conforming to one gallery base form (plots,
 # trends, tables, documents, dashboards, images, data) and listed under it.
 # A label may not repeat a base form's or another type's. The optional viewer
 # is a .js/.mjs ES module under this profile's project/ directory, given
 # relative to it. The block also accepts host/port/auto_launch overrides for
-# the gallery server.
-#
+# the gallery server.""",
+    """\
 # artifact_server:
 #   extension_types:
 #     beam_scan:
 #       label: Beam scan
 #       base_form: plots
 #       viewer: viewers/beam_scan.js
-"""
+""",
+)
 
 
 #: The channel-finder paradigms this release accepts, rendered into the emitted
@@ -440,26 +446,32 @@ _EXTENSION_TYPES_APPENDIX = """
 _CHANNEL_FINDER_MODE_LIST = ", ".join(VALID_CHANNEL_FINDER_MODES)
 
 
-# Commented templates for the remaining COMMENTED_TEMPLATE_KEYS. Keyed by FIELD
-# name; appended (in _COMMENTED_TEMPLATE_ORDER) whenever the resolved profile
-# does not carry the key, so every opt-in knob is visible and documented in
-# every emitted profile rather than being discoverable only from the docs.
+# One slot per opt-in block, keyed by FIELD name and written in
+# _COMMENTED_TEMPLATE_ORDER, so every opt-in knob is visible and documented in
+# every emitted profile rather than being discoverable only from the docs. A
+# slot is a pair: the section header (the rule line and its prose) and the
+# commented example, which starts at the `# <field>:` line. A block the
+# profile does not carry is written as header plus example; one the emitter
+# places itself is written as header plus the live block.
 #
 # NOTHING HERE SPELLS A HOST PORT. Every framework port is a slot of the
 # deployment's own port block (`config: deployment.port_base` moves all of
 # them at once), so a number written into a comment is wrong for every
 # deployment that moved its base — the comments name the slot instead.
-_COMMENTED_TEMPLATES: dict[str, str] = {
-    "data": """
+_COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
+    "data": (
+        """\
 # --- Facility data tree ------------------------------------------------------
 # Path (relative to this profile) of the data tree the build copies. `osprey
 # init` materializes it from the preset's packaged tree and sets this key; a
 # layer under tiers/ inherits it and resolves it against this
-# profile's directory. Full replacement, not a fallback.
-#
+# profile's directory. Full replacement, not a fallback.""",
+        """\
 # data: data
 """,
-    "provider": """
+    ),
+    "provider": (
+        """\
 # --- LLM provider ------------------------------------------------------------
 # Provider the deployment's agents talk to. The name must be an entry in
 # providers.yml, the catalog beside this file; `osprey build` renders that whole
@@ -483,64 +495,76 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #         - claude-haiku-4-5
 #
 # then name it here. Its key goes in this repo's .env under the variable the
-# entry's `api_key:` references.
-#
+# entry's `api_key:` references.""",
+        """\
 # provider: anthropic
 """,
-    "model": """
+    ),
+    "model": (
+        """\
 # --- Default model -----------------------------------------------------------
-# A model id the provider serves. Omitted: the provider's default_model.
-#
+# A model id the provider serves. Omitted: the provider's default_model.""",
+        """\
 # model: claude-sonnet-5
 """,
-    "channel_finder_mode": f"""
+    ),
+    "channel_finder_mode": (
+        f"""\
 # --- Channel-finder paradigm -------------------------------------------------
 # How the agent looks up the facility's channels. One of:
 # {_CHANNEL_FINDER_MODE_LIST}.
 # Most of them build a channel-finder index into the project from the facility;
 # one reads the store named by services.graphdb instead and writes no database
-# of its own. The channel-finder guide compares what each one costs and answers.
-#
+# of its own. The channel-finder guide compares what each one costs and answers.""",
+        """\
 # channel_finder_mode: <paradigm>
 """,
-    "default_panel": """
+    ),
+    "default_panel": (
+        """\
 # --- Default web-terminal panel ----------------------------------------------
 # Panel id opened when the web terminal loads. Must be a built-in, an entry in
 # the web_panels list above, or a custom panel backed by a web.panels.<id>.url
-# config override.
-#
+# config override.""",
+        """\
 # default_panel: artifacts
 """,
-    "dispatch": f"""
+    ),
+    "dispatch": (
+        """\
 # --- Event dispatch ----------------------------------------------------------
 # Runs the agent unattended against a trigger file (facility events in, agent
 # runs out). triggers names that file: one beside this profile, or a bundled
 # trigger set by name. worker_count sets parallelism; workspace_mode isolated
 # gives each run its own copy of the project. timeout_sec, inactivity_sec and
 # max_turns are the per-run budgets. The dashboard shows the facility name the
-# build's identity records.
-#
+# build's identity records.""",
+        f"""\
 # dispatch:
 #   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
 {_DISPATCH_LIMIT_EXAMPLE}
 """,
-    "bluesky": """
+    ),
+    "bluesky": (
+        """\
 # --- Bluesky bridge -----------------------------------------------------
 # Exposes Bluesky plans to the agent. tiled_enabled adds the data-access
 # service; excluded_plans removes shipped plans from the catalog. The bridge
 # and the Tiled catalog take the bluesky and tiled slots of this deployment's
 # port block, so neither is a number you write here: move the whole block with
-# `config: deployment.port_base`, or pin this one service outside it with the
-# override below.
-#
+# `config: deployment.port_base`, or pin this one service outside it with a
+# `port` key in this block.""",
+        """\
 # bluesky:
 #   port: <host port>
 #   tiled_enabled: false
 #   excluded_plans: []
 """,
-    "virtual_accelerator": f"""
+    ),
+    "virtual_accelerator": (
+        """\
 # --- Virtual accelerator -----------------------------------------------------
 # Containerized soft-IOC serving simulated channels, so the deployment can be
 # exercised without touching the machine. live_standin runs a second copy of it
@@ -551,14 +575,16 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # number pins it somewhere specific instead. The first instance stays on the
 # Channel Access port below and publishes its model surface on the pvAccess port
 # below it; the port block moves neither, so a second deployment on this host
-# sets both.
-#
+# sets both.""",
+        f"""\
 # virtual_accelerator:
 #   port: {CA_DEFAULT_PORT}
 #   pva_port: {PVA_DEFAULT_PORT}
 #   live_standin: true
 """,
-    "agent_record": """
+    ),
+    "agent_record": (
+        """\
 # --- Agent record ------------------------------------------------------------
 # Every session fact the deployment's agents produce — prompts, answers,
 # thinking, tool calls, decisions, runs — kept once, in one record, and read
@@ -568,15 +594,15 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # with no store container, and 14 days of retention.
 #
 # The block is the deployment's, so a tier file may not spell it. The service
-# takes the agent_record slot of this deployment's port block; `port` below
-# pins it outside that block instead of moving the block with
+# takes the agent_record slot of this deployment's port block; a `port` key in
+# this block pins it outside that block instead of moving the block with
 # `config: deployment.port_base`.
 #
 # A named reader reads only the kinds it lists (every kind when `kinds` is
 # left out), over at most `days_back` days (retention_days when left out).
 # `oidc_subject` lets someone who is not on the roster open the history page
-# under OIDC sign-on.
-#
+# under OIDC sign-on.""",
+        """\
 # agent_record:
 #   backend: embedded           # embedded | clickhouse
 #   retention_days: 14          # days an entry is kept after it arrives
@@ -591,7 +617,9 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     image: clickhouse/clickhouse-server:26.8.18.2
 #     memory: 2g
 """,
-    "watchdogs": """
+    ),
+    "watchdogs": (
+        """\
 # --- Watchdogs ---------------------------------------------------------------
 # Independent judges of each prompt in a session. A watchdog reads the session
 # and answers a verdict; it never acts on the machine. Declare any number, under
@@ -603,8 +631,8 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # one non-flag option. An agent watchdog runs a read-only agent, and its `tools`
 # may not reach a write tool. An enabled watchdog needs `turn-state` under `hooks:`.
 #
-# The block is the deployment's, so a tier file may not spell it.
-#
+# The block is the deployment's, so a tier file may not spell it.""",
+        """\
 # watchdogs:
 #   <decision-name>:
 #     engine: decision
@@ -621,7 +649,9 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     timeout_s: 90
 #     max_cost_usd: 0.25
 """,
-    "va_archiver": f"""
+    ),
+    "va_archiver": (
+        """\
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
 # seeds with a deterministic base series, a recorder samples the running
@@ -637,68 +667,81 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #
 # The password is never written here: `osprey up` mints it into the
 # deployment's .env under the name password_env gives. The store takes the
-# mongo slot of this deployment's port block; port_host below pins it outside
-# that block instead of moving the block with `config: deployment.port_base`.
+# mongo slot of this deployment's port block; a `port_host` key in this block
+# pins it outside that block instead of moving the block with
+# `config: deployment.port_base`.
 #
 # An attached project (deploy_services: false) deploys no store of its own and
-# must set `host` to the machine whose archive it reads.
-#
+# must set `host` to the machine whose archive it reads.""",
+        f"""\
 {_VA_ARCHIVER_EXAMPLE}
 """,
-    "bluesky_web": """
+    ),
+    "bluesky_web": (
+        """\
 # --- Bluesky web panels ------------------------------------------------------
 # Scan-monitoring panels for the web terminal (requires the bluesky block). The
-# sidecar takes the bluesky_web slot of this deployment's port block; the
-# override below pins it outside that block.
-#
+# sidecar takes the bluesky_web slot of this deployment's port block; a `port`
+# key in this block pins it outside that block.""",
+        """\
 # bluesky_web:
 #   port: <host port>
 """,
-    "optimizer": """
+    ),
+    "optimizer": (
+        """\
 # --- Optimizer ---------------------------------------------------------------
 # Tunes machine variables against an objective with Bayesian optimization. The
 # service takes the optimizer slot of this deployment's port block and keeps
 # its jobs in a Redis sidecar. `targets` lists the control targets it may
 # drive (va, standin); the live machine is not allowed yet. Environment files
-# (YAML) in `environments_dir` are mounted read-only into the service.
-#
+# (YAML) in `environments_dir` are mounted read-only into the service.""",
+        """\
 # optimizer:
 #   targets: [va]
 #   environments_dir: optimizer/environments
 """,
-    "optimizer_web": """
+    ),
+    "optimizer_web": (
+        """\
 # --- Optimizer web panel -----------------------------------------------------
 # The OPTIMIZER tab for the web terminal (requires the optimizer block): where
 # a person reviews and starts the run an agent drafted. The sidecar takes the
-# optimizer_web slot of this deployment's port block; the override below pins
-# it outside that block.
-#
+# optimizer_web slot of this deployment's port block; a `port` key in this
+# block pins it outside that block.""",
+        """\
 # optimizer_web:
 #   port: <host port>
 """,
-    "nextcloud_bridge": """
+    ),
+    "nextcloud_bridge": (
+        """\
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
-# match one declared in the dispatch triggers file.
-#
+# match one declared in the dispatch triggers file.""",
+        """\
 # nextcloud_bridge:
 #   trigger: nextcloud-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
-    "gchat_bridge": """
+    ),
+    "gchat_bridge": (
+        """\
 # --- Google Chat bridge ------------------------------------------------------
 # Answers questions asked from a Google Chat space or direct message. The
 # trigger name must match one declared in the dispatch triggers file.
 #
 # The Google credentials and destinations are runtime env, not profile keys:
 # declare GCHAT_SA_KEY, GCHAT_SUBSCRIPTION and GCHAT_APP_ID under `env.required`
-# (plus GCS_BUCKET / GCS_PROJECT to deliver plots and files as links).
-#
+# (plus GCS_BUCKET / GCS_PROJECT to deliver plots and files as links).""",
+        """\
 # gchat_bridge:
 #   trigger: gchat-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
-    "teams_bridge": """
+    ),
+    "teams_bridge": (
+        """\
 # --- Microsoft Teams bridge --------------------------------------------------
 # Answers questions asked from a Microsoft Teams channel or chat. The trigger
 # name must match one declared in the dispatch triggers file.
@@ -707,33 +750,37 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # declare TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID,
 # TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE under
 # `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud, and
-# TEAMS_FILES_DRIVE_ID / TEAMS_FILES_FOLDER to share files).
-#
+# TEAMS_FILES_DRIVE_ID / TEAMS_FILES_FOLDER to share files).""",
+        """\
 # teams_bridge:
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
-    "slack_bridge": """
+    ),
+    "slack_bridge": (
+        """\
 # --- Slack bridge ------------------------------------------------------------
 # Answers questions asked from a Slack channel, thread or direct message. The
 # trigger name must match one declared in the dispatch triggers file.
 #
 # The Slack credentials are runtime env, not profile keys: declare
 # SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
-# Mode app token) under `env.required`.
-#
+# Mode app token) under `env.required`.""",
+        """\
 # slack_bridge:
 #   trigger: slack-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
-    "deploy": """
+    ),
+    "deploy": (
+        """\
 # --- Deployment coordinates --------------------------------------------------
 # Where this deployment is built, pushed, and run. Needed only once it leaves
 # the laptop; `osprey scaffold ci` renders the pipeline from it.
 #
 # Credentials are named here, never written here: declare each variable under
-# `env.required` and put its value in the deploy host's .env.
-#
+# `env.required` and put its value in the deploy host's .env.""",
+        """\
 # deploy:
 #   ci: gitlab
 #   registry:
@@ -745,13 +792,15 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     user: operator
 #     project_path: /home/operator/projects/facility-profiles
 """,
-    "apps": """
+    ),
+    "apps": (
+        """\
 # --- Applications ------------------------------------------------------------
 # The applications this deployment runs, one entry per apps/<name>/ directory
 # holding its app.yml. Listing one turns it on; to turn it off, remove the
 # entry. Its tool server is added by the build, so no tool-server key goes here,
-# and its writes follow each login's control_system.writes tier.
-#
+# and its writes follow each login's control_system.writes tier.""",
+        """\
 # apps:
 #   orbit-bump:
 #     config:                    # free-form; handed to the application as a file
@@ -764,13 +813,21 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
 # {shown: false}}`, and `lists: own` to show only what it names.
 """,
+    ),
     # The two long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
     "mcp_servers": _MCP_SERVERS_APPENDIX,
     "artifact_server": _EXTENSION_TYPES_APPENDIX,
 }
 
-# Append order for the commented templates, so two emissions of the same preset
+
+def _commented_template(field: str) -> str:
+    """The commented slot for *field*: its header, a lone ``#``, its example."""
+    header, example = _COMMENTED_TEMPLATES[field]
+    return f"\n{header}\n#\n{example}"
+
+
+# Slot order for the opt-in blocks, so two emissions of the same preset
 # are byte-identical and diffs between presets stay readable. Deployment-shaping
 # keys first, facility extension points next, optional services last.
 _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
@@ -1708,9 +1765,11 @@ def emit_standalone_profile_yaml(
     # commented base contributes most comments and each child layer brings the
     # comments for the keys it introduces.
     doc: CommentedMap | None = None
+    chain_texts: list[str] = []
     for layer_path in reversed(chain):
-        with open(layer_path, encoding="utf-8") as f:
-            layer_doc = _yaml.load(f)
+        layer_text = layer_path.read_text(encoding="utf-8")
+        chain_texts.append(layer_text)
+        layer_doc = _yaml.load(layer_text)
         if not isinstance(layer_doc, CommentedMap):  # pragma: no cover - presets are mappings
             continue
         if doc is None:
@@ -1737,16 +1796,28 @@ def emit_standalone_profile_yaml(
         doc.insert(list(doc.keys()).index("name") + 1, "project_name", project_name)
         _relocate_trailing(doc, "name", "project_name")
 
-    _sync_to_resolved(doc, resolved)
+    # An opt-in block the preset's text does not place (a `--set` or an extra
+    # layer made it) is written in its own slot, under its section header,
+    # rather than appended by the sync. A preset that carries the block's
+    # commented key at column 0 keeps that placement instead.
+    slots = {
+        field: CommentedMap({field: resolved[field]})
+        for field in _COMMENTED_TEMPLATE_ORDER
+        if field in resolved
+        and field not in doc
+        and not any(re.search(rf"^# {field}:", layer, re.MULTILINE) for layer in chain_texts)
+    }
+    _sync_to_resolved(doc, {key: value for key, value in resolved.items() if key not in slots})
 
     # Each written default says what it bounds or names, the comments aligned
     # two columns past the longest written line. The trailing block a key holds
     # (the next section's header, which the sync moved onto the last appended
     # key) is lifted off and put back so the end-of-line comment sits before it.
     for block, keys in block_filled.items():
-        node = doc[block]
+        holder = slots.get(block, doc)
+        node = holder[block]
         if not isinstance(node, CommentedMap):
-            node = doc[block] = CommentedMap(node)
+            node = holder[block] = CommentedMap(node)
         column = max(len(f"  {key}: {node[key]}") for key in keys) + 2
         for key in keys:
             trailing = _take_trailing(node, key)
@@ -1800,11 +1871,16 @@ def emit_standalone_profile_yaml(
     # so the opt-in surface of the six selection lists is visible in place.
     text = _insert_artifact_menus(text)
 
-    # Opt-in knobs the resolved profile does not carry appear as documented
-    # commented templates, so no configurable surface is invisible. A preset
-    # whose own comments already carry the commented key keeps that one, so
-    # uncommenting either can never produce a duplicate key.
+    # Each opt-in slot in order: a slotted block live under its section header,
+    # and a knob the resolved profile does not carry as its documented commented
+    # template, so no configurable surface is invisible. A preset whose own
+    # comments already carry the commented key keeps that one, so uncommenting
+    # either can never produce a duplicate key.
     for field in _COMMENTED_TEMPLATE_ORDER:
-        if field not in resolved and f"\n# {field}:" not in text:
-            text += _COMMENTED_TEMPLATES[field]
+        if field in slots:
+            rendered = io.StringIO()
+            _yaml.dump(slots[field], rendered)
+            text += f"\n{_COMMENTED_TEMPLATES[field][0]}\n{rendered.getvalue()}"
+        elif field not in resolved and f"\n# {field}:" not in text:
+            text += _commented_template(field)
     return text

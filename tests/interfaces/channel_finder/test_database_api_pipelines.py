@@ -10,6 +10,7 @@ non-default ``pipeline_type``.
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 import sys
 import threading
@@ -155,6 +156,32 @@ class TestHierarchicalExplore:
         with patch(_DB_PATCH, return_value=MagicMock(spec=HierarchicalChannelDatabase)):
             resp = client.get(url)
         assert resp.status_code == 422
+
+    @pytest.mark.parametrize(
+        ("url", "name"),
+        [
+            ("/api/explore/options?level=sectr", "sectr"),
+            ('/api/explore/options?level=device&selections={"bogus":"X"}', "bogus"),
+            ('/api/explore/options?level=device&selections={"sector":"S99"}', "S99"),
+            ('/api/explore/build?selections={"bogus":"X"}', "bogus"),
+        ],
+        ids=["undefined-level", "options-unknown-key", "unknown-value", "build-unknown-key"],
+    )
+    def test_a_selection_mistake_answers_422_naming_it(self, client, tmp_path, url, name):
+        _set_pipeline(client, "hierarchical")
+        document = {
+            "hierarchy": {
+                "levels": [{"name": level, "type": "tree"} for level in ("sector", "device")],
+                "naming_pattern": "{sector}:{device}",
+            },
+            "tree": {"S01": {"HCM1": {}, "HCM2": {}}},
+        }
+        path = tmp_path / "ring.json"
+        path.write_text(json.dumps(document))
+        with patch(_DB_PATCH, return_value=HierarchicalChannelDatabase(str(path))):
+            resp = client.get(url)
+        assert resp.status_code == 422
+        assert repr(name) in resp.json()["detail"]
 
     def test_explore_build_answers_with_the_existing_channels(self, client):
         _set_pipeline(client, "hierarchical")

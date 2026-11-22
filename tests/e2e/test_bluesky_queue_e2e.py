@@ -61,7 +61,7 @@ Stages, in order, each an independently-reportable test:
 5. ``test_5_session_plan_*``     -- author -> validate (PASS + uploaded) ->
    stage in the draft -> armed enqueue, which on the queue stage 3 left armed
    IS the drain (no Start), with the author's own channel roles
-   and three-field metadata served back by the catalog; a session plan whose
+   and the declared metadata fields served back by the catalog; a session plan whose
    validated bytes no longer match disk is refused ``session_plan_unvalidated``;
    and a write carrying a retired metadata key is refused outright.
 6. ``test_6_abort_*``            -- the emergency halt: a long run is aborted
@@ -148,6 +148,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MOVABLE_ROLE,
     READABLE_ROLE,
 )
+from osprey.services.bluesky_bridge.plan_metadata import PlanMetadata
 from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
@@ -166,7 +167,7 @@ from tests.e2e._deploy_support import (
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
-# The ten keys every pre-flight answer carries, success or not: the approval
+# The eleven keys every pre-flight answer carries, success or not: the approval
 # gate reads `ok` and never a status code, so the shape cannot vary with the
 # outcome.
 _PREVIEW_KEYS = {
@@ -180,6 +181,7 @@ _PREVIEW_KEYS = {
     "reason",
     "detail",
     "retryable",
+    "plan_args",
 }
 
 # The six keys of a data read's analysis block, present whether or not the
@@ -2088,13 +2090,16 @@ def test_5_session_plan_authored_validated_uploaded_and_executed(stack: QueueSta
     )
 
     # An agent-authored plan reaches the catalog under the same declared
-    # contract as a shipped one: three metadata fields, and channel roles the
-    # author wrote into the params model, served to every consumer.
+    # contract as a shipped one: exactly the declared metadata fields, and
+    # channel roles the author wrote into the params model, served to every
+    # consumer. The session plan states no layout or summary.
     entry = next(p for p in plans if p["name"] == _SESSION_PLAN_NAME)
-    assert set(entry["metadata"]) == {"name", "description", "writes"}, (
-        f"a session plan's published metadata is not the three declared fields: {entry}"
+    assert set(entry["metadata"]) == set(PlanMetadata.model_fields), (
+        f"a session plan's published metadata is not exactly the declared fields: {entry}"
     )
     assert entry["metadata"]["writes"] is True
+    assert entry["metadata"]["layout"] is None
+    assert entry["metadata"]["summary"] is None
     properties = entry["schema"]["properties"]
     assert properties["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
         f"the session author's movable declaration did not reach the wire: {properties}"
@@ -2180,7 +2185,7 @@ def test_5_session_plan_with_stale_validation_is_refused_at_enqueue(stack: Queue
 def test_5_session_write_refuses_a_retired_metadata_key() -> None:
     """A deployed bridge rejects ``category``/``required_devices`` on a plan write.
 
-    The write payload is the same three fields the catalog publishes. A stale
+    The write payload is the three required metadata fields. A stale
     client -- an older MCP tool, a hand-rolled request -- gets a 422 naming the
     key it sent rather than having it silently dropped, which would leave an
     author believing a declaration reached the plan file when nothing reads it.

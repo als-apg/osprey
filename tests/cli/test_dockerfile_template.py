@@ -36,6 +36,7 @@ from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH
 from tests._builds import BuiltProject
 from tests.deployment._cache_mounts import assert_build_caches_mounted
+from tests.deployment._dockerfile_frontend import builtin_frontend_problems
 from tests.deployment._pip_probe import (
     APT_NOOP,
     UV_TO_PIP,
@@ -112,39 +113,14 @@ def packages_project(tmp_path_factory):
 class TestDockerfileContent:
     """Content invariants of the rendered Dockerfile."""
 
-    def test_no_frontend_directive(self, hello_project):
-        """The engine's builtin Dockerfile frontend builds the image, so no
-        frontend image is pulled from a registry ``OSPREY_BASE_REGISTRY``
-        cannot move."""
-        text = (hello_project / "Dockerfile").read_text()
-        assert not re.search(r"^#\s*syntax\s*=", text, flags=re.IGNORECASE | re.MULTILINE)
-
-    def test_uses_only_builtin_frontend_features(self, hello_project):
-        """Every instruction flag, mount and form the recipe uses is in the
-        builtin frontend of Docker Engine 20.10, the engine in Docker Desktop
-        4.0 (the floor ``runtime_helper`` states), so the recipe never needs a
-        frontend directive."""
-        allowed_flags = {"FROM": {"--platform"}, "COPY": {"--from", "--chown"}, "RUN": {"--mount"}}
-        allowed_mount_keys = {"type", "target", "sharing", "id"}
-        for keyword, body in _instructions((hello_project / "Dockerfile").read_text()):
-            if keyword not in {"FROM", "COPY", "ADD", "RUN"}:
-                continue
-            tokens = body.split()
-            flags = []
-            while tokens and tokens[0].startswith("--"):
-                flags.append(tokens.pop(0))
-            assert not (tokens and tokens[0].startswith("<<")), (
-                f"heredoc on {keyword} needs a newer frontend: {body[:80]!r}"
-            )
-            for flag in flags:
-                name, _, value = flag.partition("=")
-                assert name in allowed_flags.get(keyword, set()), (
-                    f"{keyword} {name} is not in the 20.10 builtin frontend allowlist"
-                )
-                if name == "--mount":
-                    options = dict(opt.partition("=")[::2] for opt in value.split(","))
-                    assert options.get("type") == "cache", f"non-cache mount: {flag}"
-                    assert set(options) <= allowed_mount_keys, f"mount keys: {flag}"
+    @pytest.mark.parametrize("project", ["hello_project", "deps_project", "packages_project"])
+    def test_rendered_recipe_needs_only_the_builtin_frontend(self, project, request):
+        """Every directive, flag, mount and form a rendered recipe uses is in the
+        builtin Dockerfile frontend of the Docker Engine floor
+        (``RUNTIME_FLOORS[RuntimeProduct.DOCKER_ENGINE]``), so no frontend image
+        is pulled from a registry ``OSPREY_BASE_REGISTRY`` cannot move."""
+        text = (request.getfixturevalue(project) / "Dockerfile").read_text()
+        assert builtin_frontend_problems(text) == []
 
     def test_rendered_at_project_root(self, hello_project):
         assert (hello_project / "Dockerfile").exists()

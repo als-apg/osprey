@@ -9,6 +9,7 @@
  * vs "when one is needed".
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { sendThemeToIframe, sendSessionToIframe, buildEmbedSrc } from './panel-iframe-sync.js';
 import { adoptIframe, setPanelReachable } from './dock-iframe.js';
 import { clockTime } from './panel-rail.js';
@@ -103,9 +104,13 @@ export function capExpiryMs(capUrl) {
 }
 
 /**
- * Per-iframe framing record: `seq` orders resolutions so a late answer for a
- * superseded navigation is dropped, `timer` is the pending cap renewal.
- * @type {WeakMap<HTMLIFrameElement, { seq: number, timer: ReturnType<typeof setTimeout> | null }>}
+ * Per-iframe framing record: `navigations` lets only the newest navigation
+ * apply, so a late answer for a superseded one is dropped; `timer` is the
+ * pending cap renewal.
+ * @type {WeakMap<HTMLIFrameElement, {
+ *   navigations: ReturnType<typeof createLatestRequest>,
+ *   timer: ReturnType<typeof setTimeout> | null,
+ * }>}
  */
 const frames = new WeakMap();
 
@@ -127,9 +132,9 @@ const frames = new WeakMap();
  * @param {string} baseUrl                 the panel's plain base (`state.url`)
  */
 export function framePanel(panel, panelId, iframe, targetUrl, baseUrl) {
-  const rec = frames.get(iframe) ?? { seq: 0, timer: null };
+  const rec = frames.get(iframe) ?? { navigations: createLatestRequest(), timer: null };
   frames.set(iframe, rec);
-  rec.seq += 1;
+  const navigation = rec.navigations.begin();
   if (rec.timer !== null) clearTimeout(rec.timer);
   rec.timer = null;
 
@@ -138,10 +143,9 @@ export function framePanel(panel, panelId, iframe, targetUrl, baseUrl) {
     iframe.src = buildEmbedSrc(targetUrl);
     return;
   }
-  const seq = rec.seq;
   iframe.dataset.panelFrame = 'pending';
   resolvePanelFrame(panelId).then(({ opaque, capUrl }) => {
-    if (rec.seq !== seq) return;
+    if (!navigation.isCurrent()) return;
     if (!opaque) {
       iframe.sandbox = FIRST_PARTY_SANDBOX;
       iframe.dataset.panelFrame = 'first-party';
@@ -156,7 +160,7 @@ export function framePanel(panel, panelId, iframe, targetUrl, baseUrl) {
     const delay = Math.max(expiry - CAP_RENEW_MARGIN_MS - Date.now(), CAP_RENEW_FLOOR_MS);
     rec.timer = setTimeout(() => {
       rec.timer = null;
-      if (rec.seq !== seq || !iframe.isConnected) return;
+      if (!navigation.isCurrent() || !iframe.isConnected) return;
       framePanel(panel, panelId, iframe, targetUrl, baseUrl);
     }, delay);
   });

@@ -1,1 +1,0 @@
-`osprey app check` refuses an app panel that calls `markPageReady()` without `data-page-ready="pending"` on its `<html>`, or that carries `data-page-ready="true"`: either marks the panel ready before its first state is drawn. The check reads the scripts `panel/index.html` loads and what they import.

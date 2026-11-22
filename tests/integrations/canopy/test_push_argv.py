@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._scoped_stdlib import scoped
 
 from osprey.deployment import runtime_helper
 from osprey.integrations.canopy import push
@@ -217,8 +218,8 @@ def _fake_probe(monkeypatch: pytest.MonkeyPatch, healthy: str) -> None:
         rc = 0 if cmd[0] == healthy else 1
         return subprocess.CompletedProcess(cmd, rc, stdout=b"", stderr=b"")
 
-    monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+    scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
     runtime_helper.reset_runtime_cache()
 
 

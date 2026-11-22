@@ -22,8 +22,9 @@ and no launch token. The tool server, its ``writes:`` list and the
 ``facility_write_tools`` entry are the same on every tier: the tier, not the
 projection, decides what those writes may do.
 
-Only slices that name the application are pinned, and nothing machine-specific
-(an interpreter path, the build directory) survives into a golden.
+Only entries the application owns (its server's tool names, its error types,
+its ``app`` field) are pinned, and nothing machine-specific (an interpreter
+path, the build directory) survives into a golden.
 
 To regenerate after an intended change, run ``uv run python -m
 tests.apps.test_projection_goldens`` and read the diff before committing it.
@@ -107,8 +108,20 @@ def _json(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _names_app(value: Any) -> bool:
-    return APP in json.dumps(value)
+#: The application's own error-type keys, ``<app>.<type>``.
+ERROR_TYPE_PREFIX = f"{APP}."
+
+
+def _owned(key: str, value: Any) -> bool:
+    """Whether an entry belongs to the application by a field that names its owner.
+
+    Its key is one of the server's tool names or one of the application's error
+    types, or its value carries ``app``; a path that happens to spell the name
+    owns nothing.
+    """
+    if key.startswith((TOOL_PREFIX, ERROR_TYPE_PREFIX)):
+        return True
+    return isinstance(value, dict) and value.get("app") == APP
 
 
 def _hook_command(hook: dict[str, Any]) -> dict[str, Any]:
@@ -127,12 +140,12 @@ def _settings_slice(settings: dict[str, Any]) -> dict[str, Any]:
                 "hooks": [_hook_command(h) for h in group.get("hooks") or []],
             }
             for group in groups
-            if APP in str(group.get("matcher", ""))
+            if str(group.get("matcher", "")).startswith(TOOL_PREFIX)
         ]
         if matched:
             hooks[event] = matched
     permissions = {
-        key: [entry for entry in entries if TOOL_PREFIX in entry]
+        key: [entry for entry in entries if entry.startswith(TOOL_PREFIX)]
         for key, entries in (settings.get("permissions") or {}).items()
         if isinstance(entries, list)
     }
@@ -143,9 +156,15 @@ def _hook_config_slice(hook_config: dict[str, Any]) -> dict[str, Any]:
     sliced: dict[str, Any] = {}
     for key, value in hook_config.items():
         if isinstance(value, dict):
-            entries = {k: v for k, v in value.items() if APP in k or _names_app(v)}
+            entries = {k: v for k, v in value.items() if _owned(k, v)}
         elif isinstance(value, list):
-            entries = sorted({entry for entry in value if isinstance(entry, str) and APP in entry})
+            entries = sorted(
+                {
+                    entry
+                    for entry in value
+                    if isinstance(entry, str) and entry.startswith(TOOL_PREFIX)
+                }
+            )
         else:
             continue
         if entries:
@@ -242,7 +261,7 @@ def deployment_slice(repo: Path) -> dict[str, Any]:
         "app-config.yml": app_config,
         "roster_grant": {
             "service": grant.service,
-            "single_user_alias": grant.single_user_alias,
+            "names_single_user_operator": grant.names_single_user_operator,
         },
         "reach_contract": {
             "service": contract.service,
@@ -348,6 +367,51 @@ def test_a_shared_login_shows_no_example_panel(
 ) -> None:
     sliced = projected[f"render-{render}.yml"]
     assert sliced["web.panels"] == {} and sliced["claude_code.servers"] == {}
+
+
+def test_a_slice_keeps_only_what_the_app_owns_when_a_path_names_it() -> None:
+    root = f"/tmp/{APP}-x/build"
+    hook_config = {
+        "approval": {
+            f"{TOOL_PREFIX}apply_bump": {"app": APP, "mode": "ask"},
+            "mcp__other__apply": {"app": "other", "mode": "ask"},
+            "project_root": {"path": root},
+        },
+        "app_error_types": {
+            f"{APP}.refused": {"class": "Safety", "text": None},
+            "other.refused": {"class": "Safety", "text": None},
+            "build_dir": root,
+        },
+        "facility_write_tools": [f"{TOOL_PREFIX}apply_bump", "mcp__other__apply", root],
+        "project_dir": root,
+    }
+    assert _hook_config_slice(hook_config) == {
+        "approval": {f"{TOOL_PREFIX}apply_bump": {"app": APP, "mode": "ask"}},
+        "app_error_types": {f"{APP}.refused": {"class": "Safety", "text": None}},
+        "facility_write_tools": [f"{TOOL_PREFIX}apply_bump"],
+    }
+
+    hook = {"command": '"$CLAUDE_PROJECT_DIR/hooks/gate.py"', "timeout": 5}
+    settings = {
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": f"{TOOL_PREFIX}apply_bump", "hooks": [hook]},
+                {"matcher": f"Bash({root}/*)", "hooks": [hook]},
+            ]
+        },
+        "permissions": {"allow": [f"{TOOL_PREFIX}bump_state", f"Read({root}/**)"]},
+    }
+    assert _settings_slice(settings) == {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": f"{TOOL_PREFIX}apply_bump",
+                    "hooks": [{"run": "hooks/gate.py", "timeout": 5}],
+                }
+            ]
+        },
+        "permissions": {"allow": [f"{TOOL_PREFIX}bump_state"]},
+    }
 
 
 def _regenerate() -> None:

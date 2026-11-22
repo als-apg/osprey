@@ -102,6 +102,8 @@ ERROR_CLASS_MAP = {
     # environment did not come up, or did not answer a pause in time.
     "manager_unreachable": "Connection",
     "environment_unavailable": "Connection",
+    # The bridge could not read its plan registry; the next add can succeed.
+    "plan_registry_unreadable": "Connection",
     "abort_pause_timeout": "Connection",
     # The health checker's own worker is wedged; the report will come back.
     "health_suppressed": "Connection",

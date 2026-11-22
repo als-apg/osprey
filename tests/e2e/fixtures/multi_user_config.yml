@@ -46,8 +46,8 @@ deploy:
 
 # No backend services — this fixture exercises the web-terminal lifecycle in
 # isolation, the same way the `deployed_services: []` + `web_terminals`
-# combination is a valid, documented deploy_up path (see
-# container_lifecycle.deploy_up's early-return guard).
+# combination is a valid start path (see
+# `container_lifecycle._start_stack`'s early return).
 deployed_services: []
 
 modules:

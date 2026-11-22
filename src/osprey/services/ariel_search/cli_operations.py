@@ -15,6 +15,7 @@ caller states none.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -1663,8 +1664,6 @@ def _wipe_qmd_mirror(mirror_root: Path) -> int:
     Returns:
         Number of markdown files removed.
     """
-    import shutil
-
     if not mirror_root.is_dir():
         return 0
 

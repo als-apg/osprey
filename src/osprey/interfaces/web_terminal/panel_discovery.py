@@ -9,12 +9,13 @@ runtime-registered (URL-backed) panels use, so they appear in the tab strip,
 
 Two design rules govern discovery:
 
-* **Fail closed (OSPREY Principle 1).**  A malformed manifest, a missing entry
-  file, a page that never marks itself ready, or any other non-compliant UI check
-  makes that one panel *not served*, and never affects the other panels.  A
-  refused panel is returned with every reason, so the server's log, its panels
-  list and ``osprey build`` name it from one verdict.  :func:`discover_panels`
-  never raises.
+* **Fail closed (OSPREY Principle 1).**  A finding of a panel rule that refuses
+  (a malformed manifest, a missing entry file, a page that never marks itself
+  ready, …) makes that one panel *not served*, and never affects the other
+  panels.  A refused panel is returned with every refusing reason, so the
+  server's log, its panels list and ``osprey build`` name it from one verdict.
+  A finding of a rule that only reports leaves the panel served, and the
+  server's log names it.  :func:`discover_panels` never raises.
 * **Human gate = the existing opt-in.**  Discovery runs only when
   ``web.allow_runtime_panels`` is true (it defaults to ``False``).  The operator
   editing ``config.yml`` to enable it is the human approval; there is no separate
@@ -40,6 +41,7 @@ from osprey.interfaces.design_system.panels.manifest import load_manifest_file
 from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
     PanelFinding,
+    refusing,
     validate_panel,
 )
 from osprey.profiles.web_panels import (
@@ -79,12 +81,14 @@ class DiscoveredPanel:
         entry: The manifest ``entry`` HTML filename, served for the bare
             ``/panel-static/{id}/`` request.
         directory: Absolute path to the panel bundle directory on disk.
+        reported: The panel's findings of rules that only report, in check order.
     """
 
     id: str
     label: str
     entry: str
     directory: Path
+    reported: tuple[PanelFinding, ...] = ()
 
 
 class DiscoveryRule(StrEnum):
@@ -182,10 +186,12 @@ def discover_panels(
     """Scan ``panels_root`` for compliant panel bundles, fail-closed.
 
     Each immediate subdirectory containing a ``manifest.json`` is a candidate.
-    A candidate is validated with :func:`validate_panel`; if it has *any* error
-    (malformed manifest, missing entry, raw hex colors, missing design-system
+    A candidate is validated with :func:`validate_panel`; if a finding refuses
+    it (malformed manifest, missing entry, raw hex colors, missing design-system
     link, a page that never marks itself ready, …) it is refused with the
-    validator's findings — never served, never fatal to the others.  A
+    validator's refusing findings — never served, never fatal to the others.
+    A finding of a rule that only reports leaves it served, carried in
+    :attr:`DiscoveredPanel.reported`.  A
     candidate whose entry leaves the bundle, whose id collides with a built-in
     panel, a configured panel or an already-discovered panel, or whose
     inspection raised is refused with a :class:`DiscoveryFinding`.
@@ -223,9 +229,10 @@ def discover_panels(
                 # Not a panel bundle — silent skip (e.g. a README or stray dir).
                 continue
 
-            errors = validate_panel(child)
-            if errors:
-                refused.append(RefusedPanel(child.name, tuple(errors), None))
+            findings = validate_panel(child)
+            refused_findings = refusing(findings)
+            if refused_findings:
+                refused.append(RefusedPanel(child.name, tuple(refused_findings), None))
                 continue
 
             # validate_panel already parsed the manifest cleanly; re-load for
@@ -273,6 +280,7 @@ def discover_panels(
                     label=manifest.label,
                     entry=manifest.entry,
                     directory=child.resolve(),
+                    reported=tuple(findings),
                 )
             )
         except Exception as exc:
@@ -316,6 +324,17 @@ def _log_refused(refused: RefusedPanel) -> None:
     )
 
 
+def _log_reported(panel: DiscoveredPanel) -> None:
+    """Log the report-only findings of one served panel on the server's log."""
+    if panel.reported:
+        logger.info(
+            "Panel %r is served with %d reported finding(s): %s",
+            panel.id,
+            len(panel.reported),
+            "; ".join(str(f) for f in panel.reported),
+        )
+
+
 def apply_discovered_panels(app) -> list[DiscoveredPanel]:
     """Discover local panels and wire them into ``app.state`` (gated, fail-closed).
 
@@ -327,7 +346,8 @@ def apply_discovered_panels(app) -> list[DiscoveredPanel]:
     (``{id: DiscoveredPanel}``) for the local-file serving route.
 
     Every refused bundle is logged and recorded in ``app.state.refused_panels``
-    (empty when the gate is off: nothing was judged). An id ``custom_panels``
+    (empty when the gate is off: nothing was judged); a served panel with
+    report-only findings is logged with them. An id ``custom_panels``
     already holds is ``taken`` in the verdict, so discovery never clobbers a
     configured panel.
 
@@ -359,6 +379,7 @@ def apply_discovered_panels(app) -> list[DiscoveredPanel]:
 
     applied: list[DiscoveredPanel] = []
     for panel in verdict.served:
+        _log_reported(panel)
         custom_panels.append(
             {
                 "id": panel.id,
@@ -439,6 +460,7 @@ def apply_build_panels(app) -> list[DiscoveredPanel]:
             )
             visible_panels = [pid for pid in visible_panels if pid != panel_id]
             continue
+        _log_reported(found[0])
         kept.append({**entry, "url": f"/panel-static/{panel_id}/", "discovered": True})
         panel_dirs[panel_id] = found[0]
         applied.append(found[0])

@@ -18,6 +18,8 @@ from typing import IO, Any
 
 import click
 
+from osprey_connectors.simulation.engines import FacilityDefectError
+
 __all__ = [
     "KINDS",
     "WARNING_KINDS",
@@ -96,8 +98,12 @@ def quoted_slots(slots: Iterable[str]) -> str:
     return ", ".join(f"`{slot}`" for slot in slots)
 
 
-class FacilityBuildError(click.ClickException):
+class FacilityBuildError(click.ClickException, FacilityDefectError):
     """A facility build stop: one kind, one record, one remedy.
+
+    It is a :class:`~osprey_connectors.simulation.engines.FacilityDefectError`,
+    so an engine that raises it on a request refuses the request as a
+    facility-file defect.
 
     Attributes:
         kind: The error kind, one of ``KINDS``.

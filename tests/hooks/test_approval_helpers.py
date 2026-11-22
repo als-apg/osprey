@@ -630,7 +630,7 @@ def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
     lines = approval._describe_queue_add({"draft_revision": 9}, {})
 
     assert "Plan: grid_scan" in lines
-    assert 'Plan args: {"steps": 5}' in lines
+    assert 'Plan args (as typed): {"steps": 5}' in lines
     assert "Hazard: read-only (no hardware writes declared)" in lines
     assert "Provenance: shipped (operator-supplied)" in lines
     assert any("Setpoint trajectory: unavailable" in line for line in lines)
@@ -647,7 +647,7 @@ def test_describe_queue_add_omits_the_args_line_when_there_are_none(approval, fa
 
     lines = approval._describe_queue_add({"draft_revision": 1}, {})
 
-    assert not any(line.startswith("Plan args:") for line in lines)
+    assert not any(line.startswith("Plan args") for line in lines)
 
 
 def test_describe_queue_add_sanitizes_the_plan_name(approval, fake_bridge):

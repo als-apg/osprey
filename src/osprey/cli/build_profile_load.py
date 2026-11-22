@@ -26,7 +26,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from osprey.agent_record.config import parse_agent_record_block, refuse_retired_config_keys
-from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
+from osprey.agent_runner.build_artifacts.catalog import (
+    DEFAULT_CLAUDE_MD_TEMPLATE,
+    bundled_claude_md_templates,
+)
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
@@ -1711,6 +1714,29 @@ def _apply_port_base_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _claude_md_template(raw: Mapping[str, Any]) -> str:
+    """Read ``claude_md_template:``: a bundled render's name, or absent for the default.
+
+    A key written with an empty, non-string or unknown value is refused rather
+    than read as the default: the author wrote the key, so the default is not
+    what they asked for. Leaving the key out is how a profile takes the default.
+
+    Raises:
+        BuildProfileError: If the value names no bundled CLAUDE.md render.
+    """
+    if "claude_md_template" not in raw:
+        return DEFAULT_CLAUDE_MD_TEMPLATE
+    value = raw["claude_md_template"]
+    bundled = bundled_claude_md_templates()
+    if not isinstance(value, str) or value not in bundled:
+        raise BuildProfileError(
+            f"Profile key 'claude_md_template': {value!r} is not a bundled CLAUDE.md "
+            f"render; name one of: {', '.join(bundled)}, or leave the key out for "
+            f"{DEFAULT_CLAUDE_MD_TEMPLATE}"
+        )
+    return value
+
+
 def _block(raw: Mapping[str, Any], key: str) -> dict[str, Any]:
     """Read one block-shaped key, reading a present-but-empty one as ``{}``.
 
@@ -2279,7 +2305,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         web_panels=raw.get("web_panels", []),
         default_panel=raw.get("default_panel"),
         panel_presets=raw.get("panel_presets", {}),
-        claude_md_template=raw.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE,
+        claude_md_template=_claude_md_template(raw),
         artifact_server=_block(raw, "artifact_server"),
         dispatch=dispatch,
         bluesky=bluesky,

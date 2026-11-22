@@ -42,7 +42,8 @@ def test_va_model_import_is_softioc_clean():
 
     The ``__file__`` assertions pin the checkout: resolving these modules to
     site-packages would mean the test is examining an installed OSPREY instead
-    of the tree under test.
+    of the tree under test. The calibration math the variables use is the
+    engine contract's, in ``osprey_connectors``, not a copy of the framework's.
     """
     assert CHECKOUT_SRC.is_dir(), f"checkout src/ not found at {CHECKOUT_SRC}"
     code = (
@@ -52,6 +53,7 @@ def test_va_model_import_is_softioc_clean():
         f"src={str(CHECKOUT_SRC) + os.sep!r};"
         "assert variables.__file__.startswith(src), (variables.__file__, src);"
         "assert model.__file__.startswith(src), (model.__file__, src);"
+        "assert variables.to_hardware.__module__ == 'osprey_connectors.simulation.engines';"
         "bad=sorted(m for m in sys.modules if m.split('.')[0] in ('softioc','cothread'));"
         "assert not bad, bad;"
         "print('CLEAN')"

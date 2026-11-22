@@ -26,8 +26,8 @@ import pytest
 
 from osprey.agent_runner.clean_env import SHELL_ENV_FILE
 from osprey.cli.chat_cmd import _launch_companion_servers, chat
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 
 
 @pytest.fixture(autouse=True)

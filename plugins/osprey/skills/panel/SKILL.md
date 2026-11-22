@@ -35,24 +35,30 @@ Create a new directory for the panel (e.g. `my-panel/`) with two files:
 `index.html` and `manifest.json`.
 
 Start `index.html` from the exact head below. The **order is load-bearing** and
-the validator checks three of these lines:
+the validator checks every item:
 
 1. `theme-boot.js` **FIRST** in `<head>` — a plain (non-module) script that
    resolves and applies `data-theme` before first paint, so the panel never
    flashes the wrong theme. It reads the `?theme=` query param for free.
-2. The three design-system sheets, in this order: `tokens.css` (the `var(--…)`
+2. The page-ready writer by its own tag, directly after `theme-boot.js` and
+   ahead of every other module or deferred script: a script of the panel that
+   then fails to load marks the page `failed` instead of leaving it pending.
+3. The three design-system sheets, in this order: `tokens.css` (the `var(--…)`
    custom properties everything styles against), `base.css`, and `primitives.css`
    (the shared `osprey-*` components — buttons, cards, chips, banners, fields;
    `interfaces/design_system/DESIGN.md` §9, §12 and §13 under the same package
    root).
-3. The `fonts.css` stylesheet — the shared web fonts; without it the panel
+4. The `fonts.css` stylesheet — the shared web fonts; without it the panel
    falls back to system fonts.
-4. A `type="module"` script that calls `initTheme({ role: 'follower' })` (this
+5. A `type="module"` script that calls `initTheme({ role: 'follower' })` (this
    surface is a follower, never the theme hub — the web terminal is the hub) and
-   `applyEmbedded()` (reads `?embedded=true` and hides standalone chrome), and
-   calls `markPageReady()` once the panel's first state is drawn; `<html>`
-   carries `data-page-ready="pending"` so the shared start-up leaves the mark to
-   that call.
+   `applyEmbedded()` (sends the page, opened on its own, to the web terminal with
+   the panel open, and marks a framed page as embedded), and calls
+   `markPageReady()` once the panel's first state is drawn; `<html>` carries
+   `data-page-ready="pending"` so the shared start-up leaves the mark to that
+   call. Whatever drives the panel (a test, a recording, your own script) waits
+   until `data-page-ready` is `true` or `failed`; `failed` means the page cannot
+   be driven: stop there.
 
 Copy this head exactly — do not reorder, and do not convert the boot script to a
 module:
@@ -65,6 +71,9 @@ module:
 <!-- Pre-paint theme boot FIRST: resolves and applies data-theme before first
      paint (reads ?theme=), so the panel never flashes the wrong theme. -->
 <script src="/design-system/js/theme-boot.js"></script>
+<!-- The page-ready writer, ahead of every other module: a script of the panel
+     that fails to load then marks the page failed. -->
+<script type="module" src="/design-system/js/page-ready.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <link rel="stylesheet" href="/design-system/css/primitives.css">
@@ -74,8 +83,8 @@ module:
 <script type="module">
   // Follower role: this standalone surface is never the theme hub. It applies
   // its own ?theme= when the host appends one, otherwise trusts what
-  // theme-boot.js set pre-paint. applyEmbedded() reads ?embedded=true and
-  // hides the standalone chrome so the panel sits flush in its host frame.
+  // theme-boot.js set pre-paint. applyEmbedded() sends a page opened on its
+  // own to the web terminal with this panel open, and marks a framed page.
   import { initTheme } from '/design-system/js/theme-manager.js';
   import { applyEmbedded } from '/design-system/js/frame-params.js';
   import { markPageReady } from '/design-system/js/page-ready.js';
@@ -143,20 +152,20 @@ panel's own `*.css`, or one of the three linked sheets.
 
 ---
 
-## Step 3 — Honor `?theme=` and `?embedded=`
+## Step 3 — One header: the web terminal's
 
-Both are handled for free by the head in Step 1 — you only wire up the CSS:
+A panel draws no header, title bar or theme control of its own. In a tile and in
+its window, the web terminal's tile bar is the panel's one header, so there is
+nothing to hide when framed and no `body.embedded` rule. `applyEmbedded()` (Step
+1) sends a panel page opened on its own to the web terminal with that panel
+open, and marks a framed page.
 
+- Controls a top bar would hold (a view switcher, an action, a search, menu
+  entries) go to the tile bar through `contributeHeader([...])` from
+  `/design-system/js/header-contrib.js`; their clicks come back through
+  `onHeaderAction`.
 - **`?theme=`** is applied pre-paint by `theme-boot.js` and thereafter by
   `initTheme`. You do nothing beyond styling with tokens.
-- **`?embedded=true`** makes `applyEmbedded()` add `body.embedded`. Put any
-  standalone-only chrome (a page header/title bar that only makes sense when the
-  panel is opened on its own) behind a rule that hides it when embedded:
-
-  ```css
-  .panel-chrome { /* header shown only standalone */ }
-  body.embedded .panel-chrome { display: none; }
-  ```
 
 ---
 
@@ -190,41 +199,41 @@ Exact shape:
 
 ## Step 5 — Self-check with the validator (required)
 
-There is no CLI wrapper. Run the validator with this one-liner, replacing
-`PATH/TO/PANEL_DIR` with your panel directory. It prints nothing and exits 0
-when the panel is valid; it raises `PanelValidationError` (listing every
-failure) when it is not:
+Run the validator's command, replacing `PATH/TO/PANEL_DIR` with your panel
+directory:
 
 ```bash
-uv run python -c "from osprey.interfaces.design_system.panels.validator import assert_valid_panel; assert_valid_panel('PATH/TO/PANEL_DIR')"
+uv run python -m osprey.interfaces.design_system.panels.validator PATH/TO/PANEL_DIR
 ```
 
-If it raises, fix each reported `PanelRule` and re-run until it is silent:
+It prints every finding. A finding of a rule that refuses makes it print
+`PANEL INVALID` and exit 1: the web terminal will not serve the panel. A finding
+of a rule that only reports ends in `[<rule>: report]`; the panel is still
+served. Fix each reported `PanelRule` and re-run:
 
-| Rule | Meaning | Fix |
-|---|---|---|
-| `MANIFEST_MISSING` | no `manifest.json` in the dir | add it (Step 4) |
-| `MANIFEST_INVALID` | bad JSON, missing/empty/wrong-typed field, or `id` not a kebab slug | fix the manifest (Step 4) |
-| `ENTRY_MISSING` | the `entry` file doesn't exist on disk | create it, or fix the `entry` value |
-| `MISSING_DESIGN_SYSTEM_LINK` | entry HTML doesn't link all three sheets: `tokens.css`, `base.css`, `primitives.css` | add the missing `<link>` (Step 1) |
-| `MISSING_THEME_BOOT` | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
-| `MISSING_FONT_LINK` | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
-| `RAW_HEX_COLOR` | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
-| `PAGE_READY` | the entry page never declares `data-page-ready="pending"`, or no script it loads calls `markPageReady()` | add both (Step 1) |
+| Rule | Consequence | Meaning | Fix |
+|---|---|---|---|
+| `MANIFEST_MISSING` | refuse | no `manifest.json` in the dir | add it (Step 4) |
+| `MANIFEST_INVALID` | refuse | bad JSON, missing/empty/wrong-typed field, or `id` not a kebab slug | fix the manifest (Step 4) |
+| `ENTRY_MISSING` | refuse | the `entry` file doesn't exist on disk | create it, or fix the `entry` value |
+| `MISSING_DESIGN_SYSTEM_LINK` | refuse | entry HTML doesn't link all three sheets: `tokens.css`, `base.css`, `primitives.css` | add the missing `<link>` (Step 1) |
+| `MISSING_THEME_BOOT` | refuse | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
+| `MISSING_FONT_LINK` | refuse | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
+| `RAW_HEX_COLOR` | refuse | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
+| `PAGE_READY` | refuse | the entry page never declares `data-page-ready="pending"`, does not load `page-ready.js` first, or no script it loads calls `markPageReady()` | add what is missing (Step 1) |
+| `UNDEFINED_CLASS` | report | the panel's HTML or JS sets a class with no rule in a `<style>` block of the page, the panel's own `*.css` or a linked design-system sheet | add the rule, or drop the class; a state that carries no style belongs in a `data-` attribute |
 
 Note the `RAW_HEX_COLOR` scan is a raw text scan: a URL fragment whose name is
 all hex digits and exactly 3/4/6/8 long (e.g. `href="#abc"` or
 `href="#deadbeef"`) is flagged as if it were a color. If that happens, rename
 the fragment — never loosen the token-only rule.
 
-The panel is complete when the one-liner raises nothing.
+The panel is complete when the command prints `PANEL OK` and no line.
 
 A panel that belongs to an application (`apps/<name>/panel/`) is judged by
 `osprey app check`, which runs these same rules on `panel/index.html` (an app
-panel has no manifest) and adds one: every class the panel's HTML or JS sets has
-a rule in a `<style>` block of the page, its own `*.css` or a linked
-design-system sheet (`undefined_class`). Run it from the deployment and fix
-until it passes.
+panel has no manifest): a rule that refuses fails the check, a rule that only
+reports is printed. Run it from the deployment and fix until it passes.
 
 ---
 
@@ -248,9 +257,9 @@ remains the robust path and is what you should build against.
 
 Do NOT:
 
-- Reorder the head — `theme-boot.js` must be first, then `tokens.css`,
-  `base.css`, `primitives.css`.
-- Set a class no stylesheet defines — `osprey app check` refuses it.
+- Reorder the head — `theme-boot.js` must be first, then the page-ready
+  writer, then `tokens.css`, `base.css`, `primitives.css`.
+- Set a class no stylesheet defines — the validator reports it.
 - Convert the boot script to `type="module"` — it must run synchronously,
   pre-paint.
 - Use any raw hex color literal, anywhere, in HTML/CSS/JS — always a `var(--…)`.
@@ -258,5 +267,8 @@ Do NOT:
   `tokens.css`.
 - Give the manifest `id` uppercase, spaces, or underscores — kebab slug only.
 - Point `entry` at a file that doesn't exist.
-- Skip the Step 5 validator self-check — a panel is not done until it is silent.
+- Skip the Step 5 validator self-check — a panel is not done until it prints
+  `PANEL OK` and no line.
 - Expect live cross-origin `postMessage` re-theming (Step 6).
+- Draw a header of the panel's own, or write a `body.embedded` rule: the tile
+  bar is the one header (Step 3).

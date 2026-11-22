@@ -94,6 +94,20 @@ def test_build_channels_value_error(ring_db):
     assert "Required level 'device' is missing" in data["error_message"]
 
 
+def test_build_channels_refuses_a_key_that_is_no_level(ring_db):
+    """A selection key outside the hierarchy returns validation_error naming it."""
+    with patch(_DATABASE, new_callable=PropertyMock, return_value=ring_db):
+        from osprey.mcp_server.channel_finder_hierarchical.tools.build_channels import (
+            build_channels,
+        )
+
+        fn = get_tool_fn(build_channels)
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(selections={"sector": "S01", "device": "S01/HCM1", "leaf": "setpoint", "bogus": "X"})
+    data = _exc_ctx["envelope"]
+    assert "'bogus'" in data["error_message"]
+
+
 def test_build_channels_internal_error():
     """Unexpected exception returns internal_error."""
     with patch(_DATABASE, new_callable=PropertyMock, side_effect=RuntimeError("db crashed")):

@@ -108,6 +108,12 @@ output, and durable state:
      build/                         rendered by `osprey build`; gitignored
      var/                           agent memory and audit log; gitignored
 
+An active ``dispatch:`` or ``va_archiver:`` block is written whole, so that
+its run limits and identity can be read and changed where the block sits: each
+key the preset leaves unstated appears at its default, with a one-line comment.
+Keys the build derives (the ports it takes from ``port_base``, the archiver
+host) or that have no default are left out.
+
 ``git init`` and an initial commit run at the end, unless a git repository
 already encloses the target or ``--no-git`` is given.
 
@@ -508,9 +514,11 @@ Stop this deployment, keeping all data. It renders nothing; destroying data is
 If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
 compose files from ``profile.yml`` — those describe what would be started now,
 not what is running. Instead it stops the services the last start recorded, in
-the compose project it recorded, and leaves any container another checkout
-created. That is the recovery path for a ``build/`` deleted while the stack was
-up.
+the compose project it recorded. That is the recovery path for a ``build/``
+deleted while the stack was up.
+
+While another checkout of this repository holds the project name, ``down``
+refuses, names that copy, and stops nothing.
 
 A deployment whose record names no services, or a repository with no record, is
 stopped by the label this repository put on its containers. Containers are
@@ -1185,12 +1193,14 @@ is :doc:`/how-to/apps/index`.
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
    ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` passes the panel validator's page rules
-   (the three design-system sheets, the theme boot script, the font sheet, no raw
-   hex colour, the page-ready mark) and every class the panel sets has a CSS
-   rule, ESLint over ``panel/`` when it holds JS, and Vitest over
-   ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
-   with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
+   packages, that ``panel/index.html`` passes the panel validator's rules (the
+   three design-system sheets, the theme boot script, the font sheet, no raw hex
+   colour, the page-ready mark, no module of its own loaded ``async``), ESLint
+   over ``panel/`` when it holds JS, and
+   Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every
+   violation with its application, field and rule, and exits 1. A panel rule that
+   only reports (a class with no CSS rule) is printed as
+   ``[undefined_class: report]`` and does not fail the check. An ``apps/<name>/`` the block
    does not name is reported and not checked. An application an installed package
    ships is checked too; its violations name the
    distribution (``<dist>:<module path>/<file>``). The JS checks execute the
@@ -1727,13 +1737,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    label, a ``layout`` hash (of the standard's structure, the format and the
    drawing settings), a ``drawing`` digest (of the standard's written file
    without the model stamp, which moves when the screen is drawn otherwise and
-   not when only the facility file's content hash does) and a ``sample``;
+   not when only the facility file's content hash does, taken by the rule the
+   index states as ``drawing_rule``) and a ``sample``;
    ``class_summary`` holds the counts
    a gate reads, with the classes of one screen per view kind. Two screens are
    of one class when they have one key: for a device's card and its channel
    list, the device's class, the card recipe it is drawn from and the set of
-   signal roles the card shows (a role played by two channels counts once; the
-   driver-internal role and channels with no role are not in it). Where cards
+   signal roles the device's channels play (a role played by two channels
+   counts once; the driver-internal role and channels with no role are not in
+   it), and, for a device with no channels of its own, ``own_channels: none``, so it is
+   not classed with one whose channels play no stated role. Where cards
    of one such class drawn by the default recipe show different blocks (a card
    one can act from and a read-only one, a card with or without key tiles),
    the key also holds ``blocks``, the kinds of block the card shows by presence
@@ -1768,16 +1781,73 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
-   the layout cut to fit. The layout measures text in the viewer's own font
+   the layout cut to fit. A rack screen numbers every unit, draws a free one as
+   a slot and keeps the lists of the rack in one column beside it, down to the
+   rack's foot and never past it: those at no unit, then the classes and
+   sources, then those side by side at one unit, level with it and joined to it
+   by a line, the bar over them saying whether they are listed beside the rack
+   or under it. The list of those at no unit takes the room the rest leaves;
+   what does not fit beside stands under the rack across the full width: the
+   rest of the list under its heading continued, then each group side by side
+   that did not fit, its units on its heading in place of the line. A list
+   takes as many columns as fit with each as wide as its own longest name; a
+   name longer than the whole width keeps the part that tells it from the
+   others, the whole on hover. A rack's list is filled downward in
+   balanced columns (two columns of a band differ by one row at most), a larger
+   gap after every fourth row, in bands of twenty rows read down then across; a
+   list of one or two rows fills across. An operate panel draws each control as one row on one
+   set of columns: tag, name, now, field or button, what it does; groups whose
+   rows end at their button or value (actions, choices, read-only values) stand
+   up to three side by side, and a group of many such rows takes up to three
+   columns, filled downward, as do a choice's segments that wrap. Said once:
+   the kind's tag stands at the head of a run of one kind (groups of one kind
+   that follow each other, each with its line of what it writes, are one run),
+   and a row whose button says its name has no name beside it. Every list
+   ordered by name takes the numbers in a name by value (``2`` before ``10``);
+   it only orders, it groups nothing. A thing's channels come in that order,
+   so a role's rows, a block's lines and a card's channel list follow it. Frames in a row whose content needs at most half
+   the width each stand in two columns when they have one role
+   (live values, references, an action block, a picture with its curve; two
+   groups of a channel list only as stated groups of one grouping, a group of
+   no stated kind alone), read downward, split where the taller column is least
+   tall, so short frames stack beside a long one; a frame keeps its own height
+   unless matching its neighbour's foot adds at most a third of it, and the page
+   under a shorter column stays plain; content that stretches (a curve's plot) is drawn
+   after the next frame and, where that one takes at most half, fills the other
+   half. A screen shows what it is for first: sections of
+   nothing but links follow the rest, key numbers with no data yet fold into
+   one line, on the band's last row where it fits there, else under it, and a roll-up's summed state is larger than what it sums, a
+   child it does not sum set apart in a dashed outline on the same row where
+   all fit one row at their content's width, its counts one muted line on the
+   heading's line. Every widget that draws a view item names it in its
+   ``meta`` comment, which a viewer does not read: ``item: <kind>``, then
+   ``thing: <id>`` where the item stands for one thing and ``order: <n>`` where
+   the view states an order (a rack unit's by where it stands in the rack, not
+   by the order its units are listed). The kinds are ``rack-unit`` and ``grid-row``,
+   which read down (top to bottom, then on in the next column), and
+   ``strip-element``, ``key-tile`` and ``chain-block``, which read across (left
+   to right, then on in the next row). The list is complete: a key figure's
+   members (its lamps, its holder names) are parts of its tile, not items of
+   their own. A class's ``drawing`` digest leaves these comments out (rule 2;
+   an index with no ``drawing_rule`` was written by rule 1, which kept them in,
+   so between the two every class's digest differs once). Every widget stands
+   on whole pixels, each edge rounded where it is written, and every screen
+   ends one margin under its lowest frame. A section's heading line carries
+   what qualifies it: a count, a one-line legend, or the one row of chips that
+   fits beside it. The layout measures text in the viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
    label in a chain block takes two lines, a muted line of prose (a caption, a
    note, what a press writes, a source, also beside a fact) takes as many lines
    as it needs, conditions that several calibration rows state alike are stated
-   once under the rows, a name with no separator breaks where a small letter
+   once under the rows, set off by half a row of space and a thin rule and
+   tied to their rows by a reference mark (1, 2, ...) after each row's title
+   and at the start of the line, which says the text alone, a name with no separator breaks where a small letter
    meets a capital, and a text still longer than its box is cut there with an
    ellipsis and listed. The engine writes the whole text as a tooltip on a box
-   over the cut label (a link over it carries the link's label); a viewer that
+   over the cut label (a link drawn over it carries that whole text too in its tooltip, several cut labels joined one per line, a text another line holds left out; its one-line hover label is the link's own label, at most 40 characters and cut
+   with an ellipsis past that, the basis of an inferred relation said in the
+   tooltip only); a viewer that
    shows tooltips shows it, and no viewer has to shrink or clip a label. A
    value display is as wide as the widest text the facility
    states it can show: its longest state word, else its limits as the display
@@ -1814,7 +1884,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    model gives now). A link outside the written set, a card or checkout over its
    budget, a probe row whose signal no channel states, and a ``pictures.csv``
    row whose signal binds no channel (``unbound_picture``) or channels of two
-   devices (``ambiguous_picture``) are notes, and fail only with ``--strict``.
+   devices (``ambiguous_picture``), and a strip badge's stem drawn through
+   another thing's state word (``crossed_word``) are notes, and fail only with
+   ``--strict``.
    Before the problems it prints the device classes by how ``pictures.csv``
    draws them (with a drawing, with parts only, with none) and, per class, the
    parts not placed (no position and no angle): information, never a problem.
@@ -2037,7 +2109,12 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    and the like) and start anyway. Without it, a failed check refuses the start.
 
 ``osprey web stop [--repo DIRECTORY]``
-   Stop a background web terminal server.
+   Stop a background web terminal server. Returns once the server and the
+   processes it started have exited, waiting up to 60 seconds. A process that
+   outlives the server is ended with SIGTERM, then SIGKILL; one that cannot be
+   ended is named and the command exits 1. A server still running after the
+   wait is named and left alone, and the command exits 1; its PID file is
+   kept, so ``osprey web stop`` can be run again.
 
 ``osprey web sessions``
    Group for the commands that manage the sessions kept on disk.

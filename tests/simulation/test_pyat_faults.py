@@ -25,7 +25,6 @@ from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
 
 from osprey.simulation.engines import pyat_faults
-from osprey.simulation.engines.calibration import Linear, to_hardware, to_physics
 from osprey.simulation.engines.pyat_faults import bpm_read as reference_bpm_read
 from osprey.simulation.engines.pyat_faults import (
     magnet_cal,
@@ -37,6 +36,7 @@ from osprey.simulation.engines.pyat_variables import (
     EV_PER_GEV,
     variable_from_wiring,
 )
+from osprey_connectors.simulation.engines import Linear, to_hardware, to_physics
 
 #: The committed demo's facility tree.
 DEMO = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"

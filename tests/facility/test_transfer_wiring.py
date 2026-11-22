@@ -29,7 +29,7 @@ from osprey.facility.build import build_facility
 from osprey.facility.records import FacilityRecords
 from osprey.facility.sources import read_yaml
 from osprey.facility.views.simulator import simulator_wiring
-from osprey.simulation.engines.calibration import (
+from osprey_connectors.simulation.engines import (
     curve_from_record,
     field,
     to_hardware,

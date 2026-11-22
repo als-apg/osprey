@@ -61,7 +61,13 @@ that revision once per process lifetime (concurrent duplicates 409); the
 validation gate (`validation._validate_launchable_request` — session plans
 need a current passing record) runs before anything reaches the manager; any
 failure releases the reservation so the revision stays enqueueable; success
-consumes it via `draft.record_and_broadcast_launch`. The OSPREY run id is
+consumes it via `draft.record_and_broadcast_launch`. The enqueue reads the
+plan registry once, and every step that judges the plan judges that one
+reading. The draft's arguments are resolved against the plan's own model
+(`plan_fields.resolve_plan_args`) into the complete set, defaults included:
+that set is what the device check judges, what the item carries, what its
+identity stamp records and what the worker validates, so a set the bridge
+queued leaves the worker no default to fill. The OSPREY run id is
 threaded through the item's metadata (`queue_backend.RUN_ID_META_KEY`) so
 start documents, live rows, and Tiled results all key back to it. One check is
 new rather than inherited: a plan whose role-typed channel parameters name
@@ -97,11 +103,11 @@ import os
 import uuid
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
-from typing import Any, NoReturn, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from osprey.utils.call_attribution import (
     CONVERSATION_HEADER,
@@ -112,12 +118,14 @@ from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 from . import document_plane, draft, runs
 from .history_removals import removed_runs
-from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
+from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels, resolve_plan_args
 from .plan_types import PlanSpec
 from .queue_backend import (
     PLAN_META_KEY,
     REASON_INTERRUPTED_ITEM_IN_QUEUE,
+    REASON_INVALID_ITEM,
     REASON_MANAGER_NOT_IDLE,
+    REASON_PLAN_REGISTRY_UNREADABLE,
     REASON_QUEUE_CHANGED_SINCE_APPROVAL,
     REASON_UNKNOWN_DEVICE,
     REFUSAL_REASONS,
@@ -138,6 +146,9 @@ from .session_upload import (
     check_session_plans_ready,
 )
 from .validation import _validate_launchable_request
+
+if TYPE_CHECKING:
+    from .plan_loader import FacilityPlans
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue")
 
@@ -456,9 +467,10 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
 # has no device for is not caught by any schema, and surfaces only as a failed
 # run after an enqueue and a start. Checking the names against the worker's own
 # `devices_allowed` before the add turns that into one legible refusal at the
-# moment the name was chosen. Session-plan validation runs the same check on
-# the channels its sample arguments name, so the two points refuse the same
-# mistake with the same body.
+# moment the name was chosen. The walk is over the resolved set the item will
+# carry, so a channel only a default names is checked like a typed one.
+# Session-plan validation runs the same check on the channels its sample
+# arguments name, so the two points refuse the same mistake with the same body.
 #
 # WHICH strings in the params are channel names is the plan's own declaration,
 # never a guess this module makes: an author annotates each channel field with
@@ -689,17 +701,24 @@ async def _built_device_names(
 
 
 async def _check_devices_exist(
-    backend: QueueBackend, plan_name: str, plan_args: Any, status: Mapping[str, Any]
+    backend: QueueBackend,
+    spec: PlanSpec[Any] | None,
+    plan_args: Mapping[str, Any],
+    status: Mapping[str, Any],
 ) -> None:
     """Refuse the enqueue if it names a device the worker's namespace lacks.
 
+    ``spec`` is the plan as the enqueue's one registry reading holds it, and
+    ``plan_args`` the arguments the item will carry: the resolved set, so a
+    channel a default supplies is checked like a typed one.
+
     Deliberately narrow, and fail-open at every step where the answer is not
-    certain: a plan whose schema declares no channel roles at all, params
-    carrying nothing under a role-typed field, a manager that will not answer,
-    and a manager reporting no devices at all all pass straight through. The
-    worker remains the enforcement point — this only moves the *legible* cases
-    earlier, and an availability failure here must never cost an operator an
-    enqueue that would have run.
+    certain: a plan the registry does not hold, a plan whose schema declares no
+    channel roles at all, params carrying nothing under a role-typed field, a
+    manager that will not answer, and a manager reporting no devices at all
+    all pass straight through. The worker remains the enforcement point — this
+    only moves the *legible* cases earlier, and an availability failure here
+    must never cost an operator an enqueue that would have run.
 
     **Both roles are checked.** A movable name the worker lacks is the refusal's
     reason for existing (SC-7): the plan would have been armed to drive a
@@ -716,19 +735,6 @@ async def _check_devices_exist(
     document the enqueue read for its arming decision; the uid is taken from
     it rather than from a second status read.
     """
-    from .plan_loader import get_facility_plans
-
-    try:
-        # `get_facility_plans()` re-scans the session-plan directory on every
-        # call, so it runs off the loop (`draft._resolve_plan_schema` states the
-        # house rule). Wrapped because a plan-directory read failure must skip
-        # the pre-check, never 500 an enqueue that would otherwise have run.
-        facility_plans = await asyncio.to_thread(get_facility_plans)
-    except Exception as exc:
-        logger.warning("device pre-check skipped; the plan registry is unreadable: %s", exc)
-        return
-
-    spec = facility_plans.plans.get(plan_name)
     if spec is None or not spec.roles:
         # No declaration, nothing to say: which params are channel names is the
         # plan's to state, and a plan that states nothing is one this check has
@@ -739,7 +745,7 @@ async def _check_devices_exist(
     movable, readable = _referenced_channel_names(spec, plan_args)
     await _check_channel_names_built(
         backend,
-        plan_name,
+        spec.name,
         movable,
         readable,
         status,
@@ -758,8 +764,8 @@ async def _check_channel_names_built(
 ) -> None:
     """Refuse (400 ``unknown_device``) channel names the worker did not build.
 
-    The one check both the enqueue (`_check_devices_exist`, over the draft's
-    arguments) and session-plan validation (over its sample arguments) run, so
+    The one check both the enqueue (`_check_devices_exist`, over the resolved
+    arguments the item carries) and session-plan validation (over its sample arguments) run, so
     the two refuse the same mistake with the same body and sentence
     (`_refuse_unknown_devices`). ``movable`` and ``readable`` are the names the
     plan's declared roles collected; ``session_tier`` picks the sentence's noun.
@@ -1100,13 +1106,27 @@ async def add_queue_item(
        or already-consumed revision — same dict-detail shape as the draft
        routes). Every later failure releases the reservation, so a refused
        enqueue never burns the revision.
-    3. The validation gate runs unchanged (session plans need a current
-       passing record; sync file I/O, so it runs in a thread) before anything
-       reaches the manager.
-    4. Under ``_arming_lock``: ONE ``status(reload=True)`` read, then the
+    3. ONE reading of the plan registry, off the loop. An unreadable
+       registry refuses the enqueue (503 ``plan_registry_unreadable``,
+       retryable) before any other check answers: the bridge never queues a
+       set it could not resolve. Every later step that judges the plan judges
+       this one reading.
+    4. The validation gate (session plans need a current passing record; sync
+       file I/O, so it runs in a thread) before anything reaches the manager.
+    5. The draft's arguments are resolved against the plan's own model into
+       the complete set (`plan_fields.resolve_plan_args`): defaults filled,
+       factories called once, cross-field rules judged. A set the model
+       refuses is a 400 ``invalid_item``. The item is built from the resolved
+       set, so the device check, the queue, the identity stamp and the worker
+       all read one argument set. Two cases pass the typed arguments on as
+       they are: a name the registry no longer holds (the manager refuses a
+       name outside its namespace), and an external-worker lane, whose
+       facility manager binds the item against its own plan signature.
+    6. Under ``_arming_lock``: ONE ``status(reload=True)`` read, then the
        arming pre-check on it (active + unarmed → refuse before adding), then
        `_check_devices_exist` — refusing (400) a plan whose role-typed channel
-       parameters name something the worker's namespace lacks, the one class
+       parameters, in the resolved set, name something the worker's namespace
+       lacks, the one class
        of mistake the schema cannot catch and the run would otherwise report
        on its first iteration, after a start. The device check keys its
        cached device tree on the ``devices_allowed_uid`` of that same status
@@ -1117,10 +1137,10 @@ async def add_queue_item(
        the add itself, and — for unarmed callers only — the post-add
        ``status(reload=True)`` re-check that removes the item and refuses if
        the manager transitioned underneath the add.
-    5. Everything inside the lock happens after the arming refusal, so the
+    7. Everything inside the lock happens after the arming refusal, so the
        call sequence a concurrent start observes is fixed: a refused unarmed
        add makes exactly one manager read after the capability probe.
-    6. Only then is the reservation consumed and the draft's ``launched`` frame
+    8. Only then is the reservation consumed and the draft's ``launched`` frame
        broadcast; the SSE poller is nudged so panels see the new item
        immediately. Nothing here records a progress denominator: a run declares
        its own point count in its start document, which `document_plane` reads
@@ -1170,20 +1190,25 @@ async def add_queue_item(
         raise refusal(checked.code, checked.detail, revision=checked.revision)
 
     run_id = uuid.uuid4().hex
-    item = {
-        "item_type": "plan",
-        "name": checked.plan_name,
-        "kwargs": dict(checked.plan_args),
-    }
 
     enqueued = False
     arming_add = False
     result: dict[str, Any] = {}
     try:
-        # Unchanged validation gate (session-plan passing record); the
-        # snapshot is request-shaped (`plan_name` attribute), which is all
-        # `_validate_launchable_request` reads.
-        await asyncio.to_thread(_validate_launchable_request, checked)
+        # One reading of the plan registry, taken first: the session-plan gate,
+        # the resolution and the device check below all judge this one.
+        facility_plans = await _read_plan_registry()
+
+        # Session-plan passing record; the snapshot is request-shaped
+        # (`plan_name` attribute), which is all the gate reads of it.
+        await asyncio.to_thread(_validate_launchable_request, checked, facility_plans.plans)
+
+        # Before the lock: resolution reads no manager state and holds none.
+        spec = facility_plans.plans.get(checked.plan_name)
+        plan_args = _resolve_item_args(
+            spec, checked.plan_name, checked.plan_args, external_worker=backend.external_worker
+        )
+        item = {"item_type": "plan", "name": checked.plan_name, "kwargs": plan_args}
 
         try:
             async with _arming_lock:
@@ -1198,7 +1223,7 @@ async def add_queue_item(
                 # on the status it was decided on: the device tree is versioned
                 # by that document's `devices_allowed_uid`, and reading status
                 # a second time for it would double the add path's round trips.
-                await _check_devices_exist(backend, checked.plan_name, checked.plan_args, status)
+                await _check_devices_exist(backend, spec, plan_args, status)
 
                 # Session-plan re-check, inside the lock so
                 # the admissibility answer and the add are atomic relative to
@@ -1265,6 +1290,67 @@ async def add_queue_item(
         "item": _public_item(returned_item) if isinstance(returned_item, dict) else None,
         "armed": arming_add,
     }
+
+
+async def _read_plan_registry() -> FacilityPlans:
+    """The enqueue's one reading of the plan registry.
+
+    `get_facility_plans()` re-scans the session-plan directory on every call,
+    so it runs off the loop (`draft._resolve_plan_schema` states the house
+    rule). A reading that fails refuses the enqueue: the arguments cannot be
+    resolved without it, and a set the bridge did not resolve is never queued.
+    The refusal is retryable, since the same request can succeed once the
+    directory reads again.
+    """
+    from .plan_loader import get_facility_plans
+
+    try:
+        return await asyncio.to_thread(get_facility_plans)
+    except Exception as exc:
+        logger.warning("enqueue refused; the plan registry is unreadable: %s", exc)
+        raise refusal(
+            REASON_PLAN_REGISTRY_UNREADABLE,
+            f"the plan registry could not be read, so nothing was queued: {exc}",
+        ) from exc
+
+
+def _resolve_item_args(
+    spec: PlanSpec[Any] | None,
+    plan_name: str,
+    plan_args: Mapping[str, Any],
+    *,
+    external_worker: bool,
+) -> dict[str, Any]:
+    """The arguments the queued item carries: the complete set the plan runs with.
+
+    Resolved by the plan's own model (`plan_fields.resolve_plan_args`), so the
+    item states every parameter, defaults included, and the worker's own
+    validation of it fills nothing. Two cases pass *plan_args* on as typed:
+    *spec* is ``None`` (the name left the registry after the draft was made;
+    the manager refuses a name outside its namespace), and an external-worker
+    lane, where the facility's manager binds the item against its own plan
+    signature and the bridge's model is not the judge.
+
+    A set the model refuses is a 400 ``invalid_item``: the caller composed it
+    and only the caller can correct it. ``field`` names the first field the
+    model objected to, and is ``None`` for a rule over the set as a whole.
+    """
+    if spec is None or external_worker:
+        return dict(plan_args)
+    try:
+        return resolve_plan_args(spec.schema, plan_args)
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        field = ".".join(str(part) for part in error["loc"]) or None
+        reason = f"{field}: {error['msg']}" if field else error["msg"]
+    except ValueError as exc:
+        field, reason = None, str(exc)
+    raise refusal(
+        REASON_INVALID_ITEM,
+        f"plan {plan_name!r} arguments are not valid: {reason}",
+        plan=plan_name,
+        field=field,
+    )
 
 
 def _added_item_uid(add_result: dict[str, Any]) -> str | None:

@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 
 from osprey.facility.errors import FacilityBuildError
-from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey.simulation.engines import pyat as engine
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 
 GAIN = 0.37
 OFFSET = -0.012
@@ -105,7 +105,7 @@ def _slice_record(slices: list[Slice], calibration: Calibration | None = None) -
 
 class TestEntryPoint:
     def test_group_loads_the_module(self):
-        loaded = entry_points(group=ENTRY_POINT_GROUP)["pyat"].load()
+        loaded = entry_points(group=ENGINE_GROUP)["pyat"].load()
         assert loaded is importlib.import_module("osprey.simulation.engines.pyat")
 
     def test_import_leaves_lume_unloaded(self):

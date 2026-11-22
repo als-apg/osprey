@@ -35,6 +35,7 @@ from osprey.cli.build_profile_emit import (
     _EXPLICIT_DEFAULTS,
     _EXPLICIT_KEYS,
     _LOGIN_ONLY_KEYS,
+    _commented_template,
     emit_standalone_profile_yaml,
 )
 from osprey.cli.build_profile_load import (
@@ -84,8 +85,8 @@ def _active_and_commented(text: str) -> tuple[set[str], set[str]]:
     active = set(yaml.safe_load(text) or {})
     templated = {
         field
-        for field, template in _COMMENTED_TEMPLATES.items()
-        if template in text or f"\n# {field}: " in text
+        for field in _COMMENTED_TEMPLATES
+        if _commented_template(field) in text or f"\n# {field}: " in text
     }
     return active, templated
 
@@ -151,6 +152,20 @@ def test_every_commented_member_has_a_template() -> None:
     assert set(_COMMENTED_TEMPLATES) == _COMMENTED_TEMPLATE_KEYS
     assert set(_COMMENTED_TEMPLATE_ORDER) == _COMMENTED_TEMPLATE_KEYS
     assert len(_COMMENTED_TEMPLATE_ORDER) == len(_COMMENTED_TEMPLATE_KEYS)
+
+
+@pytest.mark.parametrize("field", _COMMENTED_TEMPLATE_ORDER)
+def test_every_template_splits_at_its_own_key(field: str) -> None:
+    """A slot's header is the section rule and its prose; its example starts at
+    the commented key. The header is what stands above the block in either
+    rendering, so it never carries the commented key itself."""
+    header, example = _COMMENTED_TEMPLATES[field]
+
+    assert header.startswith("# --- ")
+    assert not header.startswith("\n") and not header.endswith(("\n", "\n#"))
+    assert f"# {field}:" not in header.splitlines()
+    assert example.startswith(f"# {field}:")
+    assert example.endswith("\n")
 
 
 def test_explicit_defaults_cover_every_synthesizable_member() -> None:

@@ -43,8 +43,20 @@ WORDS = {
     )
 }
 
-#: An emitted commented block opens with a ``# --- Title ---`` banner.
-BLOCK_BANNER = re.compile(r"^# --- ", re.MULTILINE)
+
+def _commented_blocks(profile: str) -> int:
+    """The sections of an emitted profile that are commented blocks.
+
+    Every opt-in section opens with a ``# --- Title ---`` banner; a commented one
+    runs on in comments to a blank line, a live one ends its prose at its key.
+    """
+    lines = profile.splitlines()
+    return sum(
+        1
+        for index, line in enumerate(lines)
+        if line.startswith("# --- ")
+        and not next((rest for rest in lines[index + 1 :] if not rest.startswith("#")), "")
+    )
 
 
 def _tutorial() -> str:
@@ -129,7 +141,7 @@ def test_the_hook_counts_the_page_names_are_the_profiles(
 
 def test_the_commented_block_count_is_the_profiles(initialized: tuple[Path, str]) -> None:
     repo, _ = initialized
-    emitted = len(BLOCK_BANNER.findall((repo / "profile.yml").read_text(encoding="utf-8")))
+    emitted = _commented_blocks((repo / "profile.yml").read_text(encoding="utf-8"))
     text = _tutorial()
     named = re.findall(
         r"exactly\s+\*\*(\d+)\*\*\s+such\s+blocks|those\s+(\d+)\s+commented\s+blocks", text

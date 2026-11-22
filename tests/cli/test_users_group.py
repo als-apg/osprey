@@ -34,6 +34,7 @@ from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import rendered_config
 
 #: Every verb the group ships, mapped to the exact set of option spellings it
@@ -199,7 +200,7 @@ def fake_runtime(monkeypatch):
             stdout = ""
         return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls, listing

@@ -37,6 +37,7 @@ from osprey.deployment.subprocess_capture import (
 from tests._coverage_handoff import COVERAGE_HANDOFF_PREFIX
 from tests._live import wait_until
 from tests._processes import kill_group
+from tests._scoped_stdlib import scoped
 
 #: The hang-ceiling multiple: a wait here is bounded by this many times the
 #: product wait, or the stop's own waits, it covers.
@@ -81,7 +82,7 @@ def recorded_run(monkeypatch):
         calls.append((args, kwargs))
         return subprocess.CompletedProcess(args[0], 0)
 
-    monkeypatch.setattr("osprey.deployment.subprocess_capture.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=fake_run)
     return calls
 
 
@@ -333,9 +334,11 @@ class TestVerbosePassThrough:
 
     @pytest.mark.usefixtures("verbose_reporter")
     def test_failure_still_raises_captured_error_without_a_spool(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "osprey.deployment.subprocess_capture.subprocess.run",
-            lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 7),
+        scoped(
+            monkeypatch,
+            "osprey.deployment.subprocess_capture",
+            "subprocess",
+            run=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 7),
         )
 
         with pytest.raises(CapturedProcessError) as excinfo:

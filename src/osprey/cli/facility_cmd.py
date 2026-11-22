@@ -94,6 +94,7 @@ command body, so ``osprey --help`` does not load them.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -777,7 +778,6 @@ def _classify(roots: FacilityRoots, template_root: Path) -> Classification:
     is left out of that union: it never names a bundled facility and the
     import does not act on its class.
     """
-    import shutil
     import tempfile
 
     from osprey.facility.bundled import classify

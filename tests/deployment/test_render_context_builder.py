@@ -74,7 +74,7 @@ def _config(repo: Path) -> dict:
                 "path": "services/knob-demo",
                 "port": 18000,
                 "drives_target": True,
-                "roster_grant": {"panel_id": "knob-demo", "single_user_alias": False},
+                "roster_grant": {"panel_id": "knob-demo"},
             },
             "plain": {"path": "services/plain", "port": 18001},
         },
@@ -213,21 +213,20 @@ def test_the_named_service_key_decides_the_staged_roles(repo: Path, entry_point:
     assert (out_dir / "control_identity").is_dir()
 
 
-def _roster_less(repo: Path, *, single_user_alias: bool) -> dict:
+def _roster_less(repo: Path) -> dict:
     config = _config(repo)
     del config["modules"]["web_terminals"]
-    config["services"]["knob-demo"]["roster_grant"]["single_user_alias"] = single_user_alias
     return config
 
 
 @pytest.mark.parametrize("entry_point", _ENTRY_POINTS)
-def test_an_alias_panel_with_no_roster_accepts_the_deployment_secret_as_the_build_account(
+def test_an_application_panel_with_no_roster_accepts_the_deployment_secret_as_the_build_account(
     repo: Path, entry_point: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "ops")
     var = terminal_secret_var("ops")
     suffix = var.removeprefix("OSPREY_TERMINAL_SECRET_")
-    rendered = _render(entry_point, "knob-demo", _roster_less(repo, single_user_alias=True))
+    rendered = _render(entry_point, "knob-demo", _roster_less(repo))
     assert rendered["services"]["knob-demo"]["environment"] == {
         "PORT": "18000",
         "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS": "1",
@@ -237,10 +236,20 @@ def test_an_alias_panel_with_no_roster_accepts_the_deployment_secret_as_the_buil
 
 
 @pytest.mark.parametrize("entry_point", _ENTRY_POINTS)
-def test_no_alias_for_a_panel_that_does_not_ask_for_one(repo: Path, entry_point: str) -> None:
-    rendered = _render(entry_point, "knob-demo", _roster_less(repo, single_user_alias=False))
-    assert rendered["services"]["knob-demo"]["environment"] == {"PORT": "18000"}
-    plain = _render(entry_point, "plain", _roster_less(repo, single_user_alias=True))
+def test_only_the_panel_holding_a_grant_names_the_operator(
+    repo: Path, entry_point: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "ops")
+    var = terminal_secret_var("ops")
+    suffix = var.removeprefix("OSPREY_TERMINAL_SECRET_")
+    rendered = _render(entry_point, "knob-demo", _roster_less(repo))
+    assert rendered["services"]["knob-demo"]["environment"] == {
+        "PORT": "18000",
+        "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS": "1",
+        var: "${OSPREY_TERMINAL_SECRET}",
+        "OSPREY_TERMINAL_ROSTER_OWNERS": f"{suffix}=ops",
+    }
+    plain = _render(entry_point, "plain", _roster_less(repo))
     assert plain["services"]["plain"]["environment"] == {"PORT": "18001"}
 
 
@@ -249,7 +258,7 @@ def _optimizer_web_single_user(repo: Path, **deployment: str) -> dict:
     service = repo / "services" / "optimizer_web"
     service.mkdir(parents=True, exist_ok=True)
     (service / "docker-compose.yml.j2").write_text(_TEMPLATE)
-    config = _roster_less(repo, single_user_alias=False)
+    config = _roster_less(repo)
     config["services"]["optimizer_web"] = {"path": "services/optimizer_web", "port": 18002}
     config["deployed_services"].append("optimizer_web")
     config["deployment"] = dict(deployment)
