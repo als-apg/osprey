@@ -410,6 +410,70 @@ class TestTheInjectedBeam:
         assert np.abs(_first_shot(quiet)[0] - _first_shot(kicked)[0]).max() > 1.0e-5
 
 
+KICK = "SR:INJ:KICKER:SP"
+KICKER = "HCM01"
+
+
+def _kick_ring(demo: dict[str, Any], active: dict[str, Any] | None = None, **words: Any) -> Any:
+    record = _record("pulsed_kick", KICK, element=KICKER, write=True)
+    record["engine"].update({"plane": "x", "scale": 1.0e-4, **words})
+    records = [*demo["wiring"], *_turn_records(), record]
+    model = engine.build(MODEL, records, demo["deck"], _settings(demo), active or {})
+    engine.advance(model, 0.0)
+    return model
+
+
+def _seen_kicks(model: Any, monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    seen: dict[str, Any] = {}
+    track = pyat_turns.track_shot
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return track(*args, **kwargs)
+
+    monkeypatch.setattr(pyat_turns, "track_shot", spy)
+    _first_shot(model)
+    return list(seen["pulsed"])
+
+
+class TestAPulsedKick:
+    def test_the_shot_takes_the_written_kick_through_scale_and_pulse(self, demo, monkeypatch):
+        model = _kick_ring(demo, pulse=[1.0, 0.5])
+        model.set({KICK: 2.0})
+        (kick,) = _seen_kicks(model, monkeypatch)
+        assert kick.element == model.simulator.unique_element_index(KICKER)
+        assert (kick.plane, kick.pulse) == (0, (1.0, 0.5))
+        assert kick.angle == pytest.approx(2.0e-4)
+
+    def test_scale_and_pulse_have_defaults(self, demo, monkeypatch):
+        record = _record("pulsed_kick", KICK, element=KICKER, write=True)
+        record["engine"]["plane"] = "y"
+        records = [*demo["wiring"], *_turn_records(), record]
+        model = engine.build(MODEL, records, demo["deck"], _settings(demo), {})
+        engine.advance(model, 0.0)
+        model.set({KICK: 3.0e-5})
+        (kick,) = _seen_kicks(model, monkeypatch)
+        assert (kick.plane, kick.angle, kick.pulse) == (1, 3.0e-5, (1.0,))
+
+    def test_a_kick_at_zero_changes_no_shot(self, demo, ring):
+        np.testing.assert_array_equal(_first_shot(ring)[0], _first_shot(_kick_ring(demo))[0])
+
+    def test_a_one_turn_pulse_moves_the_first_turns_and_not_the_lattice(self, demo):
+        plain, kicked = _kick_ring(demo), _kick_ring(demo)
+        index = kicked.simulator.unique_element_index(KICKER)
+        before = np.array(kicked.lattice[index].KickAngle, dtype=float)
+        kicked.set({KICK: 1.0})
+        x, x_kicked = _first_shot(plain)[0], _first_shot(kicked)[0]
+        assert np.abs(x_kicked[TRIGGER:] - x[TRIGGER:]).max() > 1.0e-5
+        np.testing.assert_array_equal(kicked.lattice[index].KickAngle, before)
+
+    def test_the_active_scenario_states_the_kick(self, demo):
+        written = _kick_ring(demo)
+        written.set({KICK: 1.0})
+        seeded = _kick_ring(demo, active={KICK: 1.0})
+        np.testing.assert_array_equal(_first_shot(written)[0], _first_shot(seeded)[0])
+
+
 class TestHandshake:
     def test_armed_drops_only_after_a_drain(self, ring):
         _baselined(ring)

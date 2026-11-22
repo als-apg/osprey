@@ -59,6 +59,12 @@ def _record(signal: str, address: str, *, element: str | None = None, write: boo
     return record
 
 
+def _kick(address: str, *, element: str | None = "Q", write: bool = True, **words: Any):
+    record = _record("pulsed_kick", address, element=element, write=write)
+    record["engine"].update(words)
+    return record
+
+
 def kind_of(record: dict[str, Any]) -> str:
     return str(record["engine"]["signal"])
 
@@ -275,6 +281,7 @@ class TestDescribe:
             *(f"offset_{key}" for key in turn.LAUNCH_KEYS),
             "mismatch_x",
             "mismatch_y",
+            "pulsed_kick",
         }
         assert turn.BEAM_SIGNALS <= turn.SETTING_SIGNALS & turn.RING_SIGNALS
 
@@ -313,6 +320,40 @@ class TestDescribe:
         with pytest.raises(ValueError, match="B1:ARM") as caught:
             engine.describe(record)
         assert "attribute" in str(caught.value)
+
+    def test_a_pulsed_kick_is_a_setting_of_its_element(self) -> None:
+        described = engine.describe(_kick("K:KICK", plane="x", scale=2.0e-4, pulse=[1.0, 0.5]))
+        assert described["engine_role"] == "setpoint"
+        assert described["kind"] == "pulsed_kick"
+        assert described["plane"] is None  # no corrector: the closed orbit never sees it
+        assert engine.describe(_kick("K:KICK", plane="y"))["refresh"] == "pass"
+
+    @pytest.mark.parametrize(
+        ("record", "text"),
+        [
+            (_kick("K:NONE", element=None, plane="x"), "names no element"),
+            (_kick("K:READ", write=False, plane="x"), "is a setting; wire it with direction write"),
+            (_kick("K:PLANE"), "states no plane; use x or y"),
+            (_kick("K:Z", plane="z"), "plane 'z'; use x or y"),
+            (_kick("K:SCALE", plane="x", scale="big"), "scale 'big' is not a number"),
+            (_kick("K:NAN", plane="x", scale=float("nan")), "is not a number"),
+            (_kick("K:EMPTY", plane="x", pulse=[]), "pulse [] is not a list of numbers"),
+            (_kick("K:WORD", plane="x", pulse=[1.0, "half"]), "is not a list of numbers"),
+            (_kick("K:ONE", plane="x", pulse=1.0), "is not a list of numbers"),
+            (_kick("K:MORE", plane="x", attribute="KickAngle"), "beside attribute"),
+        ],
+        ids=lambda value: value["address"] if isinstance(value, dict) else str(value)[:30],
+    )
+    def test_pulsed_kick_refusals(self, record: dict[str, Any], text: str) -> None:
+        with pytest.raises(ValueError, match=record["address"]) as caught:
+            engine.describe(record)
+        assert text in str(caught.value)
+
+    def test_a_kicks_words_are_refused_on_another_signal(self) -> None:
+        record = _record("pilot_tone", "SR:TONE", write=True)
+        record["engine"]["plane"] = "x"
+        with pytest.raises(ValueError, match="beside plane"):
+            engine.describe(record)
 
     def test_slices_are_no_monitor_element(self) -> None:
         record = _record("turn_x", "B1:TBT:X")
@@ -537,6 +578,24 @@ class TestStartValues:
             deck, [_record("stored", "Q:MODE", element="Q", write=True)], _settings()
         )
         assert values == {"Q:MODE": 0.0}
+
+    def test_a_pulsed_kick_starts_at_zero(self, deck: Path) -> None:
+        values = engine.start_values(deck, [_kick("K:KICK", plane="x")], _settings())
+        assert values == {"K:KICK": 0.0}
+
+    @pytest.mark.parametrize(("element", "count"), [("NOPE", 0), ("D", 2)])
+    def test_a_pulsed_kicks_element_is_held_once(
+        self, deck: Path, element: str, count: int
+    ) -> None:
+        with pytest.raises(engine.ElementStop) as caught:
+            engine.start_values(deck, [_kick("K:KICK", element=element, plane="x")], _settings())
+        assert caught.value.count == count
+
+    def test_a_pulsed_kicks_element_must_apply_a_kick_angle(self, deck: Path) -> None:
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(deck, [_kick("K:KICK", element="INJ", plane="x")], _settings())
+        assert caught.value.record_id == "SR/K:KICK"
+        assert "element INJ applies no kick angle" in caught.value.detail
 
     def test_block_refusal_reaches_start_values(self, deck: Path) -> None:
         with pytest.raises(FacilityBuildError) as caught:
