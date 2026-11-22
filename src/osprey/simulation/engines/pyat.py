@@ -1157,8 +1157,9 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     described by :func:`pyat_turn_settings.describe_signal`: ``arm``,
     ``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
     ``offset_<coordinate>`` and ``mismatch_<plane>`` are setpoints refreshing
-    ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and
-    ``turns_tracked`` are outputs refreshing ``event``; none has a plane, and
+    ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and the shot
+    read-outs (``turns_tracked``, ``turns_survived``, ``monitors_reached``,
+    ``shot_status``) are outputs refreshing ``event``; none has a plane, and
     the kind is the signal.
 
     A setpoint or readback has a plane only when it steers one: ``KickAngle``
@@ -1480,8 +1481,8 @@ def build(
       it starts on;
     * every other turn-by-turn record (an engine ``signal``, on a turn-by-turn
       ring only): ``arm``, ``pilot_tone`` and ``stored`` are settings that
-      hold what is written; ``armed``, the turn arrays and ``turns_tracked``
-      are read-only model state, read from the ring's turn state
+      hold what is written; ``armed``, the turn arrays and the shot
+      read-outs are read-only model state, read from the ring's turn state
       (:class:`~osprey.simulation.engines.pyat_turn_state.TurnState`), which
       a turn-by-turn ring is built to hold
       (:class:`~osprey.simulation.engines.pyat_turn_state.TurnByTurnModel`).

@@ -174,8 +174,12 @@ A ``pyat`` ring whose settings state a ``turn_by_turn`` block is time-driven
 too. It reads a chain's shot counter, charge and stored current as model
 inputs; a rise of the counter outside a baseline is a shot, which the next
 advance tracks through the deck for the monitors a client write armed. The
-arrays and turns tracked are emitted in one advance and ``armed`` drops in a
-later one, so a client sees the arrays before ``armed`` reads ``0``. Its
+arrays and the shot's read-outs (the turns tracked, the turns survived, the
+monitors reached and the shot's status) are emitted in one advance and
+``armed`` drops in a later one, so a client sees the arrays before ``armed``
+reads ``0``. A shot that cannot be tracked completes the same handshake: its
+status says whether the bunch could not be set up or an unexpected error was
+raised, and the cause is logged. Its
 outputs refresh ``event`` and its settings ``pass``. Tracking runs inside the
 advance and holds the serving loop for its length, a read answering from the
 last post meanwhile. Such a ring without a closed orbit, as with its RF

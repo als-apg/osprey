@@ -79,6 +79,7 @@ __all__ = [
     "PULSED_KICK",
     "RING_SIGNALS",
     "SETTING_SIGNALS",
+    "SHOT_SIGNALS",
     "SIGNALS",
     "InjectedTwiss",
     "TurnSettings",
@@ -166,10 +167,17 @@ BEAM_SIGNALS: frozenset[str] = frozenset({*OFFSET_SIGNALS, *MISMATCH_SIGNALS})
 PULSED_KICK = "pulsed_kick"
 #: The words a :data:`PULSED_KICK` record's engine block may state beside the signal.
 KICK_WORDS: tuple[str, ...] = ("plane", "scale", "pulse")
-#: The signals of the whole ring, whose records name no element.
-RING_SIGNALS: frozenset[str] = frozenset(
-    {"turns_tracked", "rf_switch", "pilot_tone", *BEAM_SIGNALS}
+#: The ring's read-outs of its last shot: the turns it was tracked for, the
+#: turns the beam survived, the monitors the beam reached on the first turn,
+#: and how the shot ended.
+SHOT_SIGNALS: tuple[str, ...] = (
+    "turns_tracked",
+    "turns_survived",
+    "monitors_reached",
+    "shot_status",
 )
+#: The signals of the whole ring, whose records name no element.
+RING_SIGNALS: frozenset[str] = frozenset({*SHOT_SIGNALS, "rf_switch", "pilot_tone", *BEAM_SIGNALS})
 #: The signals written by a client: each a setpoint.
 SETTING_SIGNALS: frozenset[str] = frozenset(
     {"arm", "rf_switch", "pilot_tone", "stored", PULSED_KICK, *BEAM_SIGNALS}
@@ -182,7 +190,7 @@ SIGNALS: dict[str, float] = {
     "turn_x": 0.0,
     "turn_y": 0.0,
     "turn_sum": 0.0,
-    "turns_tracked": 0.0,
+    **dict.fromkeys(SHOT_SIGNALS, 0.0),
     "rf_switch": 1.0,
     "pilot_tone": 0.0,
     "stored": 0.0,
@@ -595,8 +603,8 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
     A setting signal (``arm``, ``rf_switch``, ``pilot_tone``, ``stored``,
     :data:`PULSED_KICK` and the injected beam's :data:`BEAM_SIGNALS`) is a
     ``setpoint`` refreshing
-    ``pass``; the rest (``armed``, the turn arrays,
-    ``turns_tracked``) are ``output`` refreshing ``event``. No signal has a
+    ``pass``; the rest (``armed``, the turn arrays and the shot read-outs
+    :data:`SHOT_SIGNALS`) are ``output`` refreshing ``event``. No signal has a
     plane, so none is taken for an orbit monitor or corrector. The ``kind`` is
     the signal. ``arm`` carries the ``command`` mark: a write to it starts one
     acquisition and holds no value.

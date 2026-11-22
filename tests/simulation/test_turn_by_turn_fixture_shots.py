@@ -29,6 +29,7 @@ import yaml
 
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_turn_readout import TurnReadout
+from osprey.simulation.engines.pyat_turn_state import ShotStatus
 from osprey_connectors.simulation.composite import Composite
 from tests.facility._turn_by_turn_fixture import (
     ARMED,
@@ -37,15 +38,18 @@ from tests.facility._turn_by_turn_fixture import (
     DECK,
     FIXTURE,
     MONITORS,
+    MONITORS_REACHED,
     PILOT_TONE,
     REQUEST,
     RF_SWITCH,
     RING,
     SAMPLES,
+    SHOT_STATUS,
     TURN_SUM,
     TURN_X,
     TURN_Y,
     TURNS,
+    TURNS_SURVIVED,
     TURNS_TRACKED,
     turn_by_turn_view,
 )
@@ -201,6 +205,9 @@ def test_an_armed_shot_publishes_its_arrays_first_then_armed_drops_to_0(view: Pa
     ring.composite.advance()
     # The arrays are readable while armed still reads 1.
     assert float(ring.read(TURNS_TRACKED)) == TURNS
+    assert float(ring.read(SHOT_STATUS)) == ShotStatus.TRACKED
+    assert float(ring.read(TURNS_SURVIVED)) == TURNS
+    assert float(ring.read(MONITORS_REACHED)) == len(MONITORS)
     x, y, total = ring.all_arrays()
     assert x.shape == y.shape == total.shape == (len(MONITORS), SAMPLES)
     assert (total > 0.5).any(axis=1).all()
@@ -208,7 +215,7 @@ def test_an_armed_shot_publishes_its_arrays_first_then_armed_drops_to_0(view: Pa
 
     landed = ring.composite.emitted()
     assert ARRAYS <= landed
-    assert TURNS_TRACKED in landed
+    assert {TURNS_TRACKED, TURNS_SURVIVED, MONITORS_REACHED, SHOT_STATUS} <= landed
     assert not set(ARMED.values()) & landed
 
     # Once the arrays are out, the next advance drops armed to 0, on its own.
