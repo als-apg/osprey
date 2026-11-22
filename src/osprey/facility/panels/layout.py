@@ -52,6 +52,7 @@ from osprey.facility.panels.describe import (
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph, id_tail
+from osprey.facility.panels.order import name_order
 from osprey.facility.panels.strip import Placed
 from osprey.facility.panels.symbols import (
     BOX_BORDER,
@@ -600,6 +601,7 @@ _MORE_ROWS = "{} more not drawn"
 _NOT_AT_A_UNIT = "not at a unit"
 _SIDE_BY_SIDE = "side by side at one unit"
 _SIDE_BY_SIDE_BAR = "{} devices side by side · listed beside the rack"
+_SIDE_BY_SIDE_UNDER = "{} devices side by side · listed under the rack"
 _BY_CLASS = "by class"
 _SOURCES = "sources"
 _RACK_COUNTS = "{} at a stated unit · {} not at a unit"
@@ -6432,16 +6434,20 @@ class _Page:
             else:
                 spans.append([low, high, 1])
         beside: list[tuple[float, tuple[int, int], list[RackUnit]]] = []
-        for low, high, n in spans:
+        for low, high, _n in spans:
             y = rack_top + (height - high) * RACK_U
             h = (high - low + 1) * RACK_U
             self.box(bars_x, y, RACK_WIDTH, h, fill=FIELD_BACKGROUND, dashed=True)
-            word = _cut(_SIDE_BY_SIDE_BAR.format(n), RACK_WIDTH - GAP, SMALL_SIZE)
-            self.text(bars_x + GAP / 2, y, word, size=SMALL_SIZE, w=RACK_WIDTH - GAP, h=RACK_U, fg=MUTED_TEXT)  # fmt: skip
             members = [u for u in crowded if low <= (u.position or 0) <= high]
+            members.sort(key=lambda u: (u.position or 0, name_order(_rack_label(u))))
             beside.append((y, (low, high), members))
         bottom = top + rows * RACK_U + 2 * RACK_PAD
-        self.beside_rack(elevation, height, top, bottom, frame_x, beside)
+        placed = self.beside_rack(elevation, height, top, bottom, frame_x, beside)
+        for (y, _span, members), stays in zip(beside, placed, strict=True):
+            # the bar says where its devices are listed: beside the rack, or under it
+            bar = _SIDE_BY_SIDE_BAR if stays else _SIDE_BY_SIDE_UNDER
+            word = _cut(bar.format(len(members)), RACK_WIDTH - GAP, SMALL_SIZE)
+            self.text(bars_x + GAP / 2, y, word, size=SMALL_SIZE, w=RACK_WIDTH - GAP, h=RACK_U, fg=MUTED_TEXT)  # fmt: skip
 
     def beside_rack(
         self,
@@ -6451,14 +6457,15 @@ class _Page:
         bottom: float,
         frame_x: float,
         beside: Sequence[tuple[float, tuple[int, int], list[RackUnit]]],
-    ) -> None:
+    ) -> list[bool]:
         """Everything of the rack beside it, in one column from the top down to the
         rack's foot, never past it: those at no unit, live first; the classes and
         sources; then each group sharing a unit, level with its unit or as near
         under it as the column allows, joined to it by a line. The list takes the
         room the rest does not need. What does not fit beside goes under the rack
         at the full width: the rest of the list under its heading continued, then
-        each group that did not fit, its units on its heading in place of the line."""
+        each group that did not fit, its units on its heading in place of the line.
+        Returns, per group, whether it stands beside the rack."""
         x0, right = self.x0, self.right
         self.x0, self.right = MARGIN + RACK_COLUMN, MARGIN + STRIP_WIDTH
         frame_right = frame_x + RACK_WIDTH + 2 * RACK_PAD
@@ -6475,7 +6482,9 @@ class _Page:
             return y, fits
 
         _y, kept = foot(0)  # a group joined to its unit stands beside before the list does
-        listed = live_first(elevation.unpositioned)
+        listed = live_first(
+            sorted(elevation.unpositioned, key=lambda u: name_order(_rack_label(u)))
+        )
         rest: list[RackUnit] = []
         if listed:  # as many rows as leave every group that fits beside where it fits
             pitch, room = CHIP_HEIGHT + CHIP_GAP, self.right - self.x0
@@ -6517,6 +6526,7 @@ class _Page:
             self.rack_chips(f"{_SIDE_BY_SIDE} · {units}", members)
             self.y += SECTION_GAP - GAP
         self.right = right
+        return kept
 
     def chassis(self, x: float, y: float, w: float, h: float, unit: RackUnit) -> None:
         """One bar: its name inside, the light at its right end, a link over it."""
@@ -6712,17 +6722,21 @@ def list_offset(row: int, pitch: float) -> float:
 
 def list_cells(count: int, columns: int) -> list[tuple[int, int]]:
     """Where each of *count* entries of a long list in *columns* stands, as
-    ``(column, row)``: filled downward in balanced columns, the first half beside
-    the second, in bands of :data:`LIST_BAND` rows read down then across, each band
-    under the one before."""
+    ``(column, row)``: filled downward in balanced columns (two columns of a band
+    differ by one row at most), the first half beside the second, in bands of
+    :data:`LIST_BAND` rows read down then across, each band under the one before.
+    A list of one or two rows fills across instead."""
+    if count <= 2 * columns:  # one or two rows: across, then the next row
+        return [(i % columns, i // columns) for i in range(count)]
     cells: list[tuple[int, int]] = []
     band = columns * LIST_BAND
     for start in range(0, count, band):
         held = min(band, count - start)
-        rows = -(-held // columns)
-        for i in range(held):
-            column, row = divmod(i, rows)
-            cells.append((column, start // band * LIST_BAND + row))
+        # balanced: the columns of a band differ by one row at most, longer first
+        base, longer = divmod(held, columns)
+        for column in range(columns):
+            rows = base + (column < longer)
+            cells += [(column, start // band * LIST_BAND + row) for row in range(rows)]
     return cells
 
 

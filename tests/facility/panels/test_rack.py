@@ -261,9 +261,18 @@ def test_a_list_longer_than_the_rack_continues_under_it_at_the_full_width(panel_
 def test_a_long_list_fills_balanced_columns_downward_in_bands_with_a_gap_every_fourth_row():
     from osprey.facility.panels.layout import list_cells, list_height, list_offset
 
-    # ten in three columns: four, four, two, read down then across
+    # ten in three columns: four, three, three, read down then across; the columns
+    # of a band differ by one row at most
     assert list_cells(10, 3) == [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1), (1, 2),
-                                 (1, 3), (2, 0), (2, 1)]  # fmt: skip
+                                 (2, 0), (2, 1), (2, 2)]  # fmt: skip
+    for count, columns in ((54, 4), (26, 5), (52, 7)):
+        rows = [0] * columns
+        for column, _row in list_cells(count, columns):
+            rows[column] += 1
+        assert max(rows) - min(rows) <= 1, (count, columns, rows)
+    # one or two rows fill across, not downward
+    assert list_cells(5, 3) == [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1)]
+    assert list_cells(2, 3) == [(0, 0), (1, 0)]
     # a band of twenty rows is read whole before the next band starts under it
     cells = list_cells(2 * layout.LIST_BAND + 3, 2)
     assert cells[layout.LIST_BAND - 1] == (0, layout.LIST_BAND - 1)
@@ -327,6 +336,37 @@ def test_nothing_beside_the_rack_runs_past_its_foot_and_a_group_that_does_not_fi
     assert all(g["y"] + g["height"] <= foot for g in lines)  # no joining line under the foot
     counts = next(t for t in heads if t.endswith("30 not at a unit"))
     assert heads[counts]["y"] < foot  # the reference stays beside
+    bars = [t for t in heads if "devices side by side" in t]
+    assert bars and all(t.endswith("listed under the rack") for t in bars)  # says where
+
+
+def test_numbered_names_in_a_rack_list_stand_in_number_order(panel_graph) -> None:
+    """A list of devices at no unit takes the numbers in their names by value:
+    SPARE97 before SPARE100."""
+    import dataclasses
+
+    from osprey.facility.panels.view import Elevation, Fact
+
+    view = rack_elevation(panel_graph, "XR/XR01/RK1")
+    (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
+    unit = elevation.units[0]
+    names = [f"XR01:SPARE{k}" for k in (100, 98, 97, 99, 101)]
+    loose = tuple(
+        dataclasses.replace(unit, position=None, link=Fact(n, n), conflicting=False) for n in names
+    )
+    sections = tuple(
+        dataclasses.replace(s, items=tuple(
+            dataclasses.replace(elevation, unpositioned=loose) if isinstance(i, Elevation) else i
+            for i in s.items))
+        for s in view.sections
+    )  # fmt: skip
+    doc = stub_render(dataclasses.replace(view, sections=sections), panel_graph)
+    shown = [
+        (n["geometry"]["x"], n["geometry"]["y"], n["props"]["text"])
+        for n in nodes(doc) if n["type"] == "text-label" and "SPARE" in n["props"]["text"]
+    ]  # fmt: skip
+    across = [t for _x, _y, t in sorted(shown, key=lambda g: (g[1], g[0]))]
+    assert across == [f"XR01:SPARE{k}" for k in (97, 98, 99, 100, 101)]
 
 
 def test_the_continued_list_takes_more_columns_than_beside_and_reads_downward(panel_graph):
