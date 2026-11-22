@@ -709,9 +709,10 @@ reference for one that reads no deck and is time-driven.</p>
 <p>What a plug-in is given and asked for:</p>
 <ul>
 <li><p><strong>Registration.</strong> A plug-in is a module registered under the
-<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point group in its package’s own
-<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, under the name a model record’s <code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. The
-composite looks it up with <code class="docutils literal notranslate"><span class="pre">metadata.entry_points(group=&quot;osprey.simulation.engines&quot;,</span>
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code> entry-point group in its package’s
+own <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, under the name a model record’s <code class="docutils literal notranslate"><span class="pre">engine</span></code> gives.
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines.ENGINE_GROUP</span></code> holds that name. The
+composite looks it up with <code class="docutils literal notranslate"><span class="pre">metadata.entry_points(group=ENGINE_GROUP,</span>
 <span class="pre">name=...)</span></code>; an engine no package registers fails that model.</p></li>
 <li><p><strong>Build-time contract.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> calls four pure functions of the
 module, none of which builds a model:</p>
@@ -757,16 +758,18 @@ record claims, so a plug-in parses no channel names.</p></li>
 Its <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel carries the text the module’s
 optional <code class="docutils literal notranslate"><span class="pre">error_text(exc)</span></code> gives, else the exception’s own text. The
 rest of the namespace is still served.</p></li>
-<li><p><strong>The contract in code.</strong> <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.EnginePlugin</span></code> names
-those five functions, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a
-module states them. <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.OPTIONAL_NAMES</span></code> lists
-every optional name, and the protocol’s docstring says what each gives and
-what a model whose engine lacks it gets.
+<li><p><strong>The contract in code.</strong>
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines.EnginePlugin</span></code> names those five
+functions, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a module states
+them. <code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines.OPTIONAL_NAMES</span></code> lists every
+optional name, and the protocol’s docstring says what each gives and what a
+model whose engine lacks it gets.
 <code class="docutils literal notranslate"><span class="pre">fault_variables</span></code> is called as <code class="docutils literal notranslate"><span class="pre">fault_variables(wiring,</span> <span class="pre">settings)</span></code>,
 with the model’s <code class="docutils literal notranslate"><span class="pre">settings</span></code> second.</p></li>
 <li><p><strong>The time contract.</strong> A model that changes between solves, as an
 injection chain does during a shot, is <em>time-driven</em>: its engine states the
-four optional functions <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.TIME_CONTRACT</span></code> names.
+four optional functions
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines.TIME_CONTRACT</span></code> names.
 <code class="docutils literal notranslate"><span class="pre">advance(model,</span> <span class="pre">t_s)</span></code> applies every step due by epoch second <code class="docutils literal notranslate"><span class="pre">t_s</span></code>;
 <code class="docutils literal notranslate"><span class="pre">next_deadline(model)</span></code> gives the next due step’s epoch second, or
 <code class="docutils literal notranslate"><span class="pre">None</span></code>; <code class="docutils literal notranslate"><span class="pre">emitted(model)</span></code> gives the <code class="docutils literal notranslate"><span class="pre">event</span></code> addresses fired since the

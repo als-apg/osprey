@@ -1145,7 +1145,7 @@ deployment runs against a simulator. Each model record names an <code class="doc
 <code class="docutils literal notranslate"><span class="pre">deck</span></code> and the <code class="docutils literal notranslate"><span class="pre">wiring</span></code> that ties channel addresses to elements of the
 deck; a model of the <code class="docutils literal notranslate"><span class="pre">injection</span></code> engine names no deck.</p>
 <p><strong>Engines are plug-ins.</strong> An engine is a module registered in the
-<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point group under the name a model’s
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code> entry-point group under the name a model’s
 <code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. OSPREY ships <code class="docutils literal notranslate"><span class="pre">pyat</span></code> and <code class="docutils literal notranslate"><span class="pre">injection</span></code>. The build reaches the engine to read
 the deck (where each element sits, each wired channel’s operating point, what
 each wiring record is) without building a model, and stops with

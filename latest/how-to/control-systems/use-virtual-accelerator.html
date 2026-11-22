@@ -1546,19 +1546,19 @@ the arrays stay zeros.</p>
 <section id="another-backend">
 <h3>Another backend<a class="headerlink" href="#another-backend" title="Link to this heading">#</a></h3>
 <p>An engine OSPREY does not ship is an engine plug-in. The container looks up
-the <code class="docutils literal notranslate"><span class="pre">engine</span></code> each model record names in the <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code>
-entry-point group. It calls the registered module’s <code class="docutils literal notranslate"><span class="pre">build</span></code>, which returns
+the <code class="docutils literal notranslate"><span class="pre">engine</span></code> each model record names in the
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code> entry-point group. It calls the registered module’s <code class="docutils literal notranslate"><span class="pre">build</span></code>, which returns
 the <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code> serving that model’s wiring over its deck. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
 reaches the same module through the same group when it checks the facility
 tree. The shipped <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code> is the reference
 implementation of the contract.</p>
 <ol class="arabic">
 <li><p>Write the engine module to the contract
-<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.EnginePlugin</span></code> states;
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines.EnginePlugin</span></code> states;
 <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code> implements it.</p></li>
 <li><p>Register it under the entry-point group in your package’s metadata, and
 install the package where <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;osprey.simulation.engines&quot;</span><span class="k">]</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;osprey_connectors.simulation.engines&quot;</span><span class="k">]</span>
 <span class="n">my_engine</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_facility.engine&quot;</span>
 </pre></div>
 </div>

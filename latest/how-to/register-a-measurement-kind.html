@@ -626,17 +626,17 @@ stops and the engine settings it needs (below).</p></li>
 <h2>2. Register it<a class="headerlink" href="#register-it" title="Link to this heading">#</a></h2>
 <p>The package names the declaration under the entry-point group
 <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code>, and an engine of its own, when it has one, under
-<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code>:</p>
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code>:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[osprey.facility.kinds]</span>
 <span class="na">fixture_kind</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">fixture_kind_deployment:FIXTURE_KIND</span>
 
-<span class="k">[osprey.simulation.engines]</span>
+<span class="k">[osprey_connectors.simulation.engines]</span>
 <span class="na">fixture_ring</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">fixture_kind_deployment.engine</span>
 </pre></div>
 </div>
 <p>In the package’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> these are the
 <code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey.facility.kinds&quot;]</span></code> and
-<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey.simulation.engines&quot;]</span></code> tables.</p>
+<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey_connectors.simulation.engines&quot;]</span></code> tables.</p>
 </section>
 <section id="install-it-in-both-places">
 <h2>3. Install it in both places<a class="headerlink" href="#install-it-in-both-places" title="Link to this heading">#</a></h2>

@@ -278,8 +278,8 @@ Bringing your own model
 The runner serves one composite, and the composite builds one child per
 served physics model from the view's ``variables.json`` and the model's deck,
 ``decks/<model>.<its suffix>``, through the engine plug-in the model's record names:
-its ``engine``, looked up in the ``osprey.simulation.engines`` entry-point
-group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
+its ``engine``, looked up in the ``osprey_connectors.simulation.engines``
+entry-point group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
 
 **A pyAT deck is data.** Any facility's pyAT deck is served by the shipped
 ``pyat`` engine. The facility tree stages it beside the model record that names

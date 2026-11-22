@@ -665,8 +665,10 @@ calibration math move to <code class="docutils literal notranslate"><span class=
 virtual accelerator loads them. osprey-connectors is the one layer all three
 depend on, so the contract is spelled once. The cost is a larger public API in
 osprey-connectors and its compatibility table.</p>
-<p><em>Phase:</em> 3. <em>Today:</em> the contract is framework code, and the group name has
-three spellings.</p>
+<p><em>Phase:</em> 3. <em>Today:</em> the contract lives there, and the group has one spelling,
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code>, held by that module’s
+<code class="docutils literal notranslate"><span class="pre">ENGINE_GROUP</span></code>. The engine implementations, such as
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code>, stay framework code.</p>
 </section>
 <section id="names-public-modules-and-the-command-line">
 <h2>5. Names, public modules and the command line<a class="headerlink" href="#names-public-modules-and-the-command-line" title="Link to this heading">#</a></h2>

@@ -523,7 +523,7 @@ container and no network.</p>
   <rect class="nb-foc" x="136" y="136" width="688" height="56"/>
   <text class="te" x="160" y="168">03</text>
   <text class="tn" x="200" y="168">engine plug-in</text>
-  <text class="ts" x="800" y="168" text-anchor="end">pyat — a LUMEModel via lume-pyat, found under the osprey.simulation.engines entry-point group</text>
+  <text class="ts" x="800" y="168" text-anchor="end">pyat — a LUMEModel via lume-pyat, registered under osprey_connectors.simulation.engines</text>
   <text class="te" x="160" y="224">04</text>
   <text class="tn" x="200" y="224">composite</text>
   <text class="ts" x="800" y="224" text-anchor="end">setpoint → calibration → solve → BPM readings</text>
@@ -782,8 +782,8 @@ failed build reads on the model’s <code class="docutils literal notranslate"><
 <p>The runner serves one composite, and the composite builds one child per
 served physics model from the view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> and the model’s deck,
 <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, through the engine plug-in the model’s record names:
-its <code class="docutils literal notranslate"><span class="pre">engine</span></code>, looked up in the <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point
-group. Nothing in the entrypoint, a profile or <code class="docutils literal notranslate"><span class="pre">.env</span></code> names an engine.</p>
+its <code class="docutils literal notranslate"><span class="pre">engine</span></code>, looked up in the <code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code>
+entry-point group. Nothing in the entrypoint, a profile or <code class="docutils literal notranslate"><span class="pre">.env</span></code> names an engine.</p>
 <p><strong>A pyAT deck is data.</strong> Any facility’s pyAT deck is served by the shipped
 <code class="docutils literal notranslate"><span class="pre">pyat</span></code> engine. The facility tree stages it beside the model record that names
 it and the wiring that ties channels to its elements, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
