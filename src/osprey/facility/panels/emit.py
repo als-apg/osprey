@@ -562,6 +562,28 @@ class _Drawn:
     crossed: tuple[str, ...] = ()
 
 
+def _without_meta(document: Mapping[str, Any], stamp: str) -> str:
+    """The text a screen's drawing digest is taken from: the document before its
+    model stamp, with the stamp its header shows taken out, and without any
+    widget's ``meta``, which names what is drawn but is not drawn."""
+
+    def bare(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: bare(v) for k, v in node.items() if k != "meta"}
+        if isinstance(node, list):
+            return [bare(v) for v in node]
+        return node
+
+    text = json.dumps(
+        {**document, "root": bare(document["root"])},
+        sort_keys=True,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+    return text.replace(f"model {stamp}", "model")
+
+
 def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw: Draw) -> _Drawn:
     """A target drawn as its file."""
     own = _path(target, ids)
@@ -591,9 +613,7 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
         cuts=cuts,
         crossed=crossed,
     )
-    unstamped = json.dumps(
-        document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
-    )
+    unstamped = _without_meta(document, graph.content_hash[: layout.STAMP_DIGITS])
     document["metadata"]["description"] += _stamp(graph, draw)
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
@@ -609,9 +629,7 @@ def _generate(graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw
         tuple(dict.fromkeys(cuts)),
         others(view, graph),
         blocks=screen_classes.blocks(view, key),
-        drawing=screen_classes.drawing_digest(
-            unstamped.replace(f"model {graph.content_hash[: layout.STAMP_DIGITS]}", "model")
-        ),
+        drawing=screen_classes.drawing_digest(unstamped),
     )
     return _Drawn(
         (text + "\n").encode("utf-8"),
@@ -806,6 +824,7 @@ def write(
         "format": FORMAT_VERSION,
         "facility_hash": graph.content_hash,
         "draw_hash": draw.digest,
+        "drawing_rule": screen_classes.DRAWING_RULE,
     }
 
     # a device with no card of its own: the screen of the owner it is drawn on
