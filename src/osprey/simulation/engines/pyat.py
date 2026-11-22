@@ -761,9 +761,12 @@ def start_values(
     when that setpoint is in ``wiring``, else zero. The built model serves a
     readback from the setpoint record on its element (or slices), attribute
     and index, and two readbacks start there: one stating another calibration
-    than that setpoint takes the setpoint's physics value through its own, and
+    than that setpoint takes the setpoint's physics value through its own (a
+    readback of a deck property such as ``energy`` takes the value of that
+    setpoint's curve at the setpoint's start value), and
     one ``readbacks`` maps to no setpoint (no setpoint names it as its pair, or
-    the simulation does not follow the pair) takes it through the setpoint's.
+    the simulation does not follow the pair) takes it through the setpoint's
+    (a readback of a deck property takes that setpoint's start value itself).
     A waveform readback wired to a whole optics output starts as one zero per
     plane. Any other record that names no element has no start value in the
     deck and is left out.
@@ -794,8 +797,9 @@ def start_values(
             unreadable attribute, or a setpoint's or monitor's (a record whose
             engine block names an ``axis``) table calibration without an
             inverse or linear gain of 0, and the same of a readback stating
-            its own calibration; for a readback of a deck property that
-            states another calibration than its setpoint; for a waveform readback that names an
+            its own calibration; for a readback of a deck property whose own
+            calibration states an ``energy_scaling`` other than ``none``; for
+            a waveform readback that names an
             ``axis`` or ``index``, or whose shape is not the deck's planes;
             for a turn-by-turn record on a ring whose settings state no
             ``turn_by_turn`` block, a turn array that is not a waveform of
@@ -852,21 +856,16 @@ def start_values(
             if driver is None:
                 continue
             if not _states_its_own_calibration(record, driver):
-                if pair is None and _names_element(record):
+                if pair is None:
                     # Followed from no setpoint by the channels, and still the
                     # readback of the setpoint on its target: it starts where
                     # the model serves it, on that setpoint's own way back.
                     through[address] = (driver, driver, _DERIVE_START)
                 continue
-            if not _names_element(record):
-                raise _stop(
-                    deck,
-                    record_id,
-                    "wiring",
-                    f"{address} "
-                    + _OWN_CALIBRATION_ON_A_DECK_PROPERTY.format(setpoint=field(driver, "address")),
-                    _OWN_CALIBRATION_REMEDY,
-                )
+            if not _names_element(record) and (
+                scaled := _scaled_on_a_deck_property(record, driver)
+            ):
+                raise _stop(deck, record_id, "wiring", f"{address} {scaled}", _SCALED_REMEDY)
             through[address] = (record, driver, _SERVE_READING)
             continue
         physics = _read_element(loaded, deck, record, record_id)
@@ -880,6 +879,10 @@ def start_values(
         elif address in through:
             back, driver, purpose = through[address]
             held = values[field(driver, "address")]
+            if back is driver and not _names_element(driver):
+                # A deck property's setpoint is read back at the value it holds.
+                values[address] = held
+                continue
             physics = to_physics(_stated_calibration(driver)[0], float(held))  # type: ignore[arg-type]
             values[address] = _hardware(
                 physics, field(back, "calibration"), deck, field(back, "id") or address, purpose
@@ -1226,11 +1229,28 @@ def _states_its_own_calibration(readback: Any, setpoint: Any) -> bool:
     return own[0] is not None and own != _stated_calibration(setpoint)
 
 
-_OWN_CALIBRATION_ON_A_DECK_PROPERTY = (
-    "states another calibration than its setpoint {setpoint}; a readback of a deck "
-    "property reads its setpoint's value"
+_SCALED_ON_A_DECK_PROPERTY = (
+    "states energy_scaling {scaling} on its own calibration; a readback of a deck "
+    "property reads the curve value of its setpoint {setpoint}, which no rigidity scales"
 )
-_OWN_CALIBRATION_REMEDY = "state the setpoint's calibration on the readback"
+_SCALED_REMEDY = "state energy_scaling: none on the readback"
+
+
+def _scaled_on_a_deck_property(readback: Any, setpoint: Any) -> str | None:
+    """What is wrong with a deck-property readback's own calibration, if it scales.
+
+    The setpoint of a deck property hands its readback the value of its own
+    curve, which is no strength a rigidity carries from one energy to another,
+    so the readback's calibration can only be read at ``energy_scaling: none``.
+
+    Returns:
+        The stop's detail without the address it opens with, or ``None`` for a
+        calibration that does not scale.
+    """
+    scaling = _stated_calibration(readback)[2]
+    if scaling == "none":
+        return None
+    return _SCALED_ON_A_DECK_PROPERTY.format(scaling=scaling, setpoint=field(setpoint, "address"))
 
 
 def _names_element(record: Mapping[str, Any]) -> bool:
@@ -1321,7 +1341,10 @@ def build(
       through the readback's own, so several readbacks may show one quantity
       each in its own unit. A readback of a deck
       property such as ``energy`` reads back the setpoint of that property,
-      at that setpoint's value, so no readback is ever writable;
+      at that setpoint's value; where its record states another calibration,
+      it reads the value of the setpoint's curve -- the curve's own, not the
+      normalised lattice energy -- through its own, which states
+      ``energy_scaling: none``. So no readback is ever writable;
     * a record naming no element reads one plane of the deck's ``tune`` or
       ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
       unless its attribute is a deck property such as ``energy``; a
@@ -1391,8 +1414,9 @@ def build(
             chromaticity record, or a ring that is not a turn-by-turn ring
             wires an RF switch or another turn-by-turn record, or a turn
             record's element is not a monitor; a readback of a deck property
-            states another calibration than its setpoint, or a readback's own
-            calibration has no way back to its unit.
+            states its own calibration with an ``energy_scaling`` other than
+            ``none``, or a readback's own calibration has no way back to its
+            unit.
         pydantic.ValidationError: a fault seed lies outside its bounds.
         UnknownElementError: an element error names an element the deck does
             not hold exactly once, or a multipole error one with no such
@@ -1479,12 +1503,8 @@ def build(
             source = setpoints.get(_target(entry))
             own = None
             if source is not None and _states_its_own_calibration(entry, drivers[source]):
-                if deck_property:
-                    raise ValueError(
-                        f"model {model}: {address} "
-                        + _OWN_CALIBRATION_ON_A_DECK_PROPERTY.format(setpoint=source)
-                        + f"; {_OWN_CALIBRATION_REMEDY}"
-                    )
+                if deck_property and (scaled := _scaled_on_a_deck_property(entry, drivers[source])):
+                    raise ValueError(f"model {model}: {address} {scaled}; {_SCALED_REMEDY}")
                 own = ReadbackCalibration.from_wiring(entry)
             channels.append(
                 ReadbackVariable(
