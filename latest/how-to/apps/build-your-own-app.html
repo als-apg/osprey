@@ -678,7 +678,7 @@ copied:</p>
 <span class="w">  </span><span class="nt">agent_routes</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">GET</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">/api/state</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">POST</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">/api/write</span><span class="p p-Indicator">]</span>
-<span class="w">  </span><span class="nt">roster_grant</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">single_user_alias</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">roster_grant</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
 <span class="nt">tools</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scaffold_app.tools</span>
 <span class="w">  </span><span class="nt">read</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read_channel</span><span class="p p-Indicator">]</span>
@@ -822,10 +822,12 @@ app, before it reaches the backend. Show that state rather than hiding the
 control: have the backend’s state say whether writes are on, and the panel
 say <em>Writes are off</em>.</p>
 <p>The page says when it can be driven, which a browser test or a recording
-waits for: <code class="docutils literal notranslate"><span class="pre">index.html</span></code> carries <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">panel.js</span></code> imports <code class="docutils literal notranslate"><span class="pre">markPageReady</span></code> from
-<code class="docutils literal notranslate"><span class="pre">/design-system/js/page-ready.js</span></code> and calls it once the first refresh has
-drawn, error or not. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> refuses a panel that lacks either.</p>
+waits for: <code class="docutils literal notranslate"><span class="pre">index.html</span></code> carries <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code> and
+loads <code class="docutils literal notranslate"><span class="pre">/design-system/js/page-ready.js</span></code> by its own tag before <code class="docutils literal notranslate"><span class="pre">panel.js</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">panel.js</span></code> imports <code class="docutils literal notranslate"><span class="pre">markPageReady</span></code> from it and calls it once the first
+refresh has drawn, error or not. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> refuses a panel that
+lacks any of the three, or that loads a module of its own <code class="docutils literal notranslate"><span class="pre">async</span></code>. The wait
+ends at <code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">failed</span></code>; <code class="docutils literal notranslate"><span class="pre">failed</span></code> means the page cannot be driven.</p>
 <p><code class="docutils literal notranslate"><span class="pre">tests/panel.test.js</span></code> is a Vitest test of the page’s functions in a DOM;
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> runs it. A JavaScript library the panel needs is not
 committed: list it under <code class="docutils literal notranslate"><span class="pre">vendor</span></code> with its exact version and SHA-256, and the
@@ -1330,46 +1332,44 @@ action, such as a write of many setpoints with read-back.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant</span></code></p></td>
 <td><p>Required when a roster card shows the panel: <code class="docutils literal notranslate"><span class="pre">{}</span></code> hands each such
-card’s secret to the panel’s container. The build refuses the panel
-without it.</p></td>
+card’s secret to the panel’s container, and on a single-user
+deployment it names the one operator, so the panel’s writes are
+recorded under <code class="docutils literal notranslate"><span class="pre">deployment.host_identity</span></code>. The build refuses the
+panel without it.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant.single_user_alias</span></code> [false]</p></td>
-<td><p>The panel works for the alias login of a single-user deployment,
-which has no roster.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
 <td><p>The Python module run as the tool server.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.read</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.read</span></code></p></td>
 <td><p>Tools that only read.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.approval</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.approval</span></code></p></td>
 <td><p>Write tools, each with its approval entry (<a class="reference internal" href="#writes-and-approvals">Writes and approvals</a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> [false]</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> [false]</p></td>
 <td><p>No dispatch job runs any of the app’s tools.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.shown_when</span></code> [<code class="docutils literal notranslate"><span class="pre">always</span></code>]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.shown_when</span></code> [<code class="docutils literal notranslate"><span class="pre">always</span></code>]</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">panel</span></code>: the tool server is present only where the login shows the
 panel.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.errors.unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">tools.errors.refused</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.errors.unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">tools.errors.refused</span></code></p></td>
 <td><p>The sentences the agent sees for a backend that does not answer, and
 for a refused call.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">audit_identity</span></code> [<code class="docutils literal notranslate"><span class="pre">name</span></code>]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">audit_identity</span></code> [<code class="docutils literal notranslate"><span class="pre">name</span></code>]</p></td>
 <td><p>The name the containers’ spool and state directories file under;
 refused on an app with no container.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
 <td><p>Files fetched into the app at build: <code class="docutils literal notranslate"><span class="pre">{url,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> or
 <code class="docutils literal notranslate"><span class="pre">{package,</span> <span class="pre">version,</span> <span class="pre">file,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> (an npm package through
 the CDN).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
 <td><p>The skills the app carries, each <code class="docutils literal notranslate"><span class="pre">skills/&lt;name&gt;/SKILL.md</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
 <td><p>The subagents the app carries, each <code class="docutils literal notranslate"><span class="pre">agents/&lt;name&gt;.md</span></code>
 (<a class="reference internal" href="#subagents">Subagents</a>).</p></td>
 </tr>

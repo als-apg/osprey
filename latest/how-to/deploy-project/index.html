@@ -549,7 +549,7 @@ up to date.</p>
 <li><p class="sd-card-text">Overriding service images, and mirroring every image into one registry</p></li>
 <li><p class="sd-card-text">Where the deeper reference lives: compose templates, networking, and the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain each have their own subpage</p></li>
 </ul>
-<p class="sd-card-text"><strong>Prerequisites:</strong> Docker or Podman installed locally.</p>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Docker Engine 20.10 or newer (Docker Desktop 4.0 or newer on macOS and Windows) or Podman 4.1 or newer, and a supported compose provider (see <a class="reference internal" href="#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a>).</p>
 </div>
 </details><div class="admonition tip">
 <p class="admonition-title">Tip</p>
@@ -888,7 +888,7 @@ networks. The <code class="docutils literal notranslate"><span class="pre">optim
 Redis job store. So these containers must resolve each other by name. On
 Podman, that depends on which networking backend the host runs:</p>
 <ul class="simple">
-<li><p><strong>netavark</strong> (Podman 4.0+ default) — ships aardvark-dns, which serves
+<li><p><strong>netavark</strong> — ships aardvark-dns, which serves
 container-name DNS on every network a container is attached to. <strong>Required.</strong></p></li>
 <li><p><strong>cni</strong> (the legacy backend, still configured on some RHEL 8 hosts) — has no
 aardvark-dns. A dual-homed container receives only its <em>first</em> network’s

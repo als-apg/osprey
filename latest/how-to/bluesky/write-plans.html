@@ -619,15 +619,26 @@ and non-runnable everywhere.</p>
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-file-code" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.75C4 .784 4.784 0 5.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v8.586A1.75 1.75 0 0 1 14.25 15h-9a.75.75 0 0 1 0-1.5h9a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 10 4.25V1.5H5.75a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0Zm1.72 4.97a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.47-1.47-1.47-1.47a.75.75 0 0 1 0-1.06ZM3.28 7.78 1.81 9.25l1.47 1.47a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-2-2a.75.75 0 0 1 0-1.06l2-2a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Zm8.22-6.218V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"></path></svg></span><span class="sd-summary-text">Anatomy of a plan file</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <p class="sd-card-text">A plan file is a small Python module with three parts:</p>
 <ul class="simple">
-<li><p class="sd-card-text"><strong>Metadata</strong>: three things and no more. These are the plan’s name, a
-human description, and whether it moves anything on the machine.</p></li>
+<li><p class="sd-card-text"><strong>Metadata</strong>: the plan’s name, a human description, and whether it
+moves anything on the machine. Two optional keys shape the form
+BLUESKY’s Plans view builds from the parameters. <code class="docutils literal notranslate"><span class="pre">layout</span></code> lists rows
+of parameter names: the parameters of one row share a row of the form,
+and the rest follow. <code class="docutils literal notranslate"><span class="pre">summary</span></code> is the one-line readout above the
+form’s footer, a list of parts such as <code class="docutils literal notranslate"><span class="pre">&quot;{num}</span> <span class="pre">points&quot;</span></code> in which
+<code class="docutils literal notranslate"><span class="pre">{name}</span></code> stands for a parameter’s value. A part shows once every
+parameter it names has a value, and a list parameter shows as its
+count. A name that is not one of the plan’s parameters refuses the plan
+when it loads. A plan served by a facility-run queue server or written
+by the agent in a session cannot state these keys.</p></li>
 <li><p class="sd-card-text"><strong>Parameters</strong>: a schema describing the knobs (names, types, limits).
 BLUESKY’s Plans view turns this schema into a form, so a well-described
 parameter becomes a well-labeled field. A default computed by a function
 (<code class="docutils literal notranslate"><span class="pre">default_factory</span></code>) fills its field like a written one, and a plan
 whose default breaks its parameter’s own limits is refused when it
-loads. Each parameter that holds channel names also says what the plan
-does with them. See <em>A plan says what it touches</em> below.</p></li>
+loads. The function is called again when the plan is queued, and the
+run uses that queued value. Each parameter that holds channel names also
+says what the plan does with them. See <em>A plan says what it touches</em>
+below.</p></li>
 <li><p class="sd-card-text"><strong>The plan function</strong>: builds the actual Bluesky plan from the
 parameters and the resolved devices.</p></li>
 </ul>

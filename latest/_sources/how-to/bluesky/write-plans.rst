@@ -94,15 +94,26 @@ Two ways to add a plan
 
    A plan file is a small Python module with three parts:
 
-   - **Metadata**: three things and no more. These are the plan's name, a
-     human description, and whether it moves anything on the machine.
+   - **Metadata**: the plan's name, a human description, and whether it
+     moves anything on the machine. Two optional keys shape the form
+     BLUESKY's Plans view builds from the parameters. ``layout`` lists rows
+     of parameter names: the parameters of one row share a row of the form,
+     and the rest follow. ``summary`` is the one-line readout above the
+     form's footer, a list of parts such as ``"{num} points"`` in which
+     ``{name}`` stands for a parameter's value. A part shows once every
+     parameter it names has a value, and a list parameter shows as its
+     count. A name that is not one of the plan's parameters refuses the plan
+     when it loads. A plan served by a facility-run queue server or written
+     by the agent in a session cannot state these keys.
    - **Parameters**: a schema describing the knobs (names, types, limits).
      BLUESKY's Plans view turns this schema into a form, so a well-described
      parameter becomes a well-labeled field. A default computed by a function
      (``default_factory``) fills its field like a written one, and a plan
      whose default breaks its parameter's own limits is refused when it
-     loads. Each parameter that holds channel names also says what the plan
-     does with them. See *A plan says what it touches* below.
+     loads. The function is called again when the plan is queued, and the
+     run uses that queued value. Each parameter that holds channel names also
+     says what the plan does with them. See *A plan says what it touches*
+     below.
    - **The plan function**: builds the actual Bluesky plan from the
      parameters and the resolved devices.
 

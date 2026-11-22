@@ -834,6 +834,14 @@ started.</p>
 serving the simulator in process. Composing still works; the refusal
 names the command that serves the simulator from its container.</p>
 </dd>
+<dt><code class="docutils literal notranslate"><span class="pre">invalid_item</span></code></dt><dd><p class="sd-card-text">The staged arguments are not a valid set for the plan: a required
+parameter is missing or two values contradict each other. Nothing was
+queued. Correct the draft and add the new revision.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">plan_registry_unreadable</span></code></dt><dd><p class="sd-card-text">The bridge could not read its plan registry, so it could not check the
+arguments. Nothing was queued and the draft’s revision is still unused,
+so add the same revision again.</p>
+</dd>
 <dt><code class="docutils literal notranslate"><span class="pre">session_plan_unvalidated</span></code></dt><dd><p class="sd-card-text">An agent-written plan must pass validation, byte for byte, before it
 runs — see <a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
 </dd>

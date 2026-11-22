@@ -1146,11 +1146,15 @@ its home, and so are <code class="docutils literal notranslate"><span class="pre
 <li><p><code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">add</span></code> (the default) adds them by name, and its <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys win.
 <code class="docutils literal notranslate"><span class="pre">readonly</span></code> holds chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code>; <code class="docutils literal notranslate"><span class="pre">admin</span></code> the
 privileges the profile deliberately withholds.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> takes the lists, <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">default_panel</span></code>,
+<li><p><code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> takes <code class="docutils literal notranslate"><span class="pre">name</span></code>, the <code class="docutils literal notranslate"><span class="pre">hooks</span></code>, <code class="docutils literal notranslate"><span class="pre">rules</span></code>, <code class="docutils literal notranslate"><span class="pre">skills</span></code>,
+<code class="docutils literal notranslate"><span class="pre">agents</span></code>, <code class="docutils literal notranslate"><span class="pre">output_styles</span></code> and <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> lists, <code class="docutils literal notranslate"><span class="pre">default_panel</span></code>,
 <code class="docutils literal notranslate"><span class="pre">claude_md_template</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code> from the file alone;
-nothing the deployment selects is inherited. Its <code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code> are added
-to the deployment’s, but none of the deployment’s server switches reach it,
-so the file switches off each server it does without. The guards still reach
+nothing the deployment selects is inherited. A key the file leaves out is
+not inherited either: a login without <code class="docutils literal notranslate"><span class="pre">claude_md_template</span></code> renders the
+bundled <code class="docutils literal notranslate"><span class="pre">CLAUDE.md.j2</span></code>, not the deployment’s template. Its
+<code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code> are added to the deployment’s, but none of the deployment’s
+server switches reach it, so the file switches off each server it does
+without. The guards still reach
 it (see <a class="reference internal" href="#profile-custom-hooks"><span class="std std-ref">Custom hooks</span></a>). The bundled <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>
 and <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> logins are written this way.</p></li>
 </ul>

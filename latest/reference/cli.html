@@ -575,6 +575,11 @@ output, and durable state:</p>
   var/                           agent memory and audit log; gitignored
 </pre></div>
 </div>
+<p>An active <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> or <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block is written whole, so that
+its run limits and identity can be read and changed where the block sits: each
+key the preset leaves unstated appears at its default, with a one-line comment.
+Keys the build derives (the ports it takes from <code class="docutils literal notranslate"><span class="pre">port_base</span></code>, the archiver
+host) or that have no default are left out.</p>
 <p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and an initial commit run at the end, unless a git repository
 already encloses the target or <code class="docutils literal notranslate"><span class="pre">--no-git</span></code> is given.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> — Bundled preset to materialize.</p>
@@ -920,9 +925,10 @@ store’s container survives.</p>
 <p>If <code class="docutils literal notranslate"><span class="pre">build/</span></code> is gone or was never rendered, <code class="docutils literal notranslate"><span class="pre">down</span></code> does not re-derive the
 compose files from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — those describe what would be started now,
 not what is running. Instead it stops the services the last start recorded, in
-the compose project it recorded, and leaves any container another checkout
-created. That is the recovery path for a <code class="docutils literal notranslate"><span class="pre">build/</span></code> deleted while the stack was
-up.</p>
+the compose project it recorded. That is the recovery path for a <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+deleted while the stack was up.</p>
+<p>While another checkout of this repository holds the project name, <code class="docutils literal notranslate"><span class="pre">down</span></code>
+refuses, names that copy, and stops nothing.</p>
 <p>A deployment whose record names no services, or a repository with no record, is
 stopped by the label this repository put on its containers. Containers are
 labelled when they are <em>created</em>, so a stack started before this labelling
@@ -1522,12 +1528,14 @@ is refused, and whatever exists at <code class="docutils literal notranslate"><s
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Run what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks of the applications the <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block of
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> names, then the import boundary over each of their Python
-packages, that <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code> passes the panel validator’s page rules
-(the three design-system sheets, the theme boot script, the font sheet, no raw
-hex colour, the page-ready mark) and every class the panel sets has a CSS
-rule, ESLint over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> when it holds JS, and Vitest over
-<code class="docutils literal notranslate"><span class="pre">tests/**/*.test.{js,mjs}</span></code> when that matches a file. Prints every violation
-with its application, field and rule, and exits 1. An <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> the block
+packages, that <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code> passes the panel validator’s rules (the
+three design-system sheets, the theme boot script, the font sheet, no raw hex
+colour, the page-ready mark, no module of its own loaded <code class="docutils literal notranslate"><span class="pre">async</span></code>), ESLint
+over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> when it holds JS, and
+Vitest over <code class="docutils literal notranslate"><span class="pre">tests/**/*.test.{js,mjs}</span></code> when that matches a file. Prints every
+violation with its application, field and rule, and exits 1. A panel rule that
+only reports (a class with no CSS rule) is printed as
+<code class="docutils literal notranslate"><span class="pre">[undefined_class:</span> <span class="pre">report]</span></code> and does not fail the check. An <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> the block
 does not name is reported and not checked. An application an installed package
 ships is checked too; its violations name the
 distribution (<code class="docutils literal notranslate"><span class="pre">&lt;dist&gt;:&lt;module</span> <span class="pre">path&gt;/&lt;file&gt;</span></code>). The JS checks execute the
@@ -2386,7 +2394,12 @@ restart the server to mint a new one.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--skip-preflight</span></code> — Skip the pre-flight checks (companion port collisions
 and the like) and start anyway. Without it, a failed check refuses the start.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Stop a background web terminal server.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Stop a background web terminal server. Returns once the server and the
+processes it started have exited, waiting up to 60 seconds. A process that
+outlives the server is ended with SIGTERM, then SIGKILL; one that cannot be
+ended is named and the command exits 1. A server still running after the
+wait is named and left alone, and the command exits 1; its PID file is
+kept, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> can be run again.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">sessions</span></code></dt><dd><p>Group for the commands that manage the sessions kept on disk.</p>
 </dd>

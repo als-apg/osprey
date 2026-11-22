@@ -842,7 +842,12 @@ import.</p>
 names each file, changes nothing and exits 1. The mml format writes channel,
 device, group, model, deck, seed, limit, identity and measurement records; the
 list format writes channel and device records. A file is hand-written once its
-bundled-origin line is gone. Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>.</p></li>
+first line is neither its bundled-origin line nor the seed header the import
+writes atop the files it creates,
+<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Seeded</span> <span class="pre">once</span> <span class="pre">by</span> <span class="pre">the</span> <span class="pre">facility</span> <span class="pre">import;</span> <span class="pre">edit</span> <span class="pre">this</span> <span class="pre">file</span> <span class="pre">by</span> <span class="pre">hand.</span></code>
+A file that opens with the retired header is read as seeded, and the import
+prints one warning that lists each such file and the line to set.
+Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>.</p></li>
 <li><p>Once the facility holds an imported layer, records written by hand beside it
 stay and stop no import. They are the facility’s own additions, such as a
 model no export states, and the build combines them with the layers.</p></li>

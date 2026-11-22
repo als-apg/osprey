@@ -926,7 +926,8 @@ Invalid ones are skipped, so one bad panel never breaks the others.
 (<code class="docutils literal notranslate"><span class="pre">web_terminals.panel_not_served</span></code>) for each invalid panel in the render it
 builds. The panels list, <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/panels</span></code>, carries every panel the
 running web terminal skipped under <code class="docutils literal notranslate"><span class="pre">refused</span></code>, including one added after
-the build.</p>
+the build. A finding that only reports does not count: the panel is served
+and the log names it.</p>
 </li>
 </ol>
 <div class="admonition warning">
@@ -1095,9 +1096,10 @@ entry file, and version). Two rules make it theme itself for free, and a
 validator enforces both: it must <strong>boot the shared theme before the page
 paints</strong> (so it never flashes the wrong colors), and it must use <strong>only
 design tokens</strong> for color — never a raw hex value. It must also say
-when it can be driven: <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code> and a
-<code class="docutils literal notranslate"><span class="pre">markPageReady()</span></code> call. Copy OSPREY’s reference panel and you start
-compliant.</p>
+when it can be driven: <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code>, the
+page-ready script loaded first, and a <code class="docutils literal notranslate"><span class="pre">markPageReady()</span></code> call. A
+module of its own loaded <code class="docutils literal notranslate"><span class="pre">async</span></code> is refused. Copy OSPREY’s
+reference panel and you start compliant.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
@@ -1105,7 +1107,9 @@ Serving &amp; discovery</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">Discovered panels are served straight from disk, with no proxy. They
 run at an opaque origin, not the terminal’s own; see
 <a class="reference internal" href="#web-terminal-panels-opaque-origin"><span class="std std-ref">Panels you add run at an opaque origin</span></a>. Discovery is
-<strong>fail-closed</strong>: only a fully valid panel is ever served. The
+<strong>fail-closed</strong>: a panel that breaks a rule is not served. The
+exception is a rule that only reports, such as a class with no CSS
+rule: its finding is logged and the panel is served. The
 <code class="docutils literal notranslate"><span class="pre">allow_runtime_panels</span></code> switch is deliberately off by default because
 it is also what lets the agent register panels at runtime. Turning it
 on is your explicit decision to trust the panels the terminal makes
