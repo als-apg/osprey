@@ -1,1 +1,0 @@
-Record the CANOPY payload's screen viewer at 448edbdb. A screen can ask for the confirmation dialog on one node (`confirmWrites`), the dialog shows each channel's current value beside the new one, and a text entry can stage its value (`stage`) for an Apply or Reset button (`apply_staged`, `clear_staged`). Screens that use none of these render and write as before.

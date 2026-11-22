@@ -1,18 +1,45 @@
-# Osprey Framework - Latest Release (v2026.11.0)
+# Osprey Framework - Latest Release (v2026.11.1)
 
-**From a single-user assistant to a control-room deployment: sign-in and
-tiers, an agent record, watchdogs and code review around every write, and
-connectors on their own release stream.**
+**Follow-up to 2026.11.0: simulation engines move to the connectors package,
+the channel directory is named in channel and server words, and
+`osprey facility panels` draws operator screens from the facility description.**
 
-First stable release since 2026.6.2. These notes are written for an upgrade
-from 2026.6.2; a site on a 2026.9.0 beta reads `CHANGELOG.md`, section
-2026.11.0. Install with
+Install with
 
     uv tool install osprey-framework
 
-It requires `osprey-connectors>=2026.11.11`, released on its own version
-stream; a deployment that pins versions pins both. CI runs Python 3.11, 3.12
-and 3.14.
+It requires `osprey-connectors>=2026.11.15`, released on its own version
+stream; a deployment that pins versions pins both. Framework 2026.11.0 does
+not find its simulation engines under `osprey-connectors` 2026.11.15 or newer,
+so upgrade the framework and `osprey-connectors` together.
+
+## Upgrading from 2026.11.0
+
+Each item is an entry marked **Breaking change** in `CHANGELOG.md`, section
+2026.11.1, which states it in full.
+
+- **Simulation engines.** A package that ships its own engine renames its
+  entry-point table from `osprey.simulation.engines` to
+  `osprey_connectors.simulation.engines` and reinstalls.
+- **Channel directory.** The config section `pv_directory` is
+  `channel_directory`, the MCP server `pv-directory` is `channel-directory`,
+  and the tools `pv_record` and `ioc_record` are `channel_record` and
+  `server_record`. The build names an old config key; old tool names in a
+  facility's own prompts, skills and permission rules are not checked.
+- **Facility file.** `build/facility.json` is version 4. Run `osprey build`,
+  then `osprey facility panels write` where panels were written before.
+- **Panels.** A panel under `panels/` is served only if its entry page loads
+  `/design-system/js/page-ready.js` first, declares
+  `data-page-ready="pending"` and calls `markPageReady()`. `osprey build` and
+  `osprey app check` name a panel that does not.
+- **Apps.** `panel.roster_grant.single_user_alias` is removed from `app.yml`;
+  write `roster_grant: {}`.
+- **Artifact store.** A tool of your own passes `deliver=True` when it saves a
+  file meant for the person who asked; other saves are no longer posted to a
+  chat by a dispatch run.
+
+The sections below are the 2026.11.0 notes, written for an upgrade from
+2026.6.2.
 
 ## What changed since 2026.6.2
 
@@ -108,6 +135,10 @@ The full list, each with its migration, is under **Breaking changes** in
 - Scheduled and triggered dispatch jobs cannot write.
 
 ## Not tested for this release
+
+2026.11.1 was cut without the pre-release documentation sweeps, the
+clean-environment test pass and the review of the documentation videos; its
+gate was the full CI run on the released tree. The list below is from 2026.11.0.
 
 - The MATLAB Middle Layer export parity tests (no licensed MATLAB on a test
   host).

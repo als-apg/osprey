@@ -1,1 +1,0 @@
-The channel-finder subagent's instructions say the absent-node option is a real choice whose description names what is missing, chosen only where the node has no value at that level; a level the question does not mention takes every option that applies.

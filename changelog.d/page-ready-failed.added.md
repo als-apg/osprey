@@ -1,1 +1,0 @@
-A page that declares `data-page-ready="pending"` and throws before it marks itself ready is marked `data-page-ready="failed"` by the design system's page-ready writer. A script that waits for `"true"` can stop on `"failed"` instead of timing out.

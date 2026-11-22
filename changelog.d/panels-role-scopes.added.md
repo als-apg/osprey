@@ -1,1 +1,0 @@
-Panels: a `channel_roles.csv` row's `scope` may name any relation type of the vocabulary that runs from a device to a device (`interlocked_by`, `powered_by`, `triggered_by`, ...), walked like `read_out_by`: a device's card shows its own interlock point by the stated relation, and an interlock's card carries the points of the devices it interlocks through a chain.

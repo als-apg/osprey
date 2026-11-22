@@ -1,1 +1,0 @@
-Panels: a setpoint's readback comes from the facility file alone, its channel `pair`; the `pairs.csv` table is gone. A pair a layer states shows as stated, with the file that states it; a pair the build derives from the signals shows as inferred, with the rule.
