@@ -433,6 +433,19 @@ file, not scenario faults. A scenario whose errors leave no closed orbit does
 not boot quietly wrong: its model fails with the solve error, which names the
 elements seeded, and the model's status names the scenario.
 
+One fault is the lattice's own: ``lattice/circumference_error``, the length
+by which the ring as built differs from its design, in metres and bounded to
+10 cm. A scenario writes it under ``faults.<model>`` as
+``{lattice/circumference_error: 2.0e-4}`` or as
+``{lattice: {circumference_error: 2.0e-4}}``. It is seeded once, when the
+model is built, by scaling every drift of the model's copy of the deck by one
+factor; the magnets keep their lengths. The beam still makes its harmonic
+number of RF periods per turn, so a ring longer by ``dC`` is the design ring
+driven at a frequency higher by ``f * dC / C``: the closed orbit moves to the
+energy whose path has the design length, and the RF frequency that centres
+the beam is lower than the design one by that much. A ``single_pass`` model
+declares no such fault.
+
 A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from
 the composite's own value.

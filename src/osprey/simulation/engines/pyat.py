@@ -66,6 +66,7 @@ from osprey.simulation.engines.calibration import (
     to_physics,
 )
 from osprey.simulation.engines.pyat_faults import (
+    CIRCUMFERENCE_ERROR,
     ELEMENT_SCOPE,
     ERROR_ELEMENTS_KEY,
     FAULT_SEPARATOR,
@@ -73,6 +74,7 @@ from osprey.simulation.engines.pyat_faults import (
     FaultSlot,
     error_elements,
     fault_variables,
+    lengthen,
     multipole_attribute,
     multipole_field,
     readout,
@@ -1386,7 +1388,9 @@ def build(
     misalignment (``dx``, ``dy``, ``roll``) becomes the element's entrance and
     exit transforms, a multipole error (``dB<n>``, ``dA<n>``) is added to the
     element's polynomial coefficient and held there across every later write
-    of a setpoint on the same coefficient. The model is then reset once -- one batch, one
+    of a setpoint on the same coefficient. The ring-length error,
+    ``lattice/circumference_error``, scales every drift of a ``periodic``
+    model's copy by one factor. The model is then reset once -- one batch, one
     solve -- so the lattice holds every setpoint's default, and a later
     :meth:`reset` returns to the active scenario rather than to the deck.
 
@@ -1411,7 +1415,9 @@ def build(
         ValueError: an entry cannot be built as a variable, a default or an
             active value lies outside its ``value_range``, a key of
             ``active`` names no setpoint and no fault of the model, an
-            element error lies outside its bounds or is not finite, an
+            element error or the ring-length error lies outside its bounds
+            or is not finite, the ring-length error is seeded on a deck
+            with no drift, an
             ``error_elements`` element is a wired monitor's or is named like
             a wired address
             (:class:`~osprey.simulation.engines.pyat_faults.ErrorElementsError`),
@@ -1527,14 +1533,15 @@ def build(
             channels.append(variable)
 
     faults = {name: float(value) for name, value in active.items() if name not in writes}
-    element_slots = {
-        name: slot
-        for name, slot in fault_variables(entries, settings).items()
-        if slot.scope == ELEMENT_SCOPE
-    }
+    slots = fault_variables(entries, settings)
+    element_slots = {name: slot for name, slot in slots.items() if slot.scope == ELEMENT_SCOPE}
     errors = {name: faults.pop(name) for name in sorted(faults) if name in element_slots}
     misalignments, multipoles = _element_errors(errors, element_slots)
     _seed_multipoles(lattice, multipoles)
+    if CIRCUMFERENCE_ERROR in slots and CIRCUMFERENCE_ERROR in faults:
+        errors[CIRCUMFERENCE_ERROR] = faults.pop(CIRCUMFERENCE_ERROR)
+        _check_seed(CIRCUMFERENCE_ERROR, errors[CIRCUMFERENCE_ERROR], slots[CIRCUMFERENCE_ERROR])
+        lengthen(lattice, errors[CIRCUMFERENCE_ERROR])
     try:
         if prepared.turn_by_turn is None:
             built = PyATLatticeModel(
@@ -1580,19 +1587,28 @@ def _element_errors(
     multipoles: dict[str, dict[tuple[str, int], float]] = {}
     for name, value in errors.items():
         slot = slots[name]
-        if not math.isfinite(value):
-            raise ValueError(f"element error {name} is {value!r}; write a finite value")
-        low, high = slot.value_range or (-math.inf, math.inf)
-        if not low <= value <= high:
-            raise ValueError(
-                f"element error {name} is {value:g}, outside its range [{low:g}, {high:g}]"
-            )
+        _check_seed(name, value, slot)
         polynomial = multipole_field(slot.field)
         if polynomial is None:
             misalignments.setdefault(slot.address, {})[slot.field] = value
         else:
             multipoles.setdefault(slot.address, {})[polynomial] = value
     return misalignments, multipoles
+
+
+def _check_seed(name: str, value: float, slot: FaultSlot) -> None:
+    """Hold one element or lattice error to its slot.
+
+    Raises:
+        ValueError: the value is not finite or lies outside the slot's range.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f"element error {name} is {value!r}; write a finite value")
+    low, high = slot.value_range or (-math.inf, math.inf)
+    if not low <= value <= high:
+        raise ValueError(
+            f"element error {name} is {value:g}, outside its range [{low:g}, {high:g}]"
+        )
 
 
 def _seed_multipoles(
