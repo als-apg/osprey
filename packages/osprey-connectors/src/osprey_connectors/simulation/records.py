@@ -144,7 +144,8 @@ class ChannelRecord(TypedDict):
 
     ``value_range`` is ``[min, max]`` when the channel's limits record states
     both, else ``None``. ``started_by`` names the command whose write moves a
-    setpoint's readback to the setpoint's held value.
+    setpoint's readback to the setpoint's held value; only a setpoint the
+    texture serves states it.
     """
 
     address: str

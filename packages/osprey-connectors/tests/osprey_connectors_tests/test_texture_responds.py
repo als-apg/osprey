@@ -2,8 +2,9 @@
 
 A seed's ``responds: {to, for_s, value}`` holds ``value`` for ``for_s`` seconds
 after each live write to ``to``; a channel's ``started_by`` holds a setpoint's
-write until its command is written. The view reader refuses either key when it
-names no command the texture can serve.
+write until its command is written. The view reader refuses either key when its
+command is no setpoint of the view, and ``started_by`` on a setpoint a physics
+model serves.
 """
 
 from __future__ import annotations
@@ -213,6 +214,35 @@ def _started_by_a_further_address(variables: dict[str, Any], _seeds: dict[str, A
     return VARIABLES_FILE
 
 
+def _serve_the_position_by_a_model(variables: dict[str, Any], *, engine: str, served: bool) -> None:
+    """Wire ``POSITION_SP`` by model ``M``; its channel keeps ``started_by``."""
+    variables["models"] = [
+        {
+            "name": "M",
+            "engine": engine,
+            "served": served,
+            "settings": {},
+            "deck": None,
+            "wiring": [
+                {
+                    "id": "w1",
+                    "address": POSITION_SP,
+                    "direction": "write",
+                    "engine_role": "setpoint",
+                    "plane": None,
+                    "refresh": "pass",
+                }
+            ],
+        }
+    ]
+    variables["channels"][2]["owner"] = "M"
+
+
+def _started_on_a_physics_setpoint(variables: dict[str, Any], _seeds: dict[str, Any]) -> str:
+    _serve_the_position_by_a_model(variables, engine="stub", served=True)
+    return VARIABLES_FILE
+
+
 @pytest.mark.parametrize(
     "break_view",
     [
@@ -224,6 +254,7 @@ def _started_by_a_further_address(variables: dict[str, Any], _seeds: dict[str, A
         _on_a_followed_readback_named_by_its_further_address,
         _started_by_a_readback,
         _started_by_a_further_address,
+        _started_on_a_physics_setpoint,
     ],
     ids=lambda case: case.__name__.lstrip("_"),
 )
@@ -234,6 +265,45 @@ def test_a_view_with_a_malformed_responds_is_refused(tmp_path: Path, break_view:
 
     with pytest.raises(ViewSchemaError, match="rebuild with osprey build"):
         view.document(name)
+
+
+def test_started_by_on_a_setpoint_a_physics_model_serves_names_the_model(
+    tmp_path: Path,
+) -> None:
+    variables, seeds = _documents()
+    _started_on_a_physics_setpoint(variables, seeds)
+    view = _write_view(tmp_path, variables, seeds)
+
+    with pytest.raises(
+        ViewSchemaError,
+        match=(
+            f"channel '{POSITION_SP}' states `started_by` '{MOVE}', "
+            "but model 'M' serves it, not the texture: rebuild with osprey build"
+        ),
+    ):
+        view.document(VARIABLES_FILE)
+
+
+def test_started_by_on_a_further_address_of_a_physics_record_is_refused(tmp_path: Path) -> None:
+    variables, seeds = _documents()
+    _with_further_address(variables)
+    variables["channels"][-1]["started_by"] = MOVE
+    view = _write_view(tmp_path, variables, seeds)
+
+    with pytest.raises(ViewSchemaError, match=f"channel '{FURTHER}' .* model 'M' serves it"):
+        view.document(VARIABLES_FILE)
+
+
+def test_started_by_on_a_setpoint_of_an_unserved_model_reads(tmp_path: Path) -> None:
+    variables, seeds = _documents()
+    _serve_the_position_by_a_model(variables, engine="stub", served=False)
+    view = _write_view(tmp_path, variables, seeds)
+
+    model = TextureModel(view.document(VARIABLES_FILE), view.document(SEEDS_FILE), clock=lambda: T0)
+    model.set({POSITION_SP: 4.0})
+    model.set({MOVE: 1})
+
+    assert model.get(POSITION_RB) == 4.0
 
 
 def test_a_view_without_the_new_keys_reads_as_before(tmp_path: Path) -> None:
@@ -531,12 +601,12 @@ def _physics_command(variables: dict[str, Any]) -> None:
     variables["channels"][0]["owner"] = "M"
 
 
-def _composite(
-    tmp_path: Path, *, physics: bool = False, scenarios: list[dict[str, Any]] | None = None
-) -> tuple[Composite, list[float]]:
-    variables, seeds = _documents()
-    if physics:
-        _physics_command(variables)
+def _composite_view(
+    tmp_path: Path,
+    variables: dict[str, Any],
+    seeds: dict[str, Any],
+    scenarios: list[dict[str, Any]] | None = None,
+) -> Path:
     view = tmp_path / "view"
     view.mkdir()
     documents = {
@@ -553,11 +623,31 @@ def _composite(
         (view / name).write_text(
             json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
         )
+    return view
+
+
+def _composite(
+    tmp_path: Path, *, physics: bool = False, scenarios: list[dict[str, Any]] | None = None
+) -> tuple[Composite, list[float]]:
+    variables, seeds = _documents()
+    if physics:
+        _physics_command(variables)
+    view = _composite_view(tmp_path, variables, seeds, scenarios)
     clock = [T0]
     composite = Composite(
         view, state_dir=tmp_path / "state", clock=lambda: clock[0], model_log=False
     )
     return composite, clock
+
+
+@pytest.mark.usefixtures("plain_engine")
+def test_a_composite_on_a_view_starting_a_physics_setpoint_is_refused(tmp_path: Path) -> None:
+    variables, seeds = _documents()
+    _serve_the_position_by_a_model(variables, engine="plain", served=True)
+    view = _composite_view(tmp_path, variables, seeds)
+
+    with pytest.raises(ViewSchemaError, match="model 'M' serves it, not the texture"):
+        Composite(view, state_dir=tmp_path / "state", clock=lambda: T0, model_log=False)
 
 
 @pytest.mark.usefixtures("plain_engine")
