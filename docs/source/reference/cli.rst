@@ -1781,7 +1781,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    that did not fit, its units on its heading in place of the line. A list
    takes as many columns as fit with each as wide as its own longest name; a
    name longer than the whole width keeps the part that tells it from the
-   others, the whole on hover. Every long list reads alike: filled downward in
+   others, the whole on hover. A rack's list is filled downward in
    balanced columns (two columns of a band differ by one row at most), a larger
    gap after every fourth row, in bands of twenty rows read down then across; a
    list of one or two rows fills across. An operate panel draws each control as one row on one
