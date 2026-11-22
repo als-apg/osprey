@@ -1067,9 +1067,10 @@ def test_a_choice_of_one_stated_segment_is_an_action_with_the_status_beside_it(t
 
 
 def test_each_control_is_one_row_on_one_set_of_columns(tmp_path) -> None:
-    """Every control a row: its kind's tag, its name once, what it is now, the field
-    or the button in one column for all rows, then what it does. The legend of the
-    kinds stands on the panel's title line."""
+    """Every control a row: what it is now, the field or the button in one column for
+    all rows, then what it does; its kind's tag once at the group's head, and no
+    name beside a button that says the same. The legend of the kinds stands on the
+    panel's title line."""
     roles = (
         "PowerSupply,reset,*:On-Cmd,device,action,,,1,Reset,stated,S,1,l\n"
         "PowerSupply,start,*:On-Cmd,device,action,,,1,Start,stated,S,1,l\n"
@@ -1089,10 +1090,12 @@ def test_each_control_is_one_row_on_one_set_of_columns(tmp_path) -> None:
     assert len(column) == 1  # buttons and fields in one column
     texts = [n["props"]["text"] for n in _by_type(doc, "text-label")]
     for name in ("Reset", "Start"):
-        assert texts.count(name) == 1, name  # its name once, beside its tag
+        assert texts.count(name) == 0, name  # said once: by its button, no name beside it
     head = next(n for n in _by_type(doc, "text-label") if n["props"]["text"].endswith("· OPERATE"))
     tags = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "ACTION"]
     assert any(t["geometry"]["y"] == head["geometry"]["y"] for t in tags)  # the legend's
+    # the kind's tag once at the group's head, not on every row
+    assert len([t for t in tags if t["geometry"]["y"] != head["geometry"]["y"]]) == 1
 
 
 FRONTS_HEADER = (
@@ -1651,10 +1654,13 @@ def test_inside_a_place_a_member_shows_its_short_name_and_two_alike_keep_what_di
 
 
 def test_number_order_compares_numbers_as_numbers() -> None:
-    from osprey.facility.panels.describe import _number_key
+    from osprey.facility.panels.order import name_order
 
     names = ["XR03:T10", "XR03:T9", "XR03:T30"]
-    assert sorted(names, key=_number_key) == ["XR03:T9", "XR03:T10", "XR03:T30"]
+    assert sorted(names, key=name_order) == ["XR03:T9", "XR03:T10", "XR03:T30"]
+    rows = ["BO 11", "BO 1", "BO 10", "BO 2", "BO 0"]
+    assert sorted(rows, key=name_order) == ["BO 0", "BO 1", "BO 2", "BO 10", "BO 11"]
+    assert sorted(["b", "a10", "a9", "10", "9"], key=name_order) == ["9", "10", "a9", "a10", "b"]
 
 
 def test_a_ladder_marks_the_set_points_in_order_and_names_those_not_served(tmp_path):
@@ -2755,7 +2761,54 @@ def test_choices_in_a_row_stand_side_by_side_in_cells(panel_graph) -> None:
     doc = stub_render(replace(card, sections=sections), panel_graph)
     tags = [n["geometry"] for n in _by_type(doc, "text-label") if n["props"]["text"] == "CHOICE"]
     rows = [g for g in tags if g["y"] > min(t["y"] for t in tags)]  # not the legend's
-    assert len({g["x"] for g in rows}) >= 2  # side by side
-    assert len({g["y"] for g in rows}) <= 3  # six choices in three rows or fewer
+    assert len(rows) == 1  # the kind's tag once, at the head of the run
     offs = [n["geometry"] for n in _by_type(doc, "pv-button") if n["props"].get("label") == "Off"]
-    assert len({g["x"] for g in offs}) == len({g["x"] for g in rows})  # one column a cell
+    assert len(offs) == 6
+    assert len({g["x"] for g in offs}) >= 2  # side by side, one column a cell
+    assert len({g["y"] for g in offs}) <= 3  # six choices in three rows or fewer
+
+
+def test_a_choice_too_long_for_its_line_reads_downward(panel_graph) -> None:
+    """A choice whose segments do not fit one line stands in columns read downward,
+    as an action group's rows do: the second segment under the first."""
+    from dataclasses import replace
+
+    from osprey.facility.panels.view import Control, ControlGroup, Operate
+
+    segments = tuple(
+        Control(f"S{v}", "XR01-PS1:Mode-Sel", press_value=float(v), status="XR01-PS1:Mode-Sts")
+        for v in range(12)
+    )
+    operate = Operate((ControlGroup("choice", "Mode", segments, "writes XR01-PS1:Mode-Sel"),))
+    card = device_card(panel_graph, "XR01:PS1")
+    sections = tuple(
+        replace(s, items=(operate,)) if any(isinstance(i, Operate) for i in s.items) else s
+        for s in card.sections
+    )
+    doc = stub_render(replace(card, sections=sections), panel_graph)
+    at = {n["props"]["label"]: n["geometry"] for n in _by_type(doc, "pv-button")
+          if str(n["props"].get("label", "")).startswith("S")}  # fmt: skip
+    assert len({g["y"] for g in at.values()}) > 1  # more than one line
+    assert at["S1"]["x"] == at["S0"]["x"] and at["S1"]["y"] > at["S0"]["y"]  # down first
+
+
+def test_numbered_actions_stand_in_number_order(tmp_path) -> None:
+    """Outputs named 0, 1, 2, 10, 11 stand in that order, never 0, 1, 10, 11, 2."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def outputs(document) -> None:
+        for k in (11, 1, 10, 2, 0):
+            document["channels"].append({"id": f"XR01-PS1:BO{k}-Cmd", "on": {"device": "XR01:PS1"}})
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "PowerSupply,output,*:BO*-Cmd,device,action,,,1,Pulse,stated,S,1,l\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", outputs), tables)
+    operate = next(
+        i for s in device_card(graph, "XR01:PS1").sections for i in s.items
+        if type(i).__name__ == "Operate"
+    )  # fmt: skip
+    channels = [c.channel for g in operate.groups for c in g.controls]
+    assert channels == [f"XR01-PS1:BO{k}-Cmd" for k in (0, 1, 2, 10, 11)]

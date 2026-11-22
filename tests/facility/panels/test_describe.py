@@ -1330,11 +1330,12 @@ def test_a_place_view_and_a_system_roll_up_open_the_sets_in_them(panel_graph):
     quad = Link("XR-QUAD", Target("set", "group", "XR-QUAD"))
     pumps = Link("XR01-VAC", Target("set", "group", "XR01-VAC"))
     # the sector's sets: the one across both sectors and its own pumps, not the other's
-    assert _section(place_view(panel_graph, "XR/XR01"), SETS_SECTION).items == (quad, pumps)
+    # by name, numbers by value: "XR" and then a number before "XR-QUAD"
+    assert _section(place_view(panel_graph, "XR/XR01"), SETS_SECTION).items == (pumps, quad)
     one = health_rollup(panel_graph, "XR/XR01", "system", system="Quadrupole")
     assert _section(one, SETS_SECTION).items == (quad,)  # a set is one class
     every = health_rollup(panel_graph, "XR/XR01", "system")  # every system: every set here
-    assert _section(every, SETS_SECTION).items == (quad, pumps)
+    assert _section(every, SETS_SECTION).items == (pumps, quad)
     assert SETS_SECTION not in _titles(health_rollup(panel_graph, "XR/XR01", "place"))
 
 

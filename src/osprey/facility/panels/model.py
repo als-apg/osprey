@@ -60,6 +60,7 @@ from osprey.facility.panels.document import (
     FacilityDocument,
     end_identity,
 )
+from osprey.facility.panels.order import name_order
 from osprey.facility.panels.tables import (
     CALIBRATION_BASES,
     CHANNEL_ROLES,
@@ -1641,7 +1642,9 @@ class PanelGraph:
                 cut = max(thing.id.rfind(":"), thing.id.rfind("."))
                 if cut > 0:
                     found.setdefault(thing.id[:cut], []).append(thing)
-            self._under_names = {k: sorted(v, key=lambda t: t.id) for k, v in found.items()}
+            self._under_names = {
+                k: sorted(v, key=lambda t: name_order(t.id)) for k, v in found.items()
+            }
         return list(self._under_names.get(owner, ()))
 
     def chain(self, recipe: str, chain: str) -> list[ChainStep]:

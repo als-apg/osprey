@@ -51,6 +51,7 @@ from osprey.facility.panels.describe import (
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph, id_tail
+from osprey.facility.panels.order import name_order
 from osprey.facility.panels.strip import Placed
 from osprey.facility.panels.symbols import (
     BOX_BORDER,
@@ -3262,7 +3263,7 @@ class _Page:
             unit = next((row.unit for _x, row in cells if row.unit), None)
             title = f"{label} ({unit})" if unit else label
             self.small(self.x0, self.y + mid, _cut(title, label_w, SMALL_SIZE), fg=MUTED_TEXT)
-            names = sorted({row.label for _x, row in cells})
+            names = sorted({row.label for _x, row in cells}, key=name_order)
             if len(names) > 1 or _cut(title, label_w, SMALL_SIZE) != title:  # whole, on hover
                 self.s.widget(
                     "rectangle", self.x0, self.y, label_w, ROW,
@@ -3661,7 +3662,8 @@ class _Page:
             for j, group in enumerate(run[first : first + per]):
                 self.y = top
                 dx = j * (cell + COLUMN_GAP)
-                self.control_block(group, _moved(at, dx), room=cell)
+                # the kind's tag once, at the head of the run of its kind
+                self.control_block(group, _moved(at, dx), room=cell, tag=not first and not j)
                 self.writes_line(group, cell - (at.name - at.badge), at.name + dx)
                 foot = max(foot, self.y)
             self.y = foot
@@ -3690,7 +3692,12 @@ class _Page:
         return lines * step + writes * SMALL_LINE + GAP
 
     def control_block(
-        self, group: ControlGroup, at: _ControlColumns, room: float = STRIP_WIDTH
+        self,
+        group: ControlGroup,
+        at: _ControlColumns,
+        room: float = STRIP_WIDTH,
+        *,
+        tag: bool = True,
     ) -> None:
         """A group's rows. Rows that end at their button or value (actions, read-only
         values) use the width: as many columns of rows, side by side, as fit the
@@ -3708,7 +3715,9 @@ class _Page:
             dx = (k // per) * (width + COLUMN_GAP)
             if not k % per:
                 self.y = top
-            self.control_row(group, control, name, _moved(at, dx), right=at.badge + room)
+            self.control_row(
+                group, control, name, _moved(at, dx), right=at.badge + room, tag=tag and not k
+            )
             foot = max(foot, self.y)
         self.y = foot
 
@@ -3785,27 +3794,34 @@ class _Page:
         name: str,
         at: _ControlColumns,
         right: float | None = None,
+        *,
+        tag: bool = True,
     ) -> None:
         """One row on the panel's columns: tag, name, now, the field or the buttons,
         and for an entry Apply and what it will write; a choice's segments wrap at
-        *right* (the panel's edge)."""
+        *right* (the panel's edge) and read downward, column by column. Said once:
+        the kind's tag on a group's first row only (*tag*), and no name beside a
+        button that says the same."""
         right = self.x0 + STRIP_WIDTH if right is None else right
         y = self.y
         mid = y + (CONTROL_HEIGHT - ROW) / 2  # a row of text centred on a button's height
         withheld = group.kind == WITHHELD
-        self.control_tag(
-            at.badge,
-            y + (CONTROL_HEIGHT - CONTROL_TAG_HEIGHT) / 2,
-            _READ_ONLY_TAG if withheld else group.kind.upper(),
-        )
-        self.text(
-            at.name,
-            mid,
-            _cut(name, at.name_w, BLOCK_TEXT_SIZE),
-            size=BLOCK_TEXT_SIZE,
-            w=at.name_w,
-            h=ROW,
-        )
+        if tag:
+            self.control_tag(
+                at.badge,
+                y + (CONTROL_HEIGHT - CONTROL_TAG_HEIGHT) / 2,
+                _READ_ONLY_TAG if withheld else group.kind.upper(),
+            )
+        pressed = group.kind == "action" and control is not None
+        if not (pressed and control is not None and control.label == name):
+            self.text(
+                at.name,
+                mid,
+                _cut(name, at.name_w, BLOCK_TEXT_SIZE),
+                size=BLOCK_TEXT_SIZE,
+                w=at.name_w,
+                h=ROW,
+            )
         if group.kind == "entry" and control is not None:
             self.small(at.now, mid + (ROW - SMALL_LINE) / 2, _NOW, fg=MUTED_TEXT)
             self.number(at.value, mid, at.live_w, ROW, control.channel, None, None, TEXT_SIZE)
@@ -3826,14 +3842,13 @@ class _Page:
                 )  # fmt: skip
             self.press(at.box, y, control, False)
         else:  # a choice: its segments side by side, shaded while the status reads them
-            x = at.box
-            for segment in group.controls:
-                if x > at.box and x + CONTROL_WIDTH > right:
-                    x = at.box  # a segment past the edge starts a line under the row
-                    self.y += CONTROL_HEIGHT + ROW_GAP
-                    y = self.y
-                self.press(x, y, segment, True)
-                x += CONTROL_WIDTH + GAP
+            across = max(1, int((right - at.box + GAP) // (CONTROL_WIDTH + GAP)))
+            lines = -(-len(group.controls) // across)  # read downward, as an action group
+            for k, segment in enumerate(group.controls):
+                column, line = divmod(k, lines)
+                sy = y + line * (CONTROL_HEIGHT + ROW_GAP)
+                self.press(at.box + column * (CONTROL_WIDTH + GAP), sy, segment, True)
+            self.y += (lines - 1) * (CONTROL_HEIGHT + ROW_GAP)
         self.y += CONTROL_HEIGHT + ROW_GAP
 
     def graph_words(self, channel: str) -> tuple[tuple[str, str], ...]:

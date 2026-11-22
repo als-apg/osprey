@@ -1771,7 +1771,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    set of columns: tag, name, now, field or button, what it does; groups whose
    rows end at their button or value (actions, choices, read-only values) stand
    up to three side by side, and a group of many such rows takes up to three
-   columns, filled downward. Every widget
+   columns, filled downward, as do a choice's segments that wrap. Said once:
+   the kind's tag stands at the head of a run of one kind, and a row whose
+   button says its name has no name beside it. Every list ordered by name
+   takes the numbers in a name by value (``2`` before ``10``); it only orders,
+   it groups nothing. Every widget
    stands on whole pixels, each edge rounded where it is written, and every
    screen ends one margin under its lowest frame. The layout measures text in
    the viewer's own font
