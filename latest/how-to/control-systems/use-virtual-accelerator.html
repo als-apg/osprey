@@ -1042,6 +1042,63 @@ deployment, keep them in a <a class="reference internal" href="machine-repositor
 <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.json</span></code>, and the container builds the model from that copy when
 <code class="docutils literal notranslate"><span class="pre">simulation.models</span></code> serves it. No code and no image are involved.</p>
 </section>
+<section id="rf-setpoints">
+<span id="va-rf-setpoints"></span><h3>RF setpoints<a class="headerlink" href="#rf-setpoints" title="Link to this heading">#</a></h3>
+<p>A wiring record on a cavity element sets one of three cavity attributes, in
+pyAT’s words: <code class="docutils literal notranslate"><span class="pre">Frequency</span></code> (Hz), <code class="docutils literal notranslate"><span class="pre">Voltage</span></code> (V) and <code class="docutils literal notranslate"><span class="pre">TimeLag</span></code> (m). Each is
+a setpoint written through the record’s calibration, and a record of
+direction <code class="docutils literal notranslate"><span class="pre">read</span></code> on the same element and attribute reads it back. With
+invented addresses, for a ring whose RF wavelength is 0.6 m:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:FREQ:SP</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">Frequency</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span><span class="w">  </span><span class="c1"># MHz</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:VOLT:SP</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">Voltage</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span><span class="w">  </span><span class="c1"># MV</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:VOLT:RB</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">Voltage</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:PHASE:SP</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">TimeLag</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.6667e-3</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span><span class="w">  </span><span class="c1"># deg</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>Phase is a calibration.</strong> pyAT states a cavity’s phase as a time lag, the
+length by which the cavity’s wave lags the reference particle. One RF
+wavelength is 360 degrees, so a phase setpoint in degrees is a linear curve
+of gain <code class="docutils literal notranslate"><span class="pre">wavelength</span> <span class="pre">/</span> <span class="pre">360</span></code>.</p></li>
+<li><p><strong>Several cavities.</strong> A record naming <code class="docutils literal notranslate"><span class="pre">slices</span></code> writes every cavity it
+lists. A frequency or a time lag lands in full on each. A voltage lands
+times the slice’s <code class="docutils literal notranslate"><span class="pre">weight</span></code>, so a setpoint that is the total over two
+cavities states <code class="docutils literal notranslate"><span class="pre">weight:</span> <span class="pre">0.5</span></code> on each.</p></li>
+<li><p><strong>The RF switch.</strong> On a turn-by-turn ring (<a class="reference internal" href="#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>) the
+<code class="docutils literal notranslate"><span class="pre">rf_switch</span></code> and a voltage setpoint work together: the setpoint reads what
+was commanded whether the RF is on or off, a voltage written while the RF
+is off is delivered when it is switched on, and a voltage of <code class="docutils literal notranslate"><span class="pre">0</span></code> is not
+a switched-off RF.</p></li>
+</ul>
+<p>Each RF setpoint carries one fault (<a class="reference internal" href="#how-to-run-scenarios"><span class="std std-ref">Scenarios</span></a>), in the
+setpoint’s own unit: <code class="docutils literal notranslate"><span class="pre">cal_offset</span></code> on a frequency (a frequency offset) and on
+a time lag (a phase offset), <code class="docutils literal notranslate"><span class="pre">cal_factor</span></code> on a voltage (a scale error). The
+cavity gets the faulty value; the setpoint and its readback show what was
+commanded.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">faults</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">RING</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">RING:RF:PHASE:SP</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cal_offset</span><span class="p">:</span><span class="w"> </span><span class="nv">30.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">RING:RF:VOLT:SP</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cal_factor</span><span class="p">:</span><span class="w"> </span><span class="nv">1.02</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">RING:RF:FREQ:SP</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cal_offset</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e-4</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
 <section id="an-injection-chain">
 <span id="va-injection-chain"></span><h3>An injection chain<a class="headerlink" href="#an-injection-chain" title="Link to this heading">#</a></h3>
 <p>A lattice answers a corrector write, but nothing in it injects. Software that
@@ -1260,7 +1317,9 @@ metres and the sum signal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>: the turns the last shot tracked, the ring’s; it names no
 element.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>: <code class="docutils literal notranslate"><span class="pre">0</span></code> sets every cavity’s voltage to zero, anything else
-restores the deck’s voltages. It starts at <code class="docutils literal notranslate"><span class="pre">1</span></code> and names no element.</p></li>
+restores the voltages the cavities had, or the one a voltage setpoint
+(<a class="reference internal" href="#va-rf-setpoints"><span class="std std-ref">RF setpoints</span></a>) commanded meanwhile. It starts at <code class="docutils literal notranslate"><span class="pre">1</span></code> and names
+no element.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code>: non-zero turns the pilot tone on. It starts at <code class="docutils literal notranslate"><span class="pre">0</span></code> and
 names no element.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">stored</span></code>: a setting that holds what is written and drives no physics,
@@ -1830,6 +1889,7 @@ reporting the key as merely unset.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-pyat-lattice">A pyAT lattice</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rf-setpoints">RF setpoints</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#an-injection-chain">An injection chain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-by-turn-data-from-an-injection-chain">Turn-by-turn data from an injection chain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>

@@ -851,7 +851,10 @@ a channel address. A monitor reading carries <code class="docutils literal notra
 and <code class="docutils literal notranslate"><span class="pre">polarity</span></code> on its own axis, and a monitor one <code class="docutils literal notranslate"><span class="pre">roll</span></code>, on its x-axis
 reading or its only one. A setpoint on <code class="docutils literal notranslate"><span class="pre">PolynomB</span></code> or <code class="docutils literal notranslate"><span class="pre">KickAngle</span></code> carries
 <code class="docutils literal notranslate"><span class="pre">cal_factor</span></code> and <code class="docutils literal notranslate"><span class="pre">cal_offset</span></code>; a calibration is the supply’s, so where one
-element is driven by two setpoints, each is miscalibrated alone. A monitor’s
+element is driven by two setpoints, each is miscalibrated alone. A cavity
+setpoint carries the one field that names a real error of it: <code class="docutils literal notranslate"><span class="pre">cal_offset</span></code>
+on <code class="docutils literal notranslate"><span class="pre">Frequency</span></code> and on <code class="docutils literal notranslate"><span class="pre">TimeLag</span></code>, <code class="docutils literal notranslate"><span class="pre">cal_factor</span></code> on <code class="docutils literal notranslate"><span class="pre">Voltage</span></code>
+(<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-rf-setpoints"><span class="std std-ref">RF setpoints</span></a>). A monitor’s
 roll turns the beam position in the deck’s unit, before the monitor’s
 conversion to the unit it publishes, and its offset, gain, noise and polarity
 then act on the published reading.</p>
