@@ -119,6 +119,87 @@ def test_a_lights_mark_gets_a_line_of_its_size():
         assert ink <= drawn["geometry"]["width"]
 
 
+def _cut_label(screen, x: float, y: float, whole: str) -> None:
+    screen.add(
+        {
+            "type": "text-label",
+            "geometry": {"x": x, "y": y, "width": 60, "height": 16},
+            "props": {"text": layout._Cut(whole[:8] + "…", whole), "fontSize": 11},
+        }
+    )
+
+
+def test_a_link_over_two_cut_labels_joins_their_whole_texts_line_by_line():
+    screen = layout._Screen("card-x", "x")
+    _cut_label(screen, 10, 10, "first label of a stated length")
+    _cut_label(screen, 10, 30, "second label of a stated length")
+    _cut_label(screen, 200, 10, "a label outside the link")
+    tip = screen.link_tip("first label", 0, 0, 100, 60)
+    # the link's own label is in the first text, so it is not added again
+    assert tip == "first label of a stated length\nsecond label of a stated length"
+    assert screen.link_tip("Open the device", 0, 0, 100, 60).splitlines()[0] == "Open the device"
+
+
+def test_a_link_s_tooltip_adds_no_text_another_line_already_holds():
+    screen = layout._Screen("card-x", "x")
+    _cut_label(screen, 10, 10, "XR02S Straight")  # a place's last part, cut
+    _cut_label(screen, 10, 30, "+1.02 % / +3.35 %")  # the figures the label holds
+    tip = screen.link_tip("XR/XR02/XR02S Straight: +1.02 % / +3.35 %", 0, 0, 100, 60)
+    assert tip == "XR/XR02/XR02S Straight: +1.02 % / +3.35 %"
+    # and a whole path drawn after its last part keeps the path alone
+    screen = layout._Screen("card-x", "x")
+    _cut_label(screen, 10, 10, "XR02S Straight")
+    _cut_label(screen, 10, 30, "XR/XR02/XR02S Straight")
+    assert screen.link_tip("XR02S", 0, 0, 100, 60) == "XR/XR02/XR02S Straight"
+
+
+def test_a_hover_label_is_one_line(screens):
+    """The viewer draws ``hoverLabel`` as one line at the widget, breaks and all
+    run together; the lines a link adds go to its tooltip only."""
+    broken = [
+        (name, node["id"])
+        for name, doc in screens.items()
+        for node in _nodes(doc["root"])
+        if "\n" in str(node["props"].get("hoverLabel", ""))
+    ]
+    assert broken == []
+
+
+def test_no_hover_label_is_longer_than_its_bound(screens):
+    """A hover label is drawn as one line over what stands beside its box: on
+    every screen it holds at most :data:`HOVER_LABEL_MOST` characters, and on a
+    link it is the link's own label, which opens its tooltip."""
+    long, other = [], []
+    for name, doc in screens.items():
+        for node in _nodes(doc["root"]):
+            said = str(node["props"].get("hoverLabel", ""))
+            if len(said) > layout.HOVER_LABEL_MOST:
+                long.append((name, said))
+            tip = str(node["props"].get("tooltip", ""))
+            if said and node["props"].get("actions") and not tip.startswith(said.rstrip("…")):
+                other.append((name, said, tip))
+    assert long == []
+    assert other == []
+
+
+def test_a_hover_label_past_its_bound_is_cut_and_keeps_one_line():
+    bound = layout.HOVER_LABEL_MOST
+    assert layout._hover_text("open XR01:QF1") == "open XR01:QF1"
+    cut = layout._hover_text("x" * (bound + 30))
+    assert len(cut) == bound and cut.endswith("…")
+    assert layout._hover_text("first line\nsecond line") == "first line"
+
+
+def test_a_link_over_more_cut_labels_than_a_bubble_shows_counts_the_rest():
+    screen = layout._Screen("card-x", "x")
+    many = layout.TOOLTIP_LINES + 5
+    for i in range(many):
+        _cut_label(screen, 10, 20 * i, f"label number {i:02d} of a stated length")
+    lines = screen.link_tip("label number 00", 0, 0, 100, 20 * many).splitlines()
+    assert len(lines) == layout.TOOLTIP_LINES
+    assert lines[-1] == f"and {many - layout.TOOLTIP_LINES + 1} more"
+
+
 def test_every_widget_stands_on_whole_pixels(screens):
     """Edges on fractions of a pixel draw soft: every box, and every point of a
     line or shape, is on a whole pixel."""
@@ -296,7 +377,7 @@ def test_every_cut_label_carries_its_whole_text_as_a_tooltip(screens):
             and b["y"] + b["height"] >= g["y"] + g["height"] - 0.01
         )
 
-    missing, shown = [], 0
+    missing, shown, linked = [], 0, 0
     for name, doc in screens.items():
         found = list(_nodes(doc["root"]))
         hovers = [n for n in found if n["type"] == "rectangle" and n["props"].get("tooltip")]
@@ -306,8 +387,10 @@ def test_every_cut_label_carries_its_whole_text_as_a_tooltip(screens):
                 continue
             kept = text[:-1].rstrip()
             boxes = [h for h in hovers if covers(h, node["geometry"])]
-            if any(kept in h["props"]["tooltip"] or h["props"].get("actions") for h in boxes):
+            # the pointer reaches the box drawn last: a link over the label too
+            if boxes and kept in boxes[-1]["props"]["tooltip"]:
                 shown += 1
+                linked += bool(boxes[-1]["props"].get("actions"))
             else:
                 missing.append((name, text))
     assert missing == []
