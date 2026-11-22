@@ -248,3 +248,99 @@ def test_a_view_with_both_keys_reads(tmp_path: Path) -> None:
 
     assert view.document(SEEDS_FILE)["seeds"][STATUS]["responds"]["to"] == MOVE
     assert view.document(VARIABLES_FILE)["channels"][2]["started_by"] == MOVE
+
+
+# ---------------------------------------------------------------------------
+# The response in the held value
+# ---------------------------------------------------------------------------
+
+
+def test_a_status_reads_its_value_for_the_stated_time_after_its_command() -> None:
+    model, clock = _clocked()
+
+    model.set({MOVE: 1})
+    assert model.get(STATUS) == "MOVING"
+    clock[0] = T0 + FOR_S - 0.001
+    assert model.get(STATUS) == "MOVING"
+    clock[0] = T0 + FOR_S
+    assert model.get(STATUS) == "DONE"
+
+
+def test_a_status_that_no_command_fired_reads_its_nominal() -> None:
+    model, clock = _clocked()
+
+    assert model.get(STATUS) == "DONE"
+    clock[0] = T0 + 100.0
+    assert model.get(STATUS) == "DONE"
+
+
+def test_held_and_a_read_agree_while_a_response_runs() -> None:
+    model, clock = _clocked()
+
+    model.set({MOVE: 1})
+    clock[0] = T0 + FOR_S / 2
+
+    assert model.held([STATUS]) == {STATUS: "MOVING"}
+    assert model.get(STATUS) == "MOVING"
+
+
+def test_a_gated_status_reads_its_gated_label_while_a_response_runs() -> None:
+    model, _clock = _clocked()
+
+    model.set({MOVE: 1})
+    model.set({INTERLOCK: "TRIPPED"})
+
+    assert model.get(STATUS) == "FAULT"
+    assert model.held([STATUS]) == {STATUS: "FAULT"}
+
+
+def test_a_write_of_the_same_value_fires_again() -> None:
+    model, clock = _clocked()
+
+    model.set({MOVE: 1})
+    clock[0] = T0 + FOR_S
+    assert model.get(STATUS) == "DONE"
+    model.set({MOVE: 1})
+
+    assert model.get(STATUS) == "MOVING"
+
+
+# ---------------------------------------------------------------------------
+# What fires
+# ---------------------------------------------------------------------------
+
+
+def test_a_second_write_restarts_the_time() -> None:
+    model, clock = _clocked()
+
+    model.set({MOVE: 1})
+    clock[0] = T0 + FOR_S - 0.5
+    model.set({MOVE: 1})
+    clock[0] = T0 + FOR_S + 0.5
+
+    assert model.get(STATUS) == "MOVING"
+    clock[0] = T0 + 2 * FOR_S - 0.5
+    assert model.get(STATUS) == "DONE"
+
+
+def test_a_reset_ends_a_running_response() -> None:
+    model, _clock = _clocked()
+
+    model.set({MOVE: 1})
+    model.reset()
+
+    assert model.get(STATUS) == "DONE"
+
+
+def test_the_start_state_fires_no_response() -> None:
+    model, _clock = _clocked()
+
+    assert model.held([STATUS]) == {STATUS: "DONE"}
+
+
+def test_a_scenario_write_fires_no_response() -> None:
+    model, _clock = _clocked()
+
+    model.set_active({MOVE: 1})
+
+    assert model.get(STATUS) == "DONE"
