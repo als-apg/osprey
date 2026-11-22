@@ -1768,7 +1768,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
    the layout cut to fit. Two frames in a row whose content needs at most half the
-   width each stand side by side at one height. The layout measures text in the
+   width each stand side by side at one height; content that stretches (a curve's
+   plot) is drawn after the next frame and, where that one takes at most half,
+   fills the other half. The layout measures text in the
    viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long

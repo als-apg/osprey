@@ -2676,3 +2676,34 @@ def test_a_device_with_two_own_channels_of_a_role_gets_no_default_tile_for_it(tm
     tiles = _default_tiles(graph, "XR01:IP1")
     assert all(channel not in own for _title, channel in tiles)  # two are no single figure
     assert ("State", "XR01-IP1:State-Sts") in tiles  # a role of one own channel still is
+
+
+def test_a_plot_pairs_with_a_drawing_and_fills_its_half(tmp_path):
+    """A curve's plot stretches; the drawing beside it does not. The section after
+    the curve is drawn first, and where it takes at most half the width the curve
+    is drawn in the other half, its plot as wide as the half's room and as tall
+    as the drawing's frame leaves it."""
+    graph = _curved(tmp_path)
+    view = device_card(graph, "XR01:QF1")
+    doc = stub_render(view, graph)
+    frames = [
+        n for n in _by_type(doc, "rectangle")
+        if n["props"].get("lineColor") == layout.BOX_BORDER
+        and n["geometry"]["width"] == layout.HALF_FRAME
+    ]  # fmt: skip
+    assert len(frames) == 2
+    left, right = sorted((f["geometry"] for f in frames), key=lambda g: g["x"])
+    assert left["y"] == right["y"] and left["height"] == right["height"]
+    assert right["x"] == left["x"] + layout.HALF_FRAME + layout.PANEL_GAP
+    heads = [n["props"]["text"] for n in _by_type(doc, "text-label")
+             if n["geometry"]["y"] == left["y"] + layout.PANEL_PAD]  # fmt: skip
+    assert any(h.endswith("EXCITATION CURVE") for h in heads)
+    assert "END VIEW" in heads
+    (plot,) = [
+        n["geometry"] for n in _by_type(doc, "rectangle")
+        if n["geometry"]["x"] > right["x"] and n["geometry"]["width"] > 300
+    ]  # fmt: skip
+    room = layout.HALF_FRAME - 2 * layout.PANEL_PAD - layout.BLOCK_LABEL
+    assert plot["width"] == room  # the plot fills the half past its label column
+    assert plot["height"] > layout.CURVE_HEIGHT  # and grows with the drawing's frame
+    assert plot["y"] + plot["height"] < right["y"] + right["height"]
