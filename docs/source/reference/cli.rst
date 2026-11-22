@@ -1726,13 +1726,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    label, a ``layout`` hash (of the standard's structure, the format and the
    drawing settings), a ``drawing`` digest (of the standard's written file
    without the model stamp, which moves when the screen is drawn otherwise and
-   not when only the facility file's content hash does) and a ``sample``;
+   not when only the facility file's content hash does, taken by the rule the
+   index states as ``drawing_rule``) and a ``sample``;
    ``class_summary`` holds the counts
    a gate reads, with the classes of one screen per view kind. Two screens are
    of one class when they have one key: for a device's card and its channel
    list, the device's class, the card recipe it is drawn from and the set of
-   signal roles the card shows (a role played by two channels counts once; the
-   driver-internal role and channels with no role are not in it). Where cards
+   signal roles the device's channels play (a role played by two channels
+   counts once; the driver-internal role and channels with no role are not in
+   it), and, for a device with no channels of its own, ``own_channels: none``, so it is
+   not classed with one whose channels play no stated role. Where cards
    of one such class drawn by the default recipe show different blocks (a card
    one can act from and a read-only one, a card with or without key tiles),
    the key also holds ``blocks``, the kinds of block the card shows by presence
@@ -1775,16 +1778,44 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the kind's tag stands at the head of a run of one kind, and a row whose
    button says its name has no name beside it. Every list ordered by name
    takes the numbers in a name by value (``2`` before ``10``); it only orders,
-   it groups nothing. Every widget
-   stands on whole pixels, each edge rounded where it is written, and every
-   screen ends one margin under its lowest frame. The layout measures text in
-   the viewer's own font
+   it groups nothing. Frames in a row whose content needs at most half
+   the width each stand in two columns when they have one role
+   (live values, references, an action block, a picture with its curve; two
+   groups of a channel list only as stated groups of one grouping, a group of
+   no stated kind alone), read downward, split where the taller column is least
+   tall, so short frames stack beside a long one; a frame keeps its own height
+   unless matching its neighbour's foot adds at most a third of it, and the page
+   under a shorter column stays plain; content that stretches (a curve's plot) is drawn
+   after the next frame and, where that one takes at most half, fills the other
+   half. A screen shows what it is for first: sections of
+   nothing but links follow the rest, key numbers with no data yet fold into
+   one line, on the band's last row where it fits there, else under it, and a roll-up's summed state is larger than what it sums, a
+   child it does not sum set apart in a dashed outline on the same row where
+   all fit one row at their content's width, its counts one muted line on the
+   heading's line. Every widget that draws a view item names it in its
+   ``meta`` comment, which a viewer does not read: ``item: <kind>``, then
+   ``thing: <id>`` where the item stands for one thing and ``order: <n>`` where
+   the view states an order (a rack unit's by where it stands in the rack, not
+   by the order its units are listed). The kinds are ``rack-unit`` and ``grid-row``,
+   which read down (top to bottom, then on in the next column), and
+   ``strip-element``, ``key-tile`` and ``chain-block``, which read across (left
+   to right, then on in the next row). The list is complete: a key figure's
+   members (its lamps, its holder names) are parts of its tile, not items of
+   their own. A class's ``drawing`` digest leaves these comments out (rule 2;
+   an index with no ``drawing_rule`` was written by rule 1, which kept them in,
+   so between the two every class's digest differs once). Every widget stands
+   on whole pixels, each edge rounded where it is written, and every screen
+   ends one margin under its lowest frame. A section's heading line carries
+   what qualifies it: a count, a one-line legend, or the one row of chips that
+   fits beside it. The layout measures text in the viewer's own font
    (IBM Plex Sans): a column takes the width its longest label needs (a
    checkout's channel and thing columns their longest names), a long
    label in a chain block takes two lines, a muted line of prose (a caption, a
    note, what a press writes, a source, also beside a fact) takes as many lines
    as it needs, conditions that several calibration rows state alike are stated
-   once under the rows, a name with no separator breaks where a small letter
+   once under the rows, set off by half a row of space and a thin rule and
+   tied to their rows by a reference mark (1, 2, ...) after each row's title
+   and at the start of the line, which says the text alone, a name with no separator breaks where a small letter
    meets a capital, and a text still longer than its box is cut there with an
    ellipsis and listed. The engine writes the whole text as a tooltip on a box
    over the cut label (a link over it carries the link's label); a viewer that
@@ -1824,7 +1855,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    model gives now). A link outside the written set, a card or checkout over its
    budget, a probe row whose signal no channel states, and a ``pictures.csv``
    row whose signal binds no channel (``unbound_picture``) or channels of two
-   devices (``ambiguous_picture``) are notes, and fail only with ``--strict``.
+   devices (``ambiguous_picture``), and a strip badge's stem drawn through
+   another thing's state word (``crossed_word``) are notes, and fail only with
+   ``--strict``.
    Before the problems it prints the device classes by how ``pictures.csv``
    draws them (with a drawing, with parts only, with none) and, per class, the
    parts not placed (no position and no angle): information, never a problem.

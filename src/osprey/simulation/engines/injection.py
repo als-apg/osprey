@@ -1,7 +1,7 @@
 """The injection engine plug-in: a shot-based injection chain with no deck.
 
 The plug-in wraps :class:`~osprey.simulation.engines.injection_model.InjectionModel`
-for the ``osprey.simulation.engines`` group. A model using it names no deck;
+for the ``osprey_connectors.simulation.engines`` group. A model using it names no deck;
 its wiring records and its settings are the whole chain. Each record's engine
 block names a ``signal``:
 
@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 from osprey.facility.errors import FacilityBuildError
-from osprey.simulation.engines.calibration import field
+from osprey_connectors.simulation.engines import field
 
 if TYPE_CHECKING:
     from osprey.simulation.engines.injection_model import InjectionModel

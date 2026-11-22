@@ -278,8 +278,8 @@ Bringing your own model
 The runner serves one composite, and the composite builds one child per
 served physics model from the view's ``variables.json`` and the model's deck,
 ``decks/<model>.<its suffix>``, through the engine plug-in the model's record names:
-its ``engine``, looked up in the ``osprey.simulation.engines`` entry-point
-group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
+its ``engine``, looked up in the ``osprey_connectors.simulation.engines``
+entry-point group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
 
 **A pyAT deck is data.** Any facility's pyAT deck is served by the shipped
 ``pyat`` engine. The facility tree stages it beside the model record that names
@@ -357,7 +357,10 @@ a channel address. A monitor reading carries ``offset``, ``gain``, ``noise``
 and ``polarity`` on its own axis, and a monitor one ``roll``, on its x-axis
 reading or its only one. A setpoint on ``PolynomB`` or ``KickAngle`` carries
 ``cal_factor`` and ``cal_offset``; a calibration is the supply's, so where one
-element is driven by two setpoints, each is miscalibrated alone. A monitor's
+element is driven by two setpoints, each is miscalibrated alone. A cavity
+setpoint carries the one field that names a real error of it: ``cal_offset``
+on ``Frequency`` and on ``TimeLag``, ``cal_factor`` on ``Voltage``
+(:ref:`va-rf-setpoints`). A monitor's
 roll turns the beam position in the deck's unit, before the monitor's
 conversion to the unit it publishes, and its offset, gain, noise and polarity
 then act on the published reading.
@@ -429,6 +432,24 @@ written. Systematic multipoles are facts of the deck, written into the lattice
 file, not scenario faults. A scenario whose errors leave no closed orbit does
 not boot quietly wrong: its model fails with the solve error, which names the
 elements seeded, and the model's status names the scenario.
+
+One fault is the lattice's own: ``lattice/circumference_error``, the length
+by which the ring as built differs from its design, in metres and bounded to
+10 cm. A scenario writes it under ``faults.<model>`` as
+``{lattice/circumference_error: 2.0e-4}`` or as
+``{lattice: {circumference_error: 2.0e-4}}``. It is seeded once, when the
+model is built, by scaling every drift of the model's copy of the deck by one
+factor; the magnets keep their lengths. The beam still makes its harmonic
+number of RF periods per turn, so a ring longer by ``dC`` is the design ring
+driven at a frequency higher by ``f * dC / C``: the closed orbit moves to the
+energy whose path has the design length, and the RF frequency that centres
+the beam is lower than the design one by that much. A ``single_pass`` model
+declares no such fault.
+
+Radiation is not a fault but a statement about the deck: ``pyat.radiation:
+true`` in a model's settings gives the magnets of the model's copy their
+radiating pass methods before any error is seeded, for the build and for the
+response matrix alike (:ref:`va-radiation`).
 
 A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from

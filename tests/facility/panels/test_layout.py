@@ -521,10 +521,10 @@ def test_a_node_without_a_rule_reads_no_rule_not_unknown(panel_graph) -> None:
     without = [n for n in found if n.no_rule]
     assert without and len(without) < len(found)
     doc, _ = draw(view, panel_graph)
-    polygons = [  # the tree's: left of the rows by system
+    polygons = [  # the tree's lights: left of the rows by system (a tile's outline is none)
         n
         for n in _by_type(doc, "polygon")
-        if n["geometry"]["x"] < layout.MARGIN + layout.ROLLUP_LEFT
+        if n["geometry"]["x"] < layout.MARGIN + layout.ROLLUP_LEFT and "tooltip" in n["props"]
     ]
     assert len(polygons) == len(found)  # one light per node, those without a rule in "none"
     bare = [n for n in polygons if n["props"]["lineColor"] == symbols.look("none")["lineColor"]]
@@ -641,6 +641,76 @@ def test_a_strip_symbols_state_is_a_live_ring_and_word_never_its_fill(tmp_path) 
     unknown = symbols.ring_look("unknown")  # drawn unknown until the channel answers
     assert ring["props"]["lineStyle"] == unknown["lineStyle"] == "dashed"
     assert word["props"]["text"] == unknown["text"]
+
+
+@pytest.mark.parametrize(("lane", "symbol"), [("beam", "corrector"), ("above", "ion_pump")])
+def test_ring_words_never_stand_over_one_another(panel_graph, lane, symbol) -> None:
+    """Ringed and unringed symbols closer than a word's width, alternating, on the
+    axis and as badges over it: each ring's word, at its widest, touches no other
+    word and no other ring. An unringed symbol on the axis takes no lane, and
+    where two lanes would not do a further one is opened."""
+    row = [
+        StripElement(f"E{i:02d}", None, float(i), symbol, lane, None, RULED if i % 2 else ())
+        for i in range(36)
+    ] + [  # and a run of rings too close for two lanes
+        StripElement(f"R{i}", None, 36 + 0.2 * i, symbol, lane, None, RULED) for i in range(4)
+    ]
+    doc, _ = draw(strip_view(row), panel_graph)
+    widest = max(
+        layout.text_width(str(symbols.ring_look(state)["text"]), layout.SMALL_SIZE)
+        for state in symbols.STATES
+    )
+    assert widest + 2 * layout.LABEL_INSET <= layout.TAG_WIDTH  # the room holds every word
+
+    def box(node: dict) -> tuple[float, float, float, float]:
+        g = node["geometry"]
+        return g["x"], g["y"], g["width"], g["height"]
+
+    def touch(a: tuple, b: tuple) -> bool:
+        return (
+            a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+        )
+
+    words, rings = {}, {}
+    for element in row:
+        ring, word = _ring(doc, element.thing)
+        assert (ring is None) == (not element.channels)
+        if word is not None:
+            words[element.thing], rings[element.thing] = box(word), box(ring)
+    over = [(a, b) for a, b in itertools.combinations(words, 2) if touch(words[a], words[b])]
+    over += [(a, b) for a in words for b in rings if a != b and touch(words[a], rings[b])]
+    assert over == []
+    assert len({w[1] for w in words.values()}) >= 3  # the close run needed a further lane
+
+
+def test_a_stem_through_another_badge_s_word_is_named(panel_graph) -> None:
+    """Rings too close for one stem length stand on longer stems, whose lines run
+    down past the words below them; each such crossing is named, for ``check``."""
+    close = [
+        StripElement(f"R{i:02d}", None, 0.5 * i, "ion_pump", "above", None, RULED)
+        for i in range(60)
+    ]
+    crossed: list[str] = []
+    view = strip_view(close)
+    layout.render(
+        view, graph=panel_graph, screens=Screens(), doc_id=Screens.doc_id(view.id), crossed=crossed
+    )
+    assert crossed and all(" stem runs through " in c for c in crossed)
+    apart = [
+        StripElement(f"R{i}", None, 5.0 * i, "ion_pump", "above", None, RULED) for i in range(4)
+    ]
+    crossed = []
+    view = strip_view(apart)
+    layout.render(
+        view, graph=panel_graph, screens=Screens(), doc_id=Screens.doc_id(view.id), crossed=crossed
+    )
+    assert crossed == []
+
+
+def test_word_lanes_take_the_lowest_free_lane_and_open_one_when_none_is():
+    assert layout.word_lanes([0, 50, 100, 150], 70) == [0, 1, 0, 1]
+    assert layout.word_lanes([0, 10, 20, 100], 70) == [0, 1, 2, 0]
+    assert layout.word_lanes([], 70) == []
 
 
 def test_a_strip_symbol_with_no_rule_has_a_dashed_outline_and_no_ring(panel_graph) -> None:
@@ -882,7 +952,8 @@ def test_a_device_in_no_place_turns_the_root_roll_up_bad(panel_graph) -> None:
     loose = "XR09-LOOSE1:Fault-Sts"
     for by in ("place", "system"):
         doc, _ = draw(health_rollup(panel_graph, "XR", by), panel_graph)
-        root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
+        # the root's row is the first light drawn (a dashed outline is no light)
+        root = next(n for n in _by_type(doc, "polygon") if n.get("rules"))
         names = set(bound(doc, root))
         assert loose in names
         quiet = dict.fromkeys(names, 1) | {loose: 0}
@@ -1260,7 +1331,8 @@ def test_a_bad_part_turns_the_place_of_its_whole_bad(tmp_path) -> None:
     card = "XR01-CARD1:Fault-Sts"
     for place in ("XR/XR01/RK1", "XR/XR01"):
         doc, _ = draw(health_rollup(graph, place), graph)
-        root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
+        # the root's row is the first light drawn (a dashed outline is no light)
+        root = next(n for n in _by_type(doc, "polygon") if n.get("rules"))
         names = set(bound(doc, root))
         assert card in names, place
         quiet = dict.fromkeys(names, 1) | {card: 0}
@@ -1648,3 +1720,120 @@ def test_every_size_constant_is_named_once() -> None:
     names = re.findall(r"^([A-Z][A-Z0-9_]*) = ", source, flags=re.MULTILINE)
     twice = sorted({n for n in names if names.count(n) > 1})
     assert twice == []  # a second binding silently changes every use of the first
+
+
+def test_a_roll_up_s_summed_state_is_its_headline_and_what_it_does_not_sum_stands_apart(
+    panel_graph,
+) -> None:
+    """The root's light is larger than its members' and its name in the page's text;
+    a child the root does not sum (no rule) comes after the members, a wider gap
+    before it, as a dashed outline with no fill."""
+    view = health_rollup(panel_graph, "XR/XR01")
+    doc, _ = draw(view, panel_graph)
+    lights = [n for n in _by_type(doc, "polygon") if "tooltip" in n["props"]]
+    root, *members = lights
+    assert root["geometry"]["width"] == layout.HEADLINE_LIGHT
+    assert all(m["geometry"]["width"] < root["geometry"]["width"] for m in members)
+    g = root["geometry"]
+    (name,) = [  # the root's name beside its light
+        n for n in _by_type(doc, "text-label")
+        if n["props"]["text"] == "XR/XR01" and n["geometry"]["x"] > g["x"]
+        and abs(n["geometry"]["y"] - g["y"]) < layout.ROW
+    ]  # fmt: skip
+    assert name["props"]["fontSize"] == layout.HEADLINE_SIZE
+    assert name["props"]["foregroundColor"] == symbols.PAGE_TEXT
+    outlines = [
+        n for n in _by_type(doc, "polygon")
+        if n["props"].get("lineStyle") == "dashed" and n["geometry"]["height"] == layout.ROLLUP_TILE_HEIGHT
+    ]  # fmt: skip
+    (root_node,) = view.sections[-1].items
+    bare = [c for c in root_node.children if c.no_rule]
+    assert len(outlines) == len(bare) > 0
+    assert all(o["props"]["fill"] is False for o in outlines)
+    tiles = sorted(
+        (
+            n["geometry"]
+            for n in _by_type(doc, "rectangle")
+            if n["geometry"]["height"] == layout.ROLLUP_TILE_HEIGHT
+            and not n["props"].get("actions")
+        ),  # fmt: skip
+        key=lambda g: (g["y"], g["x"]),
+    )
+    first_out = min(outlines, key=lambda n: (n["geometry"]["y"], n["geometry"]["x"]))["geometry"]
+    assert all((g["y"], g["x"]) < (first_out["y"], first_out["x"]) for g in tiles)  # members first
+    before = [g for g in tiles if g["y"] == first_out["y"]]
+    if before:  # on the members' row: a wider gap than between members where it fits
+        gap = first_out["x"] - (before[-1]["x"] + before[-1]["width"])
+        assert gap in (layout.OUTSIDE_GAP, layout.GAP)  # the wide gap never wraps the tile
+
+
+def test_a_roll_up_row_that_fits_keeps_its_outside_tile_and_counts_on_its_heading(
+    panel_graph,
+) -> None:
+    """Width before height: tiles that fit one row at their content's width share
+    it, the tile outside the sum included, behind its wider gap; the counts are
+    one muted line on the heading's line, said once."""
+    from osprey.facility.panels.describe import health_rollup
+
+    view = health_rollup(panel_graph, "XR/XR01")
+    (root,) = view.sections[-1].items
+    doc, _ = draw(view, panel_graph)
+    tiles = [
+        n["geometry"] for n in nodes(doc)
+        if n["type"] in ("rectangle", "polygon")
+        and n["geometry"]["height"] == layout.ROLLUP_TILE_HEIGHT
+    ]  # fmt: skip
+    assert len({g["y"] for g in tiles}) == 1  # one row, nothing wraps alone
+    assert len({(g["x"], g["width"]) for g in tiles}) == len(root.children)
+    ruled = sum(not c.no_rule for c in root.children)
+    (head,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "BY PLACE"]
+    (counts,) = [
+        n for n in _by_type(doc, "text-label")
+        if n["props"]["text"].startswith(f"{ruled} with a health rule · ")
+    ]  # fmt: skip
+    middle = head["geometry"]["y"] + head["geometry"]["height"] / 2
+    assert counts["geometry"]["y"] + counts["geometry"]["height"] / 2 == pytest.approx(middle)
+    assert counts["props"]["foregroundColor"] == symbols.MUTED_TEXT
+    reads = counts["props"]["text"].split(" · ")[1]
+    assert not [n for n in _by_type(doc, "text-label") if n["props"]["text"] == reads]  # once
+
+
+def test_a_screen_shows_what_it_is_for_before_its_ways_to_other_screens(panel_graph) -> None:
+    """On a set's screen the members come first; the sections of nothing but links
+    (its group, its calibration views) follow, each in its own order."""
+    from osprey.facility.panels.describe import set_overview
+
+    view = set_overview(panel_graph, "XR-QUAD")
+    assert [s.title for s in view.sections] == ["group", "calibration", "members"]
+    assert [s.title for s in layout.first_what_it_is_for(view.sections)] == [
+        "members", "group", "calibration"
+    ]  # fmt: skip
+    doc, _ = draw(view, panel_graph)
+    heads = {
+        n["props"]["text"]: n["geometry"]["y"]
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"] in ("MEMBERS", "GROUP", "CALIBRATION")
+    }
+    assert heads["MEMBERS"] < heads["GROUP"] < heads["CALIBRATION"]
+
+
+def test_a_ring_word_moved_in_from_the_page_edge_keeps_to_its_symbol(panel_graph) -> None:
+    """A word over a ring near the page's edge stays on the page; its box moves
+    in, and the word keeps to the side of its own symbol, not over the next one."""
+    from osprey.facility.panels.describe import place_view
+
+    doc, _ = draw(place_view(panel_graph, "XR/XR01"), panel_graph)
+    rings = [
+        n["geometry"] for n in _by_type(doc, "polygon")
+        if n["props"].get("lineStyle") == "dashed" or n["props"].get("lineWidth", 0) > 2
+    ]  # fmt: skip
+    moved = [
+        n for n in _by_type(doc, "text-label")
+        if n["geometry"]["width"] == layout.TAG_WIDTH and n["geometry"]["height"] == layout.TAG_HEIGHT
+        and n["props"].get("align") in ("left", "right")
+    ]  # fmt: skip
+    assert moved  # the fixture has a ring at the strip's start
+    for word in moved:
+        g = word["geometry"]
+        anchor = g["x"] if word["props"]["align"] == "left" else g["x"] + g["width"]
+        assert any(r["x"] - 1 <= anchor <= r["x"] + r["width"] + 1 for r in rings), word["id"]

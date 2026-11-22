@@ -2812,3 +2812,34 @@ def test_numbered_actions_stand_in_number_order(tmp_path) -> None:
     )  # fmt: skip
     channels = [c.channel for g in operate.groups for c in g.controls]
     assert channels == [f"XR01-PS1:BO{k}-Cmd" for k in (0, 1, 2, 10, 11)]
+
+
+def test_a_plot_pairs_with_a_drawing_and_fills_its_half(tmp_path):
+    """A curve's plot stretches; the drawing beside it does not. The section after
+    the curve is drawn first, and where it takes at most half the width the curve
+    is drawn in the other half, its plot as wide as the half's room and as tall
+    as the drawing's frame leaves it."""
+    graph = _curved(tmp_path)
+    view = device_card(graph, "XR01:QF1")
+    doc = stub_render(view, graph)
+    frames = [
+        n for n in _by_type(doc, "rectangle")
+        if n["props"].get("lineColor") == layout.BOX_BORDER
+        and n["geometry"]["width"] == layout.HALF_FRAME
+    ]  # fmt: skip
+    assert len(frames) == 2
+    left, right = sorted((f["geometry"] for f in frames), key=lambda g: g["x"])
+    assert left["y"] == right["y"] and left["height"] == right["height"]
+    assert right["x"] == left["x"] + layout.HALF_FRAME + layout.PANEL_GAP
+    heads = [n["props"]["text"] for n in _by_type(doc, "text-label")
+             if n["geometry"]["y"] == left["y"] + layout.PANEL_PAD]  # fmt: skip
+    assert any(h.endswith("EXCITATION CURVE") for h in heads)
+    assert "END VIEW" in heads
+    (plot,) = [
+        n["geometry"] for n in _by_type(doc, "rectangle")
+        if n["geometry"]["x"] > right["x"] and n["geometry"]["width"] > 300
+    ]  # fmt: skip
+    room = layout.HALF_FRAME - 2 * layout.PANEL_PAD - layout.BLOCK_LABEL
+    assert plot["width"] == room  # the plot fills the half past its label column
+    assert plot["height"] > layout.CURVE_HEIGHT  # and grows with the drawing's frame
+    assert plot["y"] + plot["height"] < right["y"] + right["height"]

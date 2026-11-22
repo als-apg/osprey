@@ -235,7 +235,7 @@ dependencies = [
     # release satisfies the floor, pip *and* uv under its default policy
     # (`if-necessary`) silently take a pre-release — which is why the floor
     # names only a stable connectors release already on PyPI.
-    "osprey-connectors>=2026.11.14",
+    "osprey-connectors>=2026.11.15",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
@@ -516,7 +516,10 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
 # Simulation engine plug-ins, each entry naming the module that implements the
 # plug-in contract; a facility build reaches an engine only through this group.
-[project.entry-points."osprey.simulation.engines"]
+# The group is `osprey_connectors.simulation.engines`, the value of
+# `osprey_connectors.simulation.engines.ENGINE_GROUP`, which the build and the
+# virtual accelerator both read.
+[project.entry-points."osprey_connectors.simulation.engines"]
 pyat = "osprey.simulation.engines.pyat"
 injection = "osprey.simulation.engines.injection"
 
@@ -895,7 +898,10 @@ name = "The framework reaches the connector packages only through their namespac
 # them) are reached through the subpackage itself, and a module added there
 # later is private until it is exempted here. The simulation subpackage keeps
 # its modules public: its root is imported by readers that must not load
-# numpy, so the heavy modules are reached by their own names. The package's
+# numpy, so the heavy modules are reached by their own names. Among them,
+# `simulation.engines` is the engine plug-in contract the framework reads: the
+# entry-point group's name, the plug-in protocol, the calibration math and the
+# facility-defect refusal. The package's
 # top-level modules (config, types, posture_store, ...) are each their own
 # public API, except the private ones: `_config_read`, the config readers the
 # stand-in and the simulator share, and `_service_http`, the one HTTP path of
@@ -948,6 +954,11 @@ name = "The connector package's top-level modules, in layers"
 # record `control_context` parses, and `control_context` takes its root and
 # posture grammar from `posture_store`; `workspace` loads config through
 # `config`'s singleton, and `config` resolves paths through `workspace`.
+#
+# `simulation.engines`, the engine plug-in contract, sits inside the simulation
+# layer and imports nothing from the package. A layer may not hold a module
+# another layer already contains, so that leaf is held by the connectors suite
+# (test_engine_contract.py), not by a layer of its own.
 type = "layers"
 layers = [
     "osprey_connectors.ipc",
@@ -1180,12 +1191,13 @@ ignore_imports = [
 ]
 
 # Facility boundaries: the description (becoming osprey-facility), the panel
-# engine (becoming osprey-panels), the simulation-engine contract (moving to
-# osprey_connectors.simulation.engines) and the framework, which is every other
-# osprey module. The side a module belongs to follows the ruled end state, not
-# today's directory: `osprey.simulation.sessions` is description, while
-# `osprey.facility.views`, `settings` and `bundled`, `osprey.utils.facility` and
-# the engine implementations under `osprey.simulation.engines` are framework.
+# engine (becoming osprey-panels) and the framework, which is every other
+# osprey module. The simulation-engine contract lives in
+# osprey_connectors.simulation.engines, outside these lists. The side a module
+# belongs to follows the ruled end state, not today's directory:
+# `osprey.simulation.sessions` is description, while `osprey.facility.views`,
+# `settings` and `bundled`, `osprey.utils.facility` and the engine
+# implementations under `osprey.simulation.engines` are framework.
 # `render`, `scenarios`, `validate` and `compute` are description modules whose
 # framework half is listed edge by edge.
 #
@@ -1210,9 +1222,10 @@ ignore_imports = [
 id = "facility-description-standalone"
 name = "The facility description imports nothing of the framework"
 # S1, ruling 3 (description vs framework split as the code reads) and ruling 4
-# (the engine contract lives in osprey-connectors). The engine contract is an
-# allowed target in the end state; today it is spelled `osprey.`, so those
-# edges are entries until phase 3 moves it.
+# (the engine contract lives in osprey-connectors). The description reaches the
+# engine contract as `osprey_connectors.simulation.engines`, which no list here
+# names; `osprey.simulation.engines` holds only the framework's engine
+# implementations, so it is forbidden like every other framework module.
 type = "forbidden"
 as_packages = false
 allow_indirect_imports = true
@@ -1336,7 +1349,6 @@ forbidden_modules = [
     "osprey.simulation.engines.pyat_turns",
     "osprey.simulation.engines.pyat_variables",
     "osprey.simulation.engines",
-    "osprey.simulation.engines.calibration",
 ]
 ignore_imports = [
     # phase 3 — the framework half of the description: views helpers, the
@@ -1351,14 +1363,6 @@ ignore_imports = [
     "osprey.facility.validate -> osprey.facility.views.pyaml",
     "osprey.facility.validate -> osprey.facility.views.simulator",
     "osprey.facility.validate -> osprey.simulation.engines.pyat",
-    # phase 3 — the engine contract's `osprey.` spelling, until it moves to
-    # osprey_connectors.simulation.engines.
-    "osprey.facility.compute -> osprey.simulation.engines",
-    "osprey.facility.layers.mml.response_check -> osprey.simulation.engines",
-    "osprey.facility.layers.mml.response_check -> osprey.simulation.engines.calibration",
-    "osprey.facility.layers.mml.wiring -> osprey.simulation.engines.calibration",
-    "osprey.facility.scenarios -> osprey.simulation.engines",
-    "osprey.facility.wiring -> osprey.simulation.engines",
 ]
 
 [[tool.importlinter.contracts]]
@@ -1444,8 +1448,6 @@ forbidden_modules = [
     "osprey.facility.schema",
     "osprey.facility.schema.**",
     "osprey.simulation.sessions",
-    "osprey.simulation.engines",
-    "osprey.simulation.engines.calibration",
 ]
 ignore_imports = [
     # phase 2 — none today.
@@ -1555,6 +1557,7 @@ forbidden_modules = [
     "osprey.simulation.engines.pyat_turn_state",
     "osprey.simulation.engines.pyat_turns",
     "osprey.simulation.engines.pyat_variables",
+    "osprey.simulation.engines",
     "osprey_connectors",
     "osprey_connectors.**",
 ]
@@ -1662,6 +1665,7 @@ source_modules = [
     "osprey.simulation.engines.pyat_turn_state",
     "osprey.simulation.engines.pyat_turns",
     "osprey.simulation.engines.pyat_variables",
+    "osprey.simulation.engines",
 ]
 forbidden_modules = [
     "osprey.facility.panels",

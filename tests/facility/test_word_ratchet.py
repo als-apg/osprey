@@ -173,6 +173,9 @@ ENGINE_SCAN_PATHS: tuple[str, ...] = (
 #: Where the engine words belong, each with why.
 ENGINE_ZONES: dict[str, str] = {
     "src/osprey/simulation/engines/**": "the engine plug-ins translate wiring into engine words",
+    "packages/osprey-connectors/src/osprey_connectors/simulation/engines.py": (
+        "the engine plug-in contract's protocol table names the engine words a plug-in reads"
+    ),
     "src/osprey/facility/layers/**": "the importers author a model's wiring in its engine's words",
     "src/osprey/templates/**/data/**": "a shipped facility definition states its engine blocks",
     "src/osprey/templates/facilities/**": "a shipped facility definition states its engine blocks",

@@ -108,7 +108,7 @@ from osprey.facility.layers.mml.mapping import (
     exported_number,
     exported_word,
 )
-from osprey.simulation.engines.calibration import Calibration, Linear, Table, evaluate, shifted
+from osprey_connectors.simulation.engines import Calibration, Linear, Table, evaluate, shifted
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
     from osprey.facility.layers.mml.family import FamilyView, FieldView

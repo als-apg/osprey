@@ -120,8 +120,8 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     """
     import at
 
-    from osprey.simulation.engines.calibration import curve_from_record, to_physics
     from osprey.simulation.engines.pyat import response_matrix
+    from osprey_connectors.simulation.engines import curve_from_record, to_physics
 
     scenarios = view.scenarios()
     (entry,) = [s for s in scenarios if s["name"] == scenario]
