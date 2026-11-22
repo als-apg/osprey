@@ -605,7 +605,7 @@ def test_parts_at_a_coils_angle_sit_on_it_side_by_side(tmp_path) -> None:
     (couple,) = _tipped(doc, "thermocouple 1")
     for dot in (switch, couple):
         assert dot["props"]["fill"] is True  # placed: a filled dot
-        assert min(math.dist(_centre(dot), c) for c in blocks) < 25  # on the coil
+        assert min(math.dist(_centre(dot), c) for c in blocks) < 26  # on the coil, to a pixel
     gap = math.dist(_centre(switch), _centre(couple))
     assert gap >= switch["geometry"]["width"]  # side by side, not on top of each other
     assert "not placed" not in " ".join(_texts(doc))

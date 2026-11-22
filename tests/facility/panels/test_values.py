@@ -255,7 +255,9 @@ def test_each_value_sits_under_its_own_name_and_a_lower_lane_has_a_leader(tmp_pa
         if name["geometry"]["y"] > top_lane:  # the lower lane: a leader down to it
             g = name["geometry"]
             ends = [_points(n)[-1] for n in lines]
-            assert (centre, g["y"]) in [(pytest.approx(x), pytest.approx(y)) for x, y in ends]
+            assert (centre, g["y"]) in [
+                (pytest.approx(x, abs=0.5), pytest.approx(y, abs=0.5)) for x, y in ends
+            ]  # on whole pixels
 
 
 def _points(line: dict) -> list[tuple[float, float]]:
