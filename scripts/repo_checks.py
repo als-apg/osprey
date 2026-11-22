@@ -96,6 +96,7 @@ INVARIANT_TESTS = (
     "tests/deployment/test_retired_spellings_at_parse_point.py",
     "tests/deployment/web_terminals/test_roster_entries.py",
     "tests/infrastructure/test_import_time_audit.py",
+    "tests/infrastructure/test_no_wide_stdlib_patch.py",
     "tests/infrastructure/test_stand_in_canaries.py",
     "tests/test_offline_build_env.py",
     "tests/test_api_marker_placement.py",
