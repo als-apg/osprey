@@ -1080,10 +1080,12 @@ def test_each_control_is_one_row_on_one_set_of_columns(tmp_path) -> None:
         n for n in _by_type(doc, "pv-button")
         if n["geometry"]["x"] != layout.APPLY_AWAY and n["props"].get("label") in ("Reset", "Start")
     ]  # fmt: skip
-    reset, start = sorted(buttons, key=lambda n: n["geometry"]["y"])
-    assert reset["geometry"]["y"] < start["geometry"]["y"]  # a row each
+    reset, start = sorted(buttons, key=lambda n: (n["geometry"]["y"], n["geometry"]["x"]))
+    # two short rows use the width: side by side, each on the panel's columns
+    assert reset["geometry"]["y"] == start["geometry"]["y"]
+    assert reset["geometry"]["x"] < start["geometry"]["x"]
     fields = _by_type(doc, "pv-text-input")
-    column = {reset["geometry"]["x"], start["geometry"]["x"], *(f["geometry"]["x"] for f in fields)}
+    column = {reset["geometry"]["x"], *(f["geometry"]["x"] for f in fields)}
     assert len(column) == 1  # buttons and fields in one column
     texts = [n["props"]["text"] for n in _by_type(doc, "text-label")]
     for name in ("Reset", "Start"):

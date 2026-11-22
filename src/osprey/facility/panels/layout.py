@@ -1292,6 +1292,14 @@ class _ControlColumns:
     hint: float
 
 
+def _moved(at: _ControlColumns, dx: float) -> _ControlColumns:
+    """An operate panel's columns moved over by *dx*, for a column of rows beside."""
+    return _ControlColumns(
+        at.badge + dx, at.name + dx, at.name_w, at.now + dx, at.value + dx,
+        at.live_w, at.box + dx, at.hint + dx,
+    )  # fmt: skip
+
+
 @dataclass(frozen=True)
 class _Block:
     """A strip symbol's values as drawn: its short name over them, at *cx* the symbol's
@@ -3605,15 +3613,53 @@ class _Page:
         self.control_legend(drawn)
         rows = [g for g in operate.groups if not self.gridded(g)]
         columns = self.control_columns(rows)
-        for group in operate.groups:
+        groups = list(operate.groups)
+        while groups:
+            group = groups.pop(0)
             if self.gridded(group):
                 self.entry_grid(group)  # many of one role: a grid, not a long list
                 continue
-            self.control_block(group, columns)
-            # what the group writes, under its rows from the names on, never cut
-            self.writes_line(group, STRIP_WIDTH - (columns.name - self.x0), columns.name)
+            if group.kind == "entry":  # its Apply and what it will write run to the right
+                self.control_block(group, columns)
+                self.writes_line(group, STRIP_WIDTH - (columns.name - self.x0), columns.name)
+                continue
+            run = [group]  # the short groups that follow it stand beside it
+            while groups and groups[0].kind != "entry" and not self.gridded(groups[0]):
+                run.append(groups.pop(0))
+            self.short_groups(run, columns)
 
-    def control_block(self, group: ControlGroup, at: _ControlColumns) -> None:
+    def short_groups(self, run: Sequence[ControlGroup], at: _ControlColumns) -> None:
+        """Groups whose rows end at their buttons (actions, choices, read-only values),
+        in cells as wide as the widest needs, as many side by side as fit the panel,
+        up to :data:`CONTROL_COLUMNS_MOST`, row by row; each cell its group's rows on
+        the panel's columns moved over, and what it writes under them."""
+        cell = max(self.group_width(g, at) for g in run)
+        per = max(
+            1, min(int((STRIP_WIDTH + COLUMN_GAP) // (cell + COLUMN_GAP)), CONTROL_COLUMNS_MOST)
+        )
+        if per == 1 or len(run) == 1:  # one to a row: its rows take the panel's width
+            per, cell = 1, STRIP_WIDTH
+        for first in range(0, len(run), per):
+            top, foot = self.y, self.y
+            for j, group in enumerate(run[first : first + per]):
+                self.y = top
+                dx = j * (cell + COLUMN_GAP)
+                self.control_block(group, _moved(at, dx), room=cell)
+                width = cell - (at.name - at.badge)
+                self.writes_line(group, width, at.name + dx)
+                foot = max(foot, self.y)
+            self.y = foot
+
+    def group_width(self, group: ControlGroup, at: _ControlColumns) -> float:
+        """How wide a short group's rows run from the tag: to the end of its button,
+        or of a choice's last segment."""
+        if group.kind == "choice":
+            return at.box - at.badge + len(group.controls) * (CONTROL_WIDTH + GAP) - GAP
+        return at.hint - at.badge
+
+    def control_block(
+        self, group: ControlGroup, at: _ControlColumns, room: float = STRIP_WIDTH
+    ) -> None:
         """A group's rows. Rows that end at their button or value (actions, read-only
         values) use the width: as many columns of rows, side by side, as fit the
         panel, up to :data:`CONTROL_COLUMNS_MOST`, filled downward, each column on
@@ -3622,7 +3668,7 @@ class _Page:
         rows = self.control_rows(group)
         short = group.kind in ("action", WITHHELD)
         width = at.hint - at.badge  # a short row ends at its button
-        fit = int((STRIP_WIDTH + COLUMN_GAP) // (width + COLUMN_GAP)) if short else 1
+        fit = int((room + COLUMN_GAP) // (width + COLUMN_GAP)) if short else 1
         columns = max(1, min(fit, CONTROL_COLUMNS_MOST, len(rows)))
         per = -(-len(rows) // columns)
         top, foot = self.y, self.y
@@ -3630,11 +3676,7 @@ class _Page:
             dx = (k // per) * (width + COLUMN_GAP)
             if not k % per:
                 self.y = top
-            moved = _ControlColumns(
-                at.badge + dx, at.name + dx, at.name_w, at.now + dx, at.value + dx,
-                at.live_w, at.box + dx, at.hint + dx,
-            )  # fmt: skip
-            self.control_row(group, control, name, moved)
+            self.control_row(group, control, name, _moved(at, dx))
             foot = max(foot, self.y)
         self.y = foot
 

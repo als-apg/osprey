@@ -1768,8 +1768,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``unit`` or ``where without a link``, for a checker to total per class),
    ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
    the layout cut to fit. An operate panel draws each control as one row on one
-   set of columns: tag, name, now, field or button, what it does; rows that end
-   at their button or value stand up to three side by side, filled downward. Every widget
+   set of columns: tag, name, now, field or button, what it does; groups whose
+   rows end at their button or value (actions, choices, read-only values) stand
+   up to three side by side, and a group of many such rows takes up to three
+   columns, filled downward. Every widget
    stands on whole pixels, each edge rounded where it is written, and every
    screen ends one margin under its lowest frame. The layout measures text in
    the viewer's own font
