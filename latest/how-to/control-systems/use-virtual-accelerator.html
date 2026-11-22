@@ -1439,49 +1439,109 @@ coordinate left out is <code class="docutils literal notranslate"><span class="p
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">aperture</span></code></p></td>
 <td><p>none</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">{x,</span> <span class="pre">y,</span> <span class="pre">shape}</span></code>: positive half-axes in metres, both required, and
-<code class="docutils literal notranslate"><span class="pre">elliptical</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">rectangular</span></code>; set on every element
-with a length.</p></td>
+<td><p>The ring’s aperture, <code class="docutils literal notranslate"><span class="pre">{x,</span> <span class="pre">y,</span> <span class="pre">shape}</span></code>: <code class="docutils literal notranslate"><span class="pre">elliptical</span></code> (the default)
+or <code class="docutils literal notranslate"><span class="pre">rectangular</span></code>, with <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">y</span></code> both required, each a positive
+half-axis in metres. A rectangle may state a plane as a <code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high]</span></code>
+pair of limits instead. Set on every element with a length.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">apertures</span></code></p></td>
+<td><p>none</p></td>
+<td><p>The apertures of single elements, a list of items read in order; see
+<em>Apertures per element</em> below.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
 <td><p>Sum per unit of the shot’s charge.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
 <td><p>Sum per unit of stored current.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_floor</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sum_floor</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
 <td><p>The lowest sum a sample reads.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">position_noise</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">position_noise</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1.0e-5</span></code></p></td>
 <td><p>Position noise sigma, metres.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_noise</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sum_noise</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
 <td><p>Sum noise sigma.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">floor_noise</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">floor_noise</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1.0e-3</span></code></p></td>
 <td><p>Position noise sigma where the sum is at the floor, metres.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tone_period</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tone_period</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
 <td><p>Samples between pilot-tone spikes, a whole number of at least 1.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tone_amplitude</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tone_amplitude</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
 <td><p>Pilot-tone spike size.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>Every number but <code class="docutils literal notranslate"><span class="pre">launch</span></code>, and <code class="docutils literal notranslate"><span class="pre">alpha</span></code> and <code class="docutils literal notranslate"><span class="pre">dispersion</span></code> in <code class="docutils literal notranslate"><span class="pre">twiss</span></code>, is
-finite and not negative; an unknown key, also inside <code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code>,
-<code class="docutils literal notranslate"><span class="pre">twiss</span></code>, <code class="docutils literal notranslate"><span class="pre">mismatch</span></code> or <code class="docutils literal notranslate"><span class="pre">aperture</span></code>, stops the build. The apertures
-decide when an RF-off bunch is lost; they are the facility’s to calibrate.</p>
+<p>Every number but <code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">alpha</span></code> and <code class="docutils literal notranslate"><span class="pre">dispersion</span></code> in <code class="docutils literal notranslate"><span class="pre">twiss</span></code>, and a
+rectangle’s limits is finite and not negative; an unknown key, also inside
+<code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code>, <code class="docutils literal notranslate"><span class="pre">twiss</span></code>, <code class="docutils literal notranslate"><span class="pre">mismatch</span></code>, <code class="docutils literal notranslate"><span class="pre">aperture</span></code> or an
+<code class="docutils literal notranslate"><span class="pre">apertures</span></code> item, stops the build. The apertures decide when an RF-off bunch
+is lost; they are the facility’s to calibrate.</p>
+<p><strong>Apertures per element.</strong> A vacuum chamber is not one pipe: it narrows in the
+bends and opens to one side at a septum. <code class="docutils literal notranslate"><span class="pre">aperture</span></code> states the ring’s
+chamber, and each <code class="docutils literal notranslate"><span class="pre">apertures</span></code> item states the chamber of the elements it
+selects, in the same <code class="docutils literal notranslate"><span class="pre">shape</span></code>, <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">y</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">turn_by_turn</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">injection_element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ_POINT</span>
+<span class="w">        </span><span class="nt">aperture</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="nv">0.012</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">0.012</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">apertures</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="nv">Dipole</span><span class="p p-Indicator">,</span><span class="nt"> x</span><span class="p">:</span><span class="w"> </span><span class="nv">0.018</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">0.005</span><span class="p p-Indicator">}</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">s</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">3.2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">9.6</span><span class="p p-Indicator">],</span><span class="nt"> x</span><span class="p">:</span><span class="w"> </span><span class="nv">0.020</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">0.005</span><span class="p p-Indicator">}</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="nv">SEPT</span><span class="p p-Indicator">,</span><span class="nt"> shape</span><span class="p">:</span><span class="w"> </span><span class="nv">rectangular</span><span class="p p-Indicator">,</span><span class="nt"> x</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">-0.020</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">0.006</span><span class="p p-Indicator">],</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">0.010</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>An item selects by exactly one key:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>The elements it selects</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">class</span></code></p></td>
+<td><p>Every element of that pyAT class, subclasses included, that has a
+length: <code class="docutils literal notranslate"><span class="pre">Dipole</span></code>, <code class="docutils literal notranslate"><span class="pre">Quadrupole</span></code>, <code class="docutils literal notranslate"><span class="pre">Sextupole</span></code>, <code class="docutils literal notranslate"><span class="pre">Drift</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">element</span></code></p></td>
+<td><p>Every deck element of that name, also one without a length.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">s</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[from,</span> <span class="pre">to]</span></code> in metres from the deck’s first element: every element
+with a length whose midpoint lies in the range.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An element takes the last item that selects it, and the ring’s <code class="docutils literal notranslate"><span class="pre">aperture</span></code>
+where no item does, so the list reads from general to specific. With no
+<code class="docutils literal notranslate"><span class="pre">aperture</span></code>, an element no item selects keeps what the deck states. An item
+that selects nothing in the deck stops the build, as does a class pyAT does
+not have or a range that ends beyond the deck.</p>
+<p>The tracker checks an aperture at the element’s entrance and exit, in the
+element’s own frame. So the chamber moves and rolls with an element a scenario
+misaligns: a quadrupole displaced by 1 mm carries its opening 1 mm with it. An
+element that takes no misalignment, a drift for one, keeps its chamber on the
+design axis. A cavity checks no aperture; state the chamber of the drifts
+beside it.</p>
 <p><strong>The injected beam.</strong> A shot launches one bunch in six dimensions, in
 pyAT’s coordinates: <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">y</span></code> in metres, <code class="docutils literal notranslate"><span class="pre">px</span></code> and <code class="docutils literal notranslate"><span class="pre">py</span></code> in radians,
 <code class="docutils literal notranslate"><span class="pre">delta</span></code> the relative momentum offset and <code class="docutils literal notranslate"><span class="pre">ct</span></code> the path lag in metres. A
@@ -1628,7 +1688,9 @@ apertures is lost within some hundred turns. On a radiating ring
 </ul>
 <p><strong>Cost.</strong> Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
-0.13 ms per particle and turn, growing with the deck. During it a read
+0.13 ms per particle and turn, growing with the deck. Apertures per element
+add nothing measurable to it: the tracker checks every element’s opening
+either way. During it a read
 answers at once with the last posted value; a write, a model RPC call and a
 response-matrix request wait until it ends and are then served, never
 refused. A client timeout shorter than the tracking is the client’s.</p>
