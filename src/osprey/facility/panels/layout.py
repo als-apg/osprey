@@ -3634,7 +3634,15 @@ class _Page:
         :data:`CONTROL_COLUMNS_MOST` to a row, whichever makes the run least tall
         (the fewer on a tie). Each cell holds its group's rows on the panel's
         columns moved over, a choice's segments wrapping within the cell, and what
-        it writes under them."""
+        it writes under them. A run of choices alone, which show no value, has its
+        segments start right after its longest name."""
+        if all(g.kind == "choice" for g in run):  # no value to show: segments after the name
+            names = [name for g in run for _c, name in self.control_rows(g)]
+            name_w = min(max(text_width(n, BLOCK_TEXT_SIZE) for n in names), at.name_w)
+            box = at.name + name_w + GAP
+            at = _ControlColumns(
+                at.badge, at.name, name_w, box, box, 0, box, box + CONTROL_WIDTH + GAP
+            )
         best: tuple[float, int] | None = None
         for per in range(1, min(CONTROL_COLUMNS_MOST, len(run)) + 1):
             cell = (STRIP_WIDTH - (per - 1) * COLUMN_GAP) / per

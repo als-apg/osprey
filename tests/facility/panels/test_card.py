@@ -2727,3 +2727,35 @@ def test_short_control_rows_use_the_width_in_columns(panel_graph) -> None:
     first = sorted(buttons, key=lambda g: (g["x"], g["y"]))
     assert [g["y"] for g in first[: len(ys)]] == ys  # the first column read down first
     assert max(g["x"] + g["width"] for g in buttons) <= layout.MARGIN + layout.STRIP_WIDTH
+
+
+def test_choices_in_a_row_stand_side_by_side_in_cells(panel_graph) -> None:
+    """Several choices of two segments each stand in cells side by side, their
+    segments right after the name, each cell's segments in one column, and the
+    run is less tall than one choice to a row."""
+    from dataclasses import replace
+
+    from osprey.facility.panels.view import Control, ControlGroup, Operate
+
+    def choice(i: int) -> ControlGroup:
+        segments = tuple(
+            Control(
+                word, f"XR01-PS1:Mode{i}-Sel", press_value=float(v), status=f"XR01-PS1:Mode{i}-Sts"
+            )
+            for v, word in enumerate(("Off", "On"))
+        )
+        return ControlGroup("choice", f"Mode {i}", segments, f"writes XR01-PS1:Mode{i}-Sel")
+
+    operate = Operate(tuple(choice(i) for i in range(1, 7)))
+    card = device_card(panel_graph, "XR01:PS1")
+    sections = tuple(
+        replace(s, items=(operate,)) if any(isinstance(i, Operate) for i in s.items) else s
+        for s in card.sections
+    )
+    doc = stub_render(replace(card, sections=sections), panel_graph)
+    tags = [n["geometry"] for n in _by_type(doc, "text-label") if n["props"]["text"] == "CHOICE"]
+    rows = [g for g in tags if g["y"] > min(t["y"] for t in tags)]  # not the legend's
+    assert len({g["x"] for g in rows}) >= 2  # side by side
+    assert len({g["y"] for g in rows}) <= 3  # six choices in three rows or fewer
+    offs = [n["geometry"] for n in _by_type(doc, "pv-button") if n["props"].get("label") == "Off"]
+    assert len({g["x"] for g in offs}) == len({g["x"] for g in rows})  # one column a cell
