@@ -23,6 +23,7 @@ import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import at
 import numpy as np
@@ -40,6 +41,7 @@ __all__ = [
     "track_particles",
     "track_shot",
     "write_apertures",
+    "write_declared_apertures",
 ]
 
 #: The prime bases of the six low-discrepancy sequences a bunch's shape is
@@ -293,44 +295,105 @@ def launched_bunch(
     return np.asarray(start.reshape(6, 1) + np.asarray(shape, dtype=np.float64), dtype=np.float64)
 
 
+#: pyAT's aperture attribute per shape; an element holds at most one of them here.
+_APERTURE_ATTRIBUTES: dict[str, str] = {"elliptical": "EApertures", "rectangular": "RApertures"}
+
+
+def _aperture_values(shape: str, extents: tuple[Any, Any]) -> np.ndarray:
+    """The values of pyAT's aperture attribute for one shape and its two planes."""
+    edges: list[float] = []
+    for extent in extents:
+        if isinstance(extent, tuple | list):
+            if shape != "rectangular":
+                raise ValueError("only a rectangular aperture states limits per plane")
+            low, high = (float(limit) for limit in extent)
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(
+                    f"a rectangle's limits are finite metres, low below high, not ({low:g}, {high:g})"
+                )
+        else:
+            high = float(extent)
+            if not 0.0 < high < math.inf:
+                raise ValueError(
+                    f"an aperture half-axis is a finite number of metres above 0, not {high:g}"
+                )
+            low = -high
+        edges.extend((high,) if shape == "elliptical" else (low, high))
+    return np.array(edges, dtype=np.float64)
+
+
 def write_apertures(
     lattice: at.Lattice,
     *,
     elliptical: tuple[float, float] | None = None,
-    rectangular: tuple[float, float] | None = None,
+    rectangular: tuple[Any, Any] | None = None,
+    indexes: Sequence[int] | None = None,
 ) -> None:
-    """Write the stated apertures on every element of ``lattice`` that has a length.
+    """Write one aperture on elements of ``lattice``, in place of any they hold.
 
     An elliptical aperture is pyAT's ``EApertures``, its two half-axes; a
-    rectangular one is ``RApertures``, the four edges of a rectangle centred
-    on the axis. ``lattice`` is changed in place: pass a copy to keep the
+    rectangular one is ``RApertures``, the four edges of a rectangle, centred
+    on the axis in a plane stated by its half-width. An element written here
+    loses the aperture of the other shape, so it holds the one stated last.
+    pyAT checks an aperture in the element's own frame, behind its entrance
+    transformation, so the opening moves and rolls with an element that is
+    misaligned. ``lattice`` is changed in place: pass a copy to keep the
     original.
 
     Args:
         lattice: The lattice to write on.
         elliptical: The ellipse's half-axes ``(x, y)`` in metres.
-        rectangular: The rectangle's half-widths ``(x, y)`` in metres.
+        rectangular: The rectangle's planes ``(x, y)`` in metres, each a
+            half-width or a ``(low, high)`` pair of limits.
+        indexes: The elements to write on, whatever their length; every
+            element with a length when omitted.
 
     Raises:
-        ValueError: a half-axis is not a finite number above 0.
+        ValueError: both shapes are stated; a half-axis is not a finite
+            number above 0; limits are not finite and rising.
     """
-    apertures: dict[str, np.ndarray] = {}
-    for attribute, half_axes in (("EApertures", elliptical), ("RApertures", rectangular)):
-        if half_axes is None:
-            continue
-        x, y = (float(value) for value in half_axes)
-        if not (0.0 < x < math.inf and 0.0 < y < math.inf):
-            raise ValueError(
-                f"an aperture half-axis is a finite number of metres above 0, not ({x:g}, {y:g})"
-            )
-        edges = (x, y) if attribute == "EApertures" else (-x, x, -y, y)
-        apertures[attribute] = np.array(edges, dtype=np.float64)
-    if not apertures:
+    stated = {
+        shape: extents
+        for shape, extents in (("elliptical", elliptical), ("rectangular", rectangular))
+        if extents is not None
+    }
+    if not stated:
         return
-    for element in lattice:
-        if float(getattr(element, "Length", 0.0)) > 0.0:
-            for attribute, values in apertures.items():
-                setattr(element, attribute, values.copy())
+    if len(stated) > 1:
+        raise ValueError("an element holds one aperture: state elliptical or rectangular")
+    ((shape, extents),) = stated.items()
+    values = _aperture_values(shape, (extents[0], extents[1]))
+    if indexes is None:
+        indexes = [
+            index
+            for index, element in enumerate(lattice)
+            if float(getattr(element, "Length", 0.0)) > 0.0
+        ]
+    for index in indexes:
+        element = lattice[index]
+        for attribute in _APERTURE_ATTRIBUTES.values():
+            if hasattr(element, attribute):
+                delattr(element, attribute)
+        setattr(element, _APERTURE_ATTRIBUTES[shape], values.copy())
+
+
+def write_declared_apertures(lattice: at.Lattice, ring: Any, elements: Sequence[Any]) -> None:
+    """Write a turn-by-turn block's apertures: the ring's, then each element item in order.
+
+    Args:
+        lattice: The lattice to write on, changed in place.
+        ring: The block's ``aperture``
+            (:class:`~osprey.simulation.engines.pyat_turn_settings.Aperture`),
+            or ``None`` to leave the elements no item selects as the deck
+            states them.
+        elements: The block's ``apertures``
+            (:class:`~osprey.simulation.engines.pyat_turn_settings.ElementAperture`);
+            a later item replaces an earlier one on an element both select.
+    """
+    if ring is not None:
+        write_apertures(lattice, **ring.keywords)
+    for item in elements:
+        write_apertures(lattice, **item.aperture.keywords, indexes=item.indexes)
 
 
 @dataclass(frozen=True)

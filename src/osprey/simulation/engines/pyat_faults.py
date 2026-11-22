@@ -27,6 +27,14 @@ is a pure function of the reading's address and the time it is read at. The
 roll turns the beam position before the monitor's conversion to the unit it
 publishes; the rest of the chain acts on the published number.
 
+**A monitor has one chain, whatever is read through it.** :func:`readout`
+reads the orbit readings a model serves; :func:`monitor_reads` reads beam
+positions handed in the deck's unit -- a turn-by-turn ring's turn arrays,
+sample by sample -- through the same monitor's same faults. Both run
+:func:`_chain`, so a fault stated once on a monitor's orbit reading acts on
+everything that monitor reports, in one order: roll, offset, polarity, noise,
+gain.
+
 **Element errors are keyed by the element, not by an address.** One series
 supply address feeds many magnets, so a magnet's own misalignment and its own
 multipole error cannot hang off the address. Every element a non-monitor
@@ -64,8 +72,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from osprey_connectors.simulation.engines import Linear, to_hardware, to_physics
 from osprey_connectors.simulation.engines import field as _slot
-from osprey_connectors.simulation.engines import to_hardware, to_physics
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.engines import Calibration
@@ -180,7 +188,7 @@ NOISE_SUBKEY = b":readout_noise"
 _AXES = ("x", "y")
 
 
-def rolled(x: float, y: float, roll: float) -> tuple[float, float]:
+def rolled(x: Any, y: Any, roll: float) -> tuple[Any, Any]:
     """The beam position ``(x, y)`` as a monitor rolled by ``roll`` sees it.
 
     The pair is the beam position in the deck's unit. A positive roll, in
@@ -194,7 +202,7 @@ def rolled(x: float, y: float, roll: float) -> tuple[float, float]:
         roll: The monitor's roll, in radians.
 
     Returns:
-        The turned ``(x, y)``, in the unit of the input.
+        The turned ``(x, y)``, in the unit of the input; arrays for arrays.
     """
     return (
         math.cos(roll) * x - math.sin(roll) * y,
@@ -218,7 +226,7 @@ def bpm_read(
     noise_y: float,
     normal_x: float,
     normal_y: float,
-) -> tuple[float, float]:
+) -> tuple[Any, Any]:
     """One monitor's reading of a true (x, y) position the roll has already turned.
 
     Subtract the offset, apply the calibration error and the polarity, add
@@ -247,7 +255,8 @@ def bpm_read(
         normal_y: The standard normal draw the vertical noise scales.
 
     Returns:
-        ``(reading_x, reading_y)`` in the unit the monitor publishes.
+        ``(reading_x, reading_y)`` in the unit the monitor publishes: floats
+        for float positions, arrays for arrays of positions.
     """
     reading_x = (x - offset_x) * (1.0 + cal_x) * polarity_x + noise_x * normal_x
     reading_y = (y - offset_y) * (1.0 + cal_y) * polarity_y + noise_y * normal_y
@@ -255,7 +264,7 @@ def bpm_read(
     reading_x *= gain_x
     reading_y *= gain_y
 
-    return float(reading_x), float(reading_y)
+    return reading_x, reading_y
 
 
 def magnet_cal(setpoint: float, *, factor: float = 1.0, offset: float = 0.0) -> float:
@@ -585,16 +594,20 @@ class _Plane:
     """One plane of a monitor: its address and its conversion to the published unit.
 
     Attributes:
-        address: The reading's address.
+        address: The reading's address; ``None`` on a plane no record reads.
         calibration: Published unit to the deck's unit; ``None`` when they
             are the same.
         inverse: The deck's unit back to the published one, or ``None``
             where the record states none.
     """
 
-    address: str
+    address: str | None
     calibration: Calibration | None
     inverse: Calibration | None
+
+
+#: The plane of a monitor no record reads: no address, published in the deck's unit.
+_UNREAD = _Plane(None, None, None)
 
 
 _MONITORS: weakref.WeakKeyDictionary[Any, dict[str, dict[str, _Plane]]] = (
@@ -651,16 +664,95 @@ def _normal(address: str | None, width: float, t_ms: int | float) -> float:
     return float(keyed_normals(key, np.asarray([t_ms]))[0])
 
 
+def _each(convert: Any, curves: tuple[Calibration | None, ...], value: Any) -> Any:
+    """``convert`` applied to a float, or to every sample of an array.
+
+    A linear curve converts an array in one step; a table is looked up
+    sample by sample.
+    """
+    import numpy as np
+
+    if np.ndim(value) == 0:
+        return convert(float(value))
+    if all(curve is None or isinstance(curve, Linear) for curve in curves):
+        return np.asarray(convert(np.asarray(value, dtype=np.float64)), dtype=np.float64)
+    return np.array([convert(float(sample)) for sample in value], dtype=np.float64)
+
+
+def _published(plane: _Plane, physics: Any) -> Any:
+    """A position in the deck's unit, in the unit ``plane`` publishes."""
+    if plane.calibration is None and plane.inverse is None:
+        return physics
+    return _each(
+        lambda value: to_hardware(plane.calibration, plane.inverse, value),
+        (plane.calibration, plane.inverse),
+        physics,
+    )
+
+
+def _physics(plane: _Plane, published: Any) -> Any:
+    """A position in the unit ``plane`` publishes, in the deck's unit."""
+    if plane.calibration is None:
+        return published
+    return _each(
+        lambda value: to_physics(plane.calibration, value), (plane.calibration,), published
+    )
+
+
+def _chain(
+    planes: Mapping[str, _Plane],
+    faults: Mapping[str, float],
+    x: Any,
+    y: Any,
+    normal_x: Any,
+    normal_y: Any,
+) -> tuple[Any, Any]:
+    """One monitor's reading of the pair ``(x, y)``, each in the unit its plane publishes.
+
+    The one chain every reading of a monitor runs. The roll turns the pair in
+    the deck's unit, through each plane's own conversion; :func:`bpm_read`
+    then subtracts the offset, applies the polarity, adds the noise and
+    multiplies by the gain, on the published pair. An unrolled monitor never
+    leaves its published unit. Floats or arrays, sample for sample.
+
+    Args:
+        planes: The monitor's ``x`` and ``y`` planes; a plane no record reads
+            is published in the deck's unit.
+        faults: :func:`_readout_faults` of the monitor's element.
+        x: The horizontal position, in the unit plane ``x`` publishes.
+        y: The vertical position, in the unit plane ``y`` publishes.
+        normal_x: The standard normal draw the horizontal noise scales.
+        normal_y: The standard normal draw the vertical noise scales.
+
+    Returns:
+        ``(reading_x, reading_y)``, each in its plane's published unit.
+    """
+    plane_x, plane_y = planes.get("x", _UNREAD), planes.get("y", _UNREAD)
+    roll = faults[ROLL]
+    if roll != ROLL_IDENTITY:
+        turned_x, turned_y = rolled(_physics(plane_x, x), _physics(plane_y, y), roll)
+        x, y = _published(plane_x, turned_x), _published(plane_y, turned_y)
+    return bpm_read(
+        x,
+        y,
+        **{keyword: value for keyword, value in faults.items() if keyword != ROLL},
+        cal_x=0.0,
+        cal_y=0.0,
+        normal_x=normal_x,
+        normal_y=normal_y,
+    )
+
+
 def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[str, float]:
     """What each monitor reports for the positions in ``values``.
 
     Every monitor element with a reading in ``values`` is read once, on its
-    (x, y) pair: the roll turns the pair in the deck's unit, through each
-    plane's own conversion, and :func:`bpm_read` then applies the element's
-    other readout attributes, no calibration error, and noise drawn per
-    address at ``t_ms``, to the published pair. A monitor with one reading
-    only reads its other plane as exactly on axis. An unrolled monitor never
-    leaves its published unit.
+    (x, y) pair, through the monitor's chain (:func:`_chain`): the roll turns
+    the pair in the deck's unit, through each plane's own conversion, and
+    :func:`bpm_read` then applies the element's other readout attributes, no
+    calibration error, and noise drawn per address at ``t_ms``, to the
+    published pair. A monitor with one reading only reads its other plane as
+    exactly on axis. An unrolled monitor never leaves its published unit.
 
     Args:
         model: The model the readings belong to: its ``supported_variables``
@@ -682,7 +774,7 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
     """
     read = dict(values)
     for element_name, planes in sorted(_monitors(model).items()):
-        addresses = sorted(plane.address for plane in planes.values())
+        addresses = sorted(str(plane.address) for plane in planes.values())
         missing = [address for address in addresses if address not in values]
         if len(missing) == len(planes):
             continue
@@ -692,36 +784,73 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
                 f"values hold no reading of {missing}"
             )
         faults = _readout_faults(model.simulator.element(element_name))
-        roll = faults.pop(ROLL)
-        published = {axis: float(values[plane.address]) for axis, plane in planes.items()}
-        if roll != ROLL_IDENTITY:
-            physics = {
-                axis: to_physics(plane.calibration, published[axis])
-                for axis, plane in planes.items()
-            }
-            turned = dict(
-                zip(_AXES, rolled(physics.get("x", 0.0), physics.get("y", 0.0), roll), strict=True)
-            )
-            published = {
-                axis: to_hardware(plane.calibration, plane.inverse, turned[axis])
-                for axis, plane in planes.items()
-            }
         x_address = planes["x"].address if "x" in planes else None
         y_address = planes["y"].address if "y" in planes else None
-        reading_x, reading_y = bpm_read(
-            published.get("x", 0.0),
-            published.get("y", 0.0),
-            **faults,
-            cal_x=0.0,
-            cal_y=0.0,
-            normal_x=_normal(x_address, faults["noise_x"], t_ms),
-            normal_y=_normal(y_address, faults["noise_y"], t_ms),
+        reading_x, reading_y = _chain(
+            planes,
+            faults,
+            0.0 if x_address is None else float(values[x_address]),
+            0.0 if y_address is None else float(values[y_address]),
+            _normal(x_address, faults["noise_x"], t_ms),
+            _normal(y_address, faults["noise_y"], t_ms),
         )
         if x_address is not None:
-            read[x_address] = reading_x
+            read[x_address] = float(reading_x)
         if y_address is not None:
-            read[y_address] = reading_y
+            read[y_address] = float(reading_y)
     return read
+
+
+def monitor_reads(
+    model: Any,
+    element_name: str,
+    x: Any,
+    y: Any,
+    *,
+    normals: Any = None,
+) -> tuple[Any, Any]:
+    """What one monitor reads of beam positions handed in the deck's unit.
+
+    The monitor's chain (:func:`_chain`) on positions that are no served
+    orbit reading -- a turn-by-turn ring's turn arrays. The faults are the
+    ones the monitor's orbit readings carry, read off the same element, so a
+    fault stated once acts on both. Each position goes to the unit its
+    plane's orbit reading publishes, where the offset and the noise width
+    are stated, through the chain, and back to the deck's unit. A monitor
+    with no fault reads the positions as given, unconverted.
+
+    Args:
+        model: The model the monitor belongs to, as for :func:`readout`.
+        element_name: The monitor's element.
+        x: The horizontal beam positions, in the deck's unit; a float or an
+            array.
+        y: The vertical beam positions, shaped like ``x``.
+        normals: Called with ``"x"`` or ``"y"``, returns that plane's
+            standard normal draws, shaped like ``x``; called only for a plane
+            whose noise width is not 0. ``None`` draws no noise.
+
+    Returns:
+        ``(reading_x, reading_y)`` in the deck's unit, shaped like the input.
+    """
+    faults = _readout_faults(model.simulator.element(element_name))
+    identity = {
+        **{f"{name}_{axis}": value for name, value in READOUT_IDENTITY.items() for axis in _AXES},
+        ROLL: ROLL_IDENTITY,
+    }
+    if faults == identity:
+        return x, y
+    planes = _monitors(model).get(element_name, {})
+    plane_x, plane_y = planes.get("x", _UNREAD), planes.get("y", _UNREAD)
+
+    def normal(axis: str) -> Any:
+        if normals is None or faults[f"noise_{axis}"] == 0.0:
+            return 0.0
+        return normals(axis)
+
+    reading_x, reading_y = _chain(
+        planes, faults, _published(plane_x, x), _published(plane_y, y), normal("x"), normal("y")
+    )
+    return _physics(plane_x, reading_x), _physics(plane_y, reading_y)
 
 
 __all__ = [
@@ -740,6 +869,7 @@ __all__ = [
     "error_elements",
     "lengthen",
     "magnet_cal",
+    "monitor_reads",
     "multipole_attribute",
     "multipole_error",
     "multipole_field",

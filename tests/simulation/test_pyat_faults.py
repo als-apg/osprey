@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import at
+import numpy as np
 import pytest
 import yaml
 from lume_pyat.model import LUMEPyATModel
@@ -28,6 +29,7 @@ from osprey.simulation.engines import pyat_faults
 from osprey.simulation.engines.pyat_faults import bpm_read as reference_bpm_read
 from osprey.simulation.engines.pyat_faults import (
     magnet_cal,
+    monitor_reads,
     readout,
     rolled,
     supply_attribute,
@@ -484,3 +486,55 @@ class TestSupplyCalibration:
 
         held = simulator.element("QF01").PolynomB[1]
         assert held == pytest.approx(gain * 300.0 + offset, rel=1e-12)
+
+
+class TestMonitorReads:
+    """A monitor reads positions handed in the deck's unit through its orbit readings' chain."""
+
+    X_M = np.array([1.0e-3, -2.0e-3, 0.0])
+    Y_M = np.array([5.0e-4, 0.0, -1.0e-3])
+
+    @pytest.fixture
+    def converted(self, records) -> LUMEPyATModel:
+        return converted_model(records)
+
+    def test_an_unseeded_monitor_reads_the_positions_as_given(self, converted) -> None:
+        x, y = monitor_reads(converted, MONITOR, self.X_M, self.Y_M)
+        assert x is self.X_M and y is self.Y_M
+
+    def test_arrays_read_as_the_orbit_reading_of_each_sample_does(self, converted) -> None:
+        seed(
+            converted,
+            MONITOR,
+            {"roll": CONVERTED_ROLL, "offset_x": 3.0e-2, "gain_x": 1.07, "polarity_y": -1.0},
+        )
+        x, y = monitor_reads(converted, MONITOR, self.X_M, self.Y_M)
+        for sample in range(3):
+            values = {
+                X_ADDRESS: published_of(X_ADDRESS, self.X_M[sample]),
+                Y_ADDRESS: published_of(Y_ADDRESS, self.Y_M[sample]),
+            }
+            read = readout(converted, values, 1_000)
+            assert x[sample] == pytest.approx(physics_of(X_ADDRESS, read[X_ADDRESS]), abs=1e-15)
+            assert y[sample] == pytest.approx(physics_of(Y_ADDRESS, read[Y_ADDRESS]), abs=1e-15)
+
+    def test_noise_is_the_faults_width_times_the_draws_handed_in(self, converted) -> None:
+        seed(converted, MONITOR, {"noise_x": 2.0e-2})
+        draws = np.array([1.0, -1.0, 0.5])
+        asked: list[str] = []
+
+        def normals(axis: str) -> np.ndarray:
+            asked.append(axis)
+            return draws
+
+        x, y = monitor_reads(converted, MONITOR, self.X_M, self.Y_M, normals=normals)
+        assert asked == ["x"]
+        # The width is in the published unit; the reading comes back in the deck's.
+        gain = CONVERTED[X_ADDRESS]["gain"]
+        np.testing.assert_allclose(x - self.X_M, gain * 2.0e-2 * draws, atol=1e-15)
+        np.testing.assert_allclose(y, self.Y_M, atol=1e-18)
+
+    def test_a_monitor_with_no_orbit_reading_reads_in_the_decks_unit(self, model) -> None:
+        seed(model, "BPM05", {"offset_x": 1.0e-4})
+        x, _ = monitor_reads(model, "BPM05", self.X_M, self.Y_M)
+        np.testing.assert_allclose(x, self.X_M - 1.0e-4, atol=1e-18)

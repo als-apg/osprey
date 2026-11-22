@@ -597,3 +597,135 @@ class TestAnotherRing:
         engine.client_write(plain_ring, {"anything": 1.0}, 1.0)
         assert engine.next_deadline(plain_ring) is None
         assert engine.emitted(plain_ring) == []
+
+
+#: BPM01's orbit readings, published in millimetres over a deck in metres.
+class TestElementApertures:
+    """An ``apertures`` item is written on the deck a shot is tracked through."""
+
+    @staticmethod
+    def _sum(demo: dict[str, Any], apertures: list[dict[str, Any]]) -> np.ndarray:
+        settings = _settings(demo)
+        settings["pyat"]["turn_by_turn"].update(
+            launch={"x": 2.0e-3}, aperture={"x": 0.05, "y": 0.05}, apertures=apertures
+        )
+        model = engine.build(MODEL, [*demo["wiring"], *_turn_records()], demo["deck"], settings, {})
+        engine.advance(model, 0.0)
+        _baselined(model)
+        _arm(model, ARM_1)
+        _deliver(model, 11.0)
+        return np.asarray(_value(model, SUM_1))[TRIGGER:]
+
+    def test_the_sum_falls_where_an_elements_aperture_cuts_the_beam(self, demo):
+        kept = self._sum(demo, [])
+        cut = self._sum(
+            demo,
+            [{"class": "Quadrupole", "shape": "rectangular", "x": [-0.01, 0.001], "y": 0.01}],
+        )
+        assert np.all(kept > 0.5)
+        # The first monitor reads turn 1 before the beam meets a quadrupole.
+        assert np.all(cut[1:] < 0.5 * kept[1:])
+
+    def test_a_later_item_wins_on_the_elements_both_select(self, demo):
+        tight = {"class": "Quadrupole", "shape": "rectangular", "x": [-0.01, 0.001], "y": 0.01}
+        wide = {"class": "Quadrupole", "x": 0.05, "y": 0.05}
+        np.testing.assert_array_equal(self._sum(demo, [tight, wide]), self._sum(demo, []))
+
+
+POSITION_X_1 = "SR:DIAG:BPM:01:POSITION:X"
+POSITION_Y_1 = "SR:DIAG:BPM:01:POSITION:Y"
+MM = 1.0e-3
+
+
+class TestReadoutFaultsOnTurnArrays:
+    """A fault on a monitor's orbit reading acts on that monitor's turn arrays alike."""
+
+    @staticmethod
+    def _shot(demo: dict[str, Any], faults: dict[str, float], *, shot: float = 11.0):
+        settings = _settings(demo)
+        settings["pyat"]["turn_by_turn"]["launch"] = {"x": 1.0e-3, "y": -5.0e-4}
+        model = engine.build(
+            MODEL, [*demo["wiring"], *_turn_records()], demo["deck"], settings, faults
+        )
+        engine.advance(model, 0.0)
+        _baselined(model)
+        _arm(model, ARM_1)
+        _deliver(model, shot)
+        x, y, total = (np.asarray(_value(model, name)) for name in (X_1, Y_1, SUM_1))
+        return model, x, y, total
+
+    def test_an_offset_is_subtracted_from_every_turn_in_the_arrays_unit(self, demo):
+        _, x, y, total = self._shot(demo, {})
+        _, x_off, y_off, total_off = self._shot(
+            demo, {f"{POSITION_X_1}/offset": 0.5, f"{POSITION_Y_1}/offset": -0.2}
+        )
+        np.testing.assert_allclose(x_off[TRIGGER:], x[TRIGGER:] - 0.5 * MM, atol=1e-15)
+        np.testing.assert_allclose(y_off[TRIGGER:], y[TRIGGER:] + 0.2 * MM, atol=1e-15)
+        np.testing.assert_array_equal(total_off, total)
+
+    def test_the_orbit_reading_and_the_turn_array_carry_the_one_offset(self, demo):
+        fault = {f"{POSITION_X_1}/offset": 0.5}
+        clean, x, _, _ = self._shot(demo, {})
+        faulted, x_off, _, _ = self._shot(demo, fault)
+        truth = {POSITION_X_1: 0.25, POSITION_Y_1: -0.15}
+        orbit_shift = (
+            engine.readout(faulted, truth, 1_000)[POSITION_X_1]
+            - engine.readout(clean, truth, 1_000)[POSITION_X_1]
+        )
+        assert orbit_shift == pytest.approx(-0.5)
+        np.testing.assert_allclose(x_off[TRIGGER:] - x[TRIGGER:], orbit_shift * MM, atol=1e-15)
+
+    def test_the_chain_is_roll_then_offset_then_polarity_then_gain(self, demo):
+        from osprey.simulation.engines.pyat_faults import rolled
+
+        _, x, y, _ = self._shot(demo, {})
+        _, x_read, y_read, _ = self._shot(
+            demo,
+            {
+                f"{POSITION_X_1}/roll": 0.05,
+                f"{POSITION_X_1}/offset": 0.5,
+                f"{POSITION_X_1}/gain": 1.05,
+                f"{POSITION_Y_1}/offset": -0.2,
+                f"{POSITION_Y_1}/gain": 0.9,
+                f"{POSITION_Y_1}/polarity": -1.0,
+            },
+        )
+        turned_x, turned_y = rolled(x[TRIGGER:], y[TRIGGER:], 0.05)
+        np.testing.assert_allclose(x_read[TRIGGER:], 1.05 * (turned_x - 0.5 * MM), atol=1e-15)
+        np.testing.assert_allclose(y_read[TRIGGER:], -0.9 * (turned_y + 0.2 * MM), atol=1e-15)
+
+    def test_a_noise_fault_adds_its_width_keyed_on_the_shot(self, demo):
+        fault = {f"{POSITION_X_1}/noise": 0.3}
+        _, x, y, _ = self._shot(demo, {})
+        _, x_noisy, y_noisy, _ = self._shot(demo, fault)
+        _, x_again, _, _ = self._shot(demo, fault)
+        _, x_next, _, _ = self._shot(demo, fault, shot=12.0)
+        _, x_clean_next, _, _ = self._shot(demo, {}, shot=12.0)
+        added = (x_noisy - x)[TRIGGER:]
+        assert 0.5 * 0.3 * MM < added.std() < 1.5 * 0.3 * MM
+        np.testing.assert_array_equal(x_again, x_noisy)
+        np.testing.assert_array_equal(y_noisy, y)
+        assert not np.allclose((x_next - x_clean_next)[TRIGGER:], added)
+
+    def test_where_no_beam_is_seen_the_arrays_read_the_floor_noise_alone(self, demo):
+        _, x, y, _ = self._shot(demo, {})
+        _, x_off, y_off, _ = self._shot(
+            demo, {f"{POSITION_X_1}/offset": 0.5, f"{POSITION_X_1}/roll": 0.05}
+        )
+        assert np.any(x[:TRIGGER] != 0.0)
+        np.testing.assert_array_equal(x_off[:TRIGGER], x[:TRIGGER])
+        np.testing.assert_array_equal(y_off[:TRIGGER], y[:TRIGGER])
+
+    def test_a_fault_on_one_monitor_leaves_the_next_monitors_arrays_alone(self, demo):
+        def second(faults):
+            settings = _settings(demo)
+            model = engine.build(
+                MODEL, [*demo["wiring"], *_turn_records()], demo["deck"], settings, faults
+            )
+            engine.advance(model, 0.0)
+            _baselined(model)
+            _arm(model, ARM_2)
+            _deliver(model, 11.0)
+            return np.asarray(_value(model, X_2))
+
+        np.testing.assert_array_equal(second({f"{POSITION_X_1}/offset": 0.5}), second({}))

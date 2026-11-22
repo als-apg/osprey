@@ -232,3 +232,33 @@ def test_the_output_is_identical_in_a_second_python_process() -> None:
     exec(_CHILD.replace("print(", "result = ("), exec_globals)
     here = [[v.hex() for v in a.tolist()] for a in exec_globals["out"]]
     assert here == first
+
+
+def test_the_monitors_faults_act_on_the_beam_position_before_floor_and_tone() -> None:
+    def faults(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return 2.0 * x + 1e-4, y - 3e-4
+
+    alive = np.ones(TURNS)
+    alive[30:] = 0.0
+    readout = quiet(position_noise=1e-5, floor_noise=1e-3, tone_amplitude=1.0)
+    plain = arrays(readout, alive=alive, tone_on=True)
+    read = arrays(readout, alive=alive, tone_on=True, faults=faults)
+    beam = np.zeros(TRIGGER + TURNS, dtype=bool)
+    beam[TRIGGER : TRIGGER + 30] = True
+    tone = np.arange(TRIGGER + TURNS) % 10 == 0
+    seen = beam & ~tone
+    # The position noise is on the beam position the faults read.
+    np.testing.assert_allclose(read[0][seen], 2.0 * plain[0][seen] + 1e-4, atol=1e-15)
+    np.testing.assert_allclose(read[1][seen], plain[1][seen] - 3e-4, atol=1e-15)
+    # With no beam there is nothing to read: the floor noise, untouched.
+    np.testing.assert_array_equal(read[0][~beam], plain[0][~beam])
+    np.testing.assert_array_equal(read[1][~beam], plain[1][~beam])
+    np.testing.assert_array_equal(read[2], plain[2])
+
+
+def test_without_faults_the_arrays_are_the_ones_of_a_perfect_monitor() -> None:
+    readout = quiet(position_noise=1e-5, floor_noise=1e-3, tone_amplitude=1.0)
+    plain = arrays(readout, tone_on=True)
+    same = arrays(readout, tone_on=True, faults=lambda x, y: (x, y))
+    for one, other in zip(plain, same, strict=True):
+        np.testing.assert_array_equal(one, other)

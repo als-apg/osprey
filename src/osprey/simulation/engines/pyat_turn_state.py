@@ -41,7 +41,7 @@ from osprey.simulation.engines.pyat_variables import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     import at
     from lume.variables import Variable
@@ -395,8 +395,7 @@ class TurnByTurnModel(PyATLatticeModel):
         inputs = state.inputs or {}
         previous = state.previous_inputs or {}
         lattice = self.lattice.deepcopy()
-        if settings.aperture is not None:
-            pyat_turns.write_apertures(lattice, **settings.aperture.keywords)
+        pyat_turns.write_declared_apertures(lattice, settings.aperture, settings.apertures)
         beam = self.get(list(self._beam_names.values())) if self._beam_names else {}
         held = {signal: float(beam[name]) for signal, name in self._beam_names.items()}
         offset = [held.get(signal, 0.0) for signal in OFFSET_SIGNALS]
@@ -468,8 +467,33 @@ class TurnByTurnModel(PyATLatticeModel):
                 addresses=addresses,
                 shot=shot,
                 readout=settings.readout,
+                faults=self._faults(name, x_address, y_address, shot),
             )
         return arrays
+
+    def _faults(
+        self, monitor: str, x_address: str, y_address: str, shot: int
+    ) -> Callable[[np.ndarray, np.ndarray], tuple[Any, Any]]:
+        """What ``monitor`` reads of a shot's beam positions, as a function of the (x, y) pair.
+
+        The read-out faults its element carries
+        (:func:`~osprey.simulation.engines.pyat_faults.monitor_reads`), the
+        ones its orbit readings are read through. A noise fault is drawn per
+        sample, keyed on the position array's address and the shot.
+        """
+        from osprey.simulation.engines.pyat_faults import monitor_reads
+        from osprey.simulation.engines.pyat_turn_readout import FAULT_NOISE_SUBKEY, sample_draws
+
+        addresses = {"x": x_address, "y": y_address}
+        samples = self.turn_state.settings.samples
+
+        def normals(axis: str) -> np.ndarray:
+            return sample_draws(addresses[axis], FAULT_NOISE_SUBKEY, shot, samples)
+
+        def faults(x: np.ndarray, y: np.ndarray) -> tuple[Any, Any]:
+            return monitor_reads(self, monitor, x, y, normals=normals)
+
+        return faults
 
     def _validate_binding(self, name: str, variable: Variable) -> None:
         """Check a turn variable's monitor; defer everything else."""
