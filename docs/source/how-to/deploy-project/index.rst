@@ -334,7 +334,7 @@ networks. The ``optimizer`` service does the same with the optimizer and its
 Redis job store. So these containers must resolve each other by name. On
 Podman, that depends on which networking backend the host runs:
 
-* **netavark** (Podman 4.0+ default) — ships aardvark-dns, which serves
+* **netavark** — ships aardvark-dns, which serves
   container-name DNS on every network a container is attached to. **Required.**
 * **cni** (the legacy backend, still configured on some RHEL 8 hosts) — has no
   aardvark-dns. A dual-homed container receives only its *first* network's

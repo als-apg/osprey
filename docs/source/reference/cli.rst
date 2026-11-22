@@ -1195,7 +1195,8 @@ is :doc:`/how-to/apps/index`.
    ``profile.yml`` names, then the import boundary over each of their Python
    packages, that ``panel/index.html`` passes the panel validator's rules (the
    three design-system sheets, the theme boot script, the font sheet, no raw hex
-   colour, the page-ready mark), ESLint over ``panel/`` when it holds JS, and
+   colour, the page-ready mark, no module of its own loaded ``async``), ESLint
+   over ``panel/`` when it holds JS, and
    Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every
    violation with its application, field and rule, and exits 1. A panel rule that
    only reports (a class with no CSS rule) is printed as
@@ -2047,14 +2048,12 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    and the like) and start anyway. Without it, a failed check refuses the start.
 
 ``osprey web stop [--repo DIRECTORY]``
-   Stop a background web terminal server. So that the next ``osprey web`` or
-   ``osprey web sessions clear`` finds nothing of it still running, it returns
-   only once the server and the processes it started have exited. A process
-   that outlives the server is ended with SIGTERM, then SIGKILL; one that
-   cannot be ended is named and the command exits 1. A server still running
-   after the wait is named with the ``kill`` line that ends it and left alone:
-   its PID file is kept, so ``osprey web stop`` can be run again, and the
-   command exits 1.
+   Stop a background web terminal server. Returns once the server and the
+   processes it started have exited, waiting up to 60 seconds. A process that
+   outlives the server is ended with SIGTERM, then SIGKILL; one that cannot be
+   ended is named and the command exits 1. A server still running after the
+   wait is named and left alone, and the command exits 1; its PID file is
+   kept, so ``osprey web stop`` can be run again.
 
 ``osprey web sessions``
    Group for the commands that manage the sessions kept on disk.

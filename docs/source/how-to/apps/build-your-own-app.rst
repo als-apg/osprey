@@ -296,7 +296,7 @@ loads ``/design-system/js/page-ready.js`` by its own tag before ``panel.js``,
 and ``panel.js`` imports ``markPageReady`` from it and calls it once the first
 refresh has drawn, error or not. ``osprey app check`` refuses a panel that
 lacks any of the three, or that loads a module of its own ``async``. The wait
-ends at ``true`` or at ``failed``, which means the page cannot be driven.
+ends at ``true`` or ``failed``; ``failed`` means the page cannot be driven.
 
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not

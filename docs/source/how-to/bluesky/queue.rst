@@ -277,7 +277,8 @@ quirks worth knowing:
 
    ``plan_registry_unreadable``
       The bridge could not read its plan registry, so it could not check the
-      arguments. Nothing was queued. Retry.
+      arguments. Nothing was queued and the draft's revision is still unused,
+      so add the same revision again.
 
    ``session_plan_unvalidated``
       An agent-written plan must pass validation, byte for byte, before it

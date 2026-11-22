@@ -336,7 +336,7 @@ nobody runs under a green check.
        measures the workers.
      - the parallel sweep deselects it; the ``pytest-wallclock-unit`` check
        times the image-free budgets alone, and ``qmd-sidecar-e2e`` the ones
-       that need the sidecar image
+       also marked ``dockerbuild``
    * - ``canopy``
      - Needs CANOPY and PyDMConverter at the pinned commits, and refuses to
        skip without them.

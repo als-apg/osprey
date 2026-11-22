@@ -221,10 +221,9 @@ class TestAgentDelegation:
         title="Look up BPM addresses",
         asks="What are the PV addresses of the horizontal BPMs in the storage ring?",
         passes_if=(
-            "the channel-finder subagent looks them up and the answer names every "
-            "storage-ring BPM's horizontal position address and no other; a refused "
-            "options request passes only when the product's level-order refusal is "
-            "followed by the repaired request"
+            "the channel-finder subagent looks them up; the answer names every "
+            "storage-ring horizontal BPM address and no other; a refused options "
+            "request is corrected and repeated"
         ),
     )
     @pytest.mark.asyncio
