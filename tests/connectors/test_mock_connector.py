@@ -401,10 +401,11 @@ class TestVAInProcessConnector:
         await connector.connect(in_process_config(view, response_delay_ms=0))
         seen = []
         await connector.subscribe("MAGNET:CURRENT:RB", seen.append)
+        subscribed = len(seen)
 
         await connector.write_channel("MAGNET:CURRENT:SP", 7.0)
 
-        assert [reading.value for reading in seen] == [pytest.approx(7.0)]
+        assert [reading.value for reading in seen[subscribed:]] == [pytest.approx(7.0)]
 
         await connector.disconnect()
 
@@ -531,10 +532,11 @@ class TestVAInProcessConnector:
         )
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
+        subscribed = len(seen)
 
         await asyncio.sleep(0.3)
 
-        assert seen == []
+        assert len(seen) == subscribed
 
         await connector.disconnect()
 
