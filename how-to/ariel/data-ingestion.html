@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Data Ingestion &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Data Ingestion &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Logbook Search Service (ARIEL)" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -663,13 +663,36 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </tr>
 <tr class="row-odd"><td><p><strong>Generic JSON</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">generic_json</span></code></p></td>
-<td><p>Reads entries from a JSON file. <code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">author</span></code>, <code class="docutils literal notranslate"><span class="pre">timestamp</span></code> and <code class="docutils literal notranslate"><span class="pre">attachments</span></code> map onto the common schema; every other top-level field is kept as entry metadata, and an explicit <code class="docutils literal notranslate"><span class="pre">metadata</span></code> object merges last and wins. Useful for demos, testing, and facilities without a custom API.</p></td>
+<td><p>Reads entries from a JSON file. <code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">author</span></code>, <code class="docutils literal notranslate"><span class="pre">timestamp</span></code> and <code class="docutils literal notranslate"><span class="pre">attachments</span></code> map onto the common schema; every other top-level field is kept as entry metadata, and an explicit <code class="docutils literal notranslate"><span class="pre">metadata</span></code> object merges last and wins. <code class="docutils literal notranslate"><span class="pre">body_format</span></code> declares the format of <code class="docutils literal notranslate"><span class="pre">text</span></code> (see <strong>Entry format</strong> below). Useful for demos, testing, and facilities without a custom API.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <p><strong>Entry times.</strong> A time with a UTC offset, a <code class="docutils literal notranslate"><span class="pre">Z</span></code> or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time. It counts as failed in the run’s totals (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span></code>), and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">ingest</span></code> reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.</p>
 <p><strong>Entry text.</strong> The ALS eLog adapter stores entry text as plain text. It decodes HTML entities, turns the logbook’s markup into line breaks, paragraphs and list items, and writes a link as its text followed by its address in parentheses. It also undoes the backslash escaping the logbook adds: <code class="docutils literal notranslate"><span class="pre">\'</span></code>, <code class="docutils literal notranslate"><span class="pre">\&quot;</span></code> and an encoded <code class="docutils literal notranslate"><span class="pre">\&amp;quot;</span></code> become plain quotes, and a doubled backslash becomes one. A single backslash before any other character is kept. Text without markup keeps its line breaks and indentation. Entries stored before this behaviour are rewritten once by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span></code> runs as its first step. Their enhancements are cleared, so the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code>, or each later sync or watch pass, embeds and summarises the plain text again.</p>
+<p><strong>Entry format.</strong> An entry’s text is plain text unless the entry declares a format. In a <code class="docutils literal notranslate"><span class="pre">generic_json</span></code> file, a top-level <code class="docutils literal notranslate"><span class="pre">body_format</span></code> of <code class="docutils literal notranslate"><span class="pre">markdown</span></code> (in any letter case) declares that <code class="docutils literal notranslate"><span class="pre">text</span></code> is Markdown. It is stored as <code class="docutils literal notranslate"><span class="pre">metadata.body_format</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;shift-2026-08-20-a&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Injection study&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;body_format&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;markdown&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;| Magnet | Current (A) |\n| --- | --- |\n| QF1 | 12.5 |\n\n![Beam profile](beam-profile.png)&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;operator&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-08-20T12:00:00-07:00&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://logbook.example.org/files/beam-profile.png&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;filename&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;beam-profile.png&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The Logbook web panel shows the body of such an entry as formatted text: headings, lists, tables, links, quotes and code. The rules it applies:</p>
+<ul class="simple">
+<li><p>A picture in the text (<code class="docutils literal notranslate"><span class="pre">![caption](beam-profile.png)</span></code>) is shown at that place when its address names one of the entry’s own <code class="docutils literal notranslate"><span class="pre">attachments</span></code>: by <code class="docutils literal notranslate"><span class="pre">filename</span></code>, or by the last path part of the attachment’s <code class="docutils literal notranslate"><span class="pre">url</span></code>. A path before the file name is ignored. Every other picture address, including any address on another site, is replaced by its caption, so a body never loads a picture from elsewhere. The attachment cards stay below the text.</p></li>
+<li><p>A link stays a link only when its address starts with <code class="docutils literal notranslate"><span class="pre">http://</span></code> or <code class="docutils literal notranslate"><span class="pre">https://</span></code>. It opens in a new tab.</p></li>
+<li><p>HTML written inside the Markdown is reduced to plain formatting elements. Scripts, styles, forms and frames are removed.</p></li>
+<li><p>Channel and device ids from the facility file are marked as in a plain entry, in running text, table cells, link text and code. An id inside a link address is left alone.</p></li>
+<li><p>The title is <code class="docutils literal notranslate"><span class="pre">title</span></code> and is never formatted.</p></li>
+</ul>
+<p>The text is stored and searched as written: the agent, the search modules and the list rows see the Markdown source. Every other <code class="docutils literal notranslate"><span class="pre">body_format</span></code> value, and no value, shows the text as stored. <code class="docutils literal notranslate"><span class="pre">html</span></code>, which the JLab adapter can record, is not rendered.</p>
 <p><strong>Using a custom adapter:</strong></p>
 <p>An adapter written and registered as described in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> is selected the same way as a built-in one. Set <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> to its registered name under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, or pass it as <code class="docutils literal notranslate"><span class="pre">--adapter</span></code>. Both accept every registered name, the framework’s and your own.</p>
 <div class="outreach admonition">

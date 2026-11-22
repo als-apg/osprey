@@ -1,0 +1,174 @@
+How-To Guides
+=============
+
+Task-oriented guides that walk you through common OSPREY operations step by step.
+Each guide focuses on a single goal and assumes you already have a working OSPREY installation.
+The sections follow the natural journey: build and deploy a project, operate the
+agent day to day, then work with the bundled facility services.
+
+Build & deploy
+--------------
+
+.. grid:: 1 1 2 3
+   :gutter: 3
+
+   .. grid-item-card:: Build Profiles
+      :link: build-profiles
+      :link-type: doc
+
+      Build a facility-specific assistant from a profile you own — convention
+      directories, taking ownership of framework artifacts, tiers, apps, and secrets.
+
+   .. grid-item-card:: Deploy a Facility
+      :link: deploy-a-facility
+      :link-type: doc
+
+      The end-to-end walkthrough: one deployment repo from ``osprey init``
+      through the CI scaffolding to a running four-service stack.
+
+   .. grid-item-card:: Container Deployment
+      :link: deploy-project/index
+      :link-type: doc
+
+      The service stack behind a running project — compose templates, networking,
+      the environment chain, and the agent's own container image.
+
+   .. grid-item-card:: LLM Providers
+      :link: llm-providers/index
+      :link-type: doc
+
+      Pick the provider that drives the OSPREY agent and name the model it
+      runs, including open-weight and self-hosted models behind the
+      translation proxy.
+
+   .. grid-item-card:: Build Your Own OSPREY Apps
+      :link: apps/index
+      :link-type: doc
+
+      A panel for the operator and tools for the agent over one backend:
+      what an app is and how to make one.
+
+   .. grid-item-card:: Register a Measurement Kind
+      :link: register-a-measurement-kind
+      :link-type: doc
+
+      Add a measurement of your own from an installable package: its
+      declaration, its block in the measurement file, and what the build
+      refuses.
+
+Operate
+-------
+
+.. grid:: 1 1 2 3
+   :gutter: 3
+
+   .. grid-item-card:: Web Terminal
+      :link: web-terminal/index
+      :link-type: doc
+
+      The browser cockpit for the OSPREY agent — launching and theming it,
+      adding your own side panels, reporting problems from inside it, and
+      serving a whole team from one host.
+
+   .. grid-item-card:: Agent Interfaces
+      :link: agent-interfaces/index
+      :link-type: doc
+
+      The CLI agent, event-driven dispatch, external MCP servers, and chat
+      bridges — the four ways to reach the agent.
+
+   .. grid-item-card:: Health and Monitoring
+      :link: health-and-monitoring/index
+      :link-type: doc
+
+      Is it up, and what is it doing — facility health checks you can extend,
+      plus the agent record of what the agent was asked and did.
+
+   .. grid-item-card:: Control Systems
+      :link: control-systems/index
+      :link-type: doc
+
+      Connectors for your control system, the virtual accelerator to rehearse
+      on, switching to the live machine, and what the agent may not touch.
+
+   .. grid-item-card:: Safety Watchdogs
+      :link: safety-watchdogs
+      :link-type: doc
+
+      Have facility-written checks judge each operator prompt, hold the agent's
+      writes when one flags it, and ask the operator to stop or continue.
+
+Facility services
+-----------------
+
+.. grid:: 1 1 2 3
+   :gutter: 3
+
+   .. grid-item-card:: Describe Your Facility
+      :link: describe-your-facility
+      :link-type: doc
+
+      The source tree under ``data/facility/`` — records, layers and
+      importers, fixes, limits, seeds, models and measurement — that every
+      facility service is built from.
+
+   .. grid-item-card:: Measure with the pyAML Tools
+      :link: measure-with-pyaml
+      :link-type: doc
+
+      Measure orbit, dispersion, tune and chromaticity responses on the
+      control target, every write under the control target's run lock, and read the
+      model's orbit response.
+
+   .. grid-item-card:: Use the Channel Finder
+      :link: use-channel-finder
+      :link-type: doc
+
+      Search, filter, and explore control system channels using the Channel Finder
+      service and its web interface, including the control system's own
+      directory of every channel and the fleet of servers behind them.
+
+   .. grid-item-card:: Facility Knowledge
+      :link: facility-knowledge/index
+      :link-type: doc
+
+      The Open Knowledge Format bundle, the facility graph, facility rules, and
+      the search sidecar that serves all of it to the agent on demand.
+
+   .. grid-item-card:: ARIEL Logbook Search
+      :link: ariel/index
+      :link-type: doc
+
+      Search over facility electronic logbooks with keyword and
+      semantic retrieval modes, plus multi-step reasoning delegated to the
+      OSPREY agent.
+
+   .. grid-item-card:: Bluesky Plans
+      :link: bluesky/index
+      :link-type: doc
+
+      Run measurement plans through a durable queue — compose with the OSPREY
+      agent, review, start and stop in the BLUESKY panel, and add plans
+      of your own.
+
+.. toctree::
+   :hidden:
+
+   build-profiles
+   deploy-a-facility
+   deploy-project/index
+   llm-providers/index
+   apps/index
+   register-a-measurement-kind
+   web-terminal/index
+   agent-interfaces/index
+   health-and-monitoring/index
+   control-systems/index
+   safety-watchdogs
+   describe-your-facility
+   measure-with-pyaml
+   use-channel-finder
+   import-mml-export
+   facility-knowledge/index
+   ariel/index
+   bluesky/index

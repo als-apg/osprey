@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Architecture &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Architecture &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Write Your Own Plans" href="../how-to/bluesky/write-plans.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -402,7 +402,11 @@
 
 
 
+<li class="toctree-l1"><a class="reference internal" href="facility-packages.html">Facility Packages</a></li>
+
+
 <li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 </ul>
 </div>
 </nav></div>
@@ -472,9 +476,10 @@ the tool interface, and <strong>pluggable connectors</strong> for protocol-agnos
 <p><span class="caption-text">Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
-<p>Seven pages break that picture down — how a write is guarded on its way to the
+<p>Nine pages break that picture down — how a write is guarded on its way to the
 machine, how reading differs from writing, how one facility description feeds
-every service, and the subsystems with architecture of their own:</p>
+every service and how its code splits into packages, the subsystems with
+architecture of their own, and how all of it is tested:</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -545,12 +550,34 @@ them, and the sector-3 example.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
+Facility Packages</div>
+<p class="sd-card-text">How the facility code leaves the framework as osprey-facility and
+osprey-panels: the nine decisions behind the split and the boundary
+check that holds the code to them.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="facility-packages.html"><span class="doc">Facility Packages</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
 Virtual Accelerator</div>
 <p class="sd-card-text">A whole facility on real EPICS with LUME-backed physics — the layer
 map, the two transports, and the model seam that makes the physics
 replaceable.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Testing</div>
+<p class="sd-card-text">The inventory of the suite — what each family of tests proves, when each
+lane runs, how a scenario stages a fault for the agent to find, and what
+the benchmarks measure.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="testing.html"><span class="doc">Testing</span></a></div>
 </div>
 </div>
 </div>

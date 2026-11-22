@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Run the Web Terminal &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Run the Web Terminal &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Web Terminal" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -1321,6 +1321,26 @@ the dispatch worker and the terminals without a login as the ones affected.</p><
 </ul>
 <p>The dispatch worker and every other headless path keep the deployment
 provider unconditionally.</p>
+<p>A login covers the agent only. A few features send their own model request,
+outside the agent, and authenticate with the provider’s API key and nothing
+else:</p>
+<ul class="simple">
+<li><p>session naming, which otherwise leaves a session its first-prompt title;</p></li>
+<li><p>logbook compose in the artifact gallery;</p></li>
+<li><p>the in-context channel finder (<a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>);</p></li>
+<li><p>the ARIEL semantic processor and image captions, when enabled;</p></li>
+<li><p>the model chat check of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--full</span></code>.</p></li>
+</ul>
+<p>This holds for any deployment that runs without a provider key, with or
+without <code class="docutils literal notranslate"><span class="pre">allow_personal_login</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> each name the enabled features whose key is missing, as
+warnings that do not change the exit status. A line reads
+<code class="docutils literal notranslate"><span class="pre">session</span> <span class="pre">naming</span> <span class="pre">needs</span> <span class="pre">ANTHROPIC_API_KEY</span> <span class="pre">(not</span> <span class="pre">set):</span> <span class="pre">sessions</span> <span class="pre">keep</span> <span class="pre">their</span>
+<span class="pre">first-prompt</span> <span class="pre">title</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> reads the profile and not a build,
+so it misses a channel finder the profile takes from its preset;
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reports it.</p>
+<p>Add the key to the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> to use them. A feature whose
+provider needs no key, such as a local Ollama server, is not listed.</p>
 </section>
 <section id="documentation-and-feedback-settings">
 <h2>Documentation and feedback settings<a class="headerlink" href="#documentation-and-feedback-settings" title="Link to this heading">#</a></h2>

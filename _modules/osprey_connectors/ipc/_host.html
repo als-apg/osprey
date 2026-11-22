@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.ipc._host &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.ipc._host &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -466,7 +466,7 @@
 <span class="sd">    {</span>
 <span class="sd">      &quot;control_system&quot;: {...},          # the full control_system config section</span>
 <span class="sd">      &quot;target&quot;: &quot;live&quot; | &quot;va&quot;,          # the control target, never defaulted</span>
-<span class="sd">      &quot;config_file&quot;: &quot;/abs/config.yml&quot;, # optional: what CONFIG_FILE to read</span>
+<span class="sd">      &quot;config_file&quot;: &quot;/abs/config.yml&quot;, # optional: the config file to read</span>
 <span class="sd">      &quot;execution_mode&quot;: &quot;readonly&quot;      # optional: restrict this child to reads</span>
 <span class="sd">    }</span>
 
@@ -631,7 +631,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">deque</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">TypedDict</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">TypedDict</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorInternalError</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc</span><span class="w"> </span><span class="kn">import</span> <span class="n">_frames</span> <span class="k">as</span> <span class="n">frames</span>
@@ -639,7 +639,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">POSTURE_ENV_VAR</span><span class="p">,</span> <span class="n">SANDBOX_MODE</span><span class="p">,</span> <span class="n">is_readonly_run</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Mapping</span>
 
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelValue</span><span class="p">,</span> <span class="n">ControlSystemConnector</span>
 
@@ -953,10 +953,10 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_rule_role</span><span class="p">(</span><span class="n">gateways</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">writes_enabled</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.</span>
 
-<span class="sd">    The rule itself is :func:`osprey_connectors.ipc._verification._selected_role`,</span>
+<span class="sd">    The rule itself is :func:`osprey_connectors.control_system._gateway_role._selected_role`,</span>
 <span class="sd">    the one place it lives: this only adds that an empty table selects nothing.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._verification</span><span class="w"> </span><span class="kn">import</span> <span class="n">_selected_role</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._gateway_role</span><span class="w"> </span><span class="kn">import</span> <span class="n">_selected_role</span>
 
     <span class="k">if</span> <span class="ow">not</span> <span class="n">gateways</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
@@ -1131,7 +1131,12 @@
         <span class="c1"># The connector reads writes_enabled and the limits database — the home</span>
         <span class="c1"># of the per-channel confirm policy — from the project config, so the</span>
         <span class="c1"># child must be pointed at the same file the parent resolved against.</span>
+        <span class="c1"># Both names: the default config reads CONFIG_FILE, but</span>
+        <span class="c1"># resolve_config_path (behind every data-root lookup) reads only</span>
+        <span class="c1"># OSPREY_CONFIG, which this child would otherwise inherit from the</span>
+        <span class="c1"># parent&#39;s environment.</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OSPREY_CONFIG&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_mode&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;readonly&quot;</span><span class="p">:</span>
         <span class="c1"># Restriction only: an inherited readonly claim is never cleared here.</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">POSTURE_ENV_VAR</span><span class="p">]</span> <span class="o">=</span> <span class="n">SANDBOX_MODE</span>
@@ -1296,6 +1301,12 @@
         <span class="k">raise</span> <span class="ne">TimeoutError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="k">else</span> <span class="n">reason</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
 
 
+<span class="k">class</span><span class="w"> </span><span class="nc">_ServedMethod</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A :data:`PROXY_METHODS` member as the child calls it: keywords in, an awaitable out.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]:</span> <span class="o">...</span>
+
+
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_invoke</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">ControlSystemConnector</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Run one request against the connector.</span>
 
@@ -1311,7 +1322,7 @@
     <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;spawn_probe&quot;</span><span class="p">:</span>
         <span class="k">return</span> <span class="k">await</span> <span class="n">_spawn_probe</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">method</span> <span class="ow">in</span> <span class="n">PROXY_METHODS</span><span class="p">:</span>
-        <span class="n">served</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
+        <span class="n">served</span><span class="p">:</span> <span class="n">_ServedMethod</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
         <span class="k">return</span> <span class="k">await</span> <span class="n">served</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;connector host does not serve </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2">; it serves &quot;</span>

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Panels &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Panels &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Theming" href="theming.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -595,8 +595,8 @@ CHANNELS, which is why both work out of the box.</p>
 <p>Panels have a row in the sidebar on the left of the window.
 <strong>Sessions</strong> is the first row and has no heading. <strong>Artifacts</strong> has no row: its
 artifacts are in the session tree, and the palette opens the panel.
-<strong>Events</strong> (when the deployment enables it) and <strong>Health</strong> are in the
-<strong>System</strong> section. All other panels are in the <strong>Apps</strong> section, which ends
+<strong>Events</strong> (when the deployment enables it), <strong>Health</strong> and <strong>Roster</strong> (for a
+login that selects it) are in the <strong>System</strong> section. All other panels are in the <strong>Apps</strong> section, which ends
 with <strong>+ Add panel</strong>. See <a class="reference internal" href="operate.html#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p>
 </section>
 <section id="dragging-sidebar-rows">
@@ -833,6 +833,26 @@ above it).</p></li>
 </ul>
 <p>Everything else a panel needs goes in its own toolbar, inside the panel.</p>
 </section>
+<section id="the-roster-panel">
+<h2>The Roster panel<a class="headerlink" href="#the-roster-panel" title="Link to this heading">#</a></h2>
+<p><strong>Roster</strong> shows which login opens which panel: one row per panel, one column
+for the deployment’s own profile and for every file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, with the
+logins each column stands for. A cell is the tab the login opens on, a tab, a
+panel reachable from the panel menu only, or nothing. Selecting a cell names
+the file whose line decides it.</p>
+<p>Select it like any other panel:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web_panels</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">roster</span>
+</pre></div>
+</div>
+<p>No bundled login selects it; a deployment adds it to the login its
+maintainers use, typically <code class="docutils literal notranslate"><span class="pre">tiers/admin.yml</span></code>. The panel has no server: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the page into a render that
+selects it, so it shows the deployment as it was last built, which is what the
+running terminals were made from. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">panels</span></code> prints the same
+table from the files as they are now (see <a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a>).</p>
+<p>A profile that already gives a custom panel the id <code class="docutils literal notranslate"><span class="pre">roster</span></code>, with a
+<code class="docutils literal notranslate"><span class="pre">web.panels.roster.url</span></code>, keeps that panel.</p>
+</section>
 <section id="the-bluesky-panel">
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
 <p>One tab covers a plan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-web</span></code> sidecar.
@@ -901,8 +921,13 @@ seam in <a class="reference internal" href="../../contributing/extending-osprey.
 </pre></div>
 </div>
 <p>On the next start, every valid panel under <code class="docutils literal notranslate"><span class="pre">panels/</span></code> shows up as a tab.
-Invalid ones are skipped and logged, so one bad panel never breaks the
-others.</p>
+Invalid ones are skipped, so one bad panel never breaks the others.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> prints a warning with every reason
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.panel_not_served</span></code>) for each invalid panel in the render it
+builds. The panels list, <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/panels</span></code>, carries every panel the
+running web terminal skipped under <code class="docutils literal notranslate"><span class="pre">refused</span></code>, including one added after
+the build. A finding that only reports does not count: the panel is served
+and the log names it.</p>
 </li>
 </ol>
 <div class="admonition warning">
@@ -1070,7 +1095,10 @@ Authoring rules</label><div class="sd-tab-content docutils">
 entry file, and version). Two rules make it theme itself for free, and a
 validator enforces both: it must <strong>boot the shared theme before the page
 paints</strong> (so it never flashes the wrong colors), and it must use <strong>only
-design tokens</strong> for color — never a raw hex value. Copy OSPREY’s
+design tokens</strong> for color — never a raw hex value. It must also say
+when it can be driven: <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code>, the
+page-ready script loaded first, and a <code class="docutils literal notranslate"><span class="pre">markPageReady()</span></code> call. A
+module of its own loaded <code class="docutils literal notranslate"><span class="pre">async</span></code> is refused. Copy OSPREY’s
 reference panel and you start compliant.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
@@ -1079,7 +1107,9 @@ Serving &amp; discovery</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">Discovered panels are served straight from disk, with no proxy. They
 run at an opaque origin, not the terminal’s own; see
 <a class="reference internal" href="#web-terminal-panels-opaque-origin"><span class="std std-ref">Panels you add run at an opaque origin</span></a>. Discovery is
-<strong>fail-closed</strong>: only a fully valid panel is ever served. The
+<strong>fail-closed</strong>: a panel that breaks a rule is not served. The
+exception is a rule that only reports, such as a class with no CSS
+rule: its finding is logged and the panel is served. The
 <code class="docutils literal notranslate"><span class="pre">allow_runtime_panels</span></code> switch is deliberately off by default because
 it is also what lets the agent register panels at runtime. Turning it
 on is your explicit decision to trust the panels the terminal makes
@@ -1165,6 +1195,7 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#handing-keyboard-focus-back">Handing keyboard focus back</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#controls-in-the-tile-bar">Controls in the tile bar</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-roster-panel">The Roster panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a><ul class="visible nav section-nav flex-column">

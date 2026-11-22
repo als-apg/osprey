@@ -1,0 +1,57 @@
+{
+  "activity_safety": {
+    "captured_utc": "2026-11-13T06:15:07.339417+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post7201+geca9892f3.d20261113"
+  },
+  "agent_record": {
+    "captured_utc": "2026-11-11T16:54:18.090589+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "ariel": {
+    "captured_utc": "2026-11-11T16:58:22.296222+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "control_target_popover": {
+    "captured_utc": "2026-11-11T19:02:07.986414+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6984+ge42fbe736.d20261111"
+  },
+  "display_menu": {
+    "captured_utc": "2026-11-11T16:53:46.824174+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "install_flow": {
+    "captured_utc": "2026-11-11T16:53:52.448039+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "multi_user_landing": {
+    "captured_utc": "2026-11-11T16:54:14.780352+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "qmd_query_pipeline": {
+    "captured_utc": "2026-11-11T16:53:50.571915+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "retrieval_map": {
+    "captured_utc": "2026-11-11T16:53:48.719524+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "sign_in": {
+    "captured_utc": "2026-11-11T16:54:16.456070+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "web_terminal_hero": {
+    "captured_utc": "2026-11-11T17:10:54.311478+00:00",
+    "kind": "agentic",
+    "osprey_version": "2026.9.0b3.post6982+g0640017c1.d20261111"
+  }
+}

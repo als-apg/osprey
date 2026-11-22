@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.control_system._limits_validator &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.control_system._limits_validator &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -897,32 +897,6 @@
 
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded limits database with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">limits_db</span><span class="p">)</span><span class="si">}</span><span class="s2"> channels from </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="p">(</span><span class="n">limits_db</span><span class="p">,</span> <span class="n">raw_db</span><span class="p">),</span> <span class="kc">None</span></div>
-
-
-<div class="viewcode-block" id="LimitsValidator.writable_addresses">
-<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.writable_addresses">[docs]</a>
-    <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">writable_addresses</span><span class="p">(</span><span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;The addresses a limits database declares writable.</span>
-
-<span class="sd">        Read through :meth:`_load_limits_database` rather than from the raw</span>
-<span class="sd">        JSON, so the metadata keys and the per-entry validation are applied by</span>
-<span class="sd">        the same code the write path applies them with: ``writable`` is read</span>
-<span class="sd">        from each entry, an entry that does not state it fails the load, and a</span>
-<span class="sd">        top-level ``defaults`` key fails the load.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            db_path: Path to a ``channel_limits.json``-shaped file.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            The writable addresses.</span>
-
-<span class="sd">        Raises:</span>
-<span class="sd">            ValueError: If the file is missing, is not JSON, is not a JSON</span>
-<span class="sd">                object, or carries an entry the validator refuses.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">limits_db</span><span class="p">,</span> <span class="n">_raw</span> <span class="o">=</span> <span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_load_limits_database</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">db_path</span><span class="p">))</span>
-        <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">address</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">limits_db</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">writable</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="LimitsValidator.from_config">

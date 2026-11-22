@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.ipc._pool &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.ipc._pool &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -646,7 +646,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">os</span><span class="w"> </span><span class="kn">import</span> <span class="n">PathLike</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeVar</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">TypeVar</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">posture_store</span><span class="p">,</span> <span class="n">write_authorization</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_env_vars</span><span class="p">,</span> <span class="n">unresolved_placeholders</span>
@@ -700,6 +700,13 @@
 
 <span class="n">_T</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span><span class="s2">&quot;_T&quot;</span><span class="p">)</span>
 
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_ProxyMethod</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A :class:`ConnectorHostProxy` method as :meth:`ConnectorHostPool._invoke` calls it.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]:</span> <span class="o">...</span>
+
+
 <span class="c1">#: The one execution mode a key may carry besides ``None``.</span>
 <span class="n">READONLY</span> <span class="o">=</span> <span class="s2">&quot;readonly&quot;</span>
 
@@ -735,6 +742,19 @@
 <span class="c1">#: ``(target, execution_mode)``, or ``(target, execution_mode, owner,</span>
 <span class="c1">#: authorization)`` for a key that names an owner or an authorization.</span>
 <span class="n">_Key</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_optional_name</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;*value* stripped, or ``None`` for ``None``; a non-string or blank one is refused.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *value* is not ``None`` and not a non-blank string.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must be None or a non-blank name, got </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_make_key</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_Key</span><span class="p">:</span>
@@ -1188,15 +1208,10 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">execution_mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">READONLY</span><span class="p">):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;execution_mode must be None or </span><span class="si">{</span><span class="n">READONLY</span><span class="si">!r}</span><span class="s2">, got </span><span class="si">{</span><span class="n">execution_mode</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">&quot;owner&quot;</span><span class="p">,</span> <span class="n">owner</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;authorization&quot;</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)):</span>
-            <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()):</span>
-                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must be None or a non-blank name, got </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">key</span> <span class="o">=</span> <span class="n">_make_key</span><span class="p">(</span>
-            <span class="n">target</span><span class="p">,</span>
-            <span class="n">execution_mode</span><span class="p">,</span>
-            <span class="n">owner</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">if</span> <span class="n">owner</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-            <span class="n">authorization</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="c1"># Both are refused before either is used, owner first.</span>
+        <span class="n">owner_name</span> <span class="o">=</span> <span class="n">_optional_name</span><span class="p">(</span><span class="s2">&quot;owner&quot;</span><span class="p">,</span> <span class="n">owner</span><span class="p">)</span>
+        <span class="n">authorization_name</span> <span class="o">=</span> <span class="n">_optional_name</span><span class="p">(</span><span class="s2">&quot;authorization&quot;</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">_make_key</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">execution_mode</span><span class="p">,</span> <span class="n">owner_name</span><span class="p">,</span> <span class="n">authorization_name</span><span class="p">)</span>
         <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">PooledConnector</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span></div>
 
@@ -1244,7 +1259,7 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the proxy method named *method* on *key*&#39;s child. Never retried.&quot;&quot;&quot;</span>
 
         <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">call</span><span class="p">(</span><span class="n">proxy</span><span class="p">:</span> <span class="n">ConnectorHostProxy</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
-            <span class="n">bound</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
+            <span class="n">bound</span><span class="p">:</span> <span class="n">_ProxyMethod</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
             <span class="k">return</span> <span class="k">await</span> <span class="n">bound</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">call</span><span class="p">)</span>
@@ -1428,6 +1443,10 @@
                 <span class="s2">&quot;drive it from that loop only&quot;</span>
             <span class="p">)</span>
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_closed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether :meth:`close` has run, read afresh: it can run while a call awaits.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span>
+
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_ensure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_PoolChild</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_check_loop</span><span class="p">()</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span><span class="p">:</span>
@@ -1450,7 +1469,7 @@
                     <span class="n">CAUSE_EXITED</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="n">child</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_closed</span><span class="p">():</span>
                 <span class="c1"># close() ran while this child was starting; it waits on this</span>
                 <span class="c1"># lock, so stopping the child here is what it is waiting for.</span>
                 <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stop</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
@@ -1558,9 +1577,10 @@
                 <span class="n">phases</span><span class="o">=</span><span class="n">phases</span><span class="p">,</span>
             <span class="p">)</span>
 
-        <span class="k">try</span><span class="p">:</span>
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">init_report</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;The child&#39;s reply to its init frame; a silent or lost child is a start failure.&quot;&quot;&quot;</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="n">report</span> <span class="o">=</span> <span class="k">await</span> <span class="n">proxy</span><span class="o">.</span><span class="n">supervisor_request</span><span class="p">(</span><span class="s2">&quot;init&quot;</span><span class="p">,</span> <span class="n">init</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_timeout_s</span><span class="p">)</span>
+                <span class="k">return</span> <span class="k">await</span> <span class="n">proxy</span><span class="o">.</span><span class="n">supervisor_request</span><span class="p">(</span><span class="s2">&quot;init&quot;</span><span class="p">,</span> <span class="n">init</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_timeout_s</span><span class="p">)</span>
             <span class="k">except</span> <span class="n">ChildUnresponsiveError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="n">failure</span><span class="p">(</span>
                     <span class="n">STAGE_INIT</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;did not answer its init frame within </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_start_timeout_s</span><span class="si">}</span><span class="s2">s.&quot;</span>
@@ -1583,6 +1603,8 @@
                 <span class="n">exc</span><span class="o">.</span><span class="n">add_note</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;raised by the connector-host child (pid </span><span class="si">{</span><span class="n">pid</span><span class="si">}</span><span class="s2">) for </span><span class="si">{</span><span class="n">_label</span><span class="p">(</span><span class="n">key</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                 <span class="k">raise</span>
 
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">report</span> <span class="o">=</span> <span class="k">await</span> <span class="n">init_report</span><span class="p">()</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
                 <span class="k">raise</span> <span class="n">failure</span><span class="p">(</span>
                     <span class="n">STAGE_INIT</span><span class="p">,</span>

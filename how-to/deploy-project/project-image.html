@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>The Project Image &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>The Project Image &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Environment Variables (the .env chain)" href="env-chain.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -649,7 +649,9 @@ image.</p>
 <ul class="simple">
 <li><p>the top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key</p></li>
 <li><p>the <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code>
-/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> block</p></li>
+/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> /
+<code class="docutils literal notranslate"><span class="pre">images.playwright_download_host</span></code> block</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">images.skip_browser</span></code></p></li>
 </ul>
 <p>It resolves them once and hands them to every image it builds: the project
 image, each web-terminal image, the login sidecar and each service image. Set
@@ -699,6 +701,19 @@ resolves from PyPI.</p></td>
 <code class="docutils literal notranslate"><span class="pre">${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim</span></code>. The mirror must keep Docker
 Hub’s paths; pull-through caches such as a Harbor proxy project, an
 Artifactory remote and a Nexus docker proxy do.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PLAYWRIGHT_DOWNLOAD_HOST</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Host the headless browser is downloaded from, for a site that mirrors
+<code class="docutils literal notranslate"><span class="pre">cdn.playwright.dev</span></code>. The mirror must keep its paths. It is
+Playwright’s own environment name; left empty, Playwright downloads
+from its CDN.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_SKIP_BROWSER</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> builds without the headless browser; <code class="docutils literal notranslate"><span class="pre">artifact_export</span></code> (an
+HTML artifact saved as a PNG or JPEG) and CANOPY screenshots then
+report it missing.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code></p></td>

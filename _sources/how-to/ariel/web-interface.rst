@@ -24,6 +24,11 @@ Back button. The **Status and settings** button in the header opens those
 drawers; Status counts each enabled enhancement module's entries as Complete,
 Pending, Stale, Failed and N/A, as ``osprey ariel status`` does.
 
+The reader shows an entry's text as stored. An entry that declares
+``body_format: markdown`` is shown as formatted text instead, with tables,
+lists and links, and each picture at the place the text puts it; see
+**Entry format** in :doc:`data-ingestion`.
+
 The reader's **Enhancements** tab shows each enabled module's state and output
 for the entry. A failed or stale card shows the command that re-runs it,
 ``osprey ariel enhance --module <name> --entry <id>``, with a **Copy** button;

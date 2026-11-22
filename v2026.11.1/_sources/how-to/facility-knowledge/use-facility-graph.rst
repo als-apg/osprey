@@ -1,0 +1,583 @@
+.. _how-to-facility-graph:
+
+=========================
+Search the Facility Graph
+=========================
+
+You do nothing to use the facility graph until it cannot answer: ask the
+OSPREY agent a structural question and it delegates the question to the
+**facility-knowledge-graph agent**, a specialist that writes Cypher (Neo4j's
+query language, the graph counterpart of SQL) through the ``graph`` MCP server.
+Neither you nor the main agent writes the query. This page covers what sits
+around that: where the graph comes from, what it refuses, what its failures
+mean, and how to run it against a store your facility already has.
+
+The facility graph holds the *structure* of the machine: the devices, the
+sections they sit in, the classes they belong to, and the control system
+addresses bound to each one. The ``graphdb`` store serves it
+(:doc:`../deploy-project/index`).
+
+It answers a different kind of question than the :doc:`channel finder
+<../use-channel-finder>`. The channel finder turns a phrase into an address —
+"beam current" into ``SR:DIAG:DCCT:01:CURRENT:RB``. The graph relates addresses
+to each other: how many correctors the storage ring has, what sits in a section
+in beam order, which PVs one device exposes and which of them are written, or
+which devices share a PV.
+
+.. admonition:: Two things are called "graph"
+   :class: important
+
+   This page is about the ``graph`` MCP server — the exploration surface the
+   **facility-knowledge-graph** subagent uses to answer the main agent's
+   structural questions. The **graph paradigm** is a different thing wearing
+   the same word: a channel finder mode (``channel_finder.pipeline_mode:
+   graph``) that puts the *channel finder* subagent on this same store to turn
+   a phrase into an address, under the ``channel-finder`` server name and with
+   a query catalogue written for that job. Same store, two specialist
+   subagents, two jobs — see :doc:`../use-channel-finder`.
+
+.. dropdown:: What You'll Learn
+   :color: primary
+   :icon: book
+
+   - What a knowledge graph is, and the questions this one answers
+   - Why the server can only read, and what it refuses before dialing
+   - What each degraded state means and the remedy it names
+   - Where the graph comes from: the graph view the build writes
+   - What reads the search index the build writes from that view
+   - When to rebuild, and what a rebuild changes
+   - How to point the tools at a store the facility already runs
+
+   **Prerequisites:** a project with a ``services.graphdb`` block — the
+   ``demo`` preset ships one, which ``osprey up`` seeds.
+
+
+What the graph holds, how its names are spelled, and what each of the four
+tools returns are in :doc:`/reference/contracts/facility-graph`.
+
+.. note::
+
+   **The store's first start needs egress.** Its image ships the APOC plugin
+   inside and moves it into place, but not ``n10s`` — the entrypoint downloads
+   that jar from GitHub the first time the store comes up, and it is the
+   plugin that imports the graph view. There is no configuration key for
+   this: a disconnected site brings the store up once on a host that can reach
+   GitHub, or copies the jar into the plugins volume by hand, after which the
+   volume carries it and later starts need nothing.
+
+
+What a Knowledge Graph Is
+=========================
+
+A **knowledge graph** stores facts as links between things. Each fact is one
+statement of subject, predicate and object, and facts that name the same thing
+join up, so a question can follow the links across many of them. Part of the
+graph describes the machine. The rest, the **ontology**, describes the *kinds*
+of thing the machine is made of and how those kinds relate: a horizontal
+corrector is a corrector, and a corrector is a magnet.
+
+.. raw:: html
+   :file: ../../_diagrams/facility-graph-primer.html
+
+An excerpt of the demo machine's graph. Solid arrows link things, dashed arrows
+tie each device to its class, and teal marks the walk in step 4. The legend
+adds the edges relation claims write; the demo's claims are the sector-3
+example in :doc:`/architecture/facility-relations`.
+
+The walk is what a list of addresses cannot do on its own: the question says
+"steerer" and "section 1", and no address spells either. The same shape answers
+the questions that come up around a machine:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 44 56
+
+   * - Question
+     - What the graph follows
+   * - How many magnets does the ring have?
+     - Every class under ``Magnet``, then the devices of those classes.
+   * - What sits in this section, in beam order?
+     - The section and position each device carries.
+   * - Which addresses belong to this device, and which of them write?
+     - The device's bindings, then the signal each one reads or writes.
+   * - Which devices share this address?
+     - Back from the address to every device bound to it. Magnets on a common
+       power supply appear here; the demo machine has no shared addresses.
+
+.. dropdown:: The walk above, as a query
+   :color: secondary
+   :icon: code
+
+   Run against the demo machine, this returns the 12 setpoints in the figure's
+   last step, six horizontal and six vertical. The agent writes queries like
+   this for you.
+
+   .. code-block:: cypher
+
+      MATCH (word:Class) WHERE ANY(l IN word.altLabel WHERE toLower(l) CONTAINS "steerer")
+      MATCH (cls:Class)-[:SUBCLASSOF*0..]->(word)
+      MATCH (d:Resource)-[:TYPE]->(cls)
+      WHERE d.sectionCode = "SECT1"
+      MATCH (d)-[:HASBINDING]->(b:ChannelBinding)-[:WRITESSIGNAL]->()
+      RETURN d.deviceId AS device, b.fullPv AS setpoint, d.sPositionM AS s_m
+      ORDER BY s_m, device
+      LIMIT 50
+
+.. dropdown:: If you already work with knowledge graphs
+   :color: secondary
+   :icon: info
+
+   - **RDF in, property graph out.** The corpus is NARAD-convention Turtle,
+     which neosemantics projects into Neo4j; queries are Cypher, not SPARQL.
+   - **Nothing is inferred at load.** A device asserts only its concrete class,
+     and a query walks ``SUBCLASSOF*`` for the rest. The query gate refuses
+     ``n10s`` procedures, so the agent has no reasoner to call.
+   - **Derived, not curated.** Unless a profile names its own corpus, the build
+     writes it from the facility file, so a fix belongs in that file.
+   - **Structure only.** The graph holds no live values and no history. Those
+     stay in the control system and the archiver.
+   - **A wrong name returns zero rows, not an error.** The agent's prompt carries
+     the live schema and the class synonyms for this reason.
+
+   For the wider field, see Hogan et al., `Knowledge Graphs
+   <https://doi.org/10.1145/3447772>`_, *ACM Computing Surveys* 54(4), 2021.
+
+
+Read-Only by Construction
+=========================
+
+Nothing the agent passes can change the graph. Two independent layers say so:
+
+* Every query runs inside a **read transaction**. A query that tries to write
+  is refused by the store itself, and comes back as a validation error naming
+  the read-only posture.
+* A **query gate** runs before the store is dialed at all. It refuses extension
+  procedures and functions — the ``apoc``, ``n10s``, ``db``, ``dbms`` and
+  ``gds`` namespaces, whether called with ``CALL`` or used as a function in a
+  ``RETURN`` — and refuses ``LOAD CSV``. Only two read procedures are
+  allowlisted (``db.labels`` and ``db.relationshipTypes``, the ones
+  ``get_schema`` itself uses). Ordinary ``CALL { … }`` subqueries pass, and the
+  gate keeps scanning inside them.
+
+The gate exists because the store's single account is write-capable and can
+reach the network: an extension procedure or a CSV import would be a way around
+both facts. The graph is rebuilt from the facility file, so a change to the
+graph belongs in that file followed by ``osprey build && osprey up``.
+
+
+When the Graph Cannot Answer
+============================
+
+Each degraded state comes back distinctly, naming its own remedy, so the agent
+can tell "no data" from "no store" and report the difference rather than
+retrying. The first five are error envelopes; a truncated result is a normal
+answer that says it was cut short.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - State
+     - What it means, and the remedy it names
+   * - **Not configured**
+     - No ``services.graphdb`` block. Normally you never see this: without the
+       block the server is not rendered into the project at all. It appears
+       only when the server was force-enabled anyway (see below). Add the
+       block, and list ``graphdb`` in ``deployed_services`` if this deployment
+       should run the store.
+   * - **Unreachable**
+     - The store did not answer. Check that the ``graphdb`` service is up and
+       start it with ``osprey up``; if it is running, check that
+       ``services.graphdb.port_host`` — or ``services.graphdb.uri`` for an
+       external store — names the address it is actually published on.
+   * - **Authentication failed**
+     - Both ends read ``GRAPHDB_PASSWORD``, and the store keeps the value the
+       project ``.env`` carried when its data volume was first created. Restore
+       that value in the project ``.env``, or reset the store's data volume so
+       it is created again with the current one. The value is never echoed
+       anywhere.
+   * - **Empty**
+     - The store is running but holds no corpus, so no query can match. Load it
+       with ``osprey build && osprey up``.
+   * - **Timed out**
+     - The query outlived ``services.graphdb.query_timeout_s`` and the store
+       cancelled it. Narrow the query first; raise the key only for a query
+       that is genuinely long-running.
+   * - **Truncated**
+     - More rows matched than ``services.graphdb.query_max_rows``. The reply
+       says so and suggests a ``LIMIT``, an aggregate, or a narrower ``MATCH``.
+
+Both bound keys live in the ``services.graphdb`` block, alongside the image and
+port settings documented in :doc:`../deploy-project/index`.
+
+.. note::
+
+   ``osprey health`` reports the same store from the outside, under its
+   ``graphdb`` category — bolt reachability and how many resources the graph
+   holds. See :doc:`../health-and-monitoring/configure-health-checks`.
+
+
+Leaving the Graph Tools Out
+===========================
+
+The server renders wherever ``services.graphdb`` is configured. To keep the
+store but take the tools away from the agent — to shrink the tool surface, or
+while benchmarking something else — turn the server off explicitly. The
+facility-knowledge-graph agent rides the server, so switching it off removes
+the subagent and its roster entry in the same build:
+
+.. code-block:: yaml
+
+   claude_code:
+     servers:
+       graph:
+         enabled: false
+
+The override is read after the store check, so the opposite spelling
+(``enabled: true``) forces the server on even with no ``services.graphdb``
+block. In that build ``read_cypher`` and ``get_schema`` can only report *not
+configured*, while ``example_queries`` and ``capabilities`` still answer from
+their static content — which is why a reply from either says nothing about
+whether a store exists. Useful for testing the wiring, not for anything else.
+
+
+Where the Graph Comes From
+==========================
+
+``osprey build`` writes the corpus, the **graph view**
+(``data/graph/facility.ttl`` under the render), from the facility file
+(``data/facility/``), so the graph describes the same machine the channel
+finder does. Nobody edits the graph view: its first line names the hash of the
+facility file it was written from, and a change belongs in the facility file.
+The build points every rendered ``services.graphdb`` block's ``ttl_path`` at it
+unless the profile names a corpus of its own, and ``osprey up`` seeds the store
+from it whenever the store's seed marker differs from the graph view's digest. A change to the facility
+file reaches the graph with:
+
+.. code-block:: console
+
+   $ osprey build && osprey up
+
+The corpus is sent to the store in requests of a few megabytes each, cut
+between Turtle statements, so the heap the store needs
+(``services.graphdb.heap_max_size``) does not grow with the size of the corpus.
+A statement is never cut, and every statement that names a labelled blank node
+(``_:b0``) travels in one request, whatever its size: a corpus of your own that
+leans on labelled blank nodes is the one case where a larger heap may still be
+needed.
+
+A seed that fails does not stop the rest of the deployment from starting, and
+it does not pass for a finished one either. ``osprey up`` reports the failure
+in its step output when it happens, starts everything else, and then ends with
+the failed step as its last lines and a non-zero exit status. The store is left
+without a seed marker, so the next ``osprey up`` seeds it again. (An attached
+``osprey up``, without ``-d``, hands the terminal to the container logs and has
+no exit status of its own: there the step output is the report.)
+
+
+What the Preset Seeds
+=====================
+
+The demo preset seeds the graph view ``osprey build`` writes from
+its facility file, ``data/graph/facility.ttl`` under the render. No
+hand-written corpus ships. Point ``ttl_path`` at a corpus of your own to seed
+that instead.
+
+.. note::
+
+   A build profile that ships its own ``data:`` tree replaces the bundle's
+   ``data/`` directory wholesale, which takes ``data/facility/`` with it. Such
+   a profile ships a facility file of its own, and the build writes the graph
+   view from that.
+
+
+.. _graph-view:
+
+Browsing the Graph
+==================
+
+To look at the graph yourself instead of asking the agent, open the KNOWLEDGE
+panel. At startup it reads the graph view ``services.graphdb.ttl_path`` names
+and adds a **Graph** view beside **Knowledge**. It reads the file, not the
+store: it works while the store is down, and does not show what a store the
+facility runs holds. With no ``ttl_path`` there is no **Graph** view.
+
+* **Overview** draws one mark per class, and the places, channels and signals
+  as one group each. Click a mark to list its members.
+* **Neighbourhood** draws what lies within one to three hops of a node, at most
+  120 nodes. A node with more than 12 relations is drawn but not walked
+  through; its badge counts what is left out. Double-click a node to move the
+  focus to it.
+* The search field matches a node's label — a device's id, a place's path, a
+  channel's address, a class or signal name — or its id, ignoring case. It
+  does not search ``altLabel`` names.
+* The relation checkboxes take a relation out of the drawing and out of the
+  walk.
+* Right-click a node, a relation or the empty drawing for its menu: copy a
+  name, hide a relation or show it alone, reset the view.
+
+A device's place is its stored ``locatedIn`` relation, and a place's parent its
+stored ``partOf``. The **Overview** draws no ``partOf``, since both ends sit in
+the one places group; the legend still counts it. Each relation edge between
+devices and places (``poweredBy``, ``cabledTo`` and the rest, and their
+``Contested`` twins, :ref:`reference-facility-graph`) is drawn in the same
+generic style as any other relation. Claim and group nodes, and the edges that
+end on them, are not drawn.
+
+Clicking a ``facility:`` link in a concept document opens the linked record in
+the **Graph** view, and a picked node lists the concept documents that name it.
+
+
+.. _graph-external-store:
+
+Pointing at a Store the Facility Runs
+=====================================
+
+The store does not have to be one this deployment brings up. OSPREY starts
+nothing and bootstraps nothing on a store it does not run, and never writes to
+it: the corpus is whatever the facility loaded. An external store that holds no
+corpus answers every query with zero rows.
+
+To point the deployment at the facility's store:
+
+#. In the profile's ``config:`` block, give ``services.graphdb`` an explicit
+   ``uri``, and the store account as ``username``. ``username`` is read only
+   on this path; a store this deployment does run authenticates as ``neo4j``,
+   the account its container is created with.
+
+#. In the same block, write out ``deployed_services`` without ``graphdb``.
+   Leaving ``graphdb`` in is the mistake to avoid: the build still stands up a
+   local Neo4j that nobody then queries. ``deployed_services`` is a list, so
+   an edit replaces it whole — write out the services you *do* want rather
+   than the one you are taking away.
+
+   The block then reads:
+
+   .. code-block:: yaml
+
+      config:
+        services.graphdb.uri: bolt://graph.facility.example:7687
+        services.graphdb.username: osprey
+        # ... the rest of your services keys, unchanged
+        deployed_services: [postgresql, qmd]   # no graphdb
+
+#. If the corpus lives in a database other than ``neo4j`` on that store, name
+   it with ``services.graphdb.database``. The store this deployment runs is a
+   Community image that serves exactly one database, so the key matters only
+   here. Every session — the seeder's writes and the agent's reads alike — is
+   opened against it, so both reach the same corpus.
+
+#. Put that account's password in the project ``.env`` as
+   ``GRAPHDB_PASSWORD``. Nothing mints one here, because the store belongs to
+   somebody else.
+
+#. To give that store the graph a deployment of its own would seed, copy the
+   build's graph view, ``build/data/graph/facility.ttl``, to the store's host.
+   The ``file://`` path in the next step is read on that host.
+
+#. Load the graph view through the store's neosemantics (``n10s``) plugin. On
+   a store that has never held an import, run all three statements: the first
+   two initialise the plugin with the settings OSPREY's queries are written
+   against.
+
+   .. code-block:: cypher
+
+      CREATE CONSTRAINT n10s_unique_uri IF NOT EXISTS
+        FOR (r:Resource) REQUIRE r.uri IS UNIQUE;
+      CALL n10s.graphconfig.init({
+        handleVocabUris: 'MAP', handleMultival: 'ARRAY',
+        multivalPropList: ['http://www.w3.org/2004/02/skos/core#altLabel'],
+        keepLangTag: false, handleRDFTypes: 'LABELS_AND_NODES',
+        applyNeo4jNaming: true
+      });
+      CALL n10s.rdf.import.fetch('file:///path/to/build/data/graph/facility.ttl', 'Turtle');
+
+#. Load the graph view again after every ``osprey build`` that changes it.
+
+Everything else on this page applies to an external store as written, because
+it is all client side: the same four tools, the same read-only posture, the
+same bounds and the same degraded states. The graph channel finder paradigm
+reads the same block and reaches an external store the same way
+(:doc:`../build-profiles`).
+
+
+One Machine, Several Views
+==========================
+
+On the ``demo`` preset every view of the machine is written from
+the one facility file, so their address spaces line up exactly. A smaller view
+is a strict subset rather than a different machine, and the simulator adds
+only its own status channels. After ``osprey build`` the views hold:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 50
+
+   * - View
+     - Addresses
+     - Relationship to the graph
+   * - Graph view (``data/graph/facility.ttl``)
+     - 4731
+     - Build output, written from the facility file: 1027 devices, and one
+       binding per channel; the 674 setpoint channels are the write-direction
+       bindings.
+   * - Channel finder — hierarchical and graph builds
+     - 4731
+     - The same set, address for address. A graph-mode build keeps no database
+       of its own: it answers out of the search index the build writes from
+       the graph view.
+   * - Channel finder — middle-layer build
+     - 4725
+     - A strict subset — every channel bound to a device. The few channels the
+       facility file attaches to a place rather than a device belong to no
+       family, so this view leaves them out.
+   * - Channel finder, in-context index
+     - 571
+     - A strict subset — the channels the facility file tags ``in_context``,
+       every one of which is in the graph.
+   * - Virtual accelerator simulation
+     - all, plus status
+     - Every channel of the facility file, plus one status channel per physics
+       model, ``<code>:SIM:<model>:STATUS``, where ``<code>`` is the facility's
+       identity code.
+
+So on an in-context or middle-layer build the agent can find a channel in the
+graph that the channel finder does not list. That is the documented shape of
+those smaller views, not a mismatch: every view is written from the one
+facility file, so a change to that file reaches all of them on the next
+``osprey build``.
+
+The search index
+----------------
+
+On a graph-mode build the channel finder answers "which channels does this
+facility have" through a search index: ``osprey build`` reads the graph view
+once and writes ``data/channel_databases/graph.duckdb``, a flat table of the
+same bindings, and that file is what the running deployment reads. No process
+parses the corpus while the deployment is up, so a click answers in
+milliseconds however large the machine is.
+
+Two places read the index and get the same list:
+
+* **The channel finder in graph mode.** It keeps no database of its own and
+  turns phrases into addresses out of this same list. The OSPREY agent's
+  ``search_channels`` tool looks addresses up here by keyword and facet; its
+  Cypher tools still ask the store, which is where questions about structure
+  belong.
+* **The channel finder's web view.** Its search results, its ontology and
+  statistics panels and its channel list all come from the index. The device
+  card is the exception: it reads the store, a single keyed lookup.
+
+The virtual accelerator does not read the index either: its channel manifest
+is built from the facility file's channels, the same source as the queue
+server's device file. ``osprey build`` writes the worker's device file from the
+facility file — one settable per setpoint channel, reading back through its
+``pair``, one readable per readback channel — see :doc:`../bluesky/write-plans`.
+
+The settable/readable split comes from the facility file's channel records in
+every channel-finder mode: a channel whose ``role`` is ``setpoint`` is settable
+and reads back through its ``pair``, settling within its ``tolerance`` when it
+states one, and a readback channel is readable. No
+build derives a direction from the limits file or from an ``:SP`` address
+grammar.
+
+The web view lists channels from the facility file the build writes into the
+render (``facility.json``), never from the corpus or the store. A render without
+that file says so and names ``osprey build``, rather than reporting a facility
+with no channels. The rest of the app starts as usual, and the graph tools keep
+answering from the store.
+
+Search needs the index the build writes from the corpus. A profile whose
+``services.graphdb.ttl_path`` names no corpus is told to set that key.
+
+
+Rebuilding the Search Index
+===========================
+
+``osprey build`` writes the index for you, from the corpus the render carries:
+the project's ``services.graphdb.ttl_path``, indexed into
+``./data/channel_databases/graph.duckdb`` beside the ``config.yml``. ``osprey
+up`` seeds the store from the same file. The two are independent derivations of
+one corpus, and only that keeps them describing one machine, so rebuild both
+together:
+
+.. code-block:: bash
+
+   osprey build && osprey up
+
+A channel finder already running on the host keeps the index it opened, so
+restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
+writes the index into the image it starts from — one per render, so each
+per-user tier image carries an index derived from the corpus that render
+stages, not a copy borrowed from the deployment's.
+
+``osprey health`` reports both halves under the channel finder category:
+
+* ``channel_finder_seed`` — the corpus the store was imported from, as the
+  digest its seed marker carries. It warns when the store is unseeded, or holds
+  a corpus no marker identifies.
+* ``channel_finder_search_index`` — the index, with its binding and device
+  counts. It warns when the index is absent, cannot be read, or was built from
+  a different corpus than the store holds, which is the reading that catches a
+  seed and an index that have drifted apart.
+
+
+Multi-User Operator Terminals
+=============================
+
+The ``demo-readonly``, ``demo-readwrite`` and
+``demo-admin`` tier renders (:doc:`../web-terminal/multi-user/index`)
+get the same facility-knowledge-graph agent and tools, and — the preset runs
+``channel_finder_mode: graph`` — a channel finder that answers from the same
+store. They are attached renders that deploy no services of their own, and
+their containers run with ``network_mode: host``, so they reach the hosting
+deployment's store on ``localhost``. The build copies the bolt port from the
+hosting deployment's render into each login. The graph view is the one
+thing a render is *not* told: each render keeps ``services.graphdb.ttl_path``
+as its own and derives its search index from it.
+
+Two consequences worth knowing before you move anything:
+
+* **Move the port on the hosting deployment and every render follows.** A
+  login built beside its deployment is told the store's bolt port from the
+  deployment's own render — the same way it is told the qmd sidecar's port,
+  the Postgres the logbook lives in and the rest (:doc:`/how-to/build-profiles`) — so
+  nothing in a login file restates it, and one that restates it
+  with a different number is refused at build time.
+* A ``deployment.bind_address`` pinned to a specific non-loopback interface
+  publishes the store there and not on ``localhost``, so the renders would no
+  longer reach it. URL-backed panels have the same shape — they name
+  ``http://127.0.0.1:<port>`` outright (:doc:`../web-terminal/panels`) — so a
+  deployment that moves off loopback has to revisit both.
+
+The read-only tier receives ``GRAPHDB_PASSWORD`` too: the store's one account
+can write, so the graph server's read transaction, not the credential, keeps
+that tier read-only, as with the ARIEL database credential.
+
+``demo-logbook`` has no control surface and no graph tools.
+``demo-knowledge`` is the login built around the graph: it keeps
+the facility-knowledge-graph agent, the graph-backed channel finder and the
+KNOWLEDGE panel, and nothing that reads or writes the machine.
+
+
+.. seealso::
+
+   :doc:`/reference/contracts/facility-graph`
+      What the graph holds, the Cypher spelling rules, and the four tools.
+
+   :doc:`../deploy-project/index`
+      The ``services.graphdb`` block: image, ports, corpus, memory, and the
+      query bounds.
+
+   :ref:`osprey knowledge <cli-osprey-knowledge>`
+      Every verb in the command group, with its flags and defaults.
+
+   :doc:`okf-bundle`
+      The bundle of concept documents ``seed-from-ttl`` writes from the build's
+      graph view.
+
+   :doc:`../use-channel-finder`
+      The other way into the same machine — phrases to addresses.
+
+   :doc:`/architecture/mcp-servers`
+      MCP servers provided by the framework, including ``graph``.

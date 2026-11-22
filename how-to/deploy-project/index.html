@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Container Deployment &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Container Deployment &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Deploy a Facility" href="../deploy-a-facility.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -549,7 +549,7 @@ up to date.</p>
 <li><p class="sd-card-text">Overriding service images, and mirroring every image into one registry</p></li>
 <li><p class="sd-card-text">Where the deeper reference lives: compose templates, networking, and the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain each have their own subpage</p></li>
 </ul>
-<p class="sd-card-text"><strong>Prerequisites:</strong> Docker or Podman installed locally.</p>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Docker Engine 20.10 or newer (Docker Desktop 4.0 or newer on macOS and Windows) or Podman 4.1 or newer, and a supported compose provider (see <a class="reference internal" href="#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a>).</p>
 </div>
 </details><div class="admonition tip">
 <p class="admonition-title">Tip</p>
@@ -888,7 +888,7 @@ networks. The <code class="docutils literal notranslate"><span class="pre">optim
 Redis job store. So these containers must resolve each other by name. On
 Podman, that depends on which networking backend the host runs:</p>
 <ul class="simple">
-<li><p><strong>netavark</strong> (Podman 4.0+ default) — ships aardvark-dns, which serves
+<li><p><strong>netavark</strong> — ships aardvark-dns, which serves
 container-name DNS on every network a container is attached to. <strong>Required.</strong></p></li>
 <li><p><strong>cni</strong> (the legacy backend, still configured on some RHEL 8 hosts) — has no
 aardvark-dns. A dual-homed container receives only its <em>first</em> network’s
@@ -951,8 +951,8 @@ reports each one as it does (<code class="docutils literal notranslate"><span cl
 stops, or does not answer within the window, fails the start. Nothing is torn
 down. The message names the terminals that are serving beside the ones that
 are not, with the log lines of each one that is not. While a terminal’s app is
-still starting, nginx answers for it with a page that reloads itself, instead
-of a bare <code class="docutils literal notranslate"><span class="pre">502</span> <span class="pre">Bad</span> <span class="pre">Gateway</span></code>.</p>
+still starting, nginx answers for it with a waiting page that opens the
+terminal once it is ready, instead of a bare <code class="docutils literal notranslate"><span class="pre">502</span> <span class="pre">Bad</span> <span class="pre">Gateway</span></code>.</p>
 <p>Both limits are settings, and each takes a number of seconds. The environment
 variable wins over the top-level config key.</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -1175,6 +1175,9 @@ failure lists what was still pending. It also shows the last log lines of each
 container that exited or is unhealthy; that log is usually the cause. If the
 start is only slow (images pulled over a slow link, a loaded host), raise the
 limit (<a class="reference internal" href="#deployment-start-waits"><span class="std std-ref">How osprey up waits</span></a>).</p>
+<p><strong>A start reported services with no running container:</strong> compose said it
+succeeded, but the named services were not running afterwards. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">logs</span>
+<span class="pre">&lt;service&gt;</span></code> shows why.</p>
 <p><strong>“Unsupported compose provider”:</strong> OSPREY cannot drive the host’s compose
 implementation correctly, so it stopped before starting anything. The message
 prints the version banner it got. Compare it against

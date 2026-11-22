@@ -1,0 +1,1448 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Use Connectors &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/control-systems/use-connectors';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/control-systems/use-connectors.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Use the Connectors Without the Framework" href="use-connectors-standalone.html" />
+    <link rel="prev" title="Control Systems" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../register-a-measurement-kind.html">Register a measurement kind</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/slack.html">Slack</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Control Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Use Connectors</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="use-connectors">
+<span id="how-to-use-connectors"></span><h1>Use Connectors<a class="headerlink" href="#use-connectors" title="Link to this heading">#</a></h1>
+<p>A connector is OSPREY’s single interface to a control system, and a second,
+parallel connector is its interface to an archiver. Everything above them — the
+agent, the plans, the safety layers — is written against those two interfaces,
+so moving from the simulator to real hardware is a change of
+<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> and its connector block, not of code.</p>
+<section id="what-a-connector-is-and-who-talks-to-it">
+<h2>What a connector is, and who talks to it<a class="headerlink" href="#what-a-connector-is-and-who-talks-to-it" title="Link to this heading">#</a></h2>
+<p>A connector is a Python object with a fixed set of methods: connect, read a
+channel, write a channel, subscribe, get metadata. Each control system (EPICS,
+DOOCS, the simulator, the mock) is one class that implements them.</p>
+<p>Nothing in OSPREY reaches a control system any other way. There is no shared
+connector service: each caller below holds its own connector instance, built
+from the same <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and pointed at the login’s control target.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 428" role="img" aria-labelledby="connector-callers-title connector-callers-desc">
+  <title id="connector-callers-title">Who talks to a connector</title>
+  <desc id="connector-callers-desc">The agent, agent-written Python, notebooks, Bluesky plans, and panels and apps each hold their own connector instance, and every instance reaches the control system through the same interface. The operator sets the control target and the write switches in the login's control-context record, which every connector reads.</desc>
+  <defs>
+    <marker id="connector-callers-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="192" y1="52" x2="384" y2="52" marker-end="url(#connector-callers-arr)"/>
+  <polyline class="e-warn e-dash" points="704,52 936,52 936,266 912,266" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="112" y1="176" x2="112" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="288" y1="176" x2="288" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="464" y1="176" x2="464" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="640" y1="176" x2="640" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="816" y1="176" x2="816" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="112" y1="292" x2="112" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="288" y1="292" x2="288" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="464" y1="292" x2="464" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="640" y1="292" x2="640" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="816" y1="292" x2="816" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <!-- arrow labels -->
+  <text class="ta" x="288" y="44" text-anchor="middle">SETS</text>
+  <text class="ta ta-warn" x="820" y="44" text-anchor="middle">READ BY EVERY CONNECTOR</text>
+  <rect class="mask" x="476" y="322" width="140" height="12" rx="2"/>
+  <text class="ta ta-acc" x="480" y="331">READ · WRITE · SUBSCRIBE</text>
+  <!-- zone: one instance per caller -->
+  <rect class="zone" x="16" y="208" width="896" height="104" rx="6"/>
+  <rect class="mask" x="128" y="216" width="144" height="12" rx="2"/>
+  <text class="te" x="132" y="225">ONE INSTANCE PER CALLER</text>
+  <!-- operator and the login's record -->
+  <rect class="mask" x="32" y="24" width="160" height="56" rx="6"/>
+  <rect class="nb-in" x="32" y="24" width="160" height="56" rx="6"/>
+  <text class="tn" x="112" y="48" text-anchor="middle">Operator</text>
+  <text class="ts" x="112" y="64" text-anchor="middle">chip · approval prompt</text>
+  <rect class="mask" x="384" y="24" width="320" height="56" rx="6"/>
+  <rect class="nb-warn" x="384" y="24" width="320" height="56" rx="6"/>
+  <text class="tn" x="544" y="48" text-anchor="middle">Control-context record</text>
+  <text class="ts" x="544" y="64" text-anchor="middle">one per login · control target · write switches</text>
+  <!-- callers -->
+  <rect class="mask" x="32" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="32" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="112" y="144" text-anchor="middle">Agent</text>
+  <text class="ts" x="112" y="160" text-anchor="middle">controls tools</text>
+  <rect class="mask" x="208" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="208" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="288" y="144" text-anchor="middle">Agent-written Python</text>
+  <text class="ts" x="288" y="160" text-anchor="middle">osprey.runtime</text>
+  <rect class="mask" x="384" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="384" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="464" y="144" text-anchor="middle">Notebooks</text>
+  <text class="ts" x="464" y="160" text-anchor="middle">osprey.runtime</text>
+  <rect class="mask" x="560" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="560" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="640" y="144" text-anchor="middle">Bluesky plans</text>
+  <text class="ts" x="640" y="160" text-anchor="middle">queue worker</text>
+  <rect class="mask" x="736" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="736" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="816" y="144" text-anchor="middle">Panels and apps</text>
+  <text class="ts" x="816" y="160" text-anchor="middle">CANOPY · app backends</text>
+  <!-- connectors (focal) -->
+  <rect class="mask" x="32" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="32" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="112" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="112" y="278" text-anchor="middle">controls server or its child</text>
+  <rect class="mask" x="208" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="208" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="288" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="288" y="278" text-anchor="middle">one per run</text>
+  <rect class="mask" x="384" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="384" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="464" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="464" y="278" text-anchor="middle">target read per cell</text>
+  <rect class="mask" x="560" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="560" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="640" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="640" y="278" text-anchor="middle">the worker's own target</text>
+  <rect class="mask" x="736" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="736" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="816" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="816" y="278" text-anchor="middle">one per backend</text>
+  <!-- control system -->
+  <rect class="mask" x="32" y="352" width="864" height="52" rx="6"/>
+  <rect class="nb-ext" x="32" y="352" width="864" height="52" rx="6"/>
+  <text class="tn" x="464" y="374" text-anchor="middle">Control system</text>
+  <text class="ts" x="464" y="390" text-anchor="middle">EPICS · DOOCS · simulator</text>
+</svg>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Who</p></th>
+<th class="head"><p>How it reaches the connector</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Operator</p></td>
+<td><p>Never directly. The operator picks the control target, sets the write
+switch (off, asked or allowed) and answers approval prompts. Each login
+has its own target and switches. See
+<a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> and
+<a class="reference internal" href="switch-control-target.html#how-to-switch-control-target"><span class="std std-ref">Switch the Control Target at Run Time</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Agent</p></td>
+<td><p>Through the <code class="docutils literal notranslate"><span class="pre">controls</span></code> tools: <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> and
+<code class="docutils literal notranslate"><span class="pre">archiver_read</span></code>. With two or more targets configured, the connector
+runs in a child process and a switch replaces that process: a process
+holds one Channel Access context, so a new target needs a new process.
+With one target it runs inside the <code class="docutils literal notranslate"><span class="pre">controls</span></code> server.</p></td>
+</tr>
+<tr class="row-even"><td><p>Agent-written Python</p></td>
+<td><p>Through <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> (<code class="docutils literal notranslate"><span class="pre">read_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>). Each
+run builds its own connector for the login’s target. A write is refused
+if the target changed after the run started. See
+<a class="reference internal" href="#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Notebooks</p></td>
+<td><p>The same <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> calls. The kernel re-reads the target
+before each cell. See <a class="reference internal" href="../web-terminal/notebooks.html#notebooks-write-channel"><span class="std std-ref">Notebooks</span></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p>Bluesky plans</p></td>
+<td><p>Every plan read and write goes through a connector the queue worker
+builds for its own target, which can differ from the login’s.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Panels and apps</p></td>
+<td><p>CANOPY’s data process serves every PV from one connector and is
+replaced when the target moves. An app backend builds its own
+connector for the target of the login it answers; a write approved
+for another target is refused. See <a class="reference internal" href="../apps/index.html#how-to-apps"><span class="std std-ref">Build Your Own OSPREY Apps</span></a>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Because every path ends in the same class, the last write check is the same
+everywhere: the connector re-checks the write switch on each write, whoever
+called it. The checks before that point differ by path and are listed in order
+in <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-order"><span class="std std-ref">Enforcement order</span></a>.</p>
+</section>
+<section id="one-api-whatever-the-machine">
+<h2>One API, whatever the machine<a class="headerlink" href="#one-api-whatever-the-machine" title="Link to this heading">#</a></h2>
+<p>The Python API is the same for every connector, and works from a script of your
+own with no deployment at all (<a class="reference internal" href="use-connectors-standalone.html"><span class="doc">Use the Connectors Without the Framework</span></a>). The simulator
+served in process answers for the addresses of the built facility file without
+hardware or network access, which is what makes it the development and R&amp;D
+default. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first, and run the script from the deployment; the
+simulator refuses an address outside the facility file. This script reads the
+beam current, a channel of the example facility <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> starts from:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">read_simulator.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Read a channel from the simulator in process, in a built OSPREY deployment.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+
+<span class="c1"># The simulator in process: serves the addresses of the built facility file.</span>
+<span class="n">CONFIG</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;virtual_accelerator&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;connector&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;virtual_accelerator&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;serving&quot;</span><span class="p">:</span> <span class="s2">&quot;in_process&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;response_delay_ms&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="p">},</span>
+<span class="p">}</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">register_builtin_connectors</span><span class="p">()</span>  <span class="c1"># registers the built-in type names; idempotent</span>
+    <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">(</span><span class="n">CONFIG</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">channel_value</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s2">&quot;SR:DIAG:DCCT:01:CURRENT:RB&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Value: </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">units</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+<p>The examples on this page are files the test suite runs against a soft IOC and
+a built simulator view.</p>
+<p>A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
+index, with the state names alongside it in the metadata: <code class="docutils literal notranslate"><span class="pre">value</span></code> is the
+index, <code class="docutils literal notranslate"><span class="pre">metadata.enum_label</span></code> the name of that state and
+<code class="docutils literal notranslate"><span class="pre">metadata.enum_labels</span></code> every state name in order. A read of a four-state
+channel in its third state gives:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>value                = 2
+metadata.enum_label  = &#39;ACQUIRING&#39;
+metadata.enum_labels = [&#39;OFFLINE&#39;, &#39;STANDBY&#39;, &#39;ACQUIRING&#39;, &#39;FAULT&#39;]
+</pre></div>
+</div>
+<p>Everything below is configuration only — which machine sits behind that API.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Writes are off until the login’s tier allows them
+(<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>) and the person arms a
+machine from the chip. See <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a> in
+<a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>. A program with nobody at a prompt
+asks for a bounded authorization instead; see
+<a class="reference internal" href="#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>.</p>
+</div>
+</section>
+<section id="pick-a-control-system">
+<h2>Pick a control system<a class="headerlink" href="#pick-a-control-system" title="Link to this heading">#</a></h2>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="in-process" for="sd-tab-item-0">
+Simulator in process</label><div class="sd-tab-content docutils">
+<p>The default. The simulator, run inside the process that asks, serving
+the addresses of the built facility file with no hardware or network
+access. It is the Virtual Accelerator’s in-process venue; see
+<a class="reference internal" href="use-virtual-accelerator.html#va-two-venues"><span class="std std-ref">Two venues</span></a> for both venues and the one setting that picks
+between them.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="epics" for="sd-tab-item-1">
+EPICS</label><div class="sd-tab-content docutils">
+<p>EPICS Channel Access, pointed at a gateway:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">gateways</span><span class="p">:</span>
+<span class="w">        </span><span class="c1"># EPICS uses one process-wide CA context, so the connector points at a</span>
+<span class="w">        </span><span class="c1"># single gateway. When writes are armed for this connector type and a</span>
+<span class="w">        </span><span class="c1"># write_access gateway is set, writes route through it; otherwise the</span>
+<span class="w">        </span><span class="c1"># connector uses read_only (so a read-only deployment rejects writes at</span>
+<span class="w">        </span><span class="c1"># the network layer as well).</span>
+<span class="w">        </span><span class="nt">read_only</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5064</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">write_access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5084</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> bounds every Channel Access call given no timeout of its
+own. A <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> that is not a positive number of seconds is refused
+when the connector connects.</p>
+<p class="rubric">Fresh reads</p>
+<p>Every Channel Access read asks the IOC, at one network round trip per
+read, so an IOC that computes a readback when it is read – a caproto
+getter, for example – always answers with its current value. The
+<code class="docutils literal notranslate"><span class="pre">fresh_reads</span></code> key that once switched this on is still accepted, so an
+existing configuration keeps loading, but it no longer changes anything.</p>
+<p class="rubric">PVAccess channels (PVA)</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">epics</span></code> connector speaks Channel Access by default. Some data –
+camera frames above all – is served only over pvAccess, EPICS’ second
+protocol. List those addresses as glob patterns under <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code>
+and the connector reads them through pvAccess, while every other address
+keeps using Channel Access. One deployment covers both:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
+<span class="w">      </span><span class="nt">pva_channels</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*:IMAGE*&quot;</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;BL:CAM?:ARRAY&quot;</span>
+<span class="w">      </span><span class="nt">pva_gateway</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pvagw.facility.edu</span><span class="w">   </span><span class="c1"># or &quot;cam1 cam2 cam3&quot; for many servers</span>
+<span class="w">        </span><span class="nt">use_name_server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">      </span><span class="nt">gateways</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">read_only</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5064</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>Patterns are matched with <code class="docutils literal notranslate"><span class="pre">fnmatch.fnmatchcase</span></code> – case-sensitive, and
+the same on every operating system. Addresses stay exactly as you write
+them: no <code class="docutils literal notranslate"><span class="pre">pva://</span></code> prefix is ever added, so the limits database, channel
+databases and audit records keep matching the strings they already use.
+An absent or empty <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> list is a complete no-op – the
+connector behaves exactly as it did before and never even imports the
+pvAccess client.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pva_gateway</span></code> is a single flat block, unlike the <code class="docutils literal notranslate"><span class="pre">read_only</span></code> /
+<code class="docutils literal notranslate"><span class="pre">write_access</span></code> pair on the Channel Access side, because pvAccess is
+read-only here. The block is only consulted when <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> is
+non-empty, and it is the <strong>only</strong> way to tell the connector where to
+search: the connector runs in a child process that drops every inherited
+<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_*</span></code> variable, so an <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_ADDR_LIST</span></code> set in <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+never reaches it. The build warns when <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> is set and this
+block is missing.</p>
+<p><code class="docutils literal notranslate"><span class="pre">address</span></code> is one host or a space-separated list of hosts – what a
+facility with many pvAccess servers and no gateway needs. It becomes
+<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_ADDR_LIST</span></code>, a list of UDP search targets: leave <code class="docutils literal notranslate"><span class="pre">port</span></code>
+unset and the client’s default (5076) applies; set it and it is appended
+to every listed host. Do not set 5075 here – that is the TCP port, and a
+search sent to it times out. With <code class="docutils literal notranslate"><span class="pre">use_name_server:</span> <span class="pre">true</span></code> the entry
+becomes <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_NAME_SERVERS</span></code> instead, a TCP endpoint where <code class="docutils literal notranslate"><span class="pre">port</span></code>
+defaults to 5075; that is what an SSH tunnel needs.
+Whenever the block is present, <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_AUTO_ADDR_LIST</span></code> is forced to
+<code class="docutils literal notranslate"><span class="pre">&quot;NO&quot;</span></code> – the same containment the Channel Access side applies, so a
+deployment deliberately pinned to one gateway cannot also
+broadcast-discover servers on the local subnet.</p>
+<p><strong>PVA channels are read-only.</strong> A write to an address matching a
+<code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> pattern comes straight back as a blocked
+<code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code> naming the reason, with nothing sent on the
+network. That is a deliberate safety decision rather than an unfinished
+feature: a supervised pvAccess write path is separate work with its own
+review, and until it exists a refusal is the honest answer.</p>
+<p>pvAccess <strong>RPC services</strong> are refused too, and for a different reason.
+Code the agent runs through the Python executor cannot call
+<code class="docutils literal notranslate"><span class="pre">Context.rpc(...)</span></code>, or pvaPy’s <code class="docutils literal notranslate"><span class="pre">RpcClient(...).invoke(...)</span></code>, in a
+readonly run or wherever limits checking is on: it is blocked at
+runtime and no approval can let it through, because an rpc payload carries an arbitrary request – there is
+no way to tell a read from a write, and nothing for limits checking to
+validate. Use <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> for the operation
+you actually need.</p>
+<p>A camera frame is almost always too large to return to the agent as raw
+numbers; see <a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a> for what comes back
+instead.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Compressed NTNDArray frames are not decoded. When a camera’s
+areaDetector pvAccess plugin is configured with a codec (blosc, lz4,
+jpeg), the read fails with an error naming the codec and the remedy –
+disable pvAccess compression for that channel – rather than reshaping
+a compressed blob into a plausible-looking image full of meaningless
+statistics.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The pvAccess client (<code class="docutils literal notranslate"><span class="pre">p4p</span></code>) ships with OSPREY as an ordinary
+dependency, so there is normally nothing to install. The exception is
+a bare-metal install on arm64 Linux, where <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">pvxslibs</span></code> and
+<code class="docutils literal notranslate"><span class="pre">epicscorelibs</span></code> publish no wheels and pip builds them from source:
+that host needs a C toolchain (a compiler and <code class="docutils literal notranslate"><span class="pre">make</span></code>) present.
+OSPREY’s own project images already stage one, so containerized
+deployments are unaffected.</p>
+</div>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="doocs" for="sd-tab-item-2">
+DOOCS</label><div class="sd-tab-content docutils">
+<p>DOOCS (DESY, European XFEL). Channel addresses are DOOCS properties
+(<code class="docutils literal notranslate"><span class="pre">FACILITY/DEVICE/LOCATION/PROPERTY</span></code>). The ENS comes from the DOOCS
+installation’s environment, and the block takes one option:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doocs</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">doocs</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span><span class="w">   </span><span class="c1"># optional; seconds per ENS lookup, read or set</span>
+</pre></div>
+</div>
+<p>A read that does not answer within <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> (or the call’s own
+timeout) raises <code class="docutils literal notranslate"><span class="pre">TimeoutError</span></code>. A set that does not return within it
+is reported <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>, because the value may still arrive. A
+<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> that is not a positive number of seconds is refused when
+the connector connects.</p>
+<p>The connector requires <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>, which the DOOCS environment
+provides rather than PyPI. The import is deferred to <code class="docutils literal notranslate"><span class="pre">connect()</span></code>, so
+the name registers everywhere and only fails – with a clear
+<code class="docutils literal notranslate"><span class="pre">ImportError</span></code> instead of a silent degradation – where a DOOCS
+environment is genuinely absent.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>DOOCS confirms a write the way every connector does: one fresh read
+of the channel, compared exactly against the value that was sent. A
+reading that is not a number – a string, a name – confirms by
+plain equality.</p>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="tango" for="sd-tab-item-3">
+TANGO</label><div class="sd-tab-content docutils">
+<p>TANGO Controls. A channel address is a TANGO device name plus the
+attribute served by it (<code class="docutils literal notranslate"><span class="pre">domain/family/member/attribute</span></code>, e.g.
+<code class="docutils literal notranslate"><span class="pre">sr/power_supply/ps01/Current</span></code>), optionally prefixed with an explicit
+database as <code class="docutils literal notranslate"><span class="pre">tango://host:port/domain/family/member/attribute</span></code>.
+Without a prefix the connector reaches the database named by
+<code class="docutils literal notranslate"><span class="pre">TANGO_HOST</span></code>, exactly as every other TANGO client does; <code class="docutils literal notranslate"><span class="pre">tango_host</span></code>
+in the connector block overrides that environment for this connector
+alone:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tango</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tango</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">tango_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db.facility.edu:10000</span><span class="w">   </span><span class="c1"># optional; default TANGO_HOST</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span><span class="w">                      </span><span class="c1"># seconds per device call</span>
+</pre></div>
+</div>
+<p>A read or write given no timeout of its own is bounded by <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>
+too, with the same answers as DOOCS: a read that runs out raises
+<code class="docutils literal notranslate"><span class="pre">TimeoutError</span></code>, and a write that runs out is reported <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>.
+A <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> that is not a positive number of seconds is refused when
+the connector connects.</p>
+<p>Only <strong>attributes</strong> are exposed. TANGO <em>commands</em> (<code class="docutils literal notranslate"><span class="pre">command_inout</span></code>)
+carry arbitrary payloads the limits database cannot bound, so they have
+no seam in the connector contract – the same reason the EPICS connector
+refuses PVA RPC.</p>
+<p>Reads report the attribute quality as the channel’s alarm state
+(<code class="docutils literal notranslate"><span class="pre">ATTR_WARNING</span></code> → <code class="docutils literal notranslate"><span class="pre">WARNING</span></code>, <code class="docutils literal notranslate"><span class="pre">ATTR_ALARM</span></code> → <code class="docutils literal notranslate"><span class="pre">ALARM</span></code>, and so on),
+and a <code class="docutils literal notranslate"><span class="pre">DevEnum</span></code> attribute reads as its integer index with the state
+labels alongside it, like an EPICS <code class="docutils literal notranslate"><span class="pre">mbbi</span></code>.</p>
+<p>The connector requires PyTango (the <code class="docutils literal notranslate"><span class="pre">pytango</span></code> package). The import is
+deferred to <code class="docutils literal notranslate"><span class="pre">connect()</span></code>, so the name registers everywhere and only
+fails – with a clear <code class="docutils literal notranslate"><span class="pre">ImportError</span></code> instead of a silent degradation –
+where a TANGO environment is genuinely absent.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>TANGO confirms a write the way every connector does: one fresh read
+of the attribute, compared exactly against the value that was sent.
+An <code class="docutils literal notranslate"><span class="pre">ATTR_CHANGING</span></code> quality on the readback never softens the
+verdict – a readback that does not yet hold the value sent is a
+<code class="docutils literal notranslate"><span class="pre">mismatch</span></code>, and the quality rides on the result’s alarm fields for
+the operator to interpret.</p>
+</div>
+</div>
+<input id="sd-tab-item-4" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="va" for="sd-tab-item-4">
+Virtual Accelerator</label><div class="sd-tab-content docutils">
+<p>The containerized simulator, over real EPICS Channel Access – it behaves
+like <code class="docutils literal notranslate"><span class="pre">epics</span></code> but tracks setpoints through the simulator’s LUME-backed
+physics, so correctors move, BPMs respond, and plans actually run (the
+simulator in process can’t run plans):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> for running it and
+<a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a> for how it works.</p>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="custom" for="sd-tab-item-5">
+Your own</label><div class="sd-tab-content docutils">
+<p>Any other stack OSPREY does not ship a connector for: write a custom
+connector against the same interface and register it with
+<code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code>. It then selects by name exactly like the in-tree
+ones. The seam – the class to subclass, the pinning
+test, and how registration works – is documented in
+<a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
+</div>
+</div>
+<p>Every control-system connector block names its call bound <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>, in
+seconds; a numeric string such as an interpolated <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> is read as one. A
+config whose connector block carries <code class="docutils literal notranslate"><span class="pre">timeout</span></code> instead is refused when the
+config is read, and again when the connector connects.</p>
+</section>
+<section id="pick-an-archiver">
+<h2>Pick an archiver<a class="headerlink" href="#pick-an-archiver" title="Link to this heading">#</a></h2>
+<p>Historical data goes through a parallel <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> block, chosen
+independently of the control system:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-6" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="in-process" for="sd-tab-item-6">
+Mock</label><div class="sd-tab-content docutils">
+<p>History for the addresses of the built facility file — the development
+default:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock_archiver</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-7" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="epics" for="sd-tab-item-7">
+EPICS</label><div class="sd-tab-content docutils">
+<p>The EPICS Archiver Appliance:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.edu:8443</span><span class="w">   </span><span class="c1"># required</span>
+<span class="w">    </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">                              </span><span class="c1"># seconds, default 60</span>
+<span class="w">    </span><span class="nt">retrieval_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/retrieval</span><span class="w">                 </span><span class="c1"># default; a reverse proxy may rename it</span>
+<span class="w">    </span><span class="c1"># auth:                                    # only when a proxy asks for a login</span>
+<span class="w">    </span><span class="c1">#   token_env: OSPREY_ARCHIVER_TOKEN       # the variable that holds the token</span>
+<span class="w">    </span><span class="c1"># tls:                                     # only for a CA the image does not trust</span>
+<span class="w">    </span><span class="c1">#   ca_bundle: /etc/ssl/certs/site-ca.pem  # absolute path of the CA file</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">url</span></code> is the appliance’s root (or the reverse proxy’s). The connector
+reads through the appliance’s retrieval servlet, mounted at <code class="docutils literal notranslate"><span class="pre">/retrieval</span></code>
+on a bare appliance; when a proxy in front of the appliance publishes that
+servlet under a different prefix, name the prefix with <code class="docutils literal notranslate"><span class="pre">retrieval_path</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">auth:</span></code> takes <code class="docutils literal notranslate"><span class="pre">token_env</span></code> (sent as a bearer token), or <code class="docutils literal notranslate"><span class="pre">username</span></code>
+and <code class="docutils literal notranslate"><span class="pre">password_env</span></code> (sent as HTTP Basic). Each <code class="docutils literal notranslate"><span class="pre">*_env</span></code> names an
+environment variable that is read when the connector connects; the
+connector refuses to start while it is unset. The login goes only to the
+host <code class="docutils literal notranslate"><span class="pre">url</span></code> names, never to a host a redirect names. <code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is
+an absolute path to the CA file the appliance’s certificate is checked
+against; a <code class="docutils literal notranslate"><span class="pre">~</span></code> path is refused, because each process would expand it
+against its own home. It replaces the trust store for this appliance. When
+it is unset the image’s trust store, which <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> extends,
+applies. No setting turns certificate checking off. The build mounts the
+named file read-only at the same path into every web terminal and dispatch
+worker, so the same key works in a container; the file must be on the
+deploy host when <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs. <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> remains the way
+to add a CA to every image.</p>
+</div>
+<input id="sd-tab-item-8" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="doocs" for="sd-tab-item-8">
+DOOCS</label><div class="sd-tab-content docutils">
+<p>DOOCS <em>local histories</em> — only meaningful alongside <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">doocs</span></code>, and
+needing the same environment-supplied <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doocs_archiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">avg_window</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">    </span><span class="c1"># optional centered moving average, in seconds</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-9" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mongodb" for="sd-tab-item-9">
+MongoDB</label><div class="sd-tab-content docutils">
+<p>For facilities that store time-series PV data in MongoDB rather than an
+EPICS Archiver Appliance:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb_archiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb.facility.edu</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_db</span>
+<span class="w">    </span><span class="nt">collection</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv_data</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">      </span><span class="nt">password_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MONGODB_READONLY_PASSWORD</span>
+<span class="w">    </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">     </span><span class="c1"># seconds, default 60</span>
+</pre></div>
+</div>
+<p>The collection holds one document per instant: a <code class="docutils literal notranslate"><span class="pre">date</span></code> field plus one
+field per channel sampled at that instant. A channel’s field name is its
+address, with <code class="docutils literal notranslate"><span class="pre">%</span></code>, <code class="docutils literal notranslate"><span class="pre">.</span></code> and NUL written as <code class="docutils literal notranslate"><span class="pre">%25</span></code>, <code class="docutils literal notranslate"><span class="pre">%2E</span></code> and
+<code class="docutils literal notranslate"><span class="pre">%00</span></code>, and a leading <code class="docutils literal notranslate"><span class="pre">$</span></code> as <code class="docutils literal notranslate"><span class="pre">%24</span></code>; every other address is its own
+field name. An address equal to one of the collection’s own fields
+(<code class="docutils literal notranslate"><span class="pre">_id</span></code>, <code class="docutils literal notranslate"><span class="pre">date</span></code>, <code class="docutils literal notranslate"><span class="pre">expireAt</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey_densified</span></code>, or the seed
+manifest’s <code class="docutils literal notranslate"><span class="pre">fingerprint</span></code>, <code class="docutils literal notranslate"><span class="pre">seeded_at</span></code>, <code class="docutils literal notranslate"><span class="pre">touched_windows</span></code>,
+<code class="docutils literal notranslate"><span class="pre">touched_anchor</span></code> and <code class="docutils literal notranslate"><span class="pre">coverage</span></code>) has its first character written the
+same way, so a channel named <code class="docutils literal notranslate"><span class="pre">date</span></code> is stored as <code class="docutils literal notranslate"><span class="pre">%64ate</span></code>. A site writing its own store names its fields the same way,
+so <code class="docutils literal notranslate"><span class="pre">SR:MOT1.RBV</span></code> is stored as <code class="docutils literal notranslate"><span class="pre">SR:MOT1%2ERBV</span></code>.</p>
+<p>The password is only ever named, never written: <code class="docutils literal notranslate"><span class="pre">auth.password_env</span></code> is
+the environment variable that holds it. <code class="docutils literal notranslate"><span class="pre">auth.source</span></code> is the database
+the user is defined in.</p>
+<p>A store behind TLS, in a replica set or behind x509 is named by <code class="docutils literal notranslate"><span class="pre">url</span></code>, a
+MongoDB connection string, in place of <code class="docutils literal notranslate"><span class="pre">host</span></code> and <code class="docutils literal notranslate"><span class="pre">port</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb_archiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb+srv://your-cluster.example.com/?tls=true</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_db</span>
+<span class="w">    </span><span class="nt">collection</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv_data</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span><span class="w">                </span><span class="c1"># optional with a url</span>
+<span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">      </span><span class="nt">password_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MONGODB_READONLY_PASSWORD</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span><span class="w">                 </span><span class="c1"># only for a CA the image does not trust</span>
+<span class="w">      </span><span class="nt">ca_bundle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/certs/site-ca.pem</span>
+</pre></div>
+</div>
+<p>The url wins over <code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code> and the <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVER_MONGODB_*</span></code>
+address overrides. It may not carry a user, a password or a key-file
+password, nor an option the block has its own key for (<code class="docutils literal notranslate"><span class="pre">authSource</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tlsCAFile</span></code>, <code class="docutils literal notranslate"><span class="pre">serverSelectionTimeoutMS</span></code>), nor one that turns
+certificate verification off (<code class="docutils literal notranslate"><span class="pre">tlsInsecure</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tlsAllowInvalidCertificates</span></code>, <code class="docutils literal notranslate"><span class="pre">tlsAllowInvalidHostnames</span></code>). The
+recorder and the archive rewrite never write to a store named by url.</p>
+<p><code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is an absolute path to the CA file the store’s
+certificate is checked against; a <code class="docutils literal notranslate"><span class="pre">~</span></code> path is refused, because each
+process would expand it against its own home. Without it, a <code class="docutils literal notranslate"><span class="pre">tls=true</span></code>
+url uses the image’s trust store. No setting turns certificate checking
+off. The build mounts the named file read-only at the same path into every
+web terminal and dispatch worker, and into the archive recorder, so the
+same key works in a container; the file must be on the deploy host when
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs. <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> remains the way to add a CA to
+every image.</p>
+<p>Documents in the collection are expected to have a <code class="docutils literal notranslate"><span class="pre">date</span></code> field
+(<code class="docutils literal notranslate"><span class="pre">ISODate</span></code>) and one or more PV names as top-level fields:
+<code class="docutils literal notranslate"><span class="pre">{date:</span> <span class="pre">ISODate(...),</span> <span class="pre">PV1:</span> <span class="pre">value1,</span> <span class="pre">PV2:</span> <span class="pre">value2,</span> <span class="pre">...}</span></code>. A query matches
+any document that carries <strong>at least one</strong> of the requested PVs (an
+<code class="docutils literal notranslate"><span class="pre">$or</span></code> across per-PV <code class="docutils literal notranslate"><span class="pre">$exists</span></code> checks) – documents do not need to
+carry every requested PV together, so channels archived at different
+cadences, or written into separate documents by different collectors,
+are still returned correctly, each on its own timestamp series. The
+connector’s MongoDB client ships with OSPREY, so there is nothing extra
+to install.</p>
+</div>
+<input id="sd-tab-item-10" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mya" for="sd-tab-item-10">
+MYA</label><div class="sd-tab-content docutils">
+<p>MYA, Jefferson Lab’s archiver, read over its <code class="docutils literal notranslate"><span class="pre">myquery</span></code> HTTP service.
+Every key is optional – the <code class="docutils literal notranslate"><span class="pre">jlab-archiver-client</span></code> library carries its
+own server and protocol – so a deployment inside the facility’s network
+needs only the type:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mya_archiver</span>
+</pre></div>
+</div>
+<p>To name a different myquery host, a non-production MYA deployment, or the
+zone it reads query bounds in:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mya_archiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">myquery_server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myquery.facility.edu</span>
+<span class="w">    </span><span class="nt">deployment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops</span><span class="w">        </span><span class="c1"># MYA deployment to query</span>
+<span class="w">    </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">          </span><span class="c1"># seconds per request</span>
+<span class="w">    </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/New_York</span><span class="w">   </span><span class="c1"># default: system.timezone</span>
+</pre></div>
+</div>
+<p>MYA takes no <code class="docutils literal notranslate"><span class="pre">auth:</span></code> or <code class="docutils literal notranslate"><span class="pre">tls:</span></code>: its client sends every request
+itself, so the connector refuses both rather than ignore them. A site CA
+reaches it through <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">timezone</span></code> spells a UTC query window in the server’s own local time,
+which is the one place myquery has no offset to read. It does not affect
+the samples that come back: those carry epoch milliseconds, which name an
+instant outright and so survive the autumn fall-back hour, when every
+wall-clock time occurs twice.</p>
+<p>The client library is not installed with OSPREY. Add it to the profile’s
+top-level <code class="docutils literal notranslate"><span class="pre">dependencies:</span></code> so the image carries it:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">dependencies</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">jlab</span><span class="o">-</span><span class="n">archiver</span><span class="o">-</span><span class="n">client</span><span class="o">&gt;=</span><span class="mf">4.0.1</span>
+</pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>4.0.1 is a floor, not a preference. Earlier releases accept the
+request for epoch timestamps and then parse them as nanoseconds,
+dating every sample to January 1970 with no error. The connector
+checks for that and refuses rather than serving it.</p>
+</div>
+<p>Aggregates (<code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">std</span></code>…) are computed by
+myquery’s <code class="docutils literal notranslate"><span class="pre">mystats</span></code> endpoint. <code class="docutils literal notranslate"><span class="pre">median</span></code> is the exception – MYA does
+not compute one – so that mode alone fetches raw events and bins them
+client-side.</p>
+<p><code class="docutils literal notranslate"><span class="pre">mystats</span></code> is asked for a number of bins rather than a bin width, so a
+width that does not divide the window evenly costs one extra request:
+the whole bins, then the ragged remainder as a final partial bin.</p>
+<p>MYA records changes, not samples – a value stays in effect until the
+next update. Reads therefore ask for the prior point, so a channel whose
+last change predates the window still reports that change, at the time
+it was recorded, instead of answering with nothing at all.</p>
+</div>
+</div>
+<p>Every archiver takes its settings from one block, <code class="docutils literal notranslate"><span class="pre">settings:</span></code>, beside the
+<code class="docutils literal notranslate"><span class="pre">type</span></code> that selects it. A connector of your own is selected by its dotted
+module path and configured the same way:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_facility.connectors.FacilityArchiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">history.facility.edu</span>
+</pre></div>
+</div>
+<p>In a profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block that is <code class="docutils literal notranslate"><span class="pre">archiver.settings.server:</span>
+<span class="pre">history.facility.edu</span></code>. The block is handed to the connector’s <code class="docutils literal notranslate"><span class="pre">connect()</span></code>
+whole. Any other block under <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> is one no archiver reads, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops and names it.</p>
+<p>Every archiver that reaches a service by address spells its request bound
+<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>, and a login and a CA as <code class="docutils literal notranslate"><span class="pre">auth:</span></code> and <code class="docutils literal notranslate"><span class="pre">tls:</span></code> above. A flat
+<code class="docutils literal notranslate"><span class="pre">timeout</span></code>, <code class="docutils literal notranslate"><span class="pre">token_env</span></code>, <code class="docutils literal notranslate"><span class="pre">username</span></code>, <code class="docutils literal notranslate"><span class="pre">password_env</span></code> or <code class="docutils literal notranslate"><span class="pre">ca_bundle</span></code> is
+refused with the nested key it moved to.</p>
+</section>
+<section id="writing-from-a-program">
+<span id="how-to-write-from-a-program"></span><h2>Writing from a program<a class="headerlink" href="#writing-from-a-program" title="Link to this heading">#</a></h2>
+<p>A person’s switch opens a whole machine. A program that writes with nobody at
+a prompt, such as an optimizer run, asks for less: a <strong>write authorization</strong>
+naming the channels it will write, a range for each, how many write calls it
+will make, when it ends, and a lease it renews while it runs. A person
+approves it, and every write the program makes is checked against it. The
+machine’s switch can stay off throughout, and moving it to <em>asked</em> or
+<em>allowed</em> does not widen the program. The files and the reasons are in
+<a class="reference internal" href="../../reference/contracts/connectors.html#write-authorization-contract"><span class="std std-ref">A Program’s Write Authorization</span></a>.</p>
+<p><strong>1. Ask.</strong> The program writes a request into its ledger directory
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code>; on a host with no deployment, its own state
+directory). Spell each channel exactly as it will be written, and count the
+completion write (<code class="docutils literal notranslate"><span class="pre">apply_best</span></code> or <code class="docutils literal notranslate"><span class="pre">restore</span></code>) in <code class="docutils literal notranslate"><span class="pre">steps</span></code>. The steps below
+are taken from one program,
+<a class="reference download internal" download="" href="../../_downloads/dc47666e4e600044c53721897e965d86/write_from_a_program.py"><code class="xref download docutils literal notranslate"><span class="pre">write_from_a_program.py</span></code></a>, which
+the test suite runs against a stand-in soft IOC, approving its request as the
+person would:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">request</span> <span class="o">=</span> <span class="n">wa</span><span class="o">.</span><span class="n">write_request</span><span class="p">(</span>
+    <span class="s2">&quot;standin&quot;</span><span class="p">,</span>
+    <span class="p">{</span><span class="s2">&quot;SR:CORRECTOR:H1&quot;</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="s2">&quot;SR:CORRECTOR:H2&quot;</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)},</span>
+    <span class="n">steps</span><span class="o">=</span><span class="mi">41</span><span class="p">,</span>  <span class="c1"># 40 evaluations + apply_best</span>
+    <span class="n">expires_at_ns</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">time_ns</span><span class="p">()</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="mi">3600</span> <span class="o">*</span> <span class="mi">10</span><span class="o">**</span><span class="mi">9</span><span class="p">,</span>
+    <span class="n">lease_s</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span>
+    <span class="n">label</span><span class="o">=</span><span class="s2">&quot;injector tuning 7&quot;</span><span class="p">,</span>
+    <span class="n">completion</span><span class="o">=</span><span class="s2">&quot;apply_best&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>The holder is the program’s acting identity; the owner is the login the run
+stands in for (<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_OWNER</span></code> in a container). A program’s container
+needs both that variable and <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code> bound writable: the
+program opens and renews its lease there, and its connector child spends the
+steps there. <code class="docutils literal notranslate"><span class="pre">self_issue()</span></code> is
+the alternative while the owner’s switch for the machine stands at
+<code class="docutils literal notranslate"><span class="pre">allowed</span></code>: the program writes its own grant, honoured only while the switch
+stays there.</p>
+<p><strong>2. Wait for the approval.</strong> The owner approves from the chip
+(<a class="reference internal" href="../web-terminal/operate.html#web-terminal-approve-program"><span class="std std-ref">Approve a program’s writes</span></a>) or with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span>
+<span class="pre">approve</span></code>. The grant carries the request’s id, so the program polls for it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">while</span> <span class="p">(</span><span class="n">grant</span> <span class="o">:=</span> <span class="n">wa</span><span class="o">.</span><span class="n">approved_grant</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">))</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">wa</span><span class="o">.</span><span class="n">withdraw_request</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+<span class="n">wa</span><span class="o">.</span><span class="n">start_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>  <span class="c1"># once, by the process that renews it</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">approved_grant</span></code> raises <code class="docutils literal notranslate"><span class="pre">AuthorizationRefused</span></code> for a grant that is there
+and does not stand (revoked, expired, unreadable, another holder’s).</p>
+<p><strong>3. Write.</strong> Name the authorization to the connector pool once the lease is
+open, and renew the lease from a heartbeat at a fraction of <code class="docutils literal notranslate"><span class="pre">lease_s</span></code>. A
+handle taken before the lease started selected the read gateway, and its
+writes are refused <code class="docutils literal notranslate"><span class="pre">switching</span></code> (nothing spent) like any other refusal. The
+program builds its pool from the deployment’s own configuration,
+<code class="docutils literal notranslate"><span class="pre">ConnectorHostPool(get_config_value(&quot;control_system&quot;,</span> <span class="pre">{}),</span>
+<span class="pre">config_file=default_config_path())</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pool</span><span class="o">.</span><span class="n">connector</span><span class="p">(</span><span class="s2">&quot;standin&quot;</span><span class="p">,</span> <span class="n">owner</span><span class="o">=</span><span class="n">grant</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span> <span class="n">authorization</span><span class="o">=</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_multiple_channels</span><span class="p">(</span>
+    <span class="p">[(</span><span class="s2">&quot;SR:CORRECTOR:H1&quot;</span><span class="p">,</span> <span class="mf">0.12</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;SR:CORRECTOR:H2&quot;</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.03</span><span class="p">)],</span> <span class="n">confirm</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>and, between write calls, renews its lease:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="ow">not</span> <span class="n">wa</span><span class="o">.</span><span class="n">renew_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">):</span>  <span class="c1"># False: the lease has lapsed, stop</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+<p>One write call is one step, a batch included, and the step is spent before
+anything is put: a batch with an unlisted channel or a value out of range
+writes nothing; a write the limits database then refuses, and one whose put
+fails, has still spent its step.</p>
+<p><strong>4. Read the reason.</strong> A refused write returns <code class="docutils literal notranslate"><span class="pre">outcome</span></code> <code class="docutils literal notranslate"><span class="pre">REFUSED</span></code> with
+<code class="docutils literal notranslate"><span class="pre">verdict_reason</span></code> set (<code class="docutils literal notranslate"><span class="pre">write_channel_checked</span></code> raises
+<code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code> carrying it). End the run on any <code class="docutils literal notranslate"><span class="pre">auth_*</span></code>
+reason rather than retrying: <code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code> (no step left),
+<code class="docutils literal notranslate"><span class="pre">auth_expired</span></code>, <code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code> (a person stopped it), <code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code>,
+<code class="docutils literal notranslate"><span class="pre">auth_range</span></code> and <code class="docutils literal notranslate"><span class="pre">auth_channel</span></code> (the program wrote outside what was
+approved). Nothing renews an authorization; the program asks again.</p>
+<p>An authorization ends at whichever comes first: every step spent, its expiry,
+its lease lapsing, or a person’s stop. The bounds hold a program that runs as
+written: the step budget and the lease are kept in the program’s own ledger,
+which it can write, so the boundary for a program that must not write at all
+is the gateway it can reach.</p>
+<p><strong>5. Stop.</strong> A person’s stop is one gesture: the machine’s <em>off</em> control,
+<strong>Turn all writes off</strong>, <strong>Revoke</strong> on the card, or <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">write-authorization</span> <span class="pre">revoke</span></code>. Each marks the grant revoked, and the program’s
+next write is refused <code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>. A write already past its check when the
+stop lands goes out as judged.</p>
+<p><strong>6. Crash.</strong> A program that dies stops renewing its lease, and its next write
+— from a restarted process, or anything still holding its connector — is
+refused <code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code> within one <code class="docutils literal notranslate"><span class="pre">lease_s</span></code>; a reader in the
+holder’s own PID namespace ends it at once when the holder’s PID is gone. A lease is opened once per authorization,
+so a restarted program asks again. A connector child that crashes is replaced
+on the next call, and the steps already spent stay spent: the ledger is on
+disk.</p>
+</section>
+<section id="contracts-and-custom-connectors">
+<h2>Contracts and Custom Connectors<a class="headerlink" href="#contracts-and-custom-connectors" title="Link to this heading">#</a></h2>
+<p>The behaviour every connector has to implement – how large array values come
+back, how a write reports whether it took effect and which safety gates it must
+pass first, and what an archiver’s historical data must look like – is
+documented in <a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>.</p>
+<p>To write, register and test a connector — control system or archiver — for a
+system OSPREY does not ship, see <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a></dt><dd><p>Connector contracts: reading large values, write confirmation and its
+safety gates, and the archiver <code class="docutils literal notranslate"><span class="pre">get_data</span></code> contract.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Control Systems</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="use-connectors-standalone.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Use the Connectors Without the Framework</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-connector-is-and-who-talks-to-it">What a connector is, and who talks to it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-api-whatever-the-machine">One API, whatever the machine</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-a-control-system">Pick a control system</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-an-archiver">Pick an archiver</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-from-a-program">Writing from a program</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contracts-and-custom-connectors">Contracts and Custom Connectors</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/control-systems/use-connectors.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

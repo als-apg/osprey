@@ -1,0 +1,866 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Python Executor Contract &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/python-executor';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/python-executor.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="ARIEL Contracts" href="ariel.html" />
+    <link rel="prev" title="Partial Answers" href="partial-answers.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/environment-variables.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/scenario-files.html">Scenario files</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-kinds.html">Facility Kinds Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dock-engine.html">Dock Engine Contract</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../connectors-api/index.html">osprey-connectors API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/contracts.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/building.html">Building Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/errors-logging.html">Errors and Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/configuration.html">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/write-safety.html">Write Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/services.html">Directory, alarms and put log</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contracts</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Python Executor Contract</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="python-executor-contract">
+<span id="reference-python-executor"></span><h1>Python Executor Contract<a class="headerlink" href="#python-executor-contract" title="Link to this heading">#</a></h1>
+<p>The MCP tools the OSPREY agent calls to run Python — their parameters,
+what a successful call returns, and how a failing one reports itself. For how
+the service works and what it is allowed to touch, see
+<a class="reference internal" href="../../architecture/python-executor.html"><span class="doc">Python Executor</span></a>.</p>
+<section id="mcp-tool-interface">
+<span id="executor-mcp-tool"></span><h2>MCP Tool Interface<a class="headerlink" href="#mcp-tool-interface" title="Link to this heading">#</a></h2>
+<p>The server exposes two tools, <code class="docutils literal notranslate"><span class="pre">execute</span></code> and <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, registered on
+the <code class="docutils literal notranslate"><span class="pre">python</span></code> FastMCP server (<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor</span></code>).
+<code class="docutils literal notranslate"><span class="pre">execute_file</span></code> runs an existing <code class="docutils literal notranslate"><span class="pre">.py</span></code> file on disk through the same safety
+pipeline as <code class="docutils literal notranslate"><span class="pre">execute</span></code>; both share the parameters below (<code class="docutils literal notranslate"><span class="pre">execute_file</span></code>
+takes <code class="docutils literal notranslate"><span class="pre">file_path</span></code> and optional <code class="docutils literal notranslate"><span class="pre">script_args</span></code> in place of <code class="docutils literal notranslate"><span class="pre">code</span></code>).</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id1">
+<caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">execute</span></code> parameters</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 15.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">code</span></code></p></td>
+<td><p><em>(required)</em></p></td>
+<td><p>Python source code to run.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p><em>(required)</em></p></td>
+<td><p>Human-readable description of what the code does.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">execution_mode</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;readonly&quot;</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;readonly&quot;</span></code> blocks detected write patterns. <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code> may write,
+through <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel()</span></code> only; a raw client put is
+refused (see
+<a class="reference internal" href="../../architecture/python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">save_output</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">True</span></code></p></td>
+<td><p>Save code and output to a workspace data file and artifact store.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">approved_target</span></code></p></td>
+<td><p>set by the hook</p></td>
+<td><p>On a <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code> call, the control target the approval hook admitted
+it on; a value the agent passes is overwritten.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>On success the tool returns a JSON object whose top level describes the saved
+run:</p>
+<ul class="simple">
+<li><p><strong>status</strong> (<code class="docutils literal notranslate"><span class="pre">&quot;success&quot;</span></code>), <strong>artifact_id</strong>, <strong>title</strong>, and <strong>data_file</strong>
+for the saved artifact.</p></li>
+<li><p><strong>summary</strong> — a nested object with the run details: the truncated
+<strong>output</strong> / <strong>error</strong> (500 characters; full output is in the saved data
+file), a <code class="docutils literal notranslate"><span class="pre">&quot;Success&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;Failed&quot;</span></code> <strong>status</strong>, <strong>has_errors</strong>, and
+<strong>detected_patterns</strong> for control-system operation metadata.</p></li>
+<li><p><strong>artifact_ids</strong> — IDs for any figures or saved objects, and
+<strong>notebook_artifact_id</strong> for the auto-generated notebook capturing the run.</p></li>
+<li><p><strong>gallery_url</strong> — link to the artifact gallery (when available).</p></li>
+</ul>
+<p>A failing run does not return this object as a normal result: the tool raises
+a structured error (<code class="docutils literal notranslate"><span class="pre">error_type:</span> <span class="pre">&quot;execution_error&quot;</span></code>) whose <code class="docutils literal notranslate"><span class="pre">details</span></code> field
+carries the same information, so the agent receives an explicit error rather
+than a status field it might overlook.</p>
+<p>After <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel()</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.runtime.settle({address:</span>
+<span class="pre">demand})</span></code> waits until each setpoint’s readback is within the bound the
+facility file states for it: its <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, else on the simulator its
+readback’s motion band. A setpoint with neither is not waited on. A readback
+that is not inside its bound within 5 seconds raises <code class="docutils literal notranslate"><span class="pre">SettleTimeoutError</span></code>,
+and the run fails. A readback that cannot be reached, is not a channel, or
+times out raises <code class="docutils literal notranslate"><span class="pre">SettleReadError</span></code>, which names it, as does one that answers
+no value, and the run fails; a lost connector raises its own error.</p>
+</section>
+<section id="measurement-tools">
+<span id="executor-measurement-tools"></span><h2>Measurement Tools<a class="headerlink" href="#measurement-tools" title="Link to this heading">#</a></h2>
+<p>A render that carries a pyAML view (<code class="docutils literal notranslate"><span class="pre">data/pyaml/&lt;model&gt;/configuration.yaml</span></code>,
+written by the build for each served model with a measurement file) adds two
+tools to the <code class="docutils literal notranslate"><span class="pre">python</span></code> server. A render without one registers neither.</p>
+<section id="pyaml-measure">
+<h3><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code><a class="headerlink" href="#pyaml-measure" title="Link to this heading">#</a></h3>
+<p>Steps setpoints on the control target through pyAML and writes them back. Every
+call for a kind the model’s measurement file lists asks for approval at the
+switch’s <em>asked</em> position; any other call reaches the tool unasked and is
+refused there. With writes off it is denied like every write tool.
+The prompt lists every setpoint the call steps; a call stepping more than 500
+is refused without asking.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id2">
+<caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> parameters</span><a class="headerlink" href="#id2" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 15.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span></code></p></td>
+<td><p><em>(required)</em></p></td>
+<td><p>A kind the model’s rendered measurement block lists
+(<a class="reference internal" href="facility-kinds.html"><span class="doc">Facility Kinds Contract</span></a>). Any other kind is refused, naming the group or
+instrument the model lacks, or the kinds the file lists.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<td><p>the one model</p></td>
+<td><p>The model measured; may be omitted only when exactly one model has a
+pyAML view.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">correctors</span></code></p></td>
+<td><p>every corrector</p></td>
+<td><p>Corrector setpoint addresses, for a kind that takes them; of the
+shipped ones, <code class="docutils literal notranslate"><span class="pre">orm</span></code> alone.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">modulation</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;bipolar&quot;</span></code>; <code class="docutils literal notranslate"><span class="pre">&quot;unipolar&quot;</span></code> with <code class="docutils literal notranslate"><span class="pre">by</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;group&quot;</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;bipolar&quot;</span></code> steps each setting to both sides of its present value,
+<code class="docutils literal notranslate"><span class="pre">&quot;unipolar&quot;</span></code> to one side.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;magnet&quot;</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">trm</span></code> and <code class="docutils literal notranslate"><span class="pre">crm</span></code> only. <code class="docutils literal notranslate"><span class="pre">&quot;magnet&quot;</span></code> steps one magnet per column;
+<code class="docutils literal notranslate"><span class="pre">&quot;group&quot;</span></code> steps every magnet of the role’s array (every group the
+role names) once, from its present
+setting, by the same integrated strength. Group stepping is unipolar:
+an omitted modulation is <code class="docutils literal notranslate"><span class="pre">&quot;unipolar&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;bipolar&quot;</span></code> is refused.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">approved_target</span></code></p></td>
+<td><p>set by the hook</p></td>
+<td><p>The control target the approval hook admitted the call on. The hook
+fills it in; a value the agent passes is overwritten.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code></p></td>
+<td><p>set by the hook</p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">sha256</span></code> of the pyAML view the approval names. The hook fills it
+in; a value the agent passes is overwritten.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Each step comes from the measurement file (<code class="docutils literal notranslate"><span class="pre">corrector_delta</span></code>,
+<code class="docutils literal notranslate"><span class="pre">frequency_delta</span></code>, <code class="docutils literal notranslate"><span class="pre">quad_delta</span></code>, <code class="docutils literal notranslate"><span class="pre">sextu_delta</span></code>) and is shrunk until no
+setpoint’s largest single write exceeds half its <code class="docutils literal notranslate"><span class="pre">max_step</span></code> in
+<code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>; <code class="docutils literal notranslate"><span class="pre">delta_limited_by</span></code> and <code class="docutils literal notranslate"><span class="pre">rf_limited_by</span></code> name
+the setpoint that bounded it. A strength, <code class="docutils literal notranslate"><span class="pre">max_step</span></code> or write that is not a
+finite number, or a <code class="docutils literal notranslate"><span class="pre">max_step</span></code> not above zero, refuses the measurement before
+any setpoint moves. A group step is first sized from the view’s
+<code class="docutils literal notranslate"><span class="pre">trm.json</span></code> or <code class="docutils literal notranslate"><span class="pre">crm.json</span></code> so the tune or chromaticity moves no more than
+under the strongest single-magnet step, and no magnet moves by more than one
+magnet’s step; <code class="docutils literal notranslate"><span class="pre">delta_basis</span></code> is <code class="docutils literal notranslate"><span class="pre">tune</span> <span class="pre">excursion</span></code>, <code class="docutils literal notranslate"><span class="pre">chromaticity</span>
+<span class="pre">excursion</span></code>, <code class="docutils literal notranslate"><span class="pre">magnet</span> <span class="pre">step</span></code> or <code class="docutils literal notranslate"><span class="pre">max_step</span></code>. A group column is per unit
+integrated strength: the sum of its members’ magnet-by-magnet columns. The
+build writes <code class="docutils literal notranslate"><span class="pre">trm.json</span></code> or <code class="docutils literal notranslate"><span class="pre">crm.json</span></code> whenever every member of the group has
+a modelled column; a group with an unmodelled member has none, and its group
+step is refused.</p>
+<p>The run starts only on the view the build recorded and the approval record
+names (<code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code>), and every write runs under the target’s run
+lock; nothing is written back. The result
+names every row, column and step by address and device id and carries the
+view’s <code class="docutils literal notranslate"><span class="pre">sha256</span></code>, the <code class="docutils literal notranslate"><span class="pre">shape</span></code>, <code class="docutils literal notranslate"><span class="pre">data_file</span></code> and <code class="docutils literal notranslate"><span class="pre">artifact_id</span></code>. The file
+saved is the one the run left in its own execution folder under the script’s
+fixed name; a run that names any other file saves nothing, answers
+<code class="docutils literal notranslate"><span class="pre">data_file</span></code> as <code class="docutils literal notranslate"><span class="pre">null</span></code> and says why in <code class="docutils literal notranslate"><span class="pre">data_file_refused</span></code>. Every result
+carries <code class="docutils literal notranslate"><span class="pre">moved</span></code>, each setpoint the call moved as <code class="docutils literal notranslate"><span class="pre">{address,</span> <span class="pre">device,</span> <span class="pre">before}</span></code>
+with its value before the call, and <code class="docutils literal notranslate"><span class="pre">missing</span></code>: <code class="docutils literal notranslate"><span class="pre">{}</span></code> for a completed run;
+for a stopped run each setpoint address not measured, or the kind when none is
+left, mapped to the first line of what stopped the run, or <code class="docutils literal notranslate"><span class="pre">null</span></code> when
+nothing raised (see
+<a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>); a killed run’s failure names <code class="docutils literal notranslate"><span class="pre">written_channels</span></code>. A
+refusal means no setpoint moved; a completed run whose result cannot be read
+answers <code class="docutils literal notranslate"><span class="pre">execution_error</span></code> with the saved measurement named in
+<code class="docutils literal notranslate"><span class="pre">details.data_file</span></code>, never a refusal.</p>
+</section>
+<section id="model-response-matrix">
+<h3><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code><a class="headerlink" href="#model-response-matrix" title="Link to this heading">#</a></h3>
+<p>Solves a served model’s response on the model’s own deck, in a sandbox
+child stopped at the executor’s timeout. It writes nothing and asks for no
+approval.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id3">
+<caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> parameters</span><a class="headerlink" href="#id3" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 15.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<td><p>the one model</p></td>
+<td><p>A served deck model; may be omitted only when the render serves one.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">correctors</span></code></p></td>
+<td><p>every corrector</p></td>
+<td><p>Corrector setpoint addresses the model wires; omitted, every one,
+horizontal then vertical.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code>, the orbit readbacks’ response, or <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code>, the
+first-turn response of the monitors’ turn-buffer records. Any other
+value is refused, naming the two; an engine that answers only the
+orbit response refuses <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> with its text.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Each corrector steps by the measurement file’s <code class="docutils literal notranslate"><span class="pre">corrector_delta</span></code> (radians),
+converted to the corrector’s hardware unit through its wiring calibration; a
+model whose measurement file states none is refused. Each entry is a readback
+change in its hardware unit per setpoint change in its own. The result carries
+<code class="docutils literal notranslate"><span class="pre">rows</span></code> and <code class="docutils literal notranslate"><span class="pre">columns</span></code>, each named by address and device id and placed by
+<code class="docutils literal notranslate"><span class="pre">position</span></code>, each column’s <code class="docutils literal notranslate"><span class="pre">step</span></code>, the <code class="docutils literal notranslate"><span class="pre">matrix</span></code> and <code class="docutils literal notranslate"><span class="pre">missing</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">position</span></code> is the lattice element index, a whole number. For <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code> it
+counts from the deck’s first element. For <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> it counts from the
+injection element, in the order the bunch meets the elements on its first
+turn, so of two positions the lower is upstream. It is <code class="docutils literal notranslate"><span class="pre">null</span></code> when the
+model’s engine states no positions. Rows are ordered by position, <code class="docutils literal notranslate"><span class="pre">x</span></code> before
+<code class="docutils literal notranslate"><span class="pre">y</span></code>; columns are in the order asked.</p>
+<p>For <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code> the rows are the monitor readbacks. For <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> they
+are the monitors’ <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> and <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> records, the arrays a shot is read
+from, in metres; a monitor wiring neither has no row, and a ring wiring none
+is refused.</p>
+<p>A corrector whose step has no solve
+has no column; <code class="docutils literal notranslate"><span class="pre">missing</span></code> maps it to the engine’s text. When no corrector
+solves, the call is refused as <code class="docutils literal notranslate"><span class="pre">nothing_answered</span></code> with <code class="docutils literal notranslate"><span class="pre">details.missing</span></code>
+holding the same map (see <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>). When the engine refuses the
+request itself, the call is refused as a <code class="docutils literal notranslate"><span class="pre">validation_error</span></code> with the engine’s
+text; a defective facility file is refused the same way with the remedy to
+rebuild. When the whole request has no solve, the call fails as an
+<code class="docutils literal notranslate"><span class="pre">execution_error</span></code> with the engine’s text. Any other engine error is an
+<code class="docutils literal notranslate"><span class="pre">execution_error</span></code> carrying the solve’s stderr.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="partial-answers.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Partial Answers</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="ariel.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">ARIEL Contracts</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-tool-interface">MCP Tool Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measurement-tools">Measurement Tools</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pyaml-measure"><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-response-matrix"><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/python-executor.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

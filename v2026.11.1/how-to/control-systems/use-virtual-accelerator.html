@@ -1,0 +1,2028 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Use the Virtual Accelerator &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/control-systems/use-virtual-accelerator';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/control-systems/use-virtual-accelerator.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Serve the Virtual Accelerator from a Machine Repository" href="machine-repository.html" />
+    <link rel="prev" title="Use the Connectors Without the Framework" href="use-connectors-standalone.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../register-a-measurement-kind.html">Register a measurement kind</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/slack.html">Slack</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
+<li class="toctree-l2 current active has-children"><a class="current reference internal" href="#">Use the Virtual Accelerator</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Control Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Use the Virtual Accelerator</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="use-the-virtual-accelerator">
+<span id="how-to-use-virtual-accelerator"></span><h1>Use the Virtual Accelerator<a class="headerlink" href="#use-the-virtual-accelerator" title="Link to this heading">#</a></h1>
+<p>How to run the demo tutorial against a <strong>Virtual Accelerator</strong>.
+The Virtual Accelerator is a containerized simulator that serves real EPICS
+Channel Access. PyAT physics runs behind the channels your facility wires to a
+lattice, so correctors move and BPMs respond.
+How it is put together is <a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">What the Virtual Accelerator is (and is not)</p></li>
+<li><p class="sd-card-text">What <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> selects, and which machine each value names</p></li>
+<li><p class="sd-card-text">Which channels the simulator serves, and what the build will not invent</p></li>
+<li><p class="sd-card-text">Pointing a project at the Virtual Accelerator the stack already deploys</p></li>
+<li><p class="sd-card-text">Moving a running deployment between the machines it describes</p></li>
+<li><p class="sd-card-text">The simulator’s two venues, and why plans go browse-only in process</p></li>
+<li><p class="sd-card-text">Applying, stilling and writing simulator scenarios</p></li>
+<li><p class="sd-card-text">Write limits</p></li>
+<li><p class="sd-card-text">The stored archive the stack deploys, and the one pairing it refuses</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Docker (or Podman) installed; the demo
+tutorial project (see <a class="reference internal" href="../../getting-started/demo.html"><span class="doc">The Demo Deployment</span></a>).</p>
+</div>
+</details><section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>The demo tutorial ships interchangeable control-system backends,
+selected by a single <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> value. The value picks the machine
+the deployment <strong>starts</strong> on:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></th>
+<th class="head"><p>Backend</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> <em>(default)</em></p></td>
+<td><p>The simulator. Served from its container, it speaks real EPICS Channel
+Access: the magnet setpoints your facility wires to a deck drive a live
+pyAT lattice and BPM readbacks respond, and every other channel is
+composed by the same simulation engine. The tutorial’s default, and
+deployed as part of its stack. The same simulator can also run in
+process, with no container; see <a class="reference internal" href="#two-venues">Two venues</a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">epics</span></code></p></td>
+<td><p>Production EPICS, pointed at the facility gateway. Untouched by this
+guide.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">live_standin</span></code></p></td>
+<td><p>The <strong>live stand-in</strong> — a second soft IOC the deployment runs for
+itself, served by the EPICS connector from its own connector block.
+Available only where the build profile stood one up; see <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing
+against a live target</a>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The Virtual Accelerator is a <strong>local physics simulator</strong>, not a digital twin —
+it is not synced to any real machine. The OSPREY agent reads and writes it
+exactly as it does a real machine; only the backend changes.</p>
+<p>The physics behind the channels comes from the profile’s <code class="docutils literal notranslate"><span class="pre">simulation.models</span></code>.
+The container builds each served physics model through the engine its record
+names. It serves those models together with the texture model as one composite.
+The shipped lattice engine is pyAT, built on the facility-agnostic <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code>
+package, over the deck your facility tree stages. A render that serves
+<code class="docutils literal notranslate"><span class="pre">texture</span></code> alone serves the same channels with no physics behind them: a
+setpoint holds the value written to it and a readback follows its seed. The
+second shipped engine models an injection chain, and any other engine is a
+plug-in; both are covered in <a class="reference internal" href="#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
+</section>
+<section id="what-channels-it-serves">
+<h2>What channels it serves<a class="headerlink" href="#what-channels-it-serves" title="Link to this heading">#</a></h2>
+<p>Your project’s own. Every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the facility definition
+under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> into the simulator view, <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>,
+which the compose file mounts at <code class="docutils literal notranslate"><span class="pre">/data/simulator/</span></code>.</p>
+<p>The container serves the <code class="docutils literal notranslate"><span class="pre">channels</span></code> of the view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>, which
+holds every channel address the facility declares. It also serves one
+<code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel for each served physics model, and the
+read-only <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>, <code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> and <code class="docutils literal notranslate"><span class="pre">ENGINEER</span></code> IOC
+health channels for every served model. Its ready line in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code>
+prints the count.</p>
+<p>Nothing is invented, and no other channel list feeds the set:</p>
+<ul class="simple">
+<li><p>A data mount without the view refuses the boot and names the missing file.</p></li>
+<li><p>A facility tree the build cannot render stops in
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>’s own stops before the view is written.</p></li>
+</ul>
+<p>A channel’s role, not its address, says what it is. A channel record with
+<code class="docutils literal notranslate"><span class="pre">role:</span> <span class="pre">setpoint</span></code> is written, and its readback is the record’s <code class="docutils literal notranslate"><span class="pre">pair</span></code>. A
+setpoint that names none is paired by the build with the one readback on the
+same device whose signal names the same quantity, else it is its own readback. A
+setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, next to its <code class="docutils literal notranslate"><span class="pre">pair</span></code>, says how close that readback
+must come before a move counts as done. The build stops when the readback’s
+seeded motion is wider than the tolerance. A channel with no role is a readback.
+The address text is the facility’s own and is served as it is written: no token
+inside it means anything to OSPREY.</p>
+<p>A facility whose models wire no channel is served by the texture alone. A
+setpoint holds the value written to it, a readback follows its seed, and no
+physics runs behind either.</p>
+</section>
+<section id="quickstart">
+<h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
+<p>The demo stack ships pointed at the Virtual Accelerator and
+<strong>already deploys</strong> it. The preset’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block renders a
+compose service, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings the Virtual Accelerator up alongside
+the rest of the stack. The connector is already talking to it. There is
+nothing to enable.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">   </span><span class="c1"># brings up the Virtual Accelerator with the rest of the stack</span>
+osprey<span class="w"> </span>web<span class="w">         </span><span class="c1"># the agent talks to real Channel Access</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up more than the Virtual Accelerator. The preset also
+declares a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block, so the deploy stands up the machine’s
+<strong>archive</strong> next to it: a MongoDB store and a recorder service. The deploy
+seeds the archive before the rest of the stack starts. See <a class="reference internal" href="#the-archive">The archive</a> below.</p>
+<p>The very first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> that includes the Virtual Accelerator builds its
+container image, installing the physics and EPICS serving stack. Expect it to
+take several minutes: it is building, not hanging. Later deploys reuse the
+image.</p>
+<p>If your deployment came from a preset or profile that selects a different
+connector, point it at the Virtual Accelerator explicitly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>virtual_accelerator
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>All three steps matter:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> writes the setting into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> carries it into <code class="docutils literal notranslate"><span class="pre">build/</span></code>, where each service gets its
+own copy of the rendered config.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts what was just rendered.</p></li>
+</ul>
+<p>Anything already running in a container keeps the old setting until you
+restart it. No image rebuild is involved.</p>
+</div>
+<p><strong>The archive has to come first.</strong> On a deployment created from the
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset the switch just works. The preset declares where
+the archive lives, so the deployment already reads a real store.</p>
+<p>A deployment with no archive of its own still reads the mock archiver, which
+makes its history up as it is asked for it. On such a deployment the build
+<strong>refuses</strong> the profile, and says what to do instead, one of:</p>
+<ul class="simple">
+<li><p>Point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store this deployment writes
+(<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> for the store the preset deploys).</p></li>
+<li><p>Keep the simulator in process for an honestly storeless deployment.</p></li>
+</ul>
+<p><a class="reference internal" href="#the-honesty-rule">The honesty rule</a> below explains why.</p>
+</section>
+<section id="switching-a-running-deployment">
+<h2>Switching a running deployment<a class="headerlink" href="#switching-a-running-deployment" title="Link to this heading">#</a></h2>
+<p>Those three commands set which control system the deployment <strong>starts</strong> on. A
+deployment that describes more than one machine can also be moved between them
+while it runs. You can rehearse a script against the simulator, then run it on
+the machine. The move takes one approval-gated tool call, with no rebuild, no
+redeploy and no restart.</p>
+<p>There is one control target per deployment, so a switch applies everywhere at
+once. The switch is recorded: it outlives the conversation that made it, and a
+restart adopts it rather than resetting it. See <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>
+for the whole workflow:</p>
+<ul class="simple">
+<li><p>the two tools;</p></li>
+<li><p>the reachability proof that keeps a failed switch from stranding the
+deployment;</p></li>
+<li><p>the posture a move toward the live machine requires;</p></li>
+<li><p>what the switch refuses;</p></li>
+<li><p>how Bluesky plans behave while the deployment is switched.</p></li>
+</ul>
+</section>
+<section id="rehearsing-against-a-live-target">
+<h2>Rehearsing against a live target<a class="headerlink" href="#rehearsing-against-a-live-target" title="Link to this heading">#</a></h2>
+<p>A deployment usually has nothing to rehearse the real-machine procedure on: the
+<code class="docutils literal notranslate"><span class="pre">epics</span></code> connector points at a facility gateway that may not exist yet, or not
+from this laptop. Setting <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">true</span></code> in the build
+profile gives it a machine to rehearse on — a <strong>second</strong> simulator container,
+deployed as a control target of its own, <code class="docutils literal notranslate"><span class="pre">standin</span></code>. The <code class="docutils literal notranslate"><span class="pre">demo</span></code>
+preset ships it on; delete the line to run one machine again.</p>
+<p>The stand-in is a third machine, not a rewrite of <code class="docutils literal notranslate"><span class="pre">live</span></code>. It has its own
+connector block, and <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics</span></code> stays whatever your
+facility wrote there — so <code class="docutils literal notranslate"><span class="pre">live</span></code> still names your machine while the rehearsal
+runs beside it. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves the deployment onto the stand-in;
+<code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> from there walks the real go-live path, gates and
+all.</p>
+<p>The two simulated machines run one image over one simulator view. The
+stand-in carries no errors of its own: it exists to rehearse the live safety
+posture, not different physics. The two machines are told apart by a write to
+the sandbox not showing on the stand-in and by the model RPC status naming its
+instance (<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> or <code class="docutils literal notranslate"><span class="pre">live_standin</span></code>). The label stays honest:
+the banner reads <code class="docutils literal notranslate"><span class="pre">Rehearsal</span> <span class="pre">—</span> <span class="pre">nothing</span> <span class="pre">moves</span></code> and the Web Terminal’s header
+chip reads <em>Rehearsal</em>.
+<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the ritual itself.</p>
+<p><strong>Scenarios reach both machines.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> writes one scenario file
+and both containers poll it, so a scenario changes the world rather than one
+lane. There is no scenario that applies to the simulator but not to the stand-in,
+and switching targets does not undo one.</p>
+<p><strong>The archive belongs to the machine.</strong> The store this deployment seeds and
+records is the simulator’s, with or without a stand-in. The recorder samples
+the virtual accelerator, and the seeded past is the simulator’s own history.
+The stand-in rehearses the facility’s real machine and is shown that machine’s
+past instead — the <code class="docutils literal notranslate"><span class="pre">epics_archiver</span></code> appliance when the deployment names one,
+and no archive otherwise. Nothing the stand-in reads is ever written into the
+simulator’s store, so no target is gated on the archive.
+<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the whole picture.</p>
+</section>
+<section id="two-venues">
+<span id="va-two-venues"></span><h2>Two venues<a class="headerlink" href="#two-venues" title="Link to this heading">#</a></h2>
+<p>The simulator is one connector type, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>, reached in one of
+two venues. Where it runs is a setting under its connector block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span><span class="w">   </span><span class="c1"># or: served (the default)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">served</span></code> — the simulator’s container, serving the facility’s channels over
+Channel Access and PVAccess and answering the model RPC. This is the default
+whenever the type is stated, and what the rest of this page describes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">in_process</span></code> — the same simulator view and composite, run inside the
+process that asks. It needs no Docker, opens no port and serves no Channel
+Access, and it answers no model RPC. The <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset runs this way.</p></li>
+</ul>
+<p>A config whose <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> section states no <code class="docutils literal notranslate"><span class="pre">type</span></code> gets the simulator
+in process, and its <code class="docutils literal notranslate"><span class="pre">serving</span></code> leaf is not read: a section that names nothing
+dials nothing. <code class="docutils literal notranslate"><span class="pre">serving:</span> <span class="pre">in_process</span></code> is refused on a deployment whose own type
+is not <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>; on such a deployment the <code class="docutils literal notranslate"><span class="pre">va</span></code> target is the
+served container.</p>
+<p>An environment with no containers to depend on can run the tutorial on the
+simulator in process:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.virtual_accelerator.serving<span class="o">=</span>in_process
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up
+</pre></div>
+</div>
+<p>Read one consequence before you do: <strong>plans become browse-only.</strong> The simulator
+in process speaks no Channel Access. The queue worker builds its devices over
+Channel Access, so a plan started there could not drive a channel. Rather than
+let one start and fail, the stack refuses earlier:</p>
+<ul class="simple">
+<li><p>Plans can still be listed, authored, validated and staged into the shared
+draft, but the queue will not hold them.</p></li>
+<li><p>Both the panels and the agent report a browse-only deployment, with the
+exact command that flips it back
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.control_system.connector.virtual_accelerator.serving=served</span></code>).</p></li>
+</ul>
+<p>Everything that is not a plan — channel reads and writes, the archiver, the
+Channel Finder — works as before. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its production
+values throughout.</p>
+<p>The archive follows the flip on its own. The store is the simulator’s, and the
+recorder samples it only while the <code class="docutils literal notranslate"><span class="pre">va</span></code> target lands on this deployment’s own
+served simulator: loopback, on the port <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code>
+publishes. The simulator in process serves nothing on the network to sample, so
+the recorder stops writing and idles. Pointing the <code class="docutils literal notranslate"><span class="pre">va</span></code> block’s gateways at
+another host idles it the same way, and so does taking the simulator out of the
+deployment. It re-reads the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every 30 seconds, so a
+change takes effect within one poll and no restart or rebuild is involved.
+Nothing is deleted — the history already in the store stays readable, it
+simply stops growing, and it ages out under the retention window as usual.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> will report the archive as <strong>stale</strong> once the newest sample is
+older than the freshness threshold. Stale is a warning, not an error: it is the
+honest answer to “is this archive still being written”. Flipping back to
+<code class="docutils literal notranslate"><span class="pre">served</span></code> restarts recording within a poll too.</p>
+<p>A stand-in beside the simulator changes none of this: it is never what the
+recorder samples.</p>
+<p><code class="docutils literal notranslate"><span class="pre">mock</span></code> is no longer a control-system type. A config or profile that states it
+is refused, and the refusal names the new spelling:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>`mock` is retired: the simulator in process is `control_system.type: virtual_accelerator` with `control_system.connector.virtual_accelerator.serving: in_process` (`osprey set connector=virtual_accelerator config.control_system.connector.virtual_accelerator.serving=in_process`), then rebuild with `osprey build`.
+</pre></div>
+</div>
+</section>
+<section id="connecting-to-the-ioc">
+<h2>Connecting to the IOC<a class="headerlink" href="#connecting-to-the-ioc" title="Link to this heading">#</a></h2>
+<p>The container serves Channel Access on <code class="docutils literal notranslate"><span class="pre">127.0.0.1:5064</span></code> in EPICS name-server
+mode. That is the one host-to-container configuration that works reliably across
+container runtimes, since broadcast discovery does not cross the container VM
+boundary. The project’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> connector block is configured to
+match and sets <code class="docutils literal notranslate"><span class="pre">EPICS_CA_NAME_SERVERS</span></code> itself, so no client-side EPICS
+environment setup is needed.</p>
+</section>
+<section id="what-the-ioc-serves-and-how-often">
+<h2>What the IOC serves, and how often<a class="headerlink" href="#what-the-ioc-serves-and-how-often" title="Link to this heading">#</a></h2>
+<p>Three settings reach the container through its compose environment rather
+than being fixed in the image. Each is a property of the machine you are
+standing in for, or of who may alter it, rather than of OSPREY:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_POLL_INTERVAL_S</span></code></p></td>
+<td><p>Seconds between the served model’s passes — how often the IOC
+republishes the values it reads out of the composite. Set by
+<code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code> (default <code class="docutils literal notranslate"><span class="pre">1.0</span></code>), which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders
+into the compose file; a project <code class="docutils literal notranslate"><span class="pre">.env</span></code> value is not read. Lower it
+for a demo that should look live; raise it on a very large namespace.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_FAST_INTERVAL_S</span></code></p></td>
+<td><p>The fast period: seconds between publications of the readings a model
+serves faster than its passes, such as an injection chain’s
+fast current (<a class="reference internal" href="#va-injection-chain"><span class="std std-ref">An injection chain</span></a>). Set by
+<code class="docutils literal notranslate"><span class="pre">simulation.fast_tick_s</span></code> (default <code class="docutils literal notranslate"><span class="pre">0.1</span></code>) in the same way. A
+facility with no such reading publishes nothing at this period.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
+<td><p>The credential a write to the model’s own variables must present over
+the model RPC (see <a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). Unset, the
+container refuses every such write; reads need no token. There is no
+default to fall back on — set it in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Either interval is refused at boot if it is not a number, or not greater
+than zero, rather than being clamped. A typo therefore shows up in
+<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> instead of quietly changing what the machine looks like.</p>
+</section>
+<section id="scenarios">
+<span id="how-to-run-scenarios"></span><h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
+<p>A scenario is one way the simulated machine departs from its baseline. It can
+set values in the machine’s models, write faults into a physics model, shape
+the history the archive shows, and add logbook entries that narrate it.</p>
+<p>Scenarios give tests, demos and rehearsals a known machine state: a fault for
+the agent to find, with the archive history and logbook entries that go with
+it.</p>
+<p>You write each scenario as one YAML file under <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> serves the scenarios from the simulator view under
+<code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>. The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> commands list, apply and report
+on them; <a class="reference internal" href="../../reference/cli.html#cli-osprey-sim"><span class="std std-ref">osprey sim</span></a> has their options.</p>
+<section id="the-scenarios-the-demo-ships">
+<h3>The scenarios the demo ships<a class="headerlink" href="#the-scenarios-the-demo-ships" title="Link to this heading">#</a></h3>
+<p>The demo preset ships seven scenarios in
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Scenario</p></th>
+<th class="head"><p>What it shows</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nominal</span></code></p></td>
+<td><p>All systems nominal. It carries the background logbook narrative of
+the weeks before the demo.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code></p></td>
+<td><p>Three thermal excursions on cavity 1 in the week before an
+investigation. Each is a temperature rise, a reflected-power spike and
+a forward-power trip; the last one is a beam dump. The archive shows
+the excursions. The logbook narrates the dump, the investigation and
+the cooling repair. Cavity 1 reads 26.5 degC live, and cavity 2 shows
+one minor excursion for contrast.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal-live</span></code></p></td>
+<td><p>Live thermal wander on cavity 1, for correlation plots. One slow
+shared driver moves its temperature, tuner, reflected and forward
+power together, each with its own noise. It adds no archived history.
+It does not compose with <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code>, which writes the same
+channels.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code></p></td>
+<td><p>A vacuum burst in one sector with a correlated beam-current drop at
+14:32:08 local time, recurring daily in the archive.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bpm-polarity</span></code></p></td>
+<td><p>BPM 17 reports an inverted reading in both planes. No single channel
+is out of range; the fault shows only as an orbit correction that does
+not converge.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">orm-dual-fault</span></code></p></td>
+<td><p>The BPM 17 inversion and corrector HCM01 at half its nominal gain at
+once, both visible only through an orbit-response measurement.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">demo-history</span></code></p></td>
+<td><p>Three past agent sessions (a sector-7 beam loss, an approved corrector
+nudge, an orbit review), with the archive events and logbook entries
+behind them.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The preset starts a fresh deployment in <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code> and <code class="docutils literal notranslate"><span class="pre">demo-history</span></code>,
+as the profile key <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> names (see
+<a class="reference internal" href="../../reference/configuration/config.html"><span class="doc">Runtime Configuration — config.yml</span></a>).</p>
+<p>A scenario’s sessions are laid down only by a deployment’s first deploy, from
+its default set. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> never adds or removes sessions: a set
+without <code class="docutils literal notranslate"><span class="pre">demo-history</span></code> drops its archive events and logbook entries only.</p>
+</section>
+<section id="apply-a-scenario">
+<h3>Apply a scenario<a class="headerlink" href="#apply-a-scenario" title="Link to this heading">#</a></h3>
+<p>Applying a scenario makes it part of the <em>active set</em>: the scenarios the
+simulated machine shows now. <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always in the active set.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> deletes every entry in the ARIEL logbook and reseeds
+the logbook from the active scenarios. It also rewrites windows of the
+stored archive. On a virtual-accelerator deployment, those windows can
+hold samples recorded from the running machine. The command asks before
+each of these, unless you pass <code class="docutils literal notranslate"><span class="pre">--yes</span></code>. To leave both stores untouched,
+pass <code class="docutils literal notranslate"><span class="pre">--no-seed</span></code>.</p>
+</div>
+<p>To switch the simulated machine to the <code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code> scenario, run these
+commands in order:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>list
+osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>vacuum-burst
+osprey<span class="w"> </span>sim<span class="w"> </span>status
+</pre></div>
+</div>
+<ol class="arabic simple">
+<li><p>List the scenarios with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>. The list marks the active set
+with <code class="docutils literal notranslate"><span class="pre">*</span></code> and says which scenarios carry a logbook narrative.</p></li>
+<li><p>Apply the scenario with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">vacuum-burst</span></code>. The command
+replaces the active set with the names you give it, plus <code class="docutils literal notranslate"><span class="pre">nominal</span></code>. It
+then purges and reseeds the logbook and rewrites the affected windows of
+the archive. Live values, history and narrative now tell one story.</p></li>
+<li><p>Check the simulator with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span></code>. It shows each served
+physics model’s status and the log it writes.</p></li>
+</ol>
+<p>Several scenarios apply together only when no two of them write the same
+target, a channel or a model’s fault. A set that breaks this rule is refused
+before anything is written, and the refusal names the target. Archive events
+are not a target: events of several scenarios on one channel combine, so
+<code class="docutils literal notranslate"><span class="pre">[vacuum-burst,</span> <span class="pre">rf-thermal]</span></code> composes.</p>
+</section>
+<section id="what-a-switch-does-to-the-running-simulator">
+<h3>What a switch does to the running simulator<a class="headerlink" href="#what-a-switch-does-to-the-running-simulator" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works the same in both venues (<a class="reference internal" href="#two-venues">Two venues</a>).
+It writes the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code> file,
+and the simulator re-reads the file on its next pass (<code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code>,
+1 s by default). The machine then starts again at the new set’s start state:
+setpoints written during the session are dropped, served and in process alike.</p>
+<p>The served simulator’s container mounts two directories:</p>
+<ul class="simple">
+<li><p>the render’s data root, <code class="docutils literal notranslate"><span class="pre">build/data</span></code>: read-only, holding the simulator view
+the build writes, rebuilt on every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>;</p></li>
+<li><p>the scenario state directory, <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code>: written by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> while the system runs.</p></li>
+</ul>
+<p>Both mounts are automatic for the deployed service.</p>
+</section>
+<section id="hold-readings-still">
+<h3>Hold readings still<a class="headerlink" href="#hold-readings-still" title="Link to this heading">#</a></h3>
+<p>Every facility has a scenario named <code class="docutils literal notranslate"><span class="pre">still</span></code> that stills every float
+reading: the reading serves without drift, couplings or noise. Run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">still</span></code>. For a deployment that should start still, set
+<code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">[still]</span></code>.</p>
+<p>A scenario file may define its own <code class="docutils literal notranslate"><span class="pre">still</span></code>, which replaces the built-in one.
+<code class="docutils literal notranslate"><span class="pre">still</span></code> composes with overrides and faults. It is refused beside a scenario
+that sets the same reading’s <code class="docutils literal notranslate"><span class="pre">noise</span></code> or <code class="docutils literal notranslate"><span class="pre">couple</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">still</span></code> holds in both venues.</p>
+</section>
+<section id="write-a-scenario">
+<h3>Write a scenario<a class="headerlink" href="#write-a-scenario" title="Link to this heading">#</a></h3>
+<p>To add a scenario to your facility:</p>
+<ol class="arabic simple">
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;.yaml</span></code>. The file name is the
+scenario name.</p></li>
+<li><p>Add the keys the scenario needs, from <a class="reference internal" href="../../reference/configuration/scenario-files.html#reference-scenario-files"><span class="std std-ref">Scenario files</span></a>.
+Every key is optional.</p></li>
+<li><p>If a logbook entry has attachments, put the files in the folder
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;/</span></code> beside the scenario file.</p></li>
+<li><p>Check the sources with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, which writes nothing.
+An address, model or key the facility does not have stops the check, and
+the error names the file.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. The new scenario appears in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>.</p></li>
+</ol>
+</section>
+</section>
+<section id="serving-your-facility-s-own-model">
+<span id="va-serving-your-own-model"></span><h2>Serving your facility’s own model<a class="headerlink" href="#serving-your-facility-s-own-model" title="Link to this heading">#</a></h2>
+<p>To version the model with the other machine facts apart from any one
+deployment, keep them in a <a class="reference internal" href="machine-repository.html"><span class="doc">machine repository</span></a>;
+<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> in this section is then its machine root.</p>
+<div class="toctree-wrapper compound">
+</div>
+<section id="a-pyat-lattice">
+<h3>A pyAT lattice<a class="headerlink" href="#a-pyat-lattice" title="Link to this heading">#</a></h3>
+<ol class="arabic">
+<li><p>Stage the deck in the facility tree as <code class="docutils literal notranslate"><span class="pre">data/facility/decks/&lt;model&gt;.json</span></code>.</p></li>
+<li><p>Name it in the model’s record in <code class="docutils literal notranslate"><span class="pre">data/facility/models.yaml</span></code>, with the
+<code class="docutils literal notranslate"><span class="pre">wiring</span></code> that ties each channel to an element of the deck:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;model&gt;</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/&lt;model&gt;.json</span>
+</pre></div>
+</div>
+</li>
+</ol>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> copies the deck into the simulator view as
+<code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.json</span></code>, and the container builds the model from that copy when
+<code class="docutils literal notranslate"><span class="pre">simulation.models</span></code> serves it. No code and no image are involved.</p>
+</section>
+<section id="rf-setpoints">
+<span id="va-rf-setpoints"></span><h3>RF setpoints<a class="headerlink" href="#rf-setpoints" title="Link to this heading">#</a></h3>
+<p>A wiring record on a cavity element sets one of three cavity attributes, in
+pyAT’s words: <code class="docutils literal notranslate"><span class="pre">Frequency</span></code> (Hz), <code class="docutils literal notranslate"><span class="pre">Voltage</span></code> (V) and <code class="docutils literal notranslate"><span class="pre">TimeLag</span></code> (m). Each is
+a setpoint written through the record’s calibration, and a record of
+direction <code class="docutils literal notranslate"><span class="pre">read</span></code> on the same element and attribute reads it back. With
+invented addresses, for a ring whose RF wavelength is 0.6 m:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:FREQ:SP</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">Frequency</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span><span class="w">  </span><span class="c1"># MHz</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:VOLT:SP</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">Voltage</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span><span class="w">  </span><span class="c1"># MV</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:VOLT:RB</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">Voltage</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:PHASE:SP</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="nv">TimeLag</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">curve</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.6667e-3</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}}}</span><span class="w">  </span><span class="c1"># deg</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>Phase is a calibration.</strong> pyAT states a cavity’s phase as a time lag, the
+length by which the cavity’s wave lags the reference particle. One RF
+wavelength is 360 degrees, so a phase setpoint in degrees is a linear curve
+of gain <code class="docutils literal notranslate"><span class="pre">wavelength</span> <span class="pre">/</span> <span class="pre">360</span></code>.</p></li>
+<li><p><strong>Several cavities.</strong> A record naming <code class="docutils literal notranslate"><span class="pre">slices</span></code> writes every cavity it
+lists. A frequency or a time lag lands in full on each. A voltage lands
+times the slice’s <code class="docutils literal notranslate"><span class="pre">weight</span></code>, so a setpoint that is the total over two
+cavities states <code class="docutils literal notranslate"><span class="pre">weight:</span> <span class="pre">0.5</span></code> on each.</p></li>
+<li><p><strong>The RF switch.</strong> On a turn-by-turn ring (<a class="reference internal" href="#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>) the
+<code class="docutils literal notranslate"><span class="pre">rf_switch</span></code> and a voltage setpoint work together: the setpoint reads what
+was commanded whether the RF is on or off, a voltage written while the RF
+is off is delivered when it is switched on, and a voltage of <code class="docutils literal notranslate"><span class="pre">0</span></code> is not
+a switched-off RF.</p></li>
+</ul>
+<p>Each RF setpoint carries one fault (<a class="reference internal" href="#how-to-run-scenarios"><span class="std std-ref">Scenarios</span></a>), in the
+setpoint’s own unit: <code class="docutils literal notranslate"><span class="pre">cal_offset</span></code> on a frequency (a frequency offset) and on
+a time lag (a phase offset), <code class="docutils literal notranslate"><span class="pre">cal_factor</span></code> on a voltage (a scale error). The
+cavity gets the faulty value; the setpoint and its readback show what was
+commanded.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">faults</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">RING</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">RING:RF:PHASE:SP</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cal_offset</span><span class="p">:</span><span class="w"> </span><span class="nv">30.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">RING:RF:VOLT:SP</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cal_factor</span><span class="p">:</span><span class="w"> </span><span class="nv">1.02</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">RING:RF:FREQ:SP</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cal_offset</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e-4</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
+<section id="a-radiating-ring">
+<span id="va-radiation"></span><h3>A radiating ring<a class="headerlink" href="#a-radiating-ring" title="Link to this heading">#</a></h3>
+<p>A pyAT deck radiates through the pass methods of its elements. A deck that
+states radiating pass methods is tracked as written. For a deck that does
+not, the model’s <code class="docutils literal notranslate"><span class="pre">pyat</span></code> settings can switch radiation on:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">radiation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>With <code class="docutils literal notranslate"><span class="pre">radiation:</span> <span class="pre">true</span></code> every bend, quadrupole, sextupole, octupole,
+multipole and wiggler of the model’s copy of the deck gets its radiating
+pass method. The cavities and the deck file stay as they are. The key is a
+<code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">false</span></code>; absent or <code class="docutils literal notranslate"><span class="pre">false</span></code> leaves the deck’s own pass methods,
+so it does not strip a deck that already radiates. A <code class="docutils literal notranslate"><span class="pre">single_pass</span></code> model
+refuses <code class="docutils literal notranslate"><span class="pre">true</span></code>.</p>
+<p>What changes:</p>
+<ul class="simple">
+<li><p>The beam loses energy in every magnet and the cavity makes it up. The
+closed orbit is the six-dimensional one at the synchronous phase, where
+the cavity returns the energy lost per turn, and it carries the small
+horizontal sawtooth of an energy that falls between cavities.</p></li>
+<li><p>The orbit readings, the optics and the response matrix are those of the
+radiating ring. Tracked motion is damped. The radiation is the mean energy
+loss, without quantum excitation: a tracked bunch does not grow to an
+equilibrium size.</p></li>
+<li><p>A voltage below the energy loss per turn leaves no closed orbit. A ring
+refuses the write that takes it there and keeps its last value; a
+turn-by-turn ring (<a class="reference internal" href="#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>) accepts it and its orbit
+readings read NaN.</p></li>
+<li><p>With the RF off on a turn-by-turn ring, a tracked bunch loses the energy
+loss per turn every turn. It moves inwards by the dispersion times the
+relative energy lost, and it is lost where that reaches a declared
+aperture.</p></li>
+<li><p>A closed-orbit solve costs several times that of the same deck without
+radiation; tracking a shot costs about the same.</p></li>
+</ul>
+</section>
+<section id="an-injection-chain">
+<span id="va-injection-chain"></span><h3>An injection chain<a class="headerlink" href="#an-injection-chain" title="Link to this heading">#</a></h3>
+<p>A lattice answers a corrector write, but nothing in it injects. Software that
+fills the machine — a fill script, or a facility’s own bucket-loading IOC
+run unmodified beside the simulator — asks for a shot and then watches
+counters, charges and the stored current step. The shipped <code class="docutils literal notranslate"><span class="pre">injection</span></code>
+engine gives it an injector to ask. It models no beam dynamics and needs no
+deck: the model record’s <code class="docutils literal notranslate"><span class="pre">settings</span></code> and <code class="docutils literal notranslate"><span class="pre">wiring</span></code> are the whole chain, and
+each address is a channel the facility declares. With invented addresses:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJECTOR</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">injection</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">injection</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cycle</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">period_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">   </span><span class="c1"># one cycle every 2 s</span>
+<span class="w">        </span><span class="nt">width_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span><span class="w">    </span><span class="c1"># the cycle signal stays high for 0.4 s</span>
+<span class="w">      </span><span class="nt">stages</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">transport</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">storage</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">current_per_charge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.5</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:REQ</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">request</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SRC:Q:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:TL:EFF:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">efficiency</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">0.9</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:EFF:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">efficiency</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">0.7</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:I:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">current</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">10.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SHOTS</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">counter</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.02</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:TL:Q</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:EFF</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">efficiency</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.08</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:I</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">current</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.1</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:I:FAST</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">current_fast</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:CYCLE</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">busy</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>A client write of <code class="docutils literal notranslate"><span class="pre">INJ:REQ</span></code> starts one shot; a request while a shot is in
+flight is ignored. Each wiring record’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> says what the shot does to
+its channel:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">parameter</span></code>: a setpoint of the chain, starting at <code class="docutils literal notranslate"><span class="pre">start</span></code>. Its
+<code class="docutils literal notranslate"><span class="pre">quantity</span></code> is <code class="docutils literal notranslate"><span class="pre">charge</span></code>, the source charge per shot; <code class="docutils literal notranslate"><span class="pre">efficiency</span></code>, that
+of the stage at index <code class="docutils literal notranslate"><span class="pre">stage</span></code> of <code class="docutils literal notranslate"><span class="pre">stages</span></code>; or <code class="docutils literal notranslate"><span class="pre">current</span></code>, the stored
+current.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">counter</span></code>, <code class="docutils literal notranslate"><span class="pre">charge</span></code> and <code class="docutils literal notranslate"><span class="pre">efficiency</span></code>: readings the shot steps
+<code class="docutils literal notranslate"><span class="pre">offset_s</span></code> seconds after its request. A counter adds one. A charge shows
+the charge after the stage at index <code class="docutils literal notranslate"><span class="pre">stage</span></code>, the source charge times
+every efficiency up to that stage’s, and an efficiency shows that stage’s.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">current</span></code>: the stored current, which the shot raises at <code class="docutils literal notranslate"><span class="pre">offset_s</span></code> by
+the final charge times <code class="docutils literal notranslate"><span class="pre">current_per_charge</span></code>. Nothing saturates or decays
+it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">current_fast</span></code>: the stored current again, published at the fast period
+(<a class="reference internal" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a>). Either current reading may state a
+<code class="docutils literal notranslate"><span class="pre">scale</span></code>: <code class="docutils literal notranslate"><span class="pre">{signal:</span> <span class="pre">current_fast,</span> <span class="pre">scale:</span> <span class="pre">0.001}</span></code> reads a stored current
+in mA as A.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">busy</span></code>: the cycle signal, high for <code class="docutils literal notranslate"><span class="pre">width_s</span></code> every <code class="docutils literal notranslate"><span class="pre">period_s</span></code> whether
+or not a shot runs.</p></li>
+</ul>
+<p>Shots run only in the container: in process the chain serves its start
+values and a request starts nothing. What scenarios and channel faults do to
+a chain is in <a class="reference internal" href="../../reference/configuration/scenario-files.html#scenario-channel-faults"><span class="std std-ref">Channel faults</span></a>.</p>
+</section>
+<section id="turn-by-turn-data-from-an-injection-chain">
+<span id="va-turn-by-turn"></span><h3>Turn-by-turn data from an injection chain<a class="headerlink" href="#turn-by-turn-data-from-an-injection-chain" title="Link to this heading">#</a></h3>
+<p>A first-turn steering or injection-tuning tool arms a ring’s monitors, waits
+for a shot, and reads each monitor’s turn-by-turn arrays. A <code class="docutils literal notranslate"><span class="pre">pyat</span></code> ring
+serves those arrays when its settings state a <code class="docutils literal notranslate"><span class="pre">turn_by_turn</span></code> block and it
+reads the shot from an injection chain through model inputs. The chain stays
+the only source of shots: the ring tracks a bunch through its deck each time
+the chain’s shot counter rises.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 380" role="img" aria-labelledby="va-tbt-title va-tbt-desc">
+  <title id="va-tbt-title">Turn-by-turn data from an injection chain</title>
+  <desc id="va-tbt-desc">The injection chain is the only source of shots. The ring reads three of the chain's records as model inputs: the shot counter, the shot's charge and the stored current. When the counter rises, the ring tracks one bunch through its deck for the monitors a client armed. The client arms monitors, requests a shot from the chain, waits for armed to read zero and then reads each monitor's arrays, which are served before armed drops.</desc>
+  <defs>
+    <marker id="va-tbt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- the two models -->
+  <rect class="zone" x="20" y="24" width="330" height="186" rx="4"/>
+  <text class="te" x="36" y="44">INJECTION CHAIN · ENGINE: INJECTION</text>
+  <rect class="zone" x="610" y="24" width="330" height="186" rx="4"/>
+  <text class="te" x="626" y="44">RING · ENGINE: PYAT + TURN_BY_TURN</text>
+
+  <!-- model inputs -->
+  <line class="e" x1="330" y1="78" x2="630" y2="78" marker-end="url(#va-tbt-arr)"/>
+  <line class="e" x1="330" y1="126" x2="630" y2="126" marker-end="url(#va-tbt-arr)"/>
+  <line class="e" x1="330" y1="174" x2="630" y2="174" marker-end="url(#va-tbt-arr)"/>
+  <text class="te" x="480" y="44" text-anchor="middle">MODEL INPUTS</text>
+  <text class="ta" x="480" y="70" text-anchor="middle">signal: shot</text>
+  <text class="ta" x="480" y="118" text-anchor="middle">signal: charge</text>
+  <text class="ta" x="480" y="166" text-anchor="middle">signal: stored_current</text>
+
+  <!-- the chain's records -->
+  <rect class="nb" x="40" y="58" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="75" text-anchor="middle">shot counter</text>
+  <text class="ts" x="185" y="90" text-anchor="middle">steps after the charge, once per shot</text>
+
+  <rect class="nb" x="40" y="106" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="123" text-anchor="middle">charge</text>
+  <text class="ts" x="185" y="138" text-anchor="middle">what this shot delivers</text>
+
+  <rect class="nb" x="40" y="154" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="171" text-anchor="middle">stored current</text>
+  <text class="ts" x="185" y="186" text-anchor="middle">the beam already in the ring</text>
+
+  <!-- the ring -->
+  <rect class="nb-st" x="630" y="58" width="290" height="136" rx="6"/>
+  <text class="tn" x="775" y="100" text-anchor="middle">the counter rose: one shot</text>
+  <text class="ts" x="775" y="122" text-anchor="middle">tracks one bunch through the deck</text>
+  <text class="ts" x="775" y="138" text-anchor="middle">from the injection element,</text>
+  <text class="ts" x="775" y="154" text-anchor="middle">for the armed monitors only</text>
+
+  <!-- client edges -->
+  <line class="e" x1="185" y1="280" x2="185" y2="212" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="132" y="238" width="106" height="15"/>
+  <text class="ta" x="185" y="249" text-anchor="middle">requests a shot</text>
+
+  <line class="e" x1="700" y1="280" x2="700" y2="212" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="662" y="238" width="76" height="15"/>
+  <text class="ta" x="700" y="249" text-anchor="middle">writes arm</text>
+
+  <line class="e" x1="850" y1="210" x2="850" y2="278" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="788" y="238" width="124" height="15"/>
+  <text class="ta" x="850" y="249" text-anchor="middle">arrays, then armed 0</text>
+
+  <!-- the client -->
+  <rect class="nb-in" x="20" y="280" width="920" height="56" rx="6"/>
+  <text class="te" x="36" y="300">CLIENT</text>
+  <text class="tn" x="135" y="314" text-anchor="middle">1 · arm the monitors</text>
+  <text class="tn" x="365" y="314" text-anchor="middle">2 · request a shot</text>
+  <text class="tn" x="595" y="314" text-anchor="middle">3 · wait for armed 0</text>
+  <text class="tn" x="825" y="314" text-anchor="middle">4 · read x, y and sum</text>
+
+  <text class="ta" x="480" y="362" text-anchor="middle">the chain stays the only source of shots — armed reads 0 only after the shot's arrays are served</text>
+</svg>
+</div>
+<p><strong>The chain.</strong> Wire a charge after the last stage and a shot counter that
+steps after it, so each shot’s delivery carries that shot’s charge. To the
+chain of <a class="reference internal" href="#va-injection-chain"><span class="std std-ref">An injection chain</span></a>, add:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:Q</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">}</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:SHOTS</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">counter</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.06</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>A counter whose <code class="docutils literal notranslate"><span class="pre">offset_s</span></code> is not larger than the charge’s makes each shot
+carry the previous shot’s charge. To fill from an empty ring, start the
+chain’s <code class="docutils literal notranslate"><span class="pre">current</span></code> parameter at <code class="docutils literal notranslate"><span class="pre">0</span></code> and give its channel a limits band that
+holds <code class="docutils literal notranslate"><span class="pre">0</span></code>.</p>
+<p><strong>The ring.</strong> With invented addresses, and one monitor shown:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">solve</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">periodic</span>
+<span class="w">      </span><span class="nt">turn_by_turn</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">injection_element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ_POINT</span>
+<span class="w">        </span><span class="nt">turns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250</span>
+<span class="w">        </span><span class="nt">trigger_sample</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">        </span><span class="nt">particles</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
+<span class="w">        </span><span class="nt">launch</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="nv">0.001</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">-0.0005</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">aperture</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="nv">0.004</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">0.004</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="nv">INJ</span><span class="p p-Indicator">:</span><span class="nv">STORE</span><span class="p p-Indicator">:</span><span class="nv">SHOTS</span><span class="p p-Indicator">,</span><span class="nt"> engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">shot</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="nv">INJ</span><span class="p p-Indicator">:</span><span class="nv">STORE</span><span class="p p-Indicator">:</span><span class="nv">Q</span><span class="p p-Indicator">,</span><span class="nt"> engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="nv">INJ</span><span class="p p-Indicator">:</span><span class="nv">STORE</span><span class="p p-Indicator">:</span><span class="nv">I</span><span class="p p-Indicator">,</span><span class="nt"> engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">stored_current</span><span class="p p-Indicator">}}</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:ON</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">rf_switch</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:PILOT</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">pilot_tone</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:ATTEN</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">stored</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:TURNS</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turns_tracked</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:ARM</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">arm</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:ARMED</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">armed</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:TBT:X</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turn_x</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:TBT:Y</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turn_y</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:TBT:SUM</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turn_sum</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>Each input’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> says what the ring reads from the chain: <code class="docutils literal notranslate"><span class="pre">shot</span></code>,
+the counter whose rise is a shot; <code class="docutils literal notranslate"><span class="pre">charge</span></code>, the shot’s charge; and
+<code class="docutils literal notranslate"><span class="pre">stored_current</span></code>, the current already stored. Declare all three: without
+<code class="docutils literal notranslate"><span class="pre">shot</span></code> no shot is taken, without <code class="docutils literal notranslate"><span class="pre">charge</span></code> every shot carries zero charge,
+and without <code class="docutils literal notranslate"><span class="pre">stored_current</span></code> there is no stored beam. Each wiring record’s
+<code class="docutils literal notranslate"><span class="pre">signal</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">arm</span></code>: a monitor’s arm setting. Wire one per monitor, naming its
+monitor <code class="docutils literal notranslate"><span class="pre">element</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">armed</span></code>: whether that monitor waits for a shot.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">turn_x</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_y</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code>: the monitor’s arrays, positions in
+metres and the sum signal.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>: the turns the last shot tracked, the ring’s; it names no
+element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>: <code class="docutils literal notranslate"><span class="pre">0</span></code> sets every cavity’s voltage to zero, anything else
+restores the voltages the cavities had, or the one a voltage setpoint
+(<a class="reference internal" href="#va-rf-setpoints"><span class="std std-ref">RF setpoints</span></a>) commanded meanwhile. It starts at <code class="docutils literal notranslate"><span class="pre">1</span></code> and names
+no element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code>: non-zero turns the pilot tone on. It starts at <code class="docutils literal notranslate"><span class="pre">0</span></code> and
+names no element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stored</span></code>: a setting that holds what is written and drives no physics,
+for an attenuation or a mode the software sets; it may name an element.</p></li>
+</ul>
+<p>Declare <code class="docutils literal notranslate"><span class="pre">arm</span></code>, <code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>, <code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code> and <code class="docutils literal notranslate"><span class="pre">stored</span></code> channels
+<code class="docutils literal notranslate"><span class="pre">role:</span> <span class="pre">setpoint</span></code>, and each array <code class="docutils literal notranslate"><span class="pre">value_type:</span> <span class="pre">waveform</span></code> with
+<code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">[&lt;trigger_sample</span> <span class="pre">+</span> <span class="pre">turns&gt;]</span></code>, here <code class="docutils literal notranslate"><span class="pre">[260]</span></code>; every other record is a
+plain float.</p>
+<p><strong>The settings.</strong> Only <code class="docutils literal notranslate"><span class="pre">injection_element</span></code> is required:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 20.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>What it sets</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">injection_element</span></code></p></td>
+<td><p>required</p></td>
+<td><p>The deck element a shot starts at; the deck holds it exactly once.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">turns</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">250</span></code></p></td>
+<td><p>Turns tracked per shot, a whole number of at least 1.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Samples before injected turn 1, a whole number of at least 0.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">particles</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">16</span></code></p></td>
+<td><p>Particles tracked per shot.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">launch</span></code></p></td>
+<td><p>all <code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>The bunch centroid at injection: <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">px</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">delta</span></code>, <code class="docutils literal notranslate"><span class="pre">ct</span></code>, each signed.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">emittance_x</span></code>, <code class="docutils literal notranslate"><span class="pre">emittance_y</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma_delta</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma_z</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>The bunch’s size, matched to the optics at injection. All zero, every
+particle starts at <code class="docutils literal notranslate"><span class="pre">launch</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">jitter</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{x:</span> <span class="pre">5.0e-5,</span> <span class="pre">y:</span> <span class="pre">3.0e-5}</span></code></p></td>
+<td><p>The shot-to-shot centroid jitter’s sigma, metres.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">aperture</span></code></p></td>
+<td><p>none</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{x,</span> <span class="pre">y,</span> <span class="pre">shape}</span></code>: positive half-axes in metres, both required, and
+<code class="docutils literal notranslate"><span class="pre">elliptical</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">rectangular</span></code>; set on every element
+with a length.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
+<td><p>Sum per unit of the shot’s charge.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
+<td><p>Sum per unit of stored current.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_floor</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
+<td><p>The lowest sum a sample reads.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">position_noise</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0e-5</span></code></p></td>
+<td><p>Position noise sigma, metres.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_noise</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
+<td><p>Sum noise sigma.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">floor_noise</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0e-3</span></code></p></td>
+<td><p>Position noise sigma where the sum is at the floor, metres.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tone_period</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Samples between pilot-tone spikes, a whole number of at least 1.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tone_amplitude</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
+<td><p>Pilot-tone spike size.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every number but <code class="docutils literal notranslate"><span class="pre">launch</span></code> is finite and not negative; an unknown key, also
+inside <code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code> or <code class="docutils literal notranslate"><span class="pre">aperture</span></code>, stops the build. The apertures
+decide when an RF-off bunch is lost; they are the facility’s to calibrate.</p>
+<p><strong>The arrays.</strong> Each array holds <code class="docutils literal notranslate"><span class="pre">trigger_sample</span> <span class="pre">+</span> <span class="pre">turns</span></code> samples. The
+samples before <code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code> see the stored beam only, and injected
+turn 1 sits at index <code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code>. The tracking starts at the injection
+element, so a monitor upstream of it reads the end of each turn. The sum is
+the shot’s charge times the share of the bunch still alive times
+<code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code>, plus, with the RF on, the stored current held before the
+shot times <code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code>, plus noise, floored at <code class="docutils literal notranslate"><span class="pre">sum_floor</span></code>. Positions
+are the sum-weighted mix of the stored beam, at zero, and the bunch’s
+centroid, plus <code class="docutils literal notranslate"><span class="pre">position_noise</span></code>; where the sum is at the floor they are
+<code class="docutils literal notranslate"><span class="pre">floor_noise</span></code>. With the pilot tone on, every sample whose index is a
+multiple of <code class="docutils literal notranslate"><span class="pre">tone_period</span></code> carries a spike in all three arrays. The noise is
+keyed on the record’s address, the shot and the sample, so a shot reads the
+same in every run.</p>
+<p><strong>Arming.</strong></p>
+<ul class="simple">
+<li><p>Arming is per monitor. A client write of a non-zero <code class="docutils literal notranslate"><span class="pre">arm</span></code> arms it, <code class="docutils literal notranslate"><span class="pre">0</span></code>
+disarms it, and arming an armed monitor changes nothing. <code class="docutils literal notranslate"><span class="pre">arm</span></code> reads back
+what was written; <code class="docutils literal notranslate"><span class="pre">armed</span></code> is the state.</p></li>
+<li><p>A restore, a scenario’s start state and a write a <code class="docutils literal notranslate"><span class="pre">stuck</span></code> or
+<code class="docutils literal notranslate"><span class="pre">disconnected</span></code> fault holds never arm.</p></li>
+<li><p>A shot reaches the armed monitors only. Their arrays and <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>
+are posted, then their <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops to <code class="docutils literal notranslate"><span class="pre">0</span></code>; every other monitor keeps
+its arrays. A shot with no monitor armed changes nothing.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">armed</span></code> at <code class="docutils literal notranslate"><span class="pre">0</span></code> guarantees the shot’s arrays are already served, on
+Channel Access and PVAccess both, so a client may time a shot on <code class="docutils literal notranslate"><span class="pre">armed</span></code>
+alone. A shot that arrives before the drop finds those monitors unarmed.</p></li>
+<li><p>A reset or a scenario change returns every monitor to unarmed, every array
+to zeros and <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code> to <code class="docutils literal notranslate"><span class="pre">0</span></code>, and is not mistaken for a shot.</p></li>
+</ul>
+<p><strong>Shots.</strong></p>
+<ul class="simple">
+<li><p>One pass sees one delivery and tracks at most once. A counter that rose by
+more than one between two passes tracks once, with the latest charge. A
+counter that falls is not a shot.</p></li>
+<li><p>A zero-charge shot is still a shot: the arrays read the floor, the noise
+and any stored beam, and <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops.</p></li>
+<li><p>A tracking that fails leaves the armed monitors’ arrays at zeros and
+<code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code> at <code class="docutils literal notranslate"><span class="pre">0</span></code>; <code class="docutils literal notranslate"><span class="pre">armed</span></code> still drops and the ring keeps
+serving.</p></li>
+<li><p>With the RF off the ring has no closed orbit: its orbit readings read NaN
+and its settings stay writable. The stored beam adds nothing to the sum, so
+the samples before the trigger read the floor, and a bunch with declared
+apertures is lost within some hundred turns. On a radiating ring
+(<a class="reference internal" href="#va-radiation"><span class="std std-ref">A radiating ring</span></a>) it also loses energy every turn.</p></li>
+</ul>
+<p><strong>Cost.</strong> Tracking runs on the serving loop, about 0.5 s for 16 particles
+over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
+0.13 ms per particle and turn, growing with the deck. During it a read
+answers at once with the last posted value; a write, a model RPC call and a
+response-matrix request wait until it ends and are then served, never
+refused. A client timeout shorter than the tracking is the client’s.</p>
+<p><strong>Refusals.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops the ring when the block or a record is
+malformed: a missing or repeated <code class="docutils literal notranslate"><span class="pre">injection_element</span></code>, a value out of range,
+an unknown key, a turn record on a ring without the block, a monitor record
+without a monitor <code class="docutils literal notranslate"><span class="pre">element</span></code>, a ring record naming one, a setting not wired
+for write, an array that is not a waveform of <code class="docutils literal notranslate"><span class="pre">trigger_sample</span> <span class="pre">+</span> <span class="pre">turns</span></code>
+samples, any other turn record that is not a float, and an input whose
+<code class="docutils literal notranslate"><span class="pre">engine</span></code> is not one <code class="docutils literal notranslate"><span class="pre">{signal:</span> <span class="pre">...}</span></code> the ring reads. The model fails to
+build, with the text in its status channel, when an <code class="docutils literal notranslate"><span class="pre">rf_switch</span></code> is wired
+over a deck with no RF cavity. The container refuses to start when an array
+is larger than the configuration’s <code class="docutils literal notranslate"><span class="pre">max_array_bytes</span></code> at 8 bytes a sample,
+naming the channel and both sizes.</p>
+<p><strong>The response matrix.</strong> <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> takes <code class="docutils literal notranslate"><span class="pre">kind</span></code>, in the
+Python executor tool (<a class="reference internal" href="../../reference/contracts/python-executor.html"><span class="doc">Python Executor Contract</span></a>) and in
+<code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code>: <code class="docutils literal notranslate"><span class="pre">orbit</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">trajectory</span></code>. The
+trajectory response is the first-turn response of one particle, without
+jitter, from <code class="docutils literal notranslate"><span class="pre">launch</span></code> through the declared apertures. Its rows are the
+monitors’ <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> and <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> records, in the arrays’ metres and in the
+order the bunch meets them; every row and column carries its position, the
+lattice element index counted from <code class="docutils literal notranslate"><span class="pre">injection_element</span></code>. A monitor wiring
+neither record has no row. It is computed from the deck and settings, not
+from served state, and only a ring with the block that wires such a record
+answers it. A corrector whose kicked particle
+is lost before a monitor has no column; the tool’s <code class="docutils literal notranslate"><span class="pre">missing</span></code> and the SDK’s
+<code class="docutils literal notranslate"><span class="pre">unsolved</span></code> name it with where the particle was lost. When the particle is
+lost with no corrector stepped, every corrector is named and the matrix has
+no column. An engine whose <code class="docutils literal notranslate"><span class="pre">response_matrix</span></code> takes no <code class="docutils literal notranslate"><span class="pre">kind</span></code> answers the
+orbit response alone and refuses any other kind.</p>
+<p><strong>What is not modelled.</strong> The ring’s capture or loss does not feed back into
+the chain’s stored current; the stored current neither decays nor
+saturates; there is one bunch, no fill pattern; no bunch cleaning, tune scan,
+beam-based alignment or RF frequency correction. Shots run only in the
+container: in process every delivery is a baseline, so no shot is taken and
+the arrays stay zeros.</p>
+</section>
+<section id="another-backend">
+<h3>Another backend<a class="headerlink" href="#another-backend" title="Link to this heading">#</a></h3>
+<p>An engine OSPREY does not ship is an engine plug-in. The container looks up
+the <code class="docutils literal notranslate"><span class="pre">engine</span></code> each model record names in the
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code> entry-point group. It calls the registered module’s <code class="docutils literal notranslate"><span class="pre">build</span></code>, which returns
+the <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code> serving that model’s wiring over its deck. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+reaches the same module through the same group when it checks the facility
+tree. The shipped <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code> is the reference
+implementation of the contract.</p>
+<ol class="arabic">
+<li><p>Write the engine module to the contract
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines.EnginePlugin</span></code> states;
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code> implements it.</p></li>
+<li><p>Register it under the entry-point group in your package’s metadata, and
+install the package where <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;osprey_connectors.simulation.engines&quot;</span><span class="k">]</span>
+<span class="n">my_engine</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_facility.engine&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p>Build an image that carries OSPREY’s virtual-accelerator install and your
+package. The usual shape is a Dockerfile <code class="docutils literal notranslate"><span class="pre">FROM</span></code> the image OSPREY builds
+for the project, adding your package.</p></li>
+<li><p>Name it as the service’s image with <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code>,
+or <code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code> for one shell (<a class="reference internal" href="../../reference/configuration/config.html#deployment-image-overrides"><span class="std std-ref">Overriding Service Images</span></a>).</p></li>
+<li><p>Name the engine in the model’s record: <code class="docutils literal notranslate"><span class="pre">engine:</span> <span class="pre">my_engine</span></code>.</p></li>
+</ol>
+<p>Naming the image in <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code> renders the service
+without a build, so no deploy rebuilds it from OSPREY’s recipe.
+<code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code> keeps it out of every build a start makes. Either way the
+image has to be on the host or pullable where it is named;
+<a class="reference internal" href="../deploy-project/compose-templates.html#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a> says when each start builds.</p>
+</section>
+</section>
+<section id="write-limits">
+<h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
+<p>Channels with a record in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> carry a min/max range,
+and a write outside that range is rejected before it reaches the IOC; an
+in-range write goes through. The write switch’s positions apply
+unchanged — the Virtual Accelerator connector inherits the same write-safety
+wiring as the EPICS connector.</p>
+<section id="write-to-the-simulator-without-arming-the-machine">
+<h3>Write to the simulator without arming the machine<a class="headerlink" href="#write-to-the-simulator-without-arming-the-machine" title="Link to this heading">#</a></h3>
+<p>Writes are decided per login and per machine, and this is the page where that
+matters most. The tier key says how far a login may write:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">asked</span><span class="w">         </span><span class="c1"># never | asked | allowed; silence is never</span>
+</pre></div>
+</div>
+<p>The tier is target-blind. Which machine a write reaches is the person’s own
+switch, set per machine from the
+<a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>, and every machine
+starts off. Arm the simulator and leave the real machine off. The same write
+tool that moves the simulator is then refused on the machine after a switch
+(<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>). That takes no config edit and no rebuild. The
+rule is on <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The limits posture is a separate decision, and it is per connector type in
+the same way. <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking</span></code> is the pair a type inherits
+when it says nothing about itself; a <code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> block under a type’s
+<code class="docutils literal notranslate"><span class="pre">connector:</span></code> entry answers for that type instead.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># the pair every type inherits: only channels</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exclusive</span><span class="w">        </span><span class="c1"># in the limits file can be written</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">limits_checking</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">      </span><span class="c1"># ... and on the simulator alone a channel</span>
+<span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">optional</span><span class="w">     </span><span class="c1"># with no record is written with no limits</span>
+</pre></div>
+</div>
+<p>That is the shape <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> ends up in; write it in the build profile’s
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> block as flat dotted keys. A per-type block replaces the inherited pair as a <em>whole</em>: nothing is
+borrowed from the deployment-wide block, so both settings have to be written
+out. A block stating one of them alone is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, naming the one that is missing. The limits database
+itself stays deployment-wide — the build renders one limits database from
+<code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> for every target, and a per-type block does
+not take a path.</p>
+<p>With the pair above, a write to the simulator is still checked against the
+ranges the records in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> give. What changes is
+that a channel with <em>no</em> record is allowed through on the simulator, and
+refused on the live machine and the stand-in. That strict
+posture is what a switch to either real-machine target requires, and
+rehearsing it is what the stand-in is for. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live
+target</a>.</p>
+</div>
+</section>
+</section>
+<section id="the-archive">
+<h2>The archive<a class="headerlink" href="#the-archive" title="Link to this heading">#</a></h2>
+<p>A simulated machine still needs somewhere to keep what its channels did, and the
+stack deploys one. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up two more containers beside the
+Virtual Accelerator:</p>
+<ul class="simple">
+<li><p><strong>the store</strong> — a MongoDB service (<code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> on the deployment’s
+network, published on host port 10801 at the default port base, set by the
+profile’s <code class="docutils literal notranslate"><span class="pre">va_archiver.port_host</span></code>; see <a class="reference internal" href="../../reference/ports.html#reference-ports-layout"><span class="std std-ref">The layout</span></a>). It
+holds one collection of timestamped samples. Every channel the facility
+declares is recorded under its own address, an EPICS field name (<code class="docutils literal notranslate"><span class="pre">.RBV</span></code>)
+included, and waveform channels are kept in a sibling collection (see
+<a class="reference internal" href="#waveform-channels">Waveform channels</a>);</p></li>
+<li><p><strong>the recorder</strong> — a small service that reads the running machine on a fixed
+cadence and writes what answered into that collection.</p></li>
+</ul>
+<p>The project’s archiver connector (<code class="docutils literal notranslate"><span class="pre">archiver.type:</span> <span class="pre">mongodb_archiver</span></code>) reads
+history back out of the same collection, so what the agent plots is what the
+deployment recorded.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 320" role="img" aria-labelledby="va-archive-title va-archive-desc">
+  <title id="va-archive-title">The virtual accelerator's archive</title>
+  <desc id="va-archive-desc">The recorder samples the running virtual accelerator every ten seconds and writes what answered into a MongoDB collection; the project's archiver connector reads history back out of that same collection, so what the agent plots is what the deployment recorded. The first deploy seeds a base series thirty days back, and the seeded past joins the recorded present on the same timestamps.</desc>
+  <defs>
+    <marker id="va-archive-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges -->
+  <line class="e" x1="180" y1="138" x2="210" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="370" y1="138" x2="400" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="560" y1="138" x2="590" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="750" y1="138" x2="780" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="480" y1="82" x2="480" y2="110" marker-end="url(#va-archive-arr)"/>
+  <line class="e e-dash" x1="480" y1="166" x2="480" y2="210"/>
+
+  <!-- seed -->
+  <rect class="nb-in" x="400" y="30" width="160" height="52" rx="6"/>
+  <text class="tn" x="480" y="52" text-anchor="middle">first deploy</text>
+  <text class="ts" x="480" y="68" text-anchor="middle">seeds 30 days back</text>
+
+  <!-- the loop -->
+  <rect class="nb" x="20" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="100" y="134" text-anchor="middle">virtual accelerator</text>
+  <text class="ts" x="100" y="151" text-anchor="middle">the simulated machine</text>
+
+  <rect class="nb" x="210" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="290" y="134" text-anchor="middle">recorder</text>
+  <text class="ts" x="290" y="151" text-anchor="middle">every 10 seconds</text>
+
+  <rect class="nb-st" x="400" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="480" y="134" text-anchor="middle">archiver-mongodb</text>
+  <text class="ts" x="480" y="151" text-anchor="middle">one collection</text>
+
+  <rect class="nb" x="590" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="670" y="134" text-anchor="middle">archiver connector</text>
+  <text class="ts" x="670" y="151" text-anchor="middle">mongodb_archiver</text>
+
+  <rect class="nb" x="780" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="860" y="134" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="860" y="151" text-anchor="middle">plots the history</text>
+
+  <rect class="mask" x="366" y="176" width="228" height="15"/>
+  <text class="ta" x="480" y="188" text-anchor="middle">written by the recorder, read back by the connector</text>
+
+  <!-- the timeline -->
+  <rect class="zone" x="180" y="210" width="600" height="44" rx="4"/>
+  <line class="divider e-dash" x1="560" y1="210" x2="560" y2="254"/>
+  <text class="te" x="196" y="228">SEEDED PAST</text>
+  <text class="ts" x="196" y="245">30 days — the last 48 h every 10 s, the rest every 60</text>
+  <text class="te" x="576" y="228">RECORDED PRESENT</text>
+  <text class="ts" x="576" y="245">every 10 s from deploy on</text>
+
+  <text class="ta" x="480" y="276" text-anchor="middle">the join is meant to be invisible — same timestamps, same baselines, noise rather than a step</text>
+  <text class="ta ta-warn" x="480" y="300" text-anchor="middle">with the simulator served in process the recorder idles by design — history stays readable and the archive reports stale, which is a warning, not an error</text>
+</svg>
+</div>
+<section id="what-history-is-there">
+<h3>What history is there<a class="headerlink" href="#what-history-is-there" title="Link to this heading">#</a></h3>
+<p>Two halves of one timeline, and the deploy makes both true before you ask
+anything of them.</p>
+<p><strong>The seeded past.</strong> The first deploy writes a base series for every channel the
+machine serves, covering the whole retention window. At the shipped defaults
+that window is <strong>30 days back</strong>. The most recent <strong>48 hours</strong> are sampled every
+10 seconds and the rest every 60.</p>
+<p>The values are generated, but they are generated the way the live machine
+generates its own. Each channel’s history is built around the same baseline the
+Virtual Accelerator boots it at, with excursions scaled to that channel’s own
+noise. Nothing invents an event nobody would find in the
+live machine.</p>
+<p>Writing it takes a minute or two on a first deploy. The deploy says so as it
+goes, every 15 seconds or so (“seeding archive: N documents written across N
+channels”). When it finishes, it reports the span and the document count. Later
+deploys check the archive against the knobs now in force and skip the seed when
+it already covers them.</p>
+<p><strong>The recorded present.</strong> From then on the recorder samples the machine every
+10 seconds and stores what answered. A setpoint you write is readable out of the
+archive within about half a minute. A channel that did not answer contributes
+nothing — a gap in the archive is the honest record of a channel that was not
+answering, never a value carried forward.</p>
+<p>The join between the two is meant to be invisible. Seeded samples and recorded
+samples land on the same timestamps and around the same baselines. Where the
+seed ends and recording begins there is noise, not a step an operator would
+rightly chase.</p>
+<p><strong>With a stand-in deployed, this is still the simulator’s archive.</strong> The seeded
+past is the composite’s history over the shared active set, and the recorder
+samples the virtual accelerator. The stand-in is shown the facility’s own
+archive instead, and never this store. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
+<p>Retention is enforced by the store itself. Dense samples expire after the hot
+span and the coarse ones after the retention window, so a long-running
+deployment stays bounded rather than growing forever. The collection is
+zstd-compressed; the project’s end-to-end test budgets the seeded store at under
+2 GiB on disk at these defaults.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Every number in this section is a knob in the build profile’s <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block —
+<code class="docutils literal notranslate"><span class="pre">retention_days</span></code>, <code class="docutils literal notranslate"><span class="pre">hot_span_hours</span></code>, the cadences — not a constant in the
+code. Changing one is a profile edit and a rebuild; the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> notices the archive no longer describes what the profile
+asks for and reseeds it. See <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+</div>
+</section>
+<section id="waveform-channels">
+<h3>Waveform channels<a class="headerlink" href="#waveform-channels" title="Link to this heading">#</a></h3>
+<p>A waveform channel — one whose value is a whole trace, such as a septum’s
+current pulse — is archived beside the scalars, not among them:</p>
+<ul class="simple">
+<li><p><strong>its own collection.</strong> Traces live in a sibling collection named after the
+scalar one with <code class="docutils literal notranslate"><span class="pre">_waveforms</span></code> appended (<code class="docutils literal notranslate"><span class="pre">&lt;collection&gt;_waveforms</span></code>). It
+holds one document per channel per instant, the trace stored whole as a list
+of floats.</p></li>
+<li><p><strong>one trace a minute.</strong> The seed and the recorder both write a waveform at the
+tail cadence: <strong>every 60 seconds</strong> at the shipped defaults
+(<code class="docutils literal notranslate"><span class="pre">tail_cadence_sec</span></code>). Neither writes one at the 10-second scalar cadence, so
+the hot span holds no denser waveform history than the rest of the window. The
+build requires the recorder’s waveform cadence (<code class="docutils literal notranslate"><span class="pre">recorder_tail_cadence_sec</span></code>)
+to equal the seed’s, so both write one history on one grid.</p></li>
+<li><p><strong>raw reads only.</strong> The archiver connector returns a waveform channel’s value
+as <code class="docutils literal notranslate"><span class="pre">list[float]</span></code>, every stored trace in range, unbinned. Raw is the only
+processing defined for a waveform; asking for an average, a min/max or any
+other aggregation of one is refused with an error naming the channel.</p></li>
+<li><p><strong>a budget per read.</strong> <code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> never bins a waveform channel; it
+returns every trace in range at the channel’s stored cadence and counts the
+points. One read may return at most <strong>32,000</strong> waveform points summed over
+every trace of every waveform channel requested — an hour of one 500-point
+trace a minute fits. A read over the budget is refused before anything is
+built, with a hint to narrow the window or read fewer waveform channels at
+once. Scalar samples do not count against it.</p></li>
+</ul>
+<p>The EPICS archiver connector does not support arrays: reading a waveform PV
+through it is refused with <code class="docutils literal notranslate"><span class="pre">Waveform</span> <span class="pre">PVs</span> <span class="pre">not</span> <span class="pre">supported</span></code>. Waveform history is
+only available from the store this stack deploys.</p>
+</section>
+<section id="what-the-archive-will-not-claim">
+<h3>What the archive will not claim<a class="headerlink" href="#what-the-archive-will-not-claim" title="Link to this heading">#</a></h3>
+<p>Ask for a window older than the archive reaches and you get <strong>no points</strong> —
+not a plausible-looking series stretched to fill the request. <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>
+likewise reports the oldest and newest samples the collection really holds,
+rather than the window the profile declared. The archive never claims more than
+it has.</p>
+</section>
+</section>
+<section id="the-honesty-rule">
+<h2>The honesty rule<a class="headerlink" href="#the-honesty-rule" title="Link to this heading">#</a></h2>
+<p>There is one configuration this stack refuses: a machine the deployment stands
+up for itself and serves over the network, paired with the <strong>mock archiver</strong>.
+Such a machine is the <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> control system served from its
+container, or the <code class="docutils literal notranslate"><span class="pre">live_standin</span></code> one. No archiver set at all resolves to the
+same thing as the mock archiver, so it is refused the same way.</p>
+<p>The reason is what the two do differently. The Virtual Accelerator serves
+channels that move for modelled reasons: you step a corrector, the orbit
+responds. The mock archiver does not store anything; it synthesizes a
+plausible-looking history at read time, for questions nobody recorded the answer
+to. Put them together and the agent reports a past that never happened, next to a
+present that did. Nothing connects the two, so the fiction can never be caught
+by disagreeing with the machine it claims to describe.</p>
+<p>The pairing is refused at every point it can be created:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 66.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Where</p></th>
+<th class="head"><p>What happens</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code></p></td>
+<td><p>The build refuses the profile, and names the profile keys to change: add
+a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block (which is what makes the store exist) and set
+<code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{archiver.type:</span> <span class="pre">mongodb_archiver}</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">restart</span></code></p></td>
+<td><p>The deploy aborts before starting anything, and names the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+edit: set <code class="docutils literal notranslate"><span class="pre">type:</span></code> under <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> to a connector reading a store
+this stack writes, or serve the simulator in process
+(<code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.serving:</span> <span class="pre">in_process</span></code>).</p></td>
+</tr>
+<tr class="row-even"><td><p>MCP server startup</p></td>
+<td><p>The server refuses to start on such a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, so a file
+hand-edited after the build cannot quietly bring the pairing back.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code></p></td>
+<td><p>Reports the same refusal without building anything, so the pairing is
+caught the moment it is written into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> rather than at
+deploy time.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two pairings that look similar are perfectly legal, because nothing lies in
+either:</p>
+<ul class="simple">
+<li><p><strong>The simulator in process + mock archiver</strong> is the honestly storeless
+deployment. It has no recorder, so a synthesized archive is the only one it
+can have, and nothing is claimed to be real.</p></li>
+<li><p><strong>EPICS + mock archiver</strong> is a real machine that simply has no archive
+attached yet.</p></li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is read as <strong>nested sections</strong>. A top-level dotted line like
+<code class="docutils literal notranslate"><span class="pre">archiver.type:</span> <span class="pre">mongodb_archiver</span></code> added at the top of the file configures
+nothing at all — the archiver is whatever the <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> section says.
+The refusal messages call this out when they find such a line, rather than
+reporting the key as merely unset.</p>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="use-connectors-standalone.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Use the Connectors Without the Framework</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="machine-repository.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Serve the Virtual Accelerator from a Machine Repository</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-channels-it-serves">What channels it serves</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-a-running-deployment">Switching a running deployment</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-venues">Two venues</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-scenarios-the-demo-ships">The scenarios the demo ships</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#apply-a-scenario">Apply a scenario</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-switch-does-to-the-running-simulator">What a switch does to the running simulator</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hold-readings-still">Hold readings still</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-a-scenario">Write a scenario</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-pyat-lattice">A pyAT lattice</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rf-setpoints">RF setpoints</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-radiating-ring">A radiating ring</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#an-injection-chain">An injection chain</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-by-turn-data-from-an-injection-chain">Turn-by-turn data from an injection chain</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-simulator-without-arming-the-machine">Write to the simulator without arming the machine</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-archive">The archive</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-history-is-there">What history is there</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#waveform-channels">Waveform channels</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-archive-will-not-claim">What the archive will not claim</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-honesty-rule">The honesty rule</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/control-systems/use-virtual-accelerator.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

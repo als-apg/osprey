@@ -1,0 +1,187 @@
+============================
+Network Binding and Security
+============================
+
+Services bind to ``127.0.0.1`` by default. Reaching them from off-host is a
+property of the build, not of a start-time flag: the bind address is rendered
+into every published port. Change it with ``osprey set
+config.deployment.bind_address=0.0.0.0`` and rebuild, and only when you have
+authentication and firewalling in place.
+
+Container networking uses service names as hostnames (e.g.,
+``postgresql:5432``). For host access from inside containers, use
+``host.docker.internal`` (Docker) or ``host.containers.internal`` (Podman).
+
+.. _deployment-network-attachment:
+
+Network attachment: ``bridge`` or ``host``
+------------------------------------------
+
+By default every service joins the compose-managed project network
+(``osprey-network``) and publishes the ports it wants reachable. That is
+``bridge``, and it is what a deployment gets when it says nothing.
+
+Some services cannot work that way. A service that has to see broadcast traffic
+— control-system protocols, device discovery — or that has to reach ports other
+software already publishes on the machine needs the host's own network
+namespace instead. That is ``host``:
+
+.. code-block:: yaml
+
+   # in profile.yml — the event dispatcher and its workers
+   dispatch:
+     network: host
+     triggers: tutorial_triggers.yml   # required: a bundled name or your own file
+
+   # a facility-owned service
+   services:
+     my-service:
+       template: services/my-service
+       config:
+         network: host
+
+``dispatch.network`` is deliberately **one knob for two services**. The event
+dispatcher and its workers talk to each other over addresses the build writes,
+so a dispatcher on the compose network and workers on the host's could not
+reach each other at all. Writing ``network:`` on ``services.event_dispatcher``
+or ``services.dispatch_worker`` individually is rejected by ``osprey build``,
+which tells you to set ``dispatch.network`` instead.
+
+A dispatch worker is the usual reason to reach for the host namespace. The
+worker runs the same OSPREY agent a web terminal runs, so it reaches the
+control system and the plan queue at the addresses the deployment was written
+with — and on a deployment that runs those beside it, those addresses are this
+machine's own ``localhost``. Inside a container on the compose network that
+name means the container, so writes and queue calls are refused on connect
+while every health check still passes. Put the pair on the host network and
+the addresses mean what they say. The bundled ``demo`` preset does
+exactly that, and any profile that keeps a control system or a co-deployed
+bridge at a loopback address should too.
+A container on the host network reaches whatever the host reaches;
+:ref:`deploy-write-boundary` covers the access security that limits its writes.
+
+A worker kept on the compose network still reaches a plan queue this project
+deploys: OSPREY hands it the bridge's in-network address instead. The control
+system is the half with no such answer, because one connector block is read by
+every consumer at once — the host-networked terminals included — so there is no
+address that is right for the worker and for them at the same time.
+
+.. raw:: html
+   :file: ../../_diagrams/network-attachment.html
+
+Under ``network: host`` the render changes in four ways:
+
+* No ``ports:`` block. There is nothing to publish — the container's listening
+  socket *is* a host socket, on the port the service was configured with.
+* ``network_mode: host`` replaces the service's ``osprey-network`` membership.
+* Services bind **loopback**, ``127.0.0.1``, rather than every interface. On
+  the compose network, binding every interface is what makes a service
+  reachable by name and the network itself is the boundary; on the host network
+  there is no such boundary, so the default is the private one. Reaching the
+  event dispatcher from off-host is then a deliberate act:
+  ``services.event_dispatcher.bind``.
+* Addresses OSPREY writes between services become ``localhost:<port>`` instead
+  of compose service names — the dispatcher's target for its workers, and the
+  Nextcloud Talk, Google Chat, Microsoft Teams and Slack bridges' URLs for the
+  dispatch pair.
+
+``osprey up`` reads each host-mode service's bind address from the variable it
+declares with ``bind_env:``. A service that declares ``listens: false`` opens no
+socket. One that declares neither is counted as reachable, and the start applies
+the fail-closed service-token rules. OSPREY's own services declare this
+themselves; a facility service on the host network declares it beside
+``network:``:
+
+.. code-block:: yaml
+
+   # profile
+   services:
+     site_api:
+       template: services/site_api
+       config: {network: host, bind_env: SITE_BIND}
+
+.. code-block:: yaml
+
+   # services/site_api/docker-compose.yml.j2
+       environment:
+         SITE_BIND: "127.0.0.1"
+
+Services that talk to each other have to be on the same side of that boundary,
+and ``osprey build`` refuses to render a deployment where they are not: a
+co-deployed bridge on the compose network with a host-mode dispatch pair, the
+reverse of that, or any address naming a service across the boundary. The build
+also refuses a service that declares ``network: host`` whose rendered compose
+file does not carry it, since the setting would otherwise be quietly inert.
+Every one of those failures names the service and the key to change.
+
+Running more than one project on one host
+-----------------------------------------
+
+Two OSPREY projects on the same machine compete for the same host ports, and
+compose's own report of that is a bare "address already in use" partway through
+starting. ``osprey up`` therefore checks every host port this deployment needs
+before it touches a container — ports two of its own services would both
+publish, and ports something else is already listening on — and stops if any is
+taken. Every conflict is listed with the config key that moves it
+(``services.postgresql.port_host``, ``dispatch.worker_port_base``, and so on).
+A listener that belongs to this project's own containers is not a conflict, so
+restarting a running stack stays quiet.
+
+Host-mode services are part of that check even though they publish no ports:
+their host bindings are worked out from the rendered configuration instead of
+read out of a ``ports:`` block. That covers the case most likely to catch you
+out — two projects whose dispatch pairs are both on the host network take the
+same default ports (``10010`` for the dispatcher, ``10011`` upward for the
+workers), and no ``ports:`` line anywhere would have shown it. Give the second
+project its own ``deployment.port_base`` (:ref:`reference-ports`), which moves
+the pair along with everything else.
+A facility service you place on the host network is covered the same way,
+read from its ``services.<name>.port`` key; one without that key cannot be
+checked, and ``osprey up`` says so rather than skipping it silently. A service
+that listens on nothing says so with ``listens: false`` and is left out of the
+check. The
+multi-user web terminals are covered the same way: every port of every roster
+index — terminal and companion panels alike — is checked, and a conflict names
+the user whose ``index`` to move.
+
+.. _deploy-two-checkouts-one-host:
+
+Two checkouts of one repository on one host
+-------------------------------------------
+
+Ports are not the only thing two copies can share. Every name a deployment
+puts on the host — compose project, volumes, images, web containers — comes
+from the tracked ``project_name:`` in ``profile.yml``, not from the folder the
+checkout sits in. A second clone or worktree of the same repository therefore
+reads the same name and, unless it says otherwise, *is* the same deployment.
+
+Each container records which checkout created it. Before ``osprey up`` touches
+a container it compares that record with the current checkout, and it refuses
+when containers under this name came from another one:
+
+.. code-block:: text
+
+   osprey up will not start over containers from another copy of this repo
+   2 containers are named 'uitf_controls_assistant', but they were created from a
+   different copy of this repo:
+       /home/x/code/uitf_controls_assistant  (still on disk)
+   -> stop that deployment where it lives: `osprey down --repo /home/x/code/uitf_controls_assistant`
+      or give this copy its own name:
+        profiles/scratch.yml:   project_name: uitf_controls_assistant-scratch
+        .env.variant:           OSPREY_PROFILE_VARIANT=scratch
+      then `osprey build` and start again. Nothing was deployed.
+
+The two remedies mean different things. Stopping the other copy and starting
+this one hands the deployment, and its data, to this checkout: volumes belong
+to the project by name, so they are kept. Giving this copy its own
+``project_name`` in a variant overlay makes it a separate deployment with its
+own containers, volumes and images, starting with empty data; move its ports
+in the same overlay with ``deployment.port_base``. See
+:ref:`profile-host-variants` for how the overlay is selected.
+
+Moving a checkout with ``mv`` moves its ``build/``, which still names the old
+directory, so ``osprey up`` refuses it with "this build was rendered in <old
+path>" until ``osprey build`` runs in the new one. Its old containers then meet
+the refusal above: they record a path that no longer exists, and the refusal
+says so and prints the one command that frees the name, ``docker rm -f`` with
+the old containers' names. The volumes are untouched and keep their data.

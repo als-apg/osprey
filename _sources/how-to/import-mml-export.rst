@@ -217,7 +217,14 @@ is yours and is only drafted when absent. The authored files beside them ---
 ``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``measurement/<model>.yaml`` and ``scenarios/readout.yaml`` --- are created
 only when absent and never rewritten, so your edits to them survive a
-re-import. ``classes.yaml`` is created when absent; when it exists, the import
+re-import. Beside an existing ``limits.yaml`` the import prints a
+``limits differ: <address> file [..] export [..]`` line for each record whose
+band the export states otherwise, and one ``limits not recorded:`` line
+counting the setpoints the export bands that the file has no record for,
+followed by the first ten with their band; it writes none of them. A
+``Range`` given as one row per device whose row count is not the family's
+device count gives no band, and the import prints one ``limits table
+skipped:`` line for that field. ``classes.yaml`` is created when absent; when it exists, the import
 appends only the classes it lacks and leaves its rows as written.
 ``measurement/<model>.yaml`` names, as ``quad`` and ``sext``, the families the
 export tags as tune and chromaticity correctors, and lists every kind those
@@ -236,6 +243,35 @@ same quantity, so a field without a signal stays unpaired. A family whose
 devices hold one coil per plane maps its current fields to the plane-qualified
 signals (``current_x_setpoint``, ``current_x_readback``, ``current_y_setpoint``,
 ``current_y_readback``), so the build pairs each coil with its own readback.
+
+One family entry serves every model that carries the family, but a field can
+carry a current in one model and another quantity in the next. A field's
+``by_model`` answers its signal for those models, keyed by the model's system
+token as under ``models``; ``null`` gives that model's channels no signal:
+
+.. code-block:: yaml
+
+   families:
+     QF:
+       fields:
+         Setpoint:
+           description: Power-supply current setpoint per magnet.
+           provenance: stated
+           signal: current_setpoint
+           by_model:
+             TL: normalized_strength_setpoint   # this model states it in 1/m^2
+
+The draft reads each model's units on its own. A magnet field stated in a
+current gives the current signals. A multipole's field stated in a normalized
+strength (``1/m^2``, ``m^-3``) gives ``normalized_strength_setpoint`` and
+``normalized_strength_readback``. A corrector's field stated in an angle
+(``rad``, ``mrad``) gives ``kick_angle_setpoint`` and ``kick_angle_readback``.
+A setpoint is drafted only for the family's one written field of that quantity.
+The ``signal`` is the one most models give, and ``by_model`` lists only the models that differ. The mapping
+check, and with it the import, stops when a field gives a current signal to a
+model whose units for the field are not a current, and names the ``by_model``
+answer to add. Any answer for the model settles it, even one that keeps the
+current where the export's units are out of date.
 Each device carries the export's ``Position`` as ``s`` with its ``model``, and
 the build stops (``place-conflict``) when a wired device's deck disagrees.
 
@@ -304,7 +340,12 @@ Before it reads an export, the import looks at ``data/facility/``:
   names each file, changes nothing and exits 1. The mml format writes channel,
   device, group, model, deck, seed, limit, identity and measurement records; the
   list format writes channel and device records. A file is hand-written once its
-  bundled-origin line is gone. Corrections belong in ``fixes.yaml``.
+  first line is neither its bundled-origin line nor the seed header the import
+  writes atop the files it creates,
+  ``# Seeded once by the facility import; edit this file by hand.``
+  A file that opens with the retired header is read as seeded, and the import
+  prints one warning that lists each such file and the line to set.
+  Corrections belong in ``fixes.yaml``.
 * Once the facility holds an imported layer, records written by hand beside it
   stay and stop no import. They are the facility's own additions, such as a
   model no export states, and the build combines them with the layers.

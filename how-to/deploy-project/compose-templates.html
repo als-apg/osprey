@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Compose Templates and Images &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Compose Templates and Images &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Container Deployment" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -616,6 +616,40 @@ through the labels override. The env digest is the template’s own:</p>
 <p><strong>A service template you wrote yourself should carry the env digest line if the
 service reads the env chain</strong> — without it your service keeps serving its old
 env values after a change, with nothing to say so.</p>
+<section id="services-that-run-once">
+<h3>Services that run once<a class="headerlink" href="#services-that-run-once" title="Link to this heading">#</a></h3>
+<p>After <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> returns, the start checks that every service it started
+has a running container, and fails naming each one that has none. A service
+that runs once and exits (a migration, a seed, a one-time import) has none by
+design, so it says so with a label on its service:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">labels</span><span class="p">:</span>
+  <span class="n">osprey</span><span class="o">.</span><span class="n">run</span><span class="o">-</span><span class="n">once</span><span class="p">:</span> <span class="n">must</span><span class="o">-</span><span class="n">succeed</span>    <span class="c1"># or: may-fail</span>
+</pre></div>
+</div>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">must-succeed</span></code></dt><dd><p>The service is done when a container of it exited 0. Any other end fails the
+start, naming the service and its exit code.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">may-fail</span></code></dt><dd><p>The service is done when a container of it exited, whatever the code. A
+non-zero exit is reported by name and code, and the start succeeds.</p>
+</dd>
+</dl>
+<p>A service another one waits on with <code class="docutils literal notranslate"><span class="pre">condition:</span>
+<span class="pre">service_completed_successfully</span></code> is run-once by compose’s own declaration and
+counts as <code class="docutils literal notranslate"><span class="pre">must-succeed</span></code>. A service that declares nothing is never taken for
+run-once, whatever its restart policy or exit code: a long-running service that
+stopped cleanly fails the start like one that crashed. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> shows a
+declared service that ended as declared as <code class="docutils literal notranslate"><span class="pre">Done</span></code>.</p>
+<p>The build refuses a value other than these two, a run-once service with
+<code class="docutils literal notranslate"><span class="pre">restart:</span> <span class="pre">always</span></code> or <code class="docutils literal notranslate"><span class="pre">restart:</span> <span class="pre">unless-stopped</span></code> (the runtime would start it
+again each time it exits; <code class="docutils literal notranslate"><span class="pre">no</span></code> and <code class="docutils literal notranslate"><span class="pre">on-failure</span></code> are fine), and <code class="docutils literal notranslate"><span class="pre">may-fail</span></code>
+on a service another one waits on to complete (compose fails the waiting
+service when it exits non-zero).</p>
+<p>The check sees the moment the start returns. A run-once service still running
+then counts as running, and its exit is not seen. If the start must wait for it,
+make another service depend on it with <code class="docutils literal notranslate"><span class="pre">condition:</span>
+<span class="pre">service_completed_successfully</span></code>.</p>
+</section>
 </section>
 <section id="service-template-ownership">
 <h2>Service Template Ownership<a class="headerlink" href="#service-template-ownership" title="Link to this heading">#</a></h2>
@@ -919,7 +953,10 @@ have.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#services-that-run-once">Services that run once</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-deploy-builds-an-image">When a deploy builds an image</a></li>

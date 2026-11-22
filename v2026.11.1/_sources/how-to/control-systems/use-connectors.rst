@@ -1,0 +1,644 @@
+.. _how-to-use-connectors:
+
+Use Connectors
+==============
+
+A connector is OSPREY's single interface to a control system, and a second,
+parallel connector is its interface to an archiver. Everything above them — the
+agent, the plans, the safety layers — is written against those two interfaces,
+so moving from the simulator to real hardware is a change of
+``control_system.type`` and its connector block, not of code.
+
+What a connector is, and who talks to it
+----------------------------------------
+
+A connector is a Python object with a fixed set of methods: connect, read a
+channel, write a channel, subscribe, get metadata. Each control system (EPICS,
+DOOCS, the simulator, the mock) is one class that implements them.
+
+Nothing in OSPREY reaches a control system any other way. There is no shared
+connector service: each caller below holds its own connector instance, built
+from the same ``config.yml`` and pointed at the login's control target.
+
+.. raw:: html
+   :file: ../../_diagrams/connector-callers.html
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Who
+     - How it reaches the connector
+   * - Operator
+     - Never directly. The operator picks the control target, sets the write
+       switch (off, asked or allowed) and answers approval prompts. Each login
+       has its own target and switches. See
+       :ref:`web-terminal-session-posture` and
+       :ref:`how-to-switch-control-target`.
+   * - Agent
+     - Through the ``controls`` tools: ``channel_read``, ``channel_write`` and
+       ``archiver_read``. With two or more targets configured, the connector
+       runs in a child process and a switch replaces that process: a process
+       holds one Channel Access context, so a new target needs a new process.
+       With one target it runs inside the ``controls`` server.
+   * - Agent-written Python
+     - Through ``osprey.runtime`` (``read_channel``, ``write_channel``). Each
+       run builds its own connector for the login's target. A write is refused
+       if the target changed after the run started. See
+       :ref:`how-to-write-from-a-program`.
+   * - Notebooks
+     - The same ``osprey.runtime`` calls. The kernel re-reads the target
+       before each cell. See :ref:`Notebooks <notebooks-write-channel>`.
+   * - Bluesky plans
+     - Every plan read and write goes through a connector the queue worker
+       builds for its own target, which can differ from the login's.
+   * - Panels and apps
+     - CANOPY's data process serves every PV from one connector and is
+       replaced when the target moves. An app backend builds its own
+       connector for the target of the login it answers; a write approved
+       for another target is refused. See :ref:`how-to-apps`.
+
+Because every path ends in the same class, the last write check is the same
+everywhere: the connector re-checks the write switch on each write, whoever
+called it. The checks before that point differ by path and are listed in order
+in :ref:`architecture-safety-chain-order`.
+
+One API, whatever the machine
+-----------------------------
+
+The Python API is the same for every connector, and works from a script of your
+own with no deployment at all (:doc:`use-connectors-standalone`). The simulator
+served in process answers for the addresses of the built facility file without
+hardware or network access, which is what makes it the development and R&D
+default. Run ``osprey build`` first, and run the script from the deployment; the
+simulator refuses an address outside the facility file. This script reads the
+beam current, a channel of the example facility ``osprey build`` starts from:
+
+.. literalinclude:: examples/read_simulator.py
+   :language: python
+   :caption: read_simulator.py
+
+The examples on this page are files the test suite runs against a soft IOC and
+a built simulator view.
+
+A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
+index, with the state names alongside it in the metadata: ``value`` is the
+index, ``metadata.enum_label`` the name of that state and
+``metadata.enum_labels`` every state name in order. A read of a four-state
+channel in its third state gives:
+
+.. code-block:: text
+
+   value                = 2
+   metadata.enum_label  = 'ACQUIRING'
+   metadata.enum_labels = ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
+
+Everything below is configuration only — which machine sits behind that API.
+
+.. note::
+
+   Writes are off until the login's tier allows them
+   (``control_system.writes: asked`` or ``allowed``) and the person arms a
+   machine from the chip. See :ref:`write-safety-config` in
+   :doc:`/reference/contracts/connectors`. A program with nobody at a prompt
+   asks for a bounded authorization instead; see
+   :ref:`how-to-write-from-a-program`.
+
+Pick a control system
+---------------------
+
+.. tab-set::
+   :sync-group: cs
+
+   .. tab-item:: Simulator in process
+      :sync: in-process
+
+      The default. The simulator, run inside the process that asks, serving
+      the addresses of the built facility file with no hardware or network
+      access. It is the Virtual Accelerator's in-process venue; see
+      :ref:`va-two-venues` for both venues and the one setting that picks
+      between them.
+
+   .. tab-item:: EPICS
+      :sync: epics
+
+      EPICS Channel Access, pointed at a gateway:
+
+      .. literalinclude:: examples/control-system-epics.yml
+         :language: yaml
+
+
+      ``timeout_s`` bounds every Channel Access call given no timeout of its
+      own. A ``timeout_s`` that is not a positive number of seconds is refused
+      when the connector connects.
+
+      .. rubric:: Fresh reads
+
+      Every Channel Access read asks the IOC, at one network round trip per
+      read, so an IOC that computes a readback when it is read -- a caproto
+      getter, for example -- always answers with its current value. The
+      ``fresh_reads`` key that once switched this on is still accepted, so an
+      existing configuration keeps loading, but it no longer changes anything.
+
+      .. rubric:: PVAccess channels (PVA)
+
+      The ``epics`` connector speaks Channel Access by default. Some data --
+      camera frames above all -- is served only over pvAccess, EPICS' second
+      protocol. List those addresses as glob patterns under ``pva_channels``
+      and the connector reads them through pvAccess, while every other address
+      keeps using Channel Access. One deployment covers both:
+
+      .. literalinclude:: examples/control-system-epics-pva.yml
+         :language: yaml
+
+
+      Patterns are matched with ``fnmatch.fnmatchcase`` -- case-sensitive, and
+      the same on every operating system. Addresses stay exactly as you write
+      them: no ``pva://`` prefix is ever added, so the limits database, channel
+      databases and audit records keep matching the strings they already use.
+      An absent or empty ``pva_channels`` list is a complete no-op -- the
+      connector behaves exactly as it did before and never even imports the
+      pvAccess client.
+
+      ``pva_gateway`` is a single flat block, unlike the ``read_only`` /
+      ``write_access`` pair on the Channel Access side, because pvAccess is
+      read-only here. The block is only consulted when ``pva_channels`` is
+      non-empty, and it is the **only** way to tell the connector where to
+      search: the connector runs in a child process that drops every inherited
+      ``EPICS_PVA_*`` variable, so an ``EPICS_PVA_ADDR_LIST`` set in ``.env``
+      never reaches it. The build warns when ``pva_channels`` is set and this
+      block is missing.
+
+      ``address`` is one host or a space-separated list of hosts -- what a
+      facility with many pvAccess servers and no gateway needs. It becomes
+      ``EPICS_PVA_ADDR_LIST``, a list of UDP search targets: leave ``port``
+      unset and the client's default (5076) applies; set it and it is appended
+      to every listed host. Do not set 5075 here -- that is the TCP port, and a
+      search sent to it times out. With ``use_name_server: true`` the entry
+      becomes ``EPICS_PVA_NAME_SERVERS`` instead, a TCP endpoint where ``port``
+      defaults to 5075; that is what an SSH tunnel needs.
+      Whenever the block is present, ``EPICS_PVA_AUTO_ADDR_LIST`` is forced to
+      ``"NO"`` -- the same containment the Channel Access side applies, so a
+      deployment deliberately pinned to one gateway cannot also
+      broadcast-discover servers on the local subnet.
+
+      **PVA channels are read-only.** A write to an address matching a
+      ``pva_channels`` pattern comes straight back as a blocked
+      ``ChannelWriteResult`` naming the reason, with nothing sent on the
+      network. That is a deliberate safety decision rather than an unfinished
+      feature: a supervised pvAccess write path is separate work with its own
+      review, and until it exists a refusal is the honest answer.
+
+      pvAccess **RPC services** are refused too, and for a different reason.
+      Code the agent runs through the Python executor cannot call
+      ``Context.rpc(...)``, or pvaPy's ``RpcClient(...).invoke(...)``, in a
+      readonly run or wherever limits checking is on: it is blocked at
+      runtime and no approval can let it through, because an rpc payload carries an arbitrary request -- there is
+      no way to tell a read from a write, and nothing for limits checking to
+      validate. Use ``channel_read`` and ``channel_write`` for the operation
+      you actually need.
+
+      A camera frame is almost always too large to return to the agent as raw
+      numbers; see :doc:`/reference/contracts/connectors` for what comes back
+      instead.
+
+      .. note::
+
+         Compressed NTNDArray frames are not decoded. When a camera's
+         areaDetector pvAccess plugin is configured with a codec (blosc, lz4,
+         jpeg), the read fails with an error naming the codec and the remedy --
+         disable pvAccess compression for that channel -- rather than reshaping
+         a compressed blob into a plausible-looking image full of meaningless
+         statistics.
+
+      .. note::
+
+         The pvAccess client (``p4p``) ships with OSPREY as an ordinary
+         dependency, so there is normally nothing to install. The exception is
+         a bare-metal install on arm64 Linux, where ``p4p``, ``pvxslibs`` and
+         ``epicscorelibs`` publish no wheels and pip builds them from source:
+         that host needs a C toolchain (a compiler and ``make``) present.
+         OSPREY's own project images already stage one, so containerized
+         deployments are unaffected.
+
+   .. tab-item:: DOOCS
+      :sync: doocs
+
+      DOOCS (DESY, European XFEL). Channel addresses are DOOCS properties
+      (``FACILITY/DEVICE/LOCATION/PROPERTY``). The ENS comes from the DOOCS
+      installation's environment, and the block takes one option:
+
+      .. literalinclude:: examples/control-system-doocs.yml
+         :language: yaml
+
+
+      A read that does not answer within ``timeout_s`` (or the call's own
+      timeout) raises ``TimeoutError``. A set that does not return within it
+      is reported ``unconfirmed``, because the value may still arrive. A
+      ``timeout_s`` that is not a positive number of seconds is refused when
+      the connector connects.
+
+      The connector requires ``doocs4py``, which the DOOCS environment
+      provides rather than PyPI. The import is deferred to ``connect()``, so
+      the name registers everywhere and only fails -- with a clear
+      ``ImportError`` instead of a silent degradation -- where a DOOCS
+      environment is genuinely absent.
+
+      .. note::
+
+         DOOCS confirms a write the way every connector does: one fresh read
+         of the channel, compared exactly against the value that was sent. A
+         reading that is not a number -- a string, a name -- confirms by
+         plain equality.
+
+   .. tab-item:: TANGO
+      :sync: tango
+
+      TANGO Controls. A channel address is a TANGO device name plus the
+      attribute served by it (``domain/family/member/attribute``, e.g.
+      ``sr/power_supply/ps01/Current``), optionally prefixed with an explicit
+      database as ``tango://host:port/domain/family/member/attribute``.
+      Without a prefix the connector reaches the database named by
+      ``TANGO_HOST``, exactly as every other TANGO client does; ``tango_host``
+      in the connector block overrides that environment for this connector
+      alone:
+
+      .. literalinclude:: examples/control-system-tango.yml
+         :language: yaml
+
+
+      A read or write given no timeout of its own is bounded by ``timeout_s``
+      too, with the same answers as DOOCS: a read that runs out raises
+      ``TimeoutError``, and a write that runs out is reported ``unconfirmed``.
+      A ``timeout_s`` that is not a positive number of seconds is refused when
+      the connector connects.
+
+      Only **attributes** are exposed. TANGO *commands* (``command_inout``)
+      carry arbitrary payloads the limits database cannot bound, so they have
+      no seam in the connector contract -- the same reason the EPICS connector
+      refuses PVA RPC.
+
+      Reads report the attribute quality as the channel's alarm state
+      (``ATTR_WARNING`` → ``WARNING``, ``ATTR_ALARM`` → ``ALARM``, and so on),
+      and a ``DevEnum`` attribute reads as its integer index with the state
+      labels alongside it, like an EPICS ``mbbi``.
+
+      The connector requires PyTango (the ``pytango`` package). The import is
+      deferred to ``connect()``, so the name registers everywhere and only
+      fails -- with a clear ``ImportError`` instead of a silent degradation --
+      where a TANGO environment is genuinely absent.
+
+      .. note::
+
+         TANGO confirms a write the way every connector does: one fresh read
+         of the attribute, compared exactly against the value that was sent.
+         An ``ATTR_CHANGING`` quality on the readback never softens the
+         verdict -- a readback that does not yet hold the value sent is a
+         ``mismatch``, and the quality rides on the result's alarm fields for
+         the operator to interpret.
+
+   .. tab-item:: Virtual Accelerator
+      :sync: va
+
+      The containerized simulator, over real EPICS Channel Access -- it behaves
+      like ``epics`` but tracks setpoints through the simulator's LUME-backed
+      physics, so correctors move, BPMs respond, and plans actually run (the
+      simulator in process can't run plans):
+
+      .. literalinclude:: examples/control-system-virtual-accelerator.yml
+         :language: yaml
+
+
+      See :doc:`use-virtual-accelerator` for running it and
+      :doc:`/architecture/virtual-accelerator` for how it works.
+
+   .. tab-item:: Your own
+      :sync: custom
+
+      Any other stack OSPREY does not ship a connector for: write a custom
+      connector against the same interface and register it with
+      ``ConnectorFactory``. It then selects by name exactly like the in-tree
+      ones. The seam -- the class to subclass, the pinning
+      test, and how registration works -- is documented in
+      :doc:`/contributing/extending-osprey`.
+
+Every control-system connector block names its call bound ``timeout_s``, in
+seconds; a numeric string such as an interpolated ``${VAR}`` is read as one. A
+config whose connector block carries ``timeout`` instead is refused when the
+config is read, and again when the connector connects.
+
+Pick an archiver
+----------------
+
+Historical data goes through a parallel ``archiver:`` block, chosen
+independently of the control system:
+
+.. tab-set::
+   :sync-group: cs
+
+   .. tab-item:: Mock
+      :sync: in-process
+
+      History for the addresses of the built facility file — the development
+      default:
+
+      .. literalinclude:: examples/archiver-mock.yml
+         :language: yaml
+
+
+   .. tab-item:: EPICS
+      :sync: epics
+
+      The EPICS Archiver Appliance:
+
+      .. literalinclude:: examples/archiver-epics.yml
+         :language: yaml
+
+
+      ``url`` is the appliance's root (or the reverse proxy's). The connector
+      reads through the appliance's retrieval servlet, mounted at ``/retrieval``
+      on a bare appliance; when a proxy in front of the appliance publishes that
+      servlet under a different prefix, name the prefix with ``retrieval_path``.
+
+      ``auth:`` takes ``token_env`` (sent as a bearer token), or ``username``
+      and ``password_env`` (sent as HTTP Basic). Each ``*_env`` names an
+      environment variable that is read when the connector connects; the
+      connector refuses to start while it is unset. The login goes only to the
+      host ``url`` names, never to a host a redirect names. ``tls.ca_bundle`` is
+      an absolute path to the CA file the appliance's certificate is checked
+      against; a ``~`` path is refused, because each process would expand it
+      against its own home. It replaces the trust store for this appliance. When
+      it is unset the image's trust store, which ``images.site_ca`` extends,
+      applies. No setting turns certificate checking off. The build mounts the
+      named file read-only at the same path into every web terminal and dispatch
+      worker, so the same key works in a container; the file must be on the
+      deploy host when ``osprey build`` runs. ``images.site_ca`` remains the way
+      to add a CA to every image.
+
+   .. tab-item:: DOOCS
+      :sync: doocs
+
+      DOOCS *local histories* — only meaningful alongside ``type: doocs``, and
+      needing the same environment-supplied ``doocs4py``:
+
+      .. literalinclude:: examples/archiver-doocs.yml
+         :language: yaml
+
+
+   .. tab-item:: MongoDB
+      :sync: mongodb
+
+      For facilities that store time-series PV data in MongoDB rather than an
+      EPICS Archiver Appliance:
+
+      .. literalinclude:: examples/archiver-mongodb.yml
+         :language: yaml
+
+
+      The collection holds one document per instant: a ``date`` field plus one
+      field per channel sampled at that instant. A channel's field name is its
+      address, with ``%``, ``.`` and NUL written as ``%25``, ``%2E`` and
+      ``%00``, and a leading ``$`` as ``%24``; every other address is its own
+      field name. An address equal to one of the collection's own fields
+      (``_id``, ``date``, ``expireAt``, ``osprey_densified``, or the seed
+      manifest's ``fingerprint``, ``seeded_at``, ``touched_windows``,
+      ``touched_anchor`` and ``coverage``) has its first character written the
+      same way, so a channel named ``date`` is stored as ``%64ate``. A site writing its own store names its fields the same way,
+      so ``SR:MOT1.RBV`` is stored as ``SR:MOT1%2ERBV``.
+
+      The password is only ever named, never written: ``auth.password_env`` is
+      the environment variable that holds it. ``auth.source`` is the database
+      the user is defined in.
+
+      A store behind TLS, in a replica set or behind x509 is named by ``url``, a
+      MongoDB connection string, in place of ``host`` and ``port``:
+
+      .. literalinclude:: examples/archiver-mongodb-url.yml
+         :language: yaml
+
+
+      The url wins over ``host``, ``port`` and the ``OSPREY_ARCHIVER_MONGODB_*``
+      address overrides. It may not carry a user, a password or a key-file
+      password, nor an option the block has its own key for (``authSource``,
+      ``tlsCAFile``, ``serverSelectionTimeoutMS``), nor one that turns
+      certificate verification off (``tlsInsecure``,
+      ``tlsAllowInvalidCertificates``, ``tlsAllowInvalidHostnames``). The
+      recorder and the archive rewrite never write to a store named by url.
+
+      ``tls.ca_bundle`` is an absolute path to the CA file the store's
+      certificate is checked against; a ``~`` path is refused, because each
+      process would expand it against its own home. Without it, a ``tls=true``
+      url uses the image's trust store. No setting turns certificate checking
+      off. The build mounts the named file read-only at the same path into every
+      web terminal and dispatch worker, and into the archive recorder, so the
+      same key works in a container; the file must be on the deploy host when
+      ``osprey build`` runs. ``images.site_ca`` remains the way to add a CA to
+      every image.
+
+      Documents in the collection are expected to have a ``date`` field
+      (``ISODate``) and one or more PV names as top-level fields:
+      ``{date: ISODate(...), PV1: value1, PV2: value2, ...}``. A query matches
+      any document that carries **at least one** of the requested PVs (an
+      ``$or`` across per-PV ``$exists`` checks) -- documents do not need to
+      carry every requested PV together, so channels archived at different
+      cadences, or written into separate documents by different collectors,
+      are still returned correctly, each on its own timestamp series. The
+      connector's MongoDB client ships with OSPREY, so there is nothing extra
+      to install.
+
+   .. tab-item:: MYA
+      :sync: mya
+
+      MYA, Jefferson Lab's archiver, read over its ``myquery`` HTTP service.
+      Every key is optional -- the ``jlab-archiver-client`` library carries its
+      own server and protocol -- so a deployment inside the facility's network
+      needs only the type:
+
+      .. literalinclude:: examples/archiver-mya-minimal.yml
+         :language: yaml
+
+
+      To name a different myquery host, a non-production MYA deployment, or the
+      zone it reads query bounds in:
+
+      .. literalinclude:: examples/archiver-mya.yml
+         :language: yaml
+
+
+      MYA takes no ``auth:`` or ``tls:``: its client sends every request
+      itself, so the connector refuses both rather than ignore them. A site CA
+      reaches it through ``images.site_ca``.
+
+      ``timezone`` spells a UTC query window in the server's own local time,
+      which is the one place myquery has no offset to read. It does not affect
+      the samples that come back: those carry epoch milliseconds, which name an
+      instant outright and so survive the autumn fall-back hour, when every
+      wall-clock time occurs twice.
+
+      The client library is not installed with OSPREY. Add it to the profile's
+      top-level ``dependencies:`` so the image carries it::
+
+         dependencies:
+           - jlab-archiver-client>=4.0.1
+
+      .. important::
+
+         4.0.1 is a floor, not a preference. Earlier releases accept the
+         request for epoch timestamps and then parse them as nanoseconds,
+         dating every sample to January 1970 with no error. The connector
+         checks for that and refuses rather than serving it.
+
+      Aggregates (``mean``, ``min``, ``max``, ``std``...) are computed by
+      myquery's ``mystats`` endpoint. ``median`` is the exception -- MYA does
+      not compute one -- so that mode alone fetches raw events and bins them
+      client-side.
+
+      ``mystats`` is asked for a number of bins rather than a bin width, so a
+      width that does not divide the window evenly costs one extra request:
+      the whole bins, then the ragged remainder as a final partial bin.
+
+      MYA records changes, not samples -- a value stays in effect until the
+      next update. Reads therefore ask for the prior point, so a channel whose
+      last change predates the window still reports that change, at the time
+      it was recorded, instead of answering with nothing at all.
+
+Every archiver takes its settings from one block, ``settings:``, beside the
+``type`` that selects it. A connector of your own is selected by its dotted
+module path and configured the same way:
+
+.. literalinclude:: examples/archiver-custom.yml
+   :language: yaml
+
+
+In a profile's ``config:`` block that is ``archiver.settings.server:
+history.facility.edu``. The block is handed to the connector's ``connect()``
+whole. Any other block under ``archiver:`` is one no archiver reads, and
+``osprey build`` stops and names it.
+
+Every archiver that reaches a service by address spells its request bound
+``timeout_s``, and a login and a CA as ``auth:`` and ``tls:`` above. A flat
+``timeout``, ``token_env``, ``username``, ``password_env`` or ``ca_bundle`` is
+refused with the nested key it moved to.
+
+.. _how-to-write-from-a-program:
+
+Writing from a program
+----------------------
+
+A person's switch opens a whole machine. A program that writes with nobody at
+a prompt, such as an optimizer run, asks for less: a **write authorization**
+naming the channels it will write, a range for each, how many write calls it
+will make, when it ends, and a lease it renews while it runs. A person
+approves it, and every write the program makes is checked against it. The
+machine's switch can stay off throughout, and moving it to *asked* or
+*allowed* does not widen the program. The files and the reasons are in
+:ref:`write-authorization-contract`.
+
+**1. Ask.** The program writes a request into its ledger directory
+(``OSPREY_WRITE_LEDGER_DIR``; on a host with no deployment, its own state
+directory). Spell each channel exactly as it will be written, and count the
+completion write (``apply_best`` or ``restore``) in ``steps``. The steps below
+are taken from one program,
+:download:`write_from_a_program.py <examples/write_from_a_program.py>`, which
+the test suite runs against a stand-in soft IOC, approving its request as the
+person would:
+
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: ask begins
+   :end-before: # docs: ask ends
+   :dedent: 4
+
+The holder is the program's acting identity; the owner is the login the run
+stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
+needs both that variable and ``OSPREY_WRITE_LEDGER_DIR`` bound writable: the
+program opens and renews its lease there, and its connector child spends the
+steps there. ``self_issue()`` is
+the alternative while the owner's switch for the machine stands at
+``allowed``: the program writes its own grant, honoured only while the switch
+stays there.
+
+**2. Wait for the approval.** The owner approves from the chip
+(:ref:`web-terminal-approve-program`) or with ``osprey write-authorization
+approve``. The grant carries the request's id, so the program polls for it:
+
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: wait begins
+   :end-before: # docs: wait ends
+   :dedent: 4
+
+``approved_grant`` raises ``AuthorizationRefused`` for a grant that is there
+and does not stand (revoked, expired, unreadable, another holder's).
+
+**3. Write.** Name the authorization to the connector pool once the lease is
+open, and renew the lease from a heartbeat at a fraction of ``lease_s``. A
+handle taken before the lease started selected the read gateway, and its
+writes are refused ``switching`` (nothing spent) like any other refusal. The
+program builds its pool from the deployment's own configuration,
+``ConnectorHostPool(get_config_value("control_system", {}),
+config_file=default_config_path())``:
+
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: write begins
+   :end-before: # docs: write ends
+   :dedent: 4
+
+and, between write calls, renews its lease:
+
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: renew begins
+   :end-before: # docs: renew ends
+   :dedent: 4
+
+One write call is one step, a batch included, and the step is spent before
+anything is put: a batch with an unlisted channel or a value out of range
+writes nothing; a write the limits database then refuses, and one whose put
+fails, has still spent its step.
+
+**4. Read the reason.** A refused write returns ``outcome`` ``REFUSED`` with
+``verdict_reason`` set (``write_channel_checked`` raises
+``ChannelWriteBlockedError`` carrying it). End the run on any ``auth_*``
+reason rather than retrying: ``auth_exhausted`` (no step left),
+``auth_expired``, ``auth_revoked`` (a person stopped it), ``auth_lease_lapsed``,
+``auth_range`` and ``auth_channel`` (the program wrote outside what was
+approved). Nothing renews an authorization; the program asks again.
+
+An authorization ends at whichever comes first: every step spent, its expiry,
+its lease lapsing, or a person's stop. The bounds hold a program that runs as
+written: the step budget and the lease are kept in the program's own ledger,
+which it can write, so the boundary for a program that must not write at all
+is the gateway it can reach.
+
+**5. Stop.** A person's stop is one gesture: the machine's *off* control,
+**Turn all writes off**, **Revoke** on the card, or ``osprey
+write-authorization revoke``. Each marks the grant revoked, and the program's
+next write is refused ``auth_revoked``. A write already past its check when the
+stop lands goes out as judged.
+
+**6. Crash.** A program that dies stops renewing its lease, and its next write
+— from a restarted process, or anything still holding its connector — is
+refused ``auth_lease_lapsed`` within one ``lease_s``; a reader in the
+holder's own PID namespace ends it at once when the holder's PID is gone. A lease is opened once per authorization,
+so a restarted program asks again. A connector child that crashes is replaced
+on the next call, and the steps already spent stay spent: the ledger is on
+disk.
+
+Contracts and Custom Connectors
+-------------------------------
+
+The behaviour every connector has to implement -- how large array values come
+back, how a write reports whether it took effect and which safety gates it must
+pass first, and what an archiver's historical data must look like -- is
+documented in :doc:`/reference/contracts/connectors`.
+
+To write, register and test a connector — control system or archiver — for a
+system OSPREY does not ship, see :doc:`/contributing/extending-osprey`.
+
+.. seealso::
+
+   :doc:`/reference/contracts/connectors`
+       Connector contracts: reading large values, write confirmation and its
+       safety gates, and the archiver ``get_data`` contract.

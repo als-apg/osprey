@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Connect the Agent to Phoebus Displays &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Connect the Agent to Phoebus Displays &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Switch the Control Target at Run Time" href="switch-control-target.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -661,6 +661,63 @@ handed to the Phoebus process, so it must name a file that process can read.</p>
 names that are. <code class="docutils literal notranslate"><span class="pre">phoebus_panel_lookup</span></code> answers the other way round: given a
 display path, it returns the name that opens it.</p>
 <p>The names belong to the deployment. OSPREY ships none.</p>
+<section id="declare-the-parameters-a-screen-takes">
+<h3>Declare the parameters a screen takes<a class="headerlink" href="#declare-the-parameters-a-screen-takes" title="Link to this heading">#</a></h3>
+<p>A parameterised display, one detail screen that serves many IOCs, hosts or
+devices, is registered once, and the facility declares which parameters it
+takes. Write the entry in its long form: <code class="docutils literal notranslate"><span class="pre">file</span></code> is the display, <code class="docutils literal notranslate"><span class="pre">macros</span></code>
+the list of macro names the agent may pass.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">phoebus.panels.orbit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/opt/displays/orbit.bob</span>
+<span class="w">  </span><span class="nt">phoebus.panels.bpm.file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/opt/displays/bpm.bob</span>
+<span class="w">  </span><span class="nt">phoebus.panels.bpm.macros</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">IOC</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>The caller gives the parameters when opening the panel: <code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code>
+takes an optional <code class="docutils literal notranslate"><span class="pre">macros</span></code> argument, a mapping of macro name to string value
+such as <code class="docutils literal notranslate"><span class="pre">{&quot;IOC&quot;:</span> <span class="pre">&quot;injbpm&quot;}</span></code>. Phoebus opens the display with <code class="docutils literal notranslate"><span class="pre">$(IOC)</span></code>
+resolved in its name, its PV names and its embedded displays. The same panel
+opened with different values is a different display with its own handle.</p>
+<p>Macros are off until a panel declares them. With the entries above:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">bpm</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;IOC&quot;:</span> <span class="pre">&quot;injbpm&quot;}</span></code> opens.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bpm</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;TYPE&quot;:</span> <span class="pre">&quot;other&quot;}</span></code> is refused: <code class="docutils literal notranslate"><span class="pre">TYPE</span></code> is not declared. The
+refusal names the panel and the macros it does declare.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">orbit</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;IOC&quot;:</span> <span class="pre">&quot;injbpm&quot;}</span></code> is refused: the short form declares no
+macros, so the panel takes none.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">phoebus_panel_lookup</span></code> reports a panel’s declared macros beside its name. A
+<code class="docutils literal notranslate"><span class="pre">file</span></code> follows the same path rules as the short form. An entry that is
+neither form is refused when the panel is opened, and the refusal names the
+key.</p>
+<p>The agent chooses the values of the declared macros, and a value is
+substituted into the display’s PV names and embedded-display paths. The server therefore
+accepts only plain tokens. A macro name is letters, digits and underscores,
+starting with a letter. A value is ASCII letters, digits, <code class="docutils literal notranslate"><span class="pre">.</span></code>, <code class="docutils literal notranslate"><span class="pre">_</span></code> and
+<code class="docutils literal notranslate"><span class="pre">-</span></code>, starting with a letter or digit and without <code class="docutils literal notranslate"><span class="pre">..</span></code>. An IOC or host
+name passes. A PV prefix with a colon (<code class="docutils literal notranslate"><span class="pre">SR01:BPM1</span></code>) does not, and such a
+display is opened by the operator.</p>
+<p>What the check guarantees is narrow: a value cannot leave the display’s
+directory and cannot refer to another macro. It does not limit the rest:</p>
+<ul class="simple">
+<li><p>Any value that passes is accepted for a declared macro, so a panel that
+declares <code class="docutils literal notranslate"><span class="pre">IOC</span></code> can be opened for every IOC its screen can show. The
+declaration names macros; it does not yet restrict their values.</p></li>
+<li><p>Where a display builds a file name from a declared macro
+(<code class="docutils literal notranslate"><span class="pre">$(TYPE).bob</span></code>), the value selects any sibling file of that form.</p></li>
+<li><p>A macro passed at open time overrides a site-wide Phoebus preference macro
+of the same name for that display, so declaring a name that is also a
+preference macro hands that setting to the agent. A macro the display file
+defines itself keeps the file’s value.</p></li>
+</ul>
+<p>Declare a macro only where any value of it is acceptable for the agent to
+see and, with drive access, to act on.</p>
+<p>Macros need a bridge whose <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/open</span></code> applies the <code class="docutils literal notranslate"><span class="pre">macros</span></code> field and
+reports them back. Against an older bridge, which ignores the field, the
+server refuses the call with <code class="docutils literal notranslate"><span class="pre">not_supported</span></code> instead of reporting a display
+whose macros are unresolved. Without <code class="docutils literal notranslate"><span class="pre">macros</span></code> the request is the same for
+every bridge version.</p>
+</section>
 </section>
 <section id="several-terminals-one-phoebus">
 <h2>Several terminals, one Phoebus<a class="headerlink" href="#several-terminals-one-phoebus" title="Link to this heading">#</a></h2>
@@ -786,7 +843,10 @@ they stand.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-server-gives-the-agent">What the server gives the agent</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#before-you-start">Before you start</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#enable-the-server">Enable the server</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#register-your-panels">Register your panels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#register-your-panels">Register your panels</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#declare-the-parameters-a-screen-takes">Declare the parameters a screen takes</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#several-terminals-one-phoebus">Several terminals, one Phoebus</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#data-browser-plots-and-snapshots">Data Browser plots and snapshots</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-second-phoebus">A second Phoebus</a></li>

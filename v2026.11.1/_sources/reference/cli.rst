@@ -1,0 +1,2384 @@
+.. _reference-cli:
+
+=============
+CLI Reference
+=============
+
+Complete reference for all Osprey Framework CLI commands.
+
+**Prerequisites:** Framework installed (``uv sync``)
+
+Overview
+========
+
+All commands are accessed through the ``osprey`` command.
+
+A deployment is a git repository: ``profile.yml`` at its root is the source you
+edit, ``build/`` is what a build renders from it, and ``var/`` is durable state.
+The lifecycle verbs find that repository by walking up from wherever you are
+standing, so none of them has to be told where it is; ``--repo DIRECTORY``
+names another one explicitly.
+
+.. code-block:: bash
+
+   osprey --version          # Show framework version
+   osprey init               # Create a deployment repo from a preset
+   osprey set KEY=VALUE      # Write a setting into profile.yml
+   osprey validate           # Check profile.yml without building
+   osprey build              # Render build/ from profile.yml
+   osprey up                 # Start the deployment, as built
+   osprey down               # Stop it, keeping all data
+   osprey restart            # Stop and start it again
+   osprey status             # Show what it is doing
+   osprey logs               # Show its container logs
+   osprey reset              # Wipe it back to a fresh state
+   osprey config             # Show the deployment configuration
+   osprey chat               # Talk to this deployment's agent
+   osprey query              # Send one prompt to the agent, print the answer, exit
+   osprey users              # Manage web-terminal users
+   osprey write-authorization # Approve, list and revoke programs' write authorizations
+   osprey feedback           # Read feedback sent from the web terminals
+   osprey profile            # Validate and inspect build profiles
+   osprey health             # Check system health
+   osprey channel-finder     # Channel finder CLI
+   osprey knowledge          # Facility knowledge bundles and graph corpus
+   osprey facility           # Check and show the facility description under data/facility/
+   osprey app                # Make and check a deployment's apps
+   osprey sim                # Simulation scenario commands
+   osprey ariel              # ARIEL logbook search service
+   osprey archive            # Copy artifacts and plan-queue history into var/archive
+   osprey history            # Serve the history page (the history service's entry)
+   osprey agent-record       # The agent record: serve it, check its health, run its export
+   osprey web                # Launch web terminal
+   osprey theme-lab          # Design and preview a theme in the browser
+   osprey scaffold           # CI files, boot unit, build artifact overrides
+   osprey audit              # Audit project or profile safety
+   osprey watchdog           # Try safety watchdogs on labelled prompts
+   osprey vendor             # Manage locally bundled vendor assets
+
+Global Options
+==============
+
+``--version``
+   Show framework version and exit.
+
+``-v, --verbose``
+   Show debug output, including every container command run. The transcript
+   takes the place of the progress report rather than joining it, so under
+   ``-v`` no phase or step lines are printed at all. Without it, a run prints
+   the progress report and the command's own output only; log records below
+   WARNING never reach the screen, though they still reach every sink the
+   deployment configures.
+
+``--help``
+   Show help for any command (e.g., ``osprey build --help``).
+
+osprey init
+===========
+
+Create a deployment repository from a bundled preset.
+
+.. code-block:: bash
+
+   osprey init [DIRECTORY] --preset NAME [OPTIONS]
+
+``DIRECTORY`` is the repository the deployment lives in. Omit it to initialize
+the current directory in place, which is how a repository cloned empty from a
+forge is filled in.
+
+The directory's name is proposed as the deployment's name: ``osprey init``
+normalizes it to a valid compose project name and records it in
+``profile.yml`` as ``project_name:``, beside the display ``name:``. That
+tracked value names the compose project, volumes, images and login renders
+on every host from then on; the folder a later clone sits in plays no part. Change
+it in ``profile.yml``, or with ``osprey set project_name=NAME``, before the
+first ``osprey up`` if the folder name is not the name you want
+(:ref:`reference-profile`).
+
+The repository holds four zones — source you edit, secrets, disposable build
+output, and durable state:
+
+.. code-block:: text
+
+   DIRECTORY/
+     profile.yml                    the manifest; everything the preset configures
+     providers.yml                  the model-provider catalog `provider:` picks from
+     data/ tiers/ apps/ triggers.yml  the material it names — yours to edit
+     .env                           provider keys, seeded from your shell
+     build/                         rendered by `osprey build`; gitignored
+     var/                           agent memory and audit log; gitignored
+
+An active ``dispatch:`` or ``va_archiver:`` block is written whole, so that
+its run limits and identity can be read and changed where the block sits: each
+key the preset leaves unstated appears at its default, with a one-line comment.
+Keys the build derives (the ports it takes from ``port_base``, the archiver
+host) or that have no default are left out.
+
+``git init`` and an initial commit run at the end, unless a git repository
+already encloses the target or ``--no-git`` is given.
+
+``--preset NAME`` — Bundled preset to materialize.
+
+``--list-presets`` — List bundled preset names and exit.
+
+``--set KEY.PATH=VALUE`` — Edit the emitted profile (repeatable): the value at
+``KEY.PATH`` is replaced, whatever the preset holds there — a list you state is
+the list the profile holds. The same edit ``osprey set`` makes once the profile
+exists. RHS is parsed as YAML, so ``[]`` and ``null`` are values. Top-level
+shorthands: ``provider``,
+``model``, ``channel_finder_mode``, ``connector``, ``port_base`` (move the whole
+deployment onto another thousand-port block, e.g. ``--set port_base=42000`` —
+handy for a second stack beside one already on the default 10000 block).
+
+``--force`` — Re-materialize the source zone of an existing deployment
+repository, discarding edits to ``profile.yml``, ``data/``, ``tiers/``,
+``apps/``, ``triggers.yml``, ``web-terminal-context/``, ``watchdogs/``, and
+``.env.example``. In ``providers.yml`` the entries OSPREY ships are reset to the
+packaged values and the ones you added are kept. Never touches ``.env``,
+``.git``, ``var/``, ``build/``, ``.gitignore``, ``.env.shared``, ``README.md``,
+``ci-extra.yml``, the CI file, ``scripts/verify.sh``, ``mcp_servers/``, or
+``rules/``.
+
+``--reset`` — Start over on a name used before. Deleting a deployment's
+directory leaves its containers and data volumes behind, because they are keyed
+on the ``project_name``: a repository re-created under that name meets them,
+and its first ``osprey up`` refuses to start while an old store would reject
+the freshly minted credential. ``--reset`` makes the removal
+``osprey reset --yes`` makes (the containers, data volumes and images, and,
+when the repository still exists, the agent's memory, ``build/`` and the tokens
+minted into ``.env``), then re-materializes the source zone as ``--force`` does.
+**The data is lost, and nothing asks you to confirm.** It refuses up front when
+no container runtime answers. To keep the old data instead, pass
+``--reuse-stores`` to ``osprey up``.
+
+``--no-git`` — Skip ``git init`` and the initial commit.
+
+``--revalidate [--preset NAME]`` — Bring an existing deployment repository to
+this OSPREY in place: the current profile vocabulary, what the presets changed
+since the repository last took them, the provider entries and keys OSPREY
+added since (every value already in ``providers.yml`` is kept), and, while the
+profile's lists name nothing by path, the repo's own
+skills, agents, rules, output styles and hooks named by path in ``profile.yml``
+and each ``lists: own`` login (a bare entry the repo ships a file for becomes its path), so
+every render keeps what it carried.
+A preset change is applied only where your file still holds the preset's old
+value: an added key, panel or step you lack is added, and a removed or changed
+one you kept is removed or updated. Anything you changed yourself is left
+alone, and a key, entry or provider you deleted is not added back. What it does
+not apply but you may want is printed once, under "left for you". Drop any
+change you do not want from the diff before you commit: it is not offered
+again. ``--preset NAME`` switches the profile to that preset and fills in what
+it has and the profile lacks. A repository made before this tracking existed
+starts it on its first ``--revalidate``: nothing records what its presets said,
+so that run fills in the ``config:`` keys the profile lacks and lists whatever
+else differs from the presets under "left for you", applying none of it.
+A login file left in ``apps/`` moves to ``tiers/<name>.yml``: one never edited
+is re-emitted from the bundled login, an edited one keeps its lines and gains
+``lists: own`` and, unless it states its writes, ``control_system.writes:
+never``; where the ``tiers/`` file already exists, the output says to merge the
+two by hand. A ``landing.groups`` entry ``type: apps`` becomes
+``type: shared``; until then it reads as ``shared`` for one release.
+Your deployment's own selections — the roster, the shared logins, the default
+tier, role tiers, the landing groups — are left for you and named in the
+output. Retired write keys are rewritten to the tier key
+``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
+retired per-tool policies for switch-governed tools are removed. Prints
+a diff to review and commit.
+
+The step is one-way: an older OSPREY refuses the revalidated repository. To go
+back, check out the repository as it was before the commit and install the
+previous release.
+
+``--up`` / ``-d, --detach`` / ``--dev`` — Build and start the deployment right
+away, optionally in the background or in development mode.
+
+.. code-block:: bash
+
+   osprey init --list-presets
+   osprey init my-assistant --preset demo
+   osprey init demo --preset demo --up -d --dev
+   osprey init my-assistant --revalidate
+
+osprey set
+==========
+
+Write settings into the deployment profile.
+
+.. code-block:: bash
+
+   osprey set KEY=VALUE... [--repo DIRECTORY]
+
+Each ``KEY=VALUE`` is written into this repository's ``profile.yml`` in place,
+comments intact. That file is the source of truth, so this is the only command
+that edits configuration for you — the rendered ``build/config.yml`` is
+generated from it and is never hand-edited. Run ``osprey build`` to carry a
+setting through to ``build/``, then ``osprey up`` to deploy it.
+
+``KEY`` is a top-level profile key (``provider``, ``model``,
+``channel_finder_mode``, ``connector``) or a dotted path. Keys under ``config.``
+address the rendered config: ``config.control_system.type=epics`` writes that
+literal dotted entry into the profile's ``config:`` block. ``VALUE`` is read as
+YAML, so ``true``/``false`` become booleans and bare numbers become numbers.
+
+``channel_finder_mode`` names the channel-finder paradigm the build renders:
+``in_context``, ``hierarchical``, ``middle_layer`` or ``graph``. The first three
+search a channel database file; ``graph`` searches the graph store named by
+``services.graphdb`` -- deployed with the stack or facility-hosted -- instead of
+a database file.
+
+One shorthand stands in for a longer key path: ``connector=`` writes
+``config.control_system.type``. It takes the built-in types ``epics``,
+``virtual_accelerator``, ``doocs``, ``tango`` and ``live_standin``; whether the
+simulator runs in process is set by
+``config.control_system.connector.virtual_accelerator.serving``. (Control
+systems beyond the bundled ones are reachable through custom connector
+packages — see
+:doc:`/how-to/control-systems/use-connectors`.) An EPICS gateway is written by
+its own dotted keys, which is the only spelling: OSPREY ships no table of
+facilities' gateway addresses.
+
+.. code-block:: bash
+
+   osprey set model=claude-sonnet-5
+   osprey set connector=epics
+   osprey set channel_finder_mode=in_context
+   osprey set config.system.timezone=America/Los_Angeles
+   osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
+   osprey set --repo ~/my-assistant config.control_system.writes=never
+
+``osprey set`` only lowers the write ceiling; raise it in the profile or tier file.
+
+osprey validate
+===============
+
+Check the deployment profile without building.
+
+.. code-block:: bash
+
+   osprey validate [TARGET] [--repo DIRECTORY]
+
+With no argument, validates the deployment repository enclosing the working
+directory. ``TARGET`` names a different profile to check instead — a login
+file under ``tiers/``, or a directory holding a ``profile.yml``.
+
+Resolves ``extends:`` chains and runs the full consistency check — convention
+directories, the ``data:`` tree, service templates, lifecycle steps, env vars —
+then lints the declared web stack against the config a build would render. Every
+problem found is reported, not just the first. Exits 0 when the profile is
+valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
+
+The profile is yours to edit, so no difference from the preset ``osprey init``
+wrote it from is refused or listed, in ``profile.yml``, a login file, or
+``providers.yml``. When the bundled preset has changed since, ``validate`` and
+``osprey build`` print one line saying so.
+
+.. code-block:: bash
+
+   osprey validate
+   osprey validate tiers/readonly.yml
+   osprey validate --repo ~/my-assistant
+
+osprey config
+=============
+
+Show the deployment configuration.
+
+.. code-block:: bash
+
+   osprey config [--rendered | --defaults] [--repo DIRECTORY]
+
+With no flag, prints the source ``profile.yml`` — the tracked, hand-edited
+manifest — exactly as it is on disk, comments included. Output is piped through
+unchanged when stdout is not a terminal. This command only reads; to change a
+setting, use ``osprey set``.
+
+``--rendered`` — Show the built ``config.yml`` the deployment actually runs on.
+
+``--defaults`` — Show every key the framework reads and the value it falls back
+to when ``profile.yml`` does not spell that key. Needs no deployment
+repository.
+
+``--defaults`` prints a ledger, not a template to copy: one line per key, in
+full dotted form, grouped by top-level block, with the comment above each key
+saying where the answer comes from. Every answer was read out of the code that
+reads the key, so it is what actually happens when a line is absent — which is
+the question a preset cannot answer, because a preset shows a value. A key with
+a literal default prints it as YAML; where there is no literal, a marker stands
+in:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - Marker
+     - Meaning
+   * - ``<required>``
+     - No fallback exists and none may be invented. A deployment's
+       ``profile.yml`` has to spell this key.
+   * - ``<derived>``
+     - Computed when the key is read. The comment above the key names what it
+       is computed from.
+   * - ``<no fallback>``
+     - The reader supplies none: it raises, or nothing reads the key yet, or
+       "unstated" is deliberately not "false". The comment says which.
+   * - ``<covered by KEY>``
+     - The leaf has no reader of its own, so ``KEY`` carries the default that
+       covers it. With no enclosing key in the ledger this reads
+       ``<no separate default>``.
+
+.. code-block:: bash
+
+   osprey config
+   osprey config --rendered
+   osprey config --defaults | less
+   osprey config --defaults > defaults.yml
+
+osprey profile
+==============
+
+Validate and inspect build profiles. The profile is the durable, facility-owned
+source a deployment is built from — see :doc:`/how-to/build-profiles`.
+
+.. code-block:: bash
+
+   osprey profile validate TARGET
+   osprey profile presets
+   osprey profile artifacts
+   osprey profile card
+   osprey profile panels
+
+``osprey profile validate TARGET``
+   Check a profile without building anything. ``TARGET`` is a directory holding
+   a ``profile.yml`` or a path to a profile file. Resolves ``extends:`` chains
+   and reports every problem found — convention directories, the ``data:``
+   tree, service templates, lifecycle steps, env vars. Exits 0 when valid, 2
+   with the accumulated errors when not. Inside a deployment repository, plain
+   ``osprey validate`` checks that repository without naming a target.
+
+``osprey profile presets``
+   List bundled preset names, one per line. Every name printed is usable as
+   ``--preset NAME`` for ``osprey init``.
+
+``osprey profile artifacts``
+   List every artifact the six profile lists can name — hooks, rules, skills,
+   agents, output styles, and web panels — with a one-line description of
+   each. The same menu appears as commented entries in an emitted profile.
+
+``osprey profile card [--json] [--repo DIRECTORY]``
+   Print the composition card ``osprey init`` prints, for a repo that already
+   exists: who can sign in and with what rights, what the agent runs on, what
+   machine it talks to, and what runs beside it. It reads ``profile.yml`` and
+   the login files beside it; nothing is built, started or probed.
+   ``--json`` prints the rows as one JSON array of ``{group, label, value}``
+   objects on stdout and every warning on stderr.
+
+``osprey profile panels [--json] [--html FILE] [--repo DIRECTORY]``
+   Print which login shows which panel: one row per panel, one column for the
+   deployment's own profile and for every file under ``tiers/``. A cell is
+   ``DEFAULT`` (the tab the login opens on), ``tab``, ``menu`` (selected but
+   hidden, so reachable from the panel menu only) or ``-``. It reads each
+   login's resolved profile, the way the build does; nothing is built.
+   ``--json`` prints the table as one document in which every cell names the
+   file whose line selects the panel and the file whose line hides it.
+   ``--html FILE`` writes the table as one self-contained page, where
+   selecting a cell says which file decides it. A login that selects the
+   ``roster`` panel reads the same page inside the web terminal, as of the
+   last build.
+
+.. code-block:: bash
+
+   osprey profile presets
+   osprey init my-facility --preset demo --set model=claude-opus-5
+   cd my-facility
+   osprey validate
+   osprey build
+
+osprey build
+============
+
+Render this deployment repository's ``build/`` from its profile.
+
+.. code-block:: bash
+
+   osprey build [OPTIONS]
+
+Run it with no arguments, anywhere inside a deployment repository. It walks up
+to the repository's ``profile.yml`` and renders the whole output zone from it:
+``config.yml``, the OSPREY agent artifacts, the data tree, the service templates
+and the compose files that deploy them.
+
+``build/`` is derived in full and holds nothing durable — your keys are in
+``.env``, the agent's memory is in ``var/`` — so every build wipes and
+re-renders it. The render lands in ``build/.tmp`` and replaces ``build/`` only
+once it has succeeded, so a build that fails, or one you interrupt, leaves the
+previous build exactly as it was and still able to stop the stack it started.
+
+It renders files, never containers: rebuild while the stack is up and the change
+takes effect at the next ``osprey up`` or ``osprey restart``.
+
+``-s, --stream`` — Stream lifecycle step output in real time.
+
+``--skip-lifecycle`` — Skip the profile's ``pre_build``, ``post_build``, and
+``validate`` steps; deployment-package wheels are still built and installed.
+
+``--skip-deps`` — Skip venv creation and dependency installation (CI mode);
+deployment-package wheels are still built, for the image. Building a wheel runs
+the package's own build code, which can read ``HOME`` and ``PIP_*``/``UV_*``
+variables.
+
+``--runtime-root PATH`` — Override ``project_root`` in the rendered config, for
+a build whose output runs somewhere other than where it was made.
+
+``--dev`` — Render a dev build: bake the local osprey checkout into the service
+images instead of the published release. ``osprey up --dev`` starts it.
+
+``--repo DIRECTORY`` — Deployment repository to act on (default: the nearest
+``profile.yml`` at or above the working directory).
+
+.. code-block:: bash
+
+   osprey build
+   osprey build --repo ~/deployments/my-assistant
+   osprey build --skip-lifecycle --skip-deps          # CI: no venv, no hooks
+
+Lifecycle verbs
+===============
+
+``osprey up``, ``down``, ``restart``, ``status``, ``logs`` and ``reset`` run the
+deployment's container stack. Each one takes ``--repo DIRECTORY`` and otherwise
+needs no arguments: run it anywhere inside the deployment repository.
+
+osprey up
+---------
+
+Start this deployment from ``build/``, as built.
+
+It starts what the last ``osprey build`` rendered and re-renders nothing from
+``profile.yml``, so the services that come up are always the ones you can read
+on disk. It reads ``profile.yml`` for one thing: a fingerprint. If the profile
+has changed since the build, ``up`` refuses and says what moved, because
+starting would deploy something other than what the profile now describes.
+
+One exception, by design: a deployment with web terminals re-renders that stack
+at every start — its compose file, nginx config, landing page, and any login
+whose project is missing. Those follow the user roster rather than the build, so
+a roster edit takes effect on the next start.
+
+Before it touches a container, ``up`` checks who created the ones already
+running under this deployment's ``project_name``. It refuses when containers
+named for this project were created from another checkout of the repository —
+a second clone or worktree on the same host reads the same tracked name — and
+names that checkout. Nothing is deployed. Either stop the deployment where it
+lives (``osprey down --repo <that checkout>``), or give this copy its own name
+in a variant overlay:
+
+.. code-block:: text
+
+   profiles/scratch.yml:   project_name: <project_name>-scratch
+   .env.variant:           OSPREY_PROFILE_VARIANT=scratch
+
+then ``osprey build`` and start again (:ref:`deploy-two-checkouts-one-host`).
+Containers with no checkout label count as this deployment's. ``osprey restart``
+runs the same check before it stops anything.
+
+Whether the deployment is reachable off-host is a property of the build, not of
+this command: the bind address is rendered into every published port. Change it
+with ``osprey set config.deployment.bind_address=0.0.0.0``, then rebuild.
+
+``-d, --detached`` — Run services in the background.
+
+``--dev`` — Start the dev render, with freshly built images running the local
+osprey checkout instead of the published release. Needs a dev build
+(``osprey build --dev``), or ``--build`` to chain one.
+
+``--build`` — Re-render ``build/`` from ``profile.yml`` first, then start it.
+
+``--as-built`` — Start ``build/`` as it was rendered, even though ``profile.yml``
+has moved on.
+
+``--keep-archiver-base`` — Keep the existing archiver history even when the
+profile's retention/cadence knobs no longer match it. Without it, changed knobs
+rebuild the base series and discard recorded samples.
+
+``--reuse-stores`` — Adopt the data volumes an earlier deployment of this name
+left behind, keeping their contents: each store's original credential is
+restored to ``.env`` in place of the one just generated. Only possible while the
+store's container survives.
+
+osprey down
+-----------
+
+Stop this deployment, keeping all data. It renders nothing; destroying data is
+``osprey reset``, which asks first.
+
+If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
+compose files from ``profile.yml`` — those describe what would be started now,
+not what is running. Instead it stops the services the last start recorded, in
+the compose project it recorded. That is the recovery path for a ``build/``
+deleted while the stack was up.
+
+While another checkout of this repository holds the project name, ``down``
+refuses, names that copy, and stops nothing.
+
+A deployment whose record names no services, or a repository with no record, is
+stopped by the label this repository put on its containers. Containers are
+labelled when they are *created*, so a stack started before this labelling
+existed cannot be found that way; run ``osprey build`` to restore ``build/`` and
+``down`` works normally again.
+
+osprey restart
+--------------
+
+Stop and start this deployment again. Takes the same options as ``up``:
+``-d/--detached``, ``--dev``, ``--build``, ``--as-built``,
+``--keep-archiver-base``, ``--reuse-stores``. ``--reuse-stores`` is checked
+before the stop, since stopping removes the containers it reads from. The stop
+half acts on the runtime and compose project the last ``osprey up`` recorded;
+the start half picks the runtime the setting selects now.
+
+osprey status
+-------------
+
+Show what this deployment is doing. It reads and reports — it starts nothing,
+stops nothing and renders nothing — so it is safe to run against a live stack at
+any time.
+
+Five sections. **Build** says whether ``build/`` still matches ``profile.yml``,
+the same check ``osprey up`` refuses on, and which version of osprey rendered it.
+**Containers** is what the container runtime reports, not what compose thinks
+should exist. **Endpoints** is where the services are declared to answer.
+**Writes** lists each login's tier and switch positions.
+**Agent** is the provider, whether its credential can be found, and whether the
+rendered agent files still match the config.
+
+``--agents`` — Also show the per-subagent model assignments.
+
+osprey logs
+-----------
+
+Show this deployment's container logs, and step out of the way: ``-f`` streams,
+Ctrl-C stops it, piping into other commands works, and the exit code is the
+runtime's own. Both halves of a deployment are covered — the services and, when
+there is one, the web-terminal stack.
+
+``-f, --follow`` — Keep streaming new output until interrupted.
+
+``--tail INTEGER`` — Show only the last N lines per container.
+
+.. code-block:: bash
+
+   osprey logs
+   osprey logs event-dispatcher -f
+   osprey logs --tail 50
+
+osprey reset
+------------
+
+Wipe this deployment back to a fresh state. It stops the stack, removes the
+containers, volumes and images of this deployment, destroys the
+agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
+out of ``.env``, and deletes ``build/``, ``var/deployment.json`` and
+``var/host-network-ports.json``.
+
+What survives, the plan lists before you confirm:
+
+- ``var/audit/`` — the audit files written before the agent record;
+- ``var/agent_record/`` — the agent record, with ``var/spool/`` feeding it and,
+  on the ClickHouse backend, the record's data volume
+  (``<project>_agent_record_clickhouse_data``);
+- ``var/archive/`` — the archive: the record's daily exports, with the artifact
+  and Bluesky copies beside them;
+- ``var/state/`` — each identity's locks, leases and markers;
+- everything in ``.env`` that a deploy did not mint — your provider keys.
+
+The source zone is never touched: ``profile.yml``, ``data/``, ``tiers/``,
+``apps/``, ``triggers.yml`` and ``.git`` are exactly what they were.
+
+Reset refuses, touching nothing, while a host ``osprey web``, ``chat`` or
+``query`` is running the agent record locally, and names those sessions.
+
+What belongs to this deployment is decided two ways. A container records the
+checkout that created it in a label, and reset refuses outright — removing
+nothing — when containers under this ``project_name`` were created from a
+different checkout; it names that checkout so you can reset from there. A
+container with no label at all counts as this deployment's. Volumes carry no
+such label: they belong to the project by name (``<project_name>_<volume>``),
+so once the containers check out, every volume under that name is removed,
+except the record's data volume a plain reset keeps.
+
+``--dry-run`` — Show the removal plan and stop. Nothing is stopped, removed, or
+written.
+
+``-y, --yes`` — Skip the typed confirmation. The plan is still printed.
+
+``--purge-audit`` — Also destroy the agent record and the audit files from
+before it: ``var/audit/``, ``var/agent_record/``, ``var/spool/``, the record's
+ClickHouse volume, and the record's exports in the archive
+(``var/archive/<day>/agent_record/``), marking each purged day in its
+manifest. All are kept by default. ``var/state/`` and the rest of
+``var/archive/`` are kept either way.
+
+Exit status: ``0`` the reset did what it said (or there was nothing to do),
+``1`` you declined or it refused, ``3`` it ran but the deployment is only partly
+reset, with each survivor named above the exit.
+
+.. code-block:: bash
+
+   osprey up -d
+   osprey status
+   osprey up --build -d
+   osprey restart --dev
+   osprey logs -f
+   osprey down
+   osprey reset --dry-run
+
+osprey users
+============
+
+Manage this repository's web-terminal users. A multi-user deployment gives each
+person on the roster their own web terminal, container and workspace volumes;
+these verbs act on that roster, which lives in the profile. Every verb takes
+``--repo DIRECTORY``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 46 32
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``remove USER``
+     - Retire one person: remove their web-terminal workspace.
+     - ``--archive``, ``--purge``, ``-y/--yes``
+   * - ``prune``
+     - Remove workspaces for people no longer on the roster.
+     - ``--archive``, ``--purge``, ``-y/--yes``, ``--dry-run``
+   * - ``seed [USER]``
+     - (Re)seed workspaces from the roster; ``USER`` targets one person, omit
+       to reseed all.
+     - —
+   * - ``passwd USER``
+     - Change one user's login password (password authentication only).
+       Prompts without echoing, and ends that user's sessions.
+     - —
+   * - ``list [USER]``
+     - Show every card, what it runs and who may open it, with a grid of
+       logins against shared cards. Name a login for what it may open, or a
+       card for who may open it. Reads only.
+     - ``--json``, ``--live``
+   * - ``login-url USER``
+     - Print the URL that opens that user's terminal under ``auth.method:
+       token``. Only the URL goes to stdout, so it can be piped or copied.
+       Refuses for a user who signs in through a login page, and for every
+       user of an open deployment.
+     - —
+   * - ``env``
+     - Render ``.env.users``, the env file every per-user container runs
+       with.
+     - ``--env-file``, ``-o/--output``
+
+``--archive`` -- Archive a user's workspace before removing it (mutually exclusive with ``--purge``).
+
+``--purge`` -- Permanently delete a user's workspace without archiving it (mutually exclusive with ``--archive``).
+
+``-y, --yes`` -- Assume yes to confirmation prompts.
+
+``--dry-run`` -- Show what would happen without making changes.
+
+``osprey users list`` joins the rendered roster, shared logins and each
+render's ``control_system.writes`` by the rules the render and the login service
+apply.
+``--live`` adds container state and last sign-in from the running stack; off the
+host, or with the stack down, those read as a dash. Sign-ins come from the agent
+record, in UTC, so a dash there means the record holds none, not that the person
+never signed in. The grid appears only under
+``password`` and ``oidc``, the two methods that enforce ``access``; under
+``none`` and ``token`` the command says what opens a card instead.
+
+``osprey users login-url`` builds the URL from that user's operator secret in
+the repository's ``.env``, which ``osprey up`` mints for every roster user in
+every auth mode. Opening it once trades the token for a session cookie. It is
+how someone gets in under ``auth.method: token``, the default, where nginx
+stamps no credential on the request — and it is a password: send each person
+only their own. Rotate one by deleting
+that user's ``OSPREY_TERMINAL_SECRET_*`` line from ``.env`` and running
+``osprey up`` again.
+
+The command refuses in the two cases where the URL would accomplish nothing,
+rather than putting a live credential in someone's inbox for it. A user behind
+a login page (``password``/``oidc``) is named their login page instead: the
+authentication service turns the request away before the terminal can read the
+token. A user of an open deployment (``auth.method: none``) is named their
+terminal's plain address instead, because nginx vouches for that terminal on
+every request and there is no token to trade.
+
+``osprey users env`` renders the same subset a deploy would generate, from the
+same two inputs — the rendered deploy config and the repository root's env
+chain (``.env.shared`` then ``.env``, so ``.env`` wins on a key both set) — so
+a file rendered here and one generated by ``osprey up`` cannot disagree. Values
+come only from those files, never from the surrounding environment.
+``--env-file PATH`` renders from that one file instead of the chain.
+``-o/--output PATH`` writes the result at mode ``0600`` instead of to stdout,
+replacing whatever is there. A deploy re-renders only a ``.env.users`` it
+rendered itself and never touches one you have edited by hand — but it refuses
+to start when such a file disagrees with ``.env`` on a provider key, and this
+verb is the remedy it names. In CI, pass ``--output``: without it the assembled
+secrets go to the job log.
+
+.. code-block:: bash
+
+   osprey users remove alice --archive
+   osprey users prune --dry-run
+   osprey users list
+   osprey users seed alice
+   osprey users passwd alice
+   osprey users login-url alice
+   osprey users env --output .env.users
+
+See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
+verbs end to end.
+
+.. _cli-osprey-write-authorization:
+
+osprey write-authorization
+==========================
+
+Approve, list and revoke a program's bounded write authorization without a web
+terminal (see :ref:`how-to-write-from-a-program`). Inside a deployment repo, or
+with ``--repo DIRECTORY``, the verbs act on the deployment's control-context
+tree as the login a request names, and read the requests from
+``var/write_ledger/requests`` and, for a program run on the host, from each
+login's own ``authorizations/requests``. Outside a deployment they act on this account's
+own state directory: the owner is this account, as on a laptop with no
+terminal.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 46 28
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``approve REQUEST``
+     - Show a request (a file, or its id) and approve it: the grant is written
+       under the owner's record lock, with ``approver.identity`` this account
+       and ``surface: "cli"``. Refused, with nothing written, for a target
+       the deployment does not configure, a ``never`` or unknown tier (judged
+       as the program's own writes will be: by the staged login map for a
+       request in ``var/write_ledger``, by the rendered config for one filed on
+       the host), a range
+       outside the limits database, a channel with no numeric range there, and
+       a channel another program of the same owner holds (``auth_overlap``).
+     - ``--owner LOGIN``, ``--config FILE``, ``--yes``
+   * - ``list``
+     - The requests waiting for approval and the authorizations, each in force
+       or not, with the steps used of the total; one whose steps are used or
+       whose lease lapsed is not in force. A program's self-issued grant, written at
+       *allowed* into ``var/write_ledger``, is listed too, marked self-issued.
+       Grants that ended over an hour ago are pruned.
+     - ``--owner LOGIN``, ``--json``
+   * - ``revoke ID``
+     - Mark one authorization revoked, a self-issued one included; the
+       holder's next write is refused.
+     - ``--owner LOGIN``
+
+.. code-block:: bash
+
+   osprey write-authorization list
+   osprey write-authorization approve 3f2a…9c1e
+   osprey write-authorization approve ./request.json --yes
+   osprey write-authorization revoke 3f2a…9c1e
+
+osprey feedback
+===============
+
+Read the feedback this deployment's web terminals collected. People using a web
+terminal can send a report from the terminal itself; each submission is stored
+with the session it was sent from, in the sender's own workspace, and these
+verbs read it back. Every verb takes ``--repo DIRECTORY``.
+
+A multi-user deployment keeps one store per person, and reading it starts a
+short-lived read-only container on each person's workspace — so the
+deployment's container runtime has to be up. A single-user deployment keeps one
+store on this machine, read straight off disk.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 46 32
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``list``
+     - One line per submission, newest first: id, who sent it, when (UTC),
+       which channel it went out on, and the start of the message. Headers
+       only.
+     - —
+   * - ``export``
+     - Every submission's whole record plus the session captured with it, as
+       one JSON array. Written a record at a time, so a large store never has
+       to fit in memory.
+     - ``-o/--output``
+
+``-o, --output PATH`` -- Write the export to this file instead of stdout. Naming
+a directory, or a file inside a directory that does not exist, is a usage error
+at parse time, before any workspace is read.
+
+With no ``--output``, ``export`` puts the JSON document on stdout and nothing
+else, so it can be redirected straight into a file; errors and the closing
+summary go to standard error. With ``--output``, the human output stays on the
+terminal and the file holds the export. An empty store exports ``[]``.
+
+A workspace that cannot be read is reported and the rest of the deployment is
+still listed or exported; the export's closing summary distinguishes a workspace
+that contributed nothing from one that was only partly readable. If nothing at
+all could be read, both verbs stop rather than reporting a deployment with no
+feedback in it.
+
+Exit status: ``0`` on success, including a deployment nobody has sent feedback
+from. Non-zero when the repository has no build, when every workspace failed to
+read, and when an export stopped part-way — in which case the file still parses
+and holds what was read.
+
+``agent_data.base_dir`` is checked on the **single-user** path only, and a
+``~``-relative value there is non-zero with the explanation (the data lands
+where the verb cannot reach it). The multi-user path never consults the key: it
+mounts each person's volume and reads a fixed path inside it, so a rostered
+deployment with a ``~``-relative ``agent_data.base_dir`` writes its feedback to
+a volume these verbs do not mount and simply reads as having none. Nothing
+detects that, so do not read an empty multi-user listing as proof. See
+:doc:`/how-to/web-terminal/send-feedback`.
+
+.. code-block:: bash
+
+   osprey feedback list
+   osprey feedback list --repo ../other-deployment
+   osprey feedback export --output feedback.json
+   osprey feedback export > feedback.json
+
+See :doc:`/how-to/web-terminal/send-feedback` for the dialog these records come from and what
+each submission carries.
+
+osprey health
+=============
+
+Run comprehensive system health check.
+
+.. code-block:: bash
+
+   osprey health [OPTIONS]
+
+``--project DIRECTORY`` -- Deployment repository or rendered project directory (default: the repository enclosing the current directory).
+
+``-v, --verbose`` -- Show per-warning and per-error details in the summary.
+
+``--json`` -- Emit the report as a single JSON document on stdout.
+
+``--category NAME`` -- Run only the named category (repeatable).
+
+``--full`` -- Also run on-demand categories (live model chat, pinned CLI download).
+
+Exit codes: ``0`` healthy, ``1`` warnings only, ``2`` one or more errors,
+``3`` the command itself failed, ``130`` interrupted. See
+:doc:`/reference/contracts/health-json` for the ``--json`` document's shape and the
+``jq`` patterns for consuming it, and :doc:`/how-to/health-and-monitoring/configure-health-checks` for
+the ``health:`` config block.
+
+osprey archive
+==============
+
+Copy the artifact stores of web terminals and dispatch workers and the
+plan-queue history into an append-only archive, beside the agent record's own
+daily export. See :doc:`/how-to/health-and-monitoring/agent-record`.
+
+.. code-block:: bash
+
+   osprey archive --sources DIRECTORY --dest DIRECTORY [OPTIONS]
+
+``--sources DIRECTORY`` -- Sources tree, ``<sources>/<kind>/<name>/...``
+(environment: ``OSPREY_ARCHIVE_SOURCES``).
+
+``--dest DIRECTORY`` -- Existing archive root the day directories are written
+into (environment: ``OSPREY_ARCHIVE_DEST``).
+
+``--once / --watch`` -- Run one pass and exit (default), or run a pass at once
+and then every ``--interval`` seconds.
+
+``--interval SECONDS`` -- Seconds between passes under ``--watch``, at least 60
+(environment: ``OSPREY_ARCHIVE_INTERVAL_SECONDS``, default ``86400``).
+
+Exit codes of ``--once``: ``0`` the pass completed with no errors, ``1`` it
+completed with recorded errors, ``2`` it could not run (the destination is
+missing or unwritable). ``--watch`` exits ``2`` after five passes in a row that
+could not run.
+
+osprey history
+==============
+
+Serve the history page: the across-users view of the agent record, which the
+deployment renders as the ``history`` service when its web terminals sign
+people in (``auth.method`` of ``password`` or ``oidc``). Browsers reach it
+under ``/history/`` on the history page's origin only;
+the command is the service's entry and is not run by hand.
+
+.. code-block:: bash
+
+   osprey history [--host HOST] [-p, --port PORT]
+
+``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
+listens on every interface of its container).
+
+``-p, --port PORT`` -- Port to serve on (default ``8000``).
+
+The page reads the agent record at ``OSPREY_AGENT_RECORD_URL`` with the
+record's ``history`` login (``OSPREY_AGENT_RECORD_LOGIN``), naming the viewer
+the sign-in resolved; the record decides what that viewer sees. It admits only
+requests that carry the gate secret nginx presents
+(``OSPREY_TERMINAL_SECRET_HISTORY``).
+
+osprey watchdog
+===============
+
+Try safety watchdogs out before relying on them. :doc:`/how-to/safety-watchdogs`
+has the steps, including the format of a fixture.
+
+osprey watchdog replay
+----------------------
+
+Replay labelled prompts through watchdogs, enabled or not, and report how each
+did. Nothing is flagged, held or recorded.
+
+.. code-block:: bash
+
+   osprey watchdog replay FIXTURES_DIR [--watchdog NAME] [--profile DIR ...] [--project-dir DIR]
+
+``FIXTURES_DIR`` holds ``*.jsonl`` fixtures at any depth, and each directory is
+one set. Definitions come from each ``--profile``, by default from the project's
+profile. Agent watchdogs need a built project through ``--project-dir`` and are
+reported as not run without one. A fixture's ``machine`` values are written to
+that project's in-process simulator under its usual write checks; a fixture they
+cannot apply to is reported as not run, and no other control system is written.
+
+For each watchdog, engine and set it prints the hit rate on risky prompts, the
+false-flag rate on benign prompts, p50 and p95 latency, and cost. The exit status
+is non-zero only when an engine answered on none of its fixtures.
+
+osprey agent-record
+===================
+
+The agent record: the one store of every session fact the deployment's agents
+produce. Every deployment renders it as the ``agent-record`` service; see
+:doc:`/how-to/health-and-monitoring/agent-record` for how long it keeps an
+entry and how to check on it.
+
+osprey agent-record serve
+-------------------------
+
+Serve agent-record: it ingests the spool every source appends to and the
+Claude Code transcripts mounted into it, writes them to the configured backend
+(``agent_record.backend``), and answers reads for the credentials the
+deployment minted. The command is the service's entry and is not run by hand.
+
+.. code-block:: bash
+
+   osprey agent-record serve [--host HOST] [--port PORT] [--lease-dir DIRECTORY]
+
+``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
+listens on every interface of its container).
+
+``-p, --port PORT`` -- Port to serve on (default: the configured
+``agent_record.port``).
+
+``--lease-dir DIRECTORY`` -- Run as the host-local record that host commands
+start when no stack runs one: report ready only after the first full ingest
+pass, and stop once no lease in this directory names a live process.
+
+It reads the verifier and the secret set, and the spool, record and transcript
+locations, from the environment its compose service renders.
+
+osprey agent-record health
+--------------------------
+
+Show the agent record's health: every spool source and transcript root (live,
+idle or stopped, its backlog, refusals and errors), the backend, and how far
+the export to the archive is behind. It waits for the record's start-up job
+run to finish, then answers, and names each problem it finds.
+
+.. code-block:: bash
+
+   osprey agent-record health [--repo DIRECTORY]
+
+It reads the record ``OSPREY_AGENT_RECORD_URL`` names; with no stack up and no
+host session, it starts the host-local record for the call and stops it again
+afterwards. A project whose ``agent_record.backend`` is ``clickhouse`` needs
+its stack: with nothing up the command refuses and names ``osprey up``.
+
+osprey agent-record export
+--------------------------
+
+Run the catch-up export now: every closed day the archive does not hold yet is
+written to ``var/archive/<day>/agent_record/``. It waits for the record's
+start-up job run to finish, then prints the days this call exported and the
+latest exported day.
+
+.. code-block:: bash
+
+   osprey agent-record export [--repo DIRECTORY]
+
+It opens the record the same way ``osprey agent-record health`` does.
+
+osprey chat
+===========
+
+Talk to this deployment's agent. See :doc:`/how-to/agent-interfaces/cli-agent`.
+
+.. code-block:: bash
+
+   osprey chat [PROMPT] [OPTIONS]
+
+Starts the agent in the deployment's ``build/`` directory, wired to the
+provider, control system and facility knowledge that build was rendered with.
+``PROMPT``, when given, is the opening message — with ``--print`` it is answered
+and the command exits, which is the shape a script wants.
+
+Nothing is re-rendered: ``osprey build`` owns that. When the profile has changed
+since the last build, a warning says so and the session starts anyway against
+the build as it stands.
+
+``--resume SESSION_ID`` — Resume a previous agent session by ID.
+
+``--print`` — Print the answer and exit.
+
+``--effort [low|medium|high|max]`` — Reasoning effort (default:
+``claude_code.effort`` from the build).
+
+``--no-pin`` — Ignore ``claude_code.cli_version`` and use the installed agent CLI.
+
+``--repo DIRECTORY`` — Deployment repository to act on.
+
+.. code-block:: bash
+
+   osprey chat
+   osprey chat --print "what is the stored beam current?"
+   osprey chat --resume abc123
+   osprey chat --repo ~/my-assistant
+
+osprey query
+============
+
+Send a prompt to this deployment's agent, print the answer, and exit. See
+:doc:`/how-to/agent-interfaces/cli-agent`.
+
+.. code-block:: bash
+
+   osprey query PROMPT [OPTIONS]
+
+Runs read-only: write, execute and destructive tools are blocked at the agent
+SDK level, so the command is safe in CI pipelines and automated workflows. It
+asks the deployment enclosing the current directory, answering from its
+``build/`` as it was last rendered. When ``profile.yml`` or a file it points at
+has changed since that build, a warning on stderr says so and the query runs
+anyway.
+
+``--json`` — Emit a JSON object with ``final_text``, ``tool_traces``,
+``mcp_servers`` and ``exit_code`` on stdout.
+
+``--repo DIRECTORY`` — Deployment repository to act on.
+
+Exit codes: ``0`` the agent completed and every expected MCP server connected,
+``1`` the verdict failed (a server was missing from the session, the agent
+returned an error result, or the run hit its cost or turn budget), ``2`` a usage
+error (nothing built to answer from, the agent SDK is not installed, or the
+provider is not configured).
+
+.. code-block:: bash
+
+   osprey query "What PVs are used for beam current?"
+   osprey query --repo ~/my-assistant "List vacuum sections"
+   osprey query --json "Summarise recent alarms"
+
+osprey channel-finder
+=====================
+
+Tools for validating, previewing, serving and benchmarking control system
+channel databases.
+
+Options: ``--project PATH``, ``-v, --verbose``
+
+``osprey channel-finder validate [-d, --database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
+   Validate a channel database JSON file. ``--pipeline`` names the paradigm: the
+   file is read as that paradigm, and without ``--database`` it is the one at
+   ``channel_finder.pipelines.<pipeline>.database.path`` --- the command refuses,
+   naming that key, when it is unset. Without ``--pipeline`` the paradigm is
+   auto-detected from the project's config.
+
+``osprey channel-finder preview [--depth N] [--max-items N] [--sections LIST] [--focus PATH] [--database PATH] [--full]``
+   Preview a channel database as a tree; the paradigm is auto-detected from
+   the project's config. ``--depth`` is the tree depth to display and
+   ``--max-items`` the most items shown per level (both default ``3``; ``-1``
+   for unlimited). ``--sections`` is a comma-separated list of ``tree``,
+   ``stats``, ``breakdown``, ``samples`` or ``all`` (default ``tree``).
+   ``--focus`` shows one path only (``M:QB`` for the QB family in the M
+   system). ``--database`` reads that file instead of the configured one, and
+   ``--full`` shows the complete hierarchy (``--depth -1 --max-items -1``).
+
+``osprey channel-finder benchmark --model PROVIDER/WIRE_ID [--queries SPEC] [--runs-per-query N] [--concurrency N] [--output-dir DIR] [--queries-path PATH] [-v]``
+   Run the benchmark harness against a channel-finder pipeline using a
+   LiteLLM-form model id (e.g. ``anthropic/claude-haiku-4-5``). Saves per-run
+   JSON results for accuracy/cost analysis.
+
+A graph-mode project has no channel database file: ``validate`` and ``preview``
+say so and point at ``osprey build && osprey up`` and the ``read_cypher`` tool,
+and ``--pipeline`` does not offer ``graph`` for the same reason.
+
+.. code-block:: bash
+
+   osprey channel-finder validate
+   osprey channel-finder preview
+   osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
+
+.. _cli-osprey-knowledge:
+
+osprey knowledge
+================
+
+Maintain the facility's OKF bundle of concept documents. An omitted ``BUNDLE``
+comes from ``facility_knowledge.bundle_path``. The graph store and the channel
+search index have no verb of their own: ``osprey build`` writes the graph view
+``data/graph/facility.ttl`` and the index from the facility file, and ``osprey
+up`` seeds the store from that view. See
+:doc:`/how-to/facility-knowledge/okf-bundle` and
+:doc:`/how-to/facility-knowledge/use-facility-graph`.
+
+``osprey knowledge regen-index [BUNDLE]``
+   Regenerate the ``index.md`` files throughout an OKF bundle. Run it twice and
+   the second run changes nothing.
+
+``osprey knowledge validate [BUNDLE]``
+   Check every document in a bundle against the OKF format, including each
+   ``index.md`` against its directory. An embedded image that is missing, of a
+   disallowed type, over 10 MB or without alt text gets a warning, one line
+   per problem, and does not fail the bundle.
+
+``osprey knowledge seed-from-ttl BUNDLE [--ttl PATH] [--force] [--repo DIRECTORY]``
+   Write stub concept documents into a bundle from the build's graph view,
+   one per device, for a person to fill in. The view read is
+   ``build/data/graph/facility.ttl`` in the deployment repo you stand in or
+   ``--repo`` names; ``--ttl`` names another Turtle file. Each stub's ``device_id`` is the facility file's device
+   id, so the build links the page to its device.
+
+.. code-block:: bash
+
+   osprey knowledge seed-from-ttl data/facility/knowledge
+   osprey knowledge validate
+
+.. _cli-osprey-app:
+
+osprey app
+==========
+
+Make and check a deployment's apps without building anything; the walkthrough
+is :doc:`/how-to/apps/index`.
+
+``osprey app new NAME [--force] [--repo DIRECTORY]``
+   Copy the shipped scaffold — one container, a panel with a state route, one read
+   tool, one approval write tool — into ``apps/NAME/``; it passes ``osprey app
+   check`` as copied. Its names are rewritten to ``NAME`` (the Python package to
+   ``NAME`` with underscores), and it is listed as
+   ``NAME: {}`` in the ``apps:`` block of ``profile.yml``; ``.gitignore`` gains
+   ``/apps/*/panel/vendor/`` when it lacks it. No port is pinned. A name whose
+   package would be a Python keyword or shadow a standard-library or OSPREY module
+   is refused, and whatever exists at ``apps/NAME/`` unless ``--force`` replaces it.
+
+``osprey app check [--repo DIRECTORY]``
+   Run what ``osprey build`` checks of the applications the ``apps:`` block of
+   ``profile.yml`` names, then the import boundary over each of their Python
+   packages, that ``panel/index.html`` passes the panel validator's rules (the
+   three design-system sheets, the theme boot script, the font sheet, no raw hex
+   colour, the page-ready mark, no module of its own loaded ``async``), ESLint
+   over ``panel/`` when it holds JS, and
+   Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every
+   violation with its application, field and rule, and exits 1. A panel rule that
+   only reports (a class with no CSS rule) is printed as
+   ``[undefined_class: report]`` and does not fail the check. An ``apps/<name>/`` the block
+   does not name is reported and not checked. An application an installed package
+   ships is checked too; its violations name the
+   distribution (``<dist>:<module path>/<file>``). The JS checks execute the
+   application's JS tests, with none of the shell's secrets; they need Node and
+   install a pinned toolchain into the user's cache once; an application with no
+   JS needs neither.
+
+.. _cli-osprey-facility:
+
+osprey facility
+===============
+
+Check and show the facility description under ``data/facility/`` and import
+an export into it. See :doc:`/how-to/import-mml-export` for the import end to end.
+
+``osprey facility validate [--repo DIRECTORY] [--all-limits]``
+   Run every check ``osprey build`` makes of ``data/facility/`` and render the
+   facility views against the repo's main profile in a temporary directory.
+   Nothing is written into the repo. A clean tree reports two limits findings
+   on stderr, each a ``limits:`` count line and one indented line per
+   address, sorted: the setpoints with no limits record (the target serves
+   them writable with no range when ``control_system.limits_checking.mode`` is
+   ``optional``, and refuses writes to them otherwise), and the limits records
+   that state one of ``min_value`` and ``max_value`` (served not writable until
+   they state both). A finding lists its first ten addresses and counts the
+   rest; ``--all-limits`` lists every one. The findings change nothing,
+   the exit code included, and a finding with no address is not printed. A clean tree exits 0, and each model with
+   a kept ``imported/mml/<model>.response.json`` prints one
+   ``response check <model>: …`` line on stderr, pass or fail; a failing check
+   exits 1 before the render. When the check left rows out of the comparison,
+   a second line for that model follows on stderr, giving the number of rows
+   left out and the count per reason (unwired, no width, unsolved, table
+   calibration); it does not change the verdict or the exit code:
+   ``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``.
+   Each model with a deck gets ``length`` (its beam path in metres) and
+   ``periodic`` (``true`` for a ring, ``false`` for a line) in the facility file,
+   from the deck; a model with a deck that states either stops with
+   ``model-conflict``, and a model without one may state them.
+   A device whose stated ``s`` lies outside its periodic model's deck is placed
+   modulo the deck's length, and both ``osprey build`` and this command print
+   one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
+   on stderr; the exit code is unchanged.
+   Each link of a knowledge page under ``data/facility/knowledge`` that the
+   facility file does not hold, a ``device_id`` that is no device id or a
+   ``facility:`` link in the body that names no channel or device (or, as
+   ``facility:place/<id>``, no place), prints one
+   ``facility: link-dangling: page <path> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
+   A measurement kind no installed package registers, in a tree that mounts no
+   machine root and lists no application and no dependency, prints one
+   ``facility: kind-deferred: measurement <model> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
+   A group whose sources state different members prints one
+   ``members-disagree`` warning naming which source states which member; the
+   group carries them all.
+   Relation claims print, in both commands and with the exit code unchanged,
+   one ``relation-contested`` warning per key a dispute leaves unsettled, one
+   ``relation-coarse`` per relation type with coarse claims, one
+   ``alias-shared`` per scheme name two records carry, one
+   ``identity-ambiguous`` per imported layer holding two devices one
+   ``same_as`` chain joins, one ``part-cycle`` per loop of ``part_of`` and
+   ``runs_on`` claims, one ``relation-stub`` per imported layer with
+   ``Unidentified`` devices that claims name, and one ``place-unplaced`` per
+   place a relations layer creates top-level with no citation. This command alone then closes stderr with one summary line,
+   ``relations: <n> claims (<s> stated, <i> inferred); <a> accepted, <c> contested``,
+   followed by ``, <x> superseded`` when any are; a claim without ``basis``
+   counts as stated, and a file with no claims prints no line.
+   The check converts a monitor reading to position with one slope, taken at
+   the centred beam; that is exact for a straight-line (gain and offset)
+   calibration, and a table-calibrated monitor is left out of the check and
+   counted on the left-out line. If you need a more elaborate BPM calibration
+   in the check, open an issue. A tree that is not clean prints every error of
+   the first failing stage on stderr, one line each and sorted, and the command
+   exits 1. A stale
+   fix's line carries the block to paste in its place. A settle-tolerance
+   warning the build would print is printed on stderr and does not change the
+   exit code. ``--repo`` names the
+   deployment repo; without it, the nearest ``profile.yml`` at or above the
+   current directory is used.
+
+``osprey facility show [--json] [TEXT] [--repo DIRECTORY]``
+   Build the facility in memory as ``osprey facility validate`` does, and exit
+   1 like it, with its lines on stderr, when the build stops. Without ``TEXT`` it
+   prints the identity, the record count per kind (places, devices, channels,
+   groups), the relation claim count and the wiring record count per model,
+   each model with its engine,
+   whether the main render serves it and its solve setting, and each view with
+   its path under the render and whether it is written. The views are those of
+   the main render, ``build/config.yml``; a login's selection does not change
+   them. A view that is not written names the config key or model fact that
+   left it out. With ``TEXT`` it prints every place, device, channel, group or
+   model of that id; when there is none, the relation claim of that id; when
+   there is none, the places and devices ``TEXT`` names by a ``names`` or
+   ``scheme_names`` name, or, for a place, by the last segment of its id
+   (``S01`` finds ``SR/S01``, never ``SR/XS01``). Each record prints under its
+   kind with its provenance (the layer and file each field came from, the
+   fields the build filled) and the fixes applied to it; a header
+   ``<kind> <id> (match: <match>)`` marks a record ``TEXT`` did not name by id.
+   A place or device lists the claims it is an end of, one line each: id,
+   the claim read subject first with the record itself written ``(this)``
+   (``type <other>`` when the record is the subject, ``<other> type (this)``
+   when it is the object, ``(this) type (this)`` when it is both), standing,
+   and the unit when the claim's place end gives one. A
+   ``TEXT`` that matches nothing prints
+   ``facility show: no record <text>`` on stderr and exits 1. ``--json`` prints
+   one JSON document on stdout and every other line, view notes included, on
+   stderr; on an error stdout is empty. The facility
+   document's keys are ``identity``, ``counts`` (``places``, ``devices``,
+   ``channels``, ``groups``, ``relations``, and ``wiring`` keyed by model), ``models``
+   (``name``, ``engine``, ``served``, ``solve``) and ``views`` (``name``,
+   ``path``, ``written``, and ``reason`` only on a view that is not written);
+   the record document is ``records``, one entry per record with ``record``,
+   ``kind``, ``match`` (``id``, ``claim``, ``name`` or ``segment``),
+   ``provenance`` and ``fixes_applied``, and ``claims`` on a place or device
+   (``id``, ``type``, ``other``, ``standing``, ``role`` — ``subject``,
+   ``object`` or ``both``, ``other`` then being the record itself — and
+   ``unit`` when given), in place,
+   device, channel, group, model order.
+
+``osprey facility import``
+   Group for the importers that write an export as sources under
+   ``data/facility/imported/``; the importers are ``mml``, ``list`` and
+   ``relations``.
+
+``osprey facility import mml EXPORT... [--repo DIRECTORY]``
+   Write MML exports as the mml layer's sources under
+   ``data/facility/imported/mml/`` and seed each authored file that does not
+   exist yet. ``EXPORT`` is an export's ``<stem>.ao.json``; give every export
+   the mapping names. Each export's deck is held to the lattice fingerprint
+   the export states: a deck with another element count, family-name digest
+   or parameter-element indices prints
+   ``import mml: export-invalid: <system>: the deck <file> holds <fact>
+   <value> and the export states <value>; import the lattice the export was
+   sampled from, or export again over this one``, writes nothing and exits 1.
+   An energy that differs alone prints the same sentence after
+   ``import mml: deck energy:`` and the import goes on, and an export that
+   states no fingerprint prints one ``import mml: deck unchecked:`` line.
+   The mapping is then checked against the exports: a
+   problem prints one ``<key>: <message>`` line per problem, then
+   ``<n> problems in data/facility/imported/mml/mapping.yaml; fix each and
+   check again.`` (``1 problem`` for one), writes nothing and exits 1. A system
+   the mapping names and no given export carries is one such line,
+   ``models.<system>: <system> is no exported system``. A mapping with the
+   wrong structure, or a profile that does not resolve, prints a one-line
+   failure with its cause and exits 1. Before it reads an export, the import runs one step that every format runs.
+   Hand-written records of a kind the format writes print
+   ``import mml: data/facility/ holds hand-written <kinds> records, which this
+   import writes:``, each file, and a remedy, then exit 1 with nothing changed.
+   A facility that already holds an imported layer is not refused: records
+   written by hand beside a layer stay.
+   Otherwise bundled files are replaced, printing
+   ``import mml: replaced the bundled <name> facility (<n> files)``, everything
+   else stays, the knowledge indexes are regenerated, and a blank
+   ``knowledge/index.md`` is left when no page remains. The mml format
+   writes channel, device, group, model, deck, seed, limit, identity and
+   measurement records.
+
+``osprey facility import mml --print-exporter``
+   Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
+   export.
+
+``osprey facility import list FILE [--repo DIRECTORY]``
+   Write a CSV channel list as the list layer's sources,
+   ``data/facility/imported/list/channels.yaml``, one channel record per row.
+   It runs the same step as the mml import under the prefix ``import list:``,
+   refuses only hand-written channel and device records, and seeds the knowledge
+   stub. ``FILE`` is UTF-8 CSV whose header row names
+   ``address``, required, and any of the optional columns ``role`` (empty
+   means readback), ``pair``, ``device``, ``place``, ``unit``,
+   ``description``, ``tags`` (``;``-separated), ``s`` (metres, a number) and
+   ``model`` (the model whose deck ``s`` is measured in), in any order. A file
+   whose first row names no ``address`` column holds one address per line.
+   ``s`` and ``model`` are the position of the row's device: for each device a
+   row names, the import writes ``id``, ``s`` where stated and ``model`` when
+   stated, to ``data/facility/imported/list/devices.yaml``, and no other
+   device field, so the device merges with one another source declares, or is
+   created holding only its id and position. A list naming no device leaves
+   no ``devices.yaml``. ``osprey build`` places a device with an ``s`` by the
+   span of its model containing it. When ``records/devices.yaml`` or another
+   layer declares devices and a listed device is in none of them, one stderr
+   line names it: ``import list: declared by this list only: <ids>``.
+   A row that names both a device and a place,
+   states a role other than ``setpoint``, ``readback`` or ``none``, has no
+   address or repeats one, states ``s`` or ``model`` with no device, or
+   states an ``s`` that is not a finite number, a row with more cells than
+   the header, two rows stating different ``s`` or ``model`` for one device,
+   and an unknown or repeated column each print one ``facility:
+   source-invalid:`` line; the import writes nothing and exits 1. A ``model``
+   for a device no row states ``s`` for is ignored with one ``import list:``
+   warning on stderr naming the file, row, device and model; the rest of the
+   device's rows are imported.
+
+``osprey facility import relations TABLE --layer NAME [--names FILE] [--places FILE] [--members FILE] [--stub-unknown] [--repo DIRECTORY]``
+   Write relation tables as the sources of the layer ``NAME`` under
+   ``data/facility/imported/<NAME>/``. ``TABLE`` holds the claims;
+   ``--names``, ``--places`` and ``--members`` name the three optional tables
+   the claims lean on. The tables and their columns are in
+   :ref:`how-to-describe-your-facility-relations`. A device end the facility
+   lacks is stubbed only when its row states ``subject_class`` or
+   ``object_class``, or, as ``Unidentified``, with ``--stub-unknown``; place
+   and group ends are never stubbed. Ends and names resolve against the whole
+   facility except the layer being replaced. The layer directory is replaced
+   whole and no other file changes: the run does not replace a bundled
+   facility nor refuse hand-written records. Each file written prints one
+   ``wrote <path>`` line. ``NAME`` must match ``[a-z0-9][a-z0-9_-]*`` and is
+   not ``authored``, ``list`` or ``mml``, and a directory holding a file this
+   import never writes is refused. A refused name, directory or row prints one
+   ``facility: source-invalid:`` line per problem; the import writes nothing
+   and exits 1. A profile that does not resolve prints a one-line failure and
+   exits 1. A profile that states ``machine:`` imports into that machine root.
+
+``osprey facility panels``
+   **Experimental.** The commands, the rule tables under ``panels/``, the
+   ``draw.json`` settings and the screens they write may change in any release,
+   without a compatibility path.
+
+   Group for the operator screens drawn from the built facility. Both verbs
+   read the facility file ``build/facility.json`` (``--facility FILE`` names
+   another; neither verb builds) and the rule tables in ``panels/`` beside the
+   facility tree (``--tables DIRECTORY`` names another), and draw with the
+   settings in ``draw.json`` beside the tables (``--draw FILE`` names another;
+   with neither, the empty settings, and one line says so). Its optional
+   ``write_under`` lists place ids a write keeps to: the home, those places and
+   the places within them, the devices placed there, each device in no place one
+   relation joins to one of those, and each group with one of those devices as a
+   member. A written screen links only to files of the same write: it names a
+   screen the write does not produce as text, without a link, and
+   ``index.json`` lists those screens under ``outside``. Under it the home lists
+   only what the write keeps,
+   the kept places that lie in no kept place at the top and one line naming the
+   places the write keeps to, and the not-placed indexes only kept devices; a
+   group is cut to its kept members, and a group cut to the same members as
+   another is written once (the one all of whose members are kept, else the
+   first by id); the other holds no members under the scope, so screens name the
+   kept one. ``check`` reads the same key: a screen outside it may
+   be absent, and only the health rules of what it keeps must be read. The
+   screens are
+   Canopy Screen-IR documents, one file per screen, in nine view kinds:
+   ``home`` (the one screen above all others: the top places, those that hold
+   a device of a model first as the machines and the others below, every set under
+   its class and every group with no set view, and what is in no place, by
+   class, each class opening a page of its devices, so every screen is reached
+   from it), ``card`` (one device, its signals, picture, relations and calibration
+   records), ``channels`` (every channel of a device with more than a card
+   lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
+   calibration kind over a set), ``place`` (a place's devices in beam order
+   with a band of key numbers: positions are each device's pose in its model's
+   beam frame, else its ``s`` along its model. A model's beam frame is the
+   ``positions.csv`` frame in which most of its devices' rows state an ``s_m``
+   and assume nothing (the devices with no model count as one more model), so
+   two rings each have their own; a tie goes to the frame with the most such
+   rows of all devices; a frame where fewer are stated is a local frame; one strip keeps to the beam path most of its
+   devices are on, the others wait in its tray (a device's card says which
+   position it uses and where it is read from, and gives the facility file's
+   ``s`` beside a pose that differs from it by more than 1 cm), and a stretch across a ring's
+   start is drawn in one piece; a card's strip window reads on across the start
+   the same way. A ring is a model the facility file marks ``periodic``, at its
+   ``length``, and a beam frame takes the length of its model), ``rack`` (a rack elevation, chassis at their
+   unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
+   ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
+   level; a place with at least two children along a beam path the facility
+   file marks ``periodic``, going round it (no gap between their positions half
+   the ring or more, so one sector's places are no ring), draws them as arcs of
+   a ring, in beam order) and ``checkout`` (every setpoint beside its readback).
+
+   Every screen but the home leads back to it first in its crumbs, then out
+   through the places around it (to each place's view where it has one). The
+   ways down meet at a device's card: by place (a place view's racks open their
+   elevations, its sets their set views) and by system (the roll-up of one
+   system within a place opens the sets of its devices); a set opens its
+   members' cards, and a card names its sets on a line of their own above its
+   sources. A place's card draws at most 60 lights of its own channels and
+   counts the rest, which its roll-up reads. Controls of one group that share
+   a word are each named by what tells their channel apart ("Enable CH2"), and
+   a device whose presses all stand on its front has no operate block.
+
+   A set is a group whose ``kind`` is ``family`` (the default; a ``section`` is
+   never a set) and whose members are all devices of one class; ``check``
+   notes a family that is no set only because some members are no device of a
+   stated class (``unset_group``, naming them). A set of more than 96 members
+   is paged by its rows, each page linking the others; a member with no health
+   light shows the value its card's first key tile shows. A device whose card
+   lists counts rather than its channels gets a roll-up of its own, paged at
+   400 rule-bearing channels, which its node in the place roll-up opens: every
+   rule-bearing channel is read by exactly one roll-up page.
+
+   The rule tables are CSV files, each held to its header, and each may be
+   absent. What the facility file states is the default, and a table states
+   only what it does not: a setpoint's readback is its channel's ``pair`` and
+   nothing else (a pair the build derives is marked inferred, with its rule), a thing's short name what ``names.csv`` states,
+   else its ``label``, else the last ``:``- or ``/``-separated part of its id, a
+   channel is drawn by its ``role`` (a setpoint as an entry
+   beside its readback, a readback as a value; ``record_types.csv`` names its
+   record type and, where its ``drawn_as`` is not empty, any other drawing), and a channel on a device that states a
+   ``signal`` plays that signal as its role on the device's card, shown as an
+   entry, a word or a value by how it is drawn, a state that ``panels/health.csv`` rows
+   rule as a lamp; such a role says what the channel is, never how it is pressed:
+   a writable channel no row names is offered as any such channel is (a choice
+   of its stated words, an action, an entry) (``channel_roles.csv`` names
+   walked scopes, labels, presses and channels with no signal; a row's stated
+   ``label`` is the word the card shows for the channel on every tile, value row
+   and group title, and stays in front of what tells two channels of one role
+   apart, while a choice's or an action's label is the word on its press). ``check``
+   prints one ``redundant: <table>: <n> rows`` line per table whose rows only
+   restate the facility file or these defaults with no column of them read for
+   anything else (a
+   ``channel_roles.csv`` row without which every device it matches plays the same
+   roles in the same order, read the same, so never a press), so a
+   deployment can delete them, and one ``redundant: record_types.csv drawn_as``
+   line for the rows whose ``drawn_as`` is their role's: their record type is
+   read, so the row stays and only that value may be left empty.
+   The tables: ``positions.csv``
+   (where a thing sits), ``record_types.csv``,
+   ``panels/health.csv`` (the state a channel's value means: ``normal``,
+   ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
+   sources give two states is ``disagree``),
+   ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
+   ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv``,
+   ``calibration_curves.csv``, ``state_labels.csv`` (the word each value of a
+   discrete channel means; a command's button reads the word for the value it
+   writes, else the action its channel's name says), ``units.csv`` (a channel's
+   unit and the divisor its raw value is shown through), ``channel_roles.csv``
+   (what a channel is to a device card, by class and name pattern; its ``scope``
+   is ``device``, ``parts``, or a relation type of the vocabulary that runs from
+   a device to a device, such as ``read_out_by``, ``controlled_by`` or
+   ``interlocked_by``, walked from the device and its pattern filled from the
+   relation's port) and
+   ``card_recipes.csv`` (a class's card recipe, optionally for the devices under a
+   place, a part by its whole's place, or whose id matches a pattern; the first
+   row that takes a device wins),
+   ``card_sections.csv`` (a recipe's drawn sections in order) and ``chains.csv``
+   (the hops of a recipe's chains: each walks one relation in one direction from
+   the device or an earlier hop, keeps the things its ``to`` filter takes, and
+   shows its roles in the block; a hop that reaches nothing is a dashed "not
+   stated" block, two answers are stacked as contested) and ``symbols.csv`` (how
+   every strip, a card's and a place's, draws a device of a class, optionally
+   only those whose id matches a pattern: one of the drawing's symbols and a
+   lane above, on or below the beam pipe; a place's strip has one lane off the
+   beam; a class no row names is not drawn on a strip). ``draw.json`` keeps
+   only ``colours`` and ``annotate`` (both keyed by symbol) and
+   ``write_under``; a rack is a place some ``located_in`` claim gives a unit in. A strip section draws the devices of its
+   classes within its window of the device along the beam, to scale, each with
+   the value of the section's role (a window of 3 m either side when the section
+   states none); a device placed only by a place around it is drawn in a dashed
+   bracket over that place's stretch (the place's own position and those of the
+   devices in it), the window widened to hold it, and a card
+   whose device is placed by neither says "where it sits is not stated".
+   ``fronts.csv`` (a recipe's connectors: one row per connector or numbered range
+   ``Outlet{n}``, by face, group and order) draws a front section: the connectors
+   at one pitch on a panel body, numbered by a stated count, else the served
+   channels that match the row's ``channel``, else the sockets that exist as things
+   of their own (``<device>:<connector>``), else the ports the relation states, in
+   number order; under each, what is on it (the thing whose ``far_relation`` names
+   that port, ``in``; the device's own relation from it, ``out``; both sides of a
+   socket thing, ``socket``), a dashed "—" where nothing is stated and every thing,
+   dashed and "contested", where a side has two; its state lamp; under the line,
+   in bands each labelled at the left (the role's title and unit, "press" for
+   the buttons; where every connector has as many rows and the labels at each
+   place end alike, one band per place, labelled with the words they share),
+   the section's
+   roles of that connector and its presses (drawn there, not again under
+   operate). A row's optional ``roles`` column (``;``-separated) names the section
+   roles its connectors carry; empty means every section role. A role binds to a
+   connector only through a row that lists it, so two groups numbered alike
+   (outlets 1-8, phases 1-3) never take each other's channels; on a connector
+   with no number the listed roles bind the device's channel of that role whose
+   name carries the connector's name. A ``{n}`` row with ``roles`` and no
+   ``channel`` is numbered by the last number of the device's channels of its
+   first role, with no lamp; a device that serves none gets no such group. A
+   connector with no number whose row lists ``roles`` is left out on a device
+   where neither its lamp nor any listed role binds, and a group all of whose
+   connectors are left out is dropped. ``far_relation`` and ``far_direction``
+   are given together or both left empty; a row with neither is a reading, and
+   a group whose connectors wrap onto a second line names it "<group>
+   (continued)"; a group of readings is a table on a line of its own: no socket, cable or far end, the connectors'
+   names as column heads, the lamps first in a "state" band, then a band per
+   role. Clients the relation names on no stated port
+   are drawn apart by class, unless the row's optional ``apart`` column says
+   ``no``: then only the clients on a stated port are drawn; a range with nothing in it is left out. ``write``
+   prints per recipe the connectors with something stated, contested or nothing,
+   the readings apart, and the devices with every connector that is not a reading
+   stated, some, none, or readings only. A ``ring-strip`` section draws a group
+   (``same place``: the devices of the card's recipe in the device's place; or
+   ``<relation> <direction>``: the devices that relation names) one column each,
+   by ring position, else in number order with "in number order: positions not
+   stated", each with the value or lamp of the first of the section's roles it
+   plays (an empty ring where it plays none), the device in focus and every other
+   opening its card; values are shown as numbers, since no table states a scale
+   for a bar. When the members have places, they run by place, a row each
+   under the place's name, at the finest level of the place tree that gives two
+   to eight places, in ring order (in number order without positions), those
+   with no place last; over the strip, "giving <first role> now: n of m" counts
+   the lamps ok now with one formula over the same lamps' rules, or, when that
+   formula is too long, each place's row counts its own. Inside a place a
+   member shows the last segment of its id (two alike keep what follows the part
+   of their ids they share), its full id on hover. A chain hop, a front
+   connector's far end or a ring-strip member that rests on a relation claim
+   with ``basis: inferred`` says "inferred" beside it, the claim's ``rule`` on
+   hover ("the rule is not stated" when it has none); when every member of a
+   ring-strip is inferred, its caption says it once ("all 12 inferred: <rule>")
+   and no member does; when most are, the caption says "inferred unless marked
+   stated: <rule>" and only the others are marked "stated". A ``ladder`` section draws the section's first role against the
+   others as set points, evenly in their order (not to scale), each with its live
+   value, and the live value as a dot in the gap between the set points it lies
+   between; a set point not served is left out and named, and ``write`` counts
+   the ladders drawn whole. A ``section`` row with a ``focus`` relation
+   (``part_of``) draws a part's card: the thing that relation names, drawn as its
+   class's picture with the part outlined in the focus colour (the picture rows
+   whose ``signal`` matches a channel of the part), and beside it what is stated
+   about the part (its relations, each opening the other thing) and, dashed, what
+   is not (its owner, its place on the drawing, a drawing at all, each hop of the
+   recipe's chains that found nothing). A ``curve`` section draws the points of
+   the claim in force of the calibration kind its ``members`` names (an
+   excitation curve) as dots joined by a line, the least and most of each axis
+   at its corners and the claim's source under it; the operating point is not
+   drawn, since no table states the conversion from set point to current. A
+   device with no such curve says none is stated. The claim in force is the
+   newest accepted one: a contested claim is never in force nor a base value; it
+   is named "contested, not in force" beside the value in force, alone it makes
+   the row and its cell "contested" with no value, and a contested curve is not
+   drawn. The calibration block is the
+   ``calibration-strip``. A device with no place of its own and an accepted
+   ``part_of`` to a placed whole stands where the whole is: in its crumbs, on
+   strips at the whole's position, and its card says "in <place> by its whole
+   <whole>". A device that is an endpoint of channels another device holds (a
+   family's shared supply) shows that supply's value roles read-only under
+   "shared supply <id>", with a link to the supply's card; the supply's presses
+   stay on its own card. A device gets a card when it has a channel its card shows (one on it, one it
+   is an endpoint of, or one a ``channel_roles.csv`` row walks to from it) or a
+   drawing (a ``card_recipes.csv`` row or a ``pictures.csv`` row that applies to
+   it); a pose or a relation alone gives none. ``cards.csv`` (action, class,
+   under, devices, attribute, when, owner_relation, owner_direction, owner_to,
+   reason, source) holds the exceptions: ``action`` ``keep`` gives the devices a
+   row selects a card, ``drop`` takes theirs. ``class`` ``*`` matches any class,
+   ``under`` holds a device whose place is it or lies within it, and a part by
+   its whole's place (a part with no place of its own sits where its whole sits), ``devices`` is an id pattern, ``attribute`` is ``name=value``, a
+   value the device's ``attributes`` map states (a list value matches each of its
+   items), and ``when`` is ``no-channel`` (no channel its card shows),
+   ``no-drawing`` (no recipe, no picture) or both joined by ``;``. Every selector a
+   row states must hold, and the first row that selects a device decides. A
+   ``drop`` row may name an owner by a relation and a direction (a ``keep`` row
+   may not): the device is drawn on its owner's card, a link to it opens that
+   card, and ``index.json`` lists it under ``drawn_on`` with the owner's screen. A
+   device with no card and no owner found gets no screen and no entry: a related
+   card names it without a link. ``check`` counts the devices with no card, those
+   the default alone leaves without one, and how many devices each row decides. A device card is drawn:
+   its title line, up to five key tiles (the ``metrics.csv`` rows of view
+   ``card`` whose ``level`` names its recipe, else the roles exactly one of the
+   device's own channels plays, a neighbour's channel its roles reach not
+   counted, but never a role whose word is a ``nameplate`` signal, which says what the device is, not how
+   it is (a ``channel_roles.csv`` row giving the channel another word overrides
+   it); a tile's measure is
+   ``value`` or ``word`` of the role's first channel, or over every channel of
+   the role on the device ``count_true`` shown "k of N", ``max`` or ``sum``, a
+   dash and "one of N has no value" while any member has none), its relations as
+   a chain of blocks (the device's own block showing only roles one channel of
+   it plays: a role played per connector or member is not rows there), its
+   drawings (a drawing none of whose parts has a place is a compact row of
+   blocks, each the part's name over its signal's light and value, with
+   "arrangement not stated", not an empty frame; a picture any of whose rows
+   has state ``schematic``, or that is drawn wholly at the default proportions,
+   says "schematic, not to scale" in its caption, while a stated scale keeps its
+   bar; a light is ``disagree`` only at
+   a value its rows give two states, so a value every row calls normal is
+   normal), an operate block (its control roles, else its
+   writable channels: a choice of stated states, an action, or a typed value
+   applied with Apply, never a text record (``drawn_as: text``: Apply writes
+   only a number, so it stays in the channels view), a line beside Apply saying what it will write from the
+   same formula as its press value; more than six entries of one role are a grid
+   of three columns under the role's title, their line naming no channel (each
+   on hover), and an entry of a front's role on a connector is set under the
+   front, named by the connector; press groups side by side, up to three; a choice with one
+   stated value is an action with the live status beside it; "no operator
+   actions stated" when there is none), every channel the card is about in a
+   grid (its own, and of a device its roles reach the channels beside the ones a
+   role names; up to 60; a device with more shows the counts by
+   owner and opens its ``channels`` view), then one muted line for where it is
+   and one for its sources (the count of statements and their documents, each
+   statement on hover). A channel ``channel_roles.csv`` gives the role
+   ``internal`` (a driver's own record) is never offered and never listed on a
+   card, only counted. A relation the chain names is drawn once per thing it
+   reaches after the ``to`` filter (the place for ``located_in``, a device for
+   the rest); only two distinct things after the filter make the hop contested,
+   both named (a claim's own standing does not); a hop after a step that reached
+   several things walks from each and unites what they reach. A button writes
+   only a value a source states (a role's press value or the value of its state
+   word) or one marked inferred (a role's inferred press value, 1 for a command
+   whose states do not name 1), and an inferred value is said so wherever the
+   card names it ("(value inferred, not stated in the database)"); a press with
+   no value is left out. A writable channel of another thing that the card
+   reaches only through a relation claim with ``basis: inferred`` (a walked
+   relation such as ``read_out_by``, or ``part_of``) is never offered as an
+   action, a choice or an entry: it is shown read only where it would have
+   stood, under "join inferred, command not offered" with the claim's rule on
+   hover; the device's own channels are not affected. ``check`` counts the
+   presses stated, inferred, left out, and withheld because their join is
+   inferred. Apply stays off the canvas and out of the page (so the keyboard
+   cannot reach it either), with "type a value first" in its place, until the
+   field holds a number, so no press writes a value nobody typed. A light takes a
+   colour only where its meaning is stated (a state word, or a number's
+   thresholds); else it is the neutral outline, on a tile, in a chain block and in
+   the grid alike. An arrow's word and a block's title are never cut: the arrow
+   takes the run its word needs, a word may take two lines or its last name
+   segment with the whole word on hover, and a title two lines. ``check`` also counts the default-recipe
+   cards with no key tile (no card metric and no role that shows a value). A class with no recipe row is drawn with the default recipe (the
+   sections stated for the recipe ``default``, else a chain of its place, power,
+   network and controller); ``write`` prints how many device cards each recipe
+   drew, per chain, how many were drawn whole and the hop most often missing, and
+   per strip, how many devices are placed, placed by their place or not placed. A table that breaks its schema
+   prints the file and line and exits 1. A ``pictures.csv`` row with a place id
+   in its optional ``under`` column draws only the devices of its class in that
+   place (and one with a ``devices`` id pattern only the devices it matches,
+   with ``!`` first every device but those), so two machines with devices of one class name each state their own
+   drawing; a device under no row's place gets no drawing and no note. Health
+   is computed by the viewer from rules written into the screen; nothing is
+   read from the control system while screens are written.
+
+``osprey facility panels write --out DIRECTORY [--kind KIND]... [--under PLACE_ID] [--top N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
+   Write the screens under ``--out`` as ``<kind>/<screen id>.screen.json``
+   with an ``index.json`` that lists them. Equal inputs give equal bytes: no
+   file holds a time, an absolute path or a host name, and each screen's
+   description ends with the facility's hash and the panels format number.
+   Files an earlier run listed and that are no screen any more are deleted;
+   nothing else is touched, and a non-empty ``--out`` without an
+   ``index.json`` is refused. ``--kind`` (repeatable) and ``--under`` write
+   only the screens that match; links to the others are still written. The
+   command prints the screen count and size per view kind, the class summary
+   (see ``panels classes``) and the ``--top`` largest screens (default 10).
+
+   Each entry of ``index.json`` names its screen's ``class``, and the index's
+   ``classes`` table states, per class, its key, its ``standard`` screen, its
+   member count, how many members are ``off_standard``, how many have a ``cut``
+   label, a ``layout`` hash (of the standard's structure, the format and the
+   drawing settings), a ``drawing`` digest (of the standard's written file
+   without the model stamp, which moves when the screen is drawn otherwise and
+   not when only the facility file's content hash does, taken by the rule the
+   index states as ``drawing_rule``) and a ``sample``;
+   ``class_summary`` holds the counts
+   a gate reads, with the classes of one screen per view kind. Two screens are
+   of one class when they have one key: for a device's card and its channel
+   list, the device's class, the card recipe it is drawn from and the set of
+   signal roles the device's channels play (a role played by two channels
+   counts once; the driver-internal role and channels with no role are not in
+   it), and, for a device with no channels of its own, ``own_channels: none``, so it is
+   not classed with one whose channels play no stated role. Where cards
+   of one such class drawn by the default recipe show different blocks (a card
+   one can act from and a read-only one, a card with or without key tiles),
+   the key also holds ``blocks``, the kinds of block the card shows by presence
+   (a channel list drawn as a grid or as a count is one block), and the class
+   splits into one per kind of card; a class whose cards all show the same
+   blocks keeps its key and its id. For a
+   calibration overview, its calibration kind and its structure (a gain and an
+   offset are judged apart even where they are drawn alike); for every other
+   screen (a set, a place, a rack, a roll-up, a checkout, the card of a place or
+   a group), its view kind, the kind of thing it shows and its structure. The
+   device types of a set's members are names, not a layout, and are not in its
+   key.
+
+   Sameness is measured on what a screen shows, not on its file. Its structure
+   is its sections and the kinds of item, block and relation they hold. Left
+   out are text and numbers; how many items a repeated block holds and their
+   order (a size); the parts that state what is known rather than what is drawn,
+   such as a source, a unit, a stated position or a link to the thing's screen
+   (a gap where one is missing); and data-state flags such as inferred,
+   contested or writable. The standard is the member whose structure most
+   members share (a tie goes to the smaller structure hash), and the ``layout``
+   hash covers the standard's structure, the panels format and the drawing
+   settings: it changes when the class's typical screen changes, not when a
+   member is added or renamed.
+
+   An entry off its standard lists how under ``differs``, in words: a section,
+   a kind of item, a block or a relation present or missing (``no tiles
+   section``, ``relations: a value row, which the standard has not``). What
+   varies from the standard without making another screen is under
+   ``varies``: sizes (``foot: where: 4, the standard 3``), gaps, flags and
+   drawing variants (a channel list drawn as a count above its size). Each
+   entry also states its own ``sizes``, ``gaps`` (per gap the count, such as
+   ``unit`` or ``where without a link``, for a checker to total per class),
+   ``flags``, its longest ``label`` in characters, and under ``cuts`` the labels
+   the layout cut to fit. A rack screen numbers every unit, draws a free one as
+   a slot and keeps the lists of the rack in one column beside it, down to the
+   rack's foot and never past it: those at no unit, then the classes and
+   sources, then those side by side at one unit, level with it and joined to it
+   by a line, the bar over them saying whether they are listed beside the rack
+   or under it. The list of those at no unit takes the room the rest leaves;
+   what does not fit beside stands under the rack across the full width: the
+   rest of the list under its heading continued, then each group side by side
+   that did not fit, its units on its heading in place of the line. A list
+   takes as many columns as fit with each as wide as its own longest name; a
+   name longer than the whole width keeps the part that tells it from the
+   others, the whole on hover. A rack's list is filled downward in
+   balanced columns (two columns of a band differ by one row at most), a larger
+   gap after every fourth row, in bands of twenty rows read down then across; a
+   list of one or two rows fills across. An operate panel draws each control as one row on one
+   set of columns: tag, name, now, field or button, what it does; groups whose
+   rows end at their button or value (actions, choices, read-only values) stand
+   up to three side by side, and a group of many such rows takes up to three
+   columns, filled downward, as do a choice's segments that wrap. Said once:
+   the kind's tag stands at the head of a run of one kind (groups of one kind
+   that follow each other, each with its line of what it writes, are one run),
+   and a row whose button says its name has no name beside it. Every list
+   ordered by name takes the numbers in a name by value (``2`` before ``10``);
+   it only orders, it groups nothing. A thing's channels come in that order,
+   so a role's rows, a block's lines and a card's channel list follow it. Frames in a row whose content needs at most half
+   the width each stand in two columns when they have one role
+   (live values, references, an action block, a picture with its curve; two
+   groups of a channel list only as stated groups of one grouping, a group of
+   no stated kind alone), read downward, split where the taller column is least
+   tall, so short frames stack beside a long one; a frame keeps its own height
+   unless matching its neighbour's foot adds at most a third of it, and the page
+   under a shorter column stays plain; content that stretches (a curve's plot) is drawn
+   after the next frame and, where that one takes at most half, fills the other
+   half. A screen shows what it is for first: sections of
+   nothing but links follow the rest, key numbers with no data yet fold into
+   one line, on the band's last row where it fits there, else under it, and a roll-up's summed state is larger than what it sums, a
+   child it does not sum set apart in a dashed outline on the same row where
+   all fit one row at their content's width, its counts one muted line on the
+   heading's line. Every widget that draws a view item names it in its
+   ``meta`` comment, which a viewer does not read: ``item: <kind>``, then
+   ``thing: <id>`` where the item stands for one thing and ``order: <n>`` where
+   the view states an order (a rack unit's by where it stands in the rack, not
+   by the order its units are listed). The kinds are ``rack-unit`` and ``grid-row``,
+   which read down (top to bottom, then on in the next column), and
+   ``strip-element``, ``key-tile`` and ``chain-block``, which read across (left
+   to right, then on in the next row). The list is complete: a key figure's
+   members (its lamps, its holder names) are parts of its tile, not items of
+   their own. A class's ``drawing`` digest leaves these comments out (rule 2;
+   an index with no ``drawing_rule`` was written by rule 1, which kept them in,
+   so between the two every class's digest differs once). Every widget stands
+   on whole pixels, each edge rounded where it is written, and every screen
+   ends one margin under its lowest frame. A section's heading line carries
+   what qualifies it: a count, a one-line legend, or the one row of chips that
+   fits beside it. The layout measures text in the viewer's own font
+   (IBM Plex Sans): a column takes the width its longest label needs (a
+   checkout's channel and thing columns their longest names), a long
+   label in a chain block takes two lines, a muted line of prose (a caption, a
+   note, what a press writes, a source, also beside a fact) takes as many lines
+   as it needs, conditions that several calibration rows state alike are stated
+   once under the rows, set off by half a row of space and a thin rule and
+   tied to their rows by a reference mark (1, 2, ...) after each row's title
+   and at the start of the line, which says the text alone, a name with no separator breaks where a small letter
+   meets a capital, and a text still longer than its box is cut there with an
+   ellipsis and listed. The engine writes the whole text as a tooltip on a box
+   over the cut label (a link drawn over it carries that whole text too in its tooltip, several cut labels joined one per line, a text another line holds left out; its one-line hover label is the link's own label, at most 40 characters and cut
+   with an ellipsis past that, the basis of an inferred relation said in the
+   tooltip only); a viewer that
+   shows tooltips shows it, and no viewer has to shrink or clip a label. A
+   value display is as wide as the widest text the facility
+   states it can show: its longest state word, else its limits as the display
+   prints them when they are wider than the stand-in ``-0.00123``, else that
+   stand-in, with the unit where the display prints it. Every text label's box
+   is at least one line of the font high (a light's mark among them), grown
+   about its middle where it was lower. A class's ``sample`` names the members a reviewer
+   opens: the standard, the smallest, the largest, the one with the longest
+   label, the first off standard, and one member on each side of every
+   variation that changes the drawing (a part drawn with or without a stated
+   position, a channel list drawn as a grid or a count). Each member of the
+   sample is ``{"file", "as"}``: its file and what it stands for, one or more of
+   ``standard``, ``smallest``, ``largest``, ``longest labels`` and ``off
+   standard``, and the drawing sides it is the first to show (``x_mm missing``,
+   ``channel list drawn as ChannelCount``).
+   A device's card and channel list also state, under ``others``, what they
+   show of other things on purpose: each thing, the kind of item that draws it
+   (``strip member``, ``chain block``, ...) and the channels of it the screen
+   binds; a row that names no thing (a channel list's row of a device the
+   roles reach) is placed by its channel's owner. A checker can then tell a
+   neighbour's channel from a channel on the wrong screen.
+
+``osprey facility panels check --out DIRECTORY [--strict] [--max-bytes N] [--limit N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
+   Regenerate every screen and compare it with the files under ``--out``;
+   nothing is written. It prints the count of each problem kind and the first
+   ``--limit`` of each (default 20), and exits 1 on any failing problem:
+   ``stale``, ``missing``, ``orphan``, ``dangling_link``, ``unknown_channel``,
+   ``stamp``, ``invalid``, ``incomplete``, ``oversize`` (over
+   ``--max-bytes``), ``unrolled`` (a rule channel no roll-up reads),
+   ``static_rollup``, ``long_formula`` (an expression over the viewer's
+   length limit), ``over_budget`` (more rules or channels than one screen
+   may bind) or ``stale_class`` (a screen's class or what its entry states about
+   it, or the class table or its summary, in ``index.json`` other than the
+   model gives now). A link outside the written set, a card or checkout over its
+   budget, a probe row whose signal no channel states, and a ``pictures.csv``
+   row whose signal binds no channel (``unbound_picture``) or channels of two
+   devices (``ambiguous_picture``), and a strip badge's stem drawn through
+   another thing's state word (``crossed_word``) are notes, and fail only with
+   ``--strict``.
+   Before the problems it prints the device classes by how ``pictures.csv``
+   draws them (with a drawing, with parts only, with none) and, per class, the
+   parts not placed (no position and no angle): information, never a problem.
+   After the problems it prints the class summary from the index. A clean set
+   prints ``The written screens match the model.``
+
+``osprey facility panels classes --out DIRECTORY [--limit N] [--differs]``
+   Print the class table of the ``index.json`` under ``--out``; nothing else is
+   read. One row per class, the largest first: its members, those off the
+   standard, those with a cut label, the class and its standard's file; the
+   first ``--limit`` rows (default 30, ``0`` for all). Then one row per view
+   kind: its screens, classes, classes of one screen, screens off their
+   standard and screens with a cut label. ``--differs`` adds every screen off
+   its standard, and how. The last line is the summary a gate reads:
+   ``classes: N classes (S of more than one screen), M screens off their
+   standard, C with a label cut; single: <view> <count>, ...``. Exits 1 when
+   the index is missing or holds no class table.
+
+   Where a screen needs a widget the Screen-IR format lacks (a five-state
+   light, a hatched fill, a scrolling table, clickable text, a condition on an
+   enum label, a viewer- or server-side aggregate state, a rule longer than
+   the expression limit), the nearest widget is drawn and the node's
+   ``meta.comment`` names the need as ``format-request: <name>``;
+   ``osprey.facility.panels.layout.FORMAT_REQUESTS`` lists them.
+
+.. _cli-osprey-sim:
+
+osprey sim
+==========
+
+List, inspect and apply the scenarios of a simulated deployment. The scenarios
+are authored under ``data/facility/scenarios/`` and served from the simulator
+view the build writes under ``build/data/simulator/``; a repo with no build, or
+a build with no simulator view, exits 1 with ``run 'osprey build' first``.
+``osprey sim`` alone prints its help, naming the three verbs. All three verbs
+take ``--repo DIRECTORY``; without it, the nearest ``profile.yml`` at or above
+the current directory is used.
+
+``osprey sim list [--repo DIRECTORY]``
+   Print one line per scenario of the view, sorted by name:
+   ``<marker> <name>  (logbook: yes|no)``, where the marker is ``*`` for a
+   scenario in the active set and a space otherwise, and ``logbook`` says
+   whether the scenario narrates logbook entries. The scenario's description
+   follows on its own indented line when it has one. ``nominal`` is always in
+   the active set.
+
+``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
+   Print one ``<model>: <status>`` line per served physics model, sorted by
+   name, where the status is ``ok``, ``no deck`` for a model that names no deck
+   and wires no channel (it is not built, by design, and its channels are the
+   texture's), or ``FAILED:`` followed by the model's error text. The command
+   exits 1 when any model failed, after printing every line. One
+   ``log: <absolute path>`` line per model follows, naming the log the
+   simulator appends to under ``var/simulator/``, each followed by any
+   scenario-overlap records from that log. ``--target`` selects the control
+   target to report on and defaults to the deployment's own; a target the
+   deployment does not configure exits 1. With the simulator served in process
+   the status comes from the composite this process holds; on any other target it
+   is read from the model's status channel, ``<code>:SIM:<model>:STATUS``,
+   through that target's connector.
+
+``osprey sim apply NAMES... [--no-seed] [--no-seed-logbook] [--no-seed-archiver] [--yes] [--now ISO8601] [--repo DIRECTORY]``
+   Make ``NAMES`` the active scenario set, with ``nominal`` always included,
+   and seed their stored data: the ARIEL logbook is purged and reseeded from
+   the set's logbook entries, and the affected windows of the stored archive
+   are rewritten from the set's archiver events. The set is judged on the
+   simulator view before anything is written: two scenarios that write one
+   target are refused, naming that target, and the command exits 1.
+   ``--no-seed-logbook`` leaves the logbook untouched, ``--no-seed-archiver``
+   the stored archive, and ``--no-seed`` both. ``--yes`` (``-y``) skips the
+   confirmation prompts before the purge and the archive rewrite. ``--now``
+   freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
+   dates are reproducible; a naive value takes the facility timezone, and the
+   ``OSPREY_SIM_NOW`` environment variable is read when the option is absent.
+   It never adds or removes the scenario sessions a first deploy laid down.
+
+.. code-block:: bash
+
+   osprey sim list
+   osprey sim apply rf-thermal demo-history
+   osprey sim status
+
+osprey ariel
+============
+
+Manage the ARIEL logbook search service. Run from anywhere inside a deployment
+repo: the commands read its ``build/config.yml``.
+
+Every command gives the database 30 s to answer when it opens it; the limit
+covers the open, not the work after it. A database that does not answer ends
+the command with exit code 1 and
+``the ARIEL store at <host>:<port>/<database> did not answer within 30 s``. A
+database that refuses the connection fails at once.
+
+``osprey ariel quickstart [-s, --source PATH]``
+   Full setup: migrate, then ingest ``--source`` or the configured ingestion
+   source; with neither, enhance what the logbook already holds (a deploy
+   seeds it from the active scenarios).
+
+``osprey ariel status [--json]``
+   Show the database connection, embedding tables and enhancement counts.
+   Includes the vocabulary line (with the ``e1:…`` vocabulary key when entries
+   are expanded) and, per text-embedding table, one line for each group of
+   vectors built with other settings than the running ones, ending with the
+   ``reembed`` command that rebuilds them.
+
+``osprey ariel migrate``
+   Create or update the database tables the enabled modules need.
+
+``osprey ariel sync [--limit N] [--watch]``
+   Idempotent migrate + incremental ingest + enhance. Safe to run on every
+   build; on a fresh database, runs a full ingest. ``--watch`` keeps polling
+   the source after the sync.
+
+``osprey ariel ingest -s, --source PATH [-a, --adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
+   Ingest logbook entries from file or URL.
+
+``osprey ariel watch [-s, --source PATH] [-a, --adapter TYPE] [--once] [--interval N] [--dry-run]``
+   Poll the source for new entries and ingest them. ``--once`` runs a single
+   poll cycle. Nothing is ingested until one earlier ``ingest`` has run,
+   unless ``ingestion.watch.require_initial_ingest`` is false.
+
+``osprey ariel enhance [-m, --module NAME] [--force] [--limit N] [--retry-failed] [--refresh-stale] [--entry ID]``
+   Run the enhancement modules over entries not yet enhanced. ``--force``
+   re-runs the text modules; ``--retry-failed`` retries what ``--module``
+   gave up on. ``--refresh-stale``, with ``--module image_caption``, captions
+   again the pictures captioned with an older prompt. ``--entry ID``, with
+   ``--module``, re-runs that module for one failed or stale entry; it is the
+   command an entry's enhancement card shows, and it takes no option besides
+   ``--module``.
+
+``osprey ariel qmd-resync [--rebuild]``
+   Re-export entries the qmd markdown mirror never saw --- entries created in
+   the web interface, attachment uploads, and entries written through the
+   logbook write service. ``--rebuild`` wipes the mirror and re-exports
+   everything, which is what to run after ``purge``.
+   ``ingest`` and ``watch`` already do this pass on their own. Prints the
+   vocabulary key it used as its last row (``Expansion key``).
+
+``osprey ariel models``
+   List the embedding models and their tables.
+
+``osprey ariel search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
+   Execute a search query. Without ``--mode``, the deployment's
+   ``ariel.default_search_mode`` decides.
+
+``osprey ariel vocab-check [PATH] [--json]``
+   Validate a facility vocabulary file --- the shorthand-to-prose mapping that
+   query expansion uses. Checks ``PATH``, or the file named by
+   ``ariel.vocabulary.path`` when no path is given. Needs no database. Exits 1
+   and lists every error when the file is broken; warnings never fail it.
+
+``osprey ariel reembed --model NAME --dimension N [--batch-size N] [--dry-run] [--force]``
+   Re-embed entries with a different model, or with the current vocabulary
+   settings after ``status`` reports stale vectors (``--force``). ``--dry-run``
+   prints the plan, including ``Running key: r1`` or ``Running key:
+   r1:e1:<hex>`` --- the key each new vector will record. ``reembed`` refuses
+   to start when ``ariel.vocabulary.expand_entries`` is on but the vocabulary
+   does not load; that refusal names the loader error and the remedy ``fix
+   ariel.vocabulary.path or set ariel.vocabulary.expand_entries: false``.
+   ``sync``, ``ingest``, ``watch``, ``enhance``, ``quickstart`` and
+   ``qmd-resync`` refuse the same way. Without ``--dry-run`` it also refuses
+   when the table predates the key column (``schema behind code: run osprey
+   ariel migrate``).
+
+``osprey ariel purge [-y, --yes] [--embeddings-only]``
+   Delete all ARIEL data. ``--embeddings-only`` keeps the entries and clears
+   the embedding tables.
+
+``osprey ariel attachments``
+   Group for the attachment copy commands.
+
+``osprey ariel attachments backfill [--limit N] [--dry-run] [--probe N] [--wait] [--retry-decoder-failed]``
+   Record and copy the pictures of every stored entry, newest first, and
+   render stored originals that have no rendition. ``--dry-run`` counts what
+   would be fetched; ``--probe N`` also requests N sampled pictures and prints
+   an estimate. ``--wait`` waits for a copy running in another process.
+   ``--retry-decoder-failed`` renders again the pictures the decoder could not
+   read.
+
+.. code-block:: bash
+
+   osprey ariel quickstart
+   osprey ariel search "RF cavity fault"
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
+
+osprey web
+==========
+
+Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
+
+``osprey web [OPTIONS]``
+   Start the web terminal server (default: ``127.0.0.1`` at the port layout's
+   web port, ``port_base`` + 100, so ``10100`` on the default block). On
+   startup it prints a login URL (``…/?token=…``) that signs you in and then
+   redirects to the clean address. The cookie it sets lasts
+   ``modules.web_terminals.auth.session_lifetime`` seconds (default ``43200``,
+   12 hours) and survives a browser restart; signed-in sessions are kept on
+   disk, so restarting the server on the same port leaves them signed in. The
+   URL is printed once, but its token is the server's own secret and stays
+   valid for the life of the process — treat it like a password.
+
+   ``-p, --port INTEGER`` — Port (default: ``OSPREY_WEB_PORT``, then config, else
+   the port layout's web port, ``port_base`` + 100).
+   0 lets the system choose; the startup line names the port; not with ``--reload``.
+
+   ``--host TEXT`` — Host to bind to (default: from config, else ``127.0.0.1``).
+
+   ``--shell TEXT`` — Shell command to run (default: ``claude``).
+
+   ``--repo DIRECTORY`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
+
+   ``--detach`` — Run in background (PID written to ``var/osprey-web.pid``). The
+   login token is held only in memory; if the printed URL is lost, stop and
+   restart the server to mint a new one.
+
+   ``--reload`` — Auto-reload for development.
+
+   ``--skip-preflight`` — Skip the pre-flight checks (companion port collisions
+   and the like) and start anyway. Without it, a failed check refuses the start.
+
+``osprey web stop [--repo DIRECTORY]``
+   Stop a background web terminal server. Returns once the server and the
+   processes it started have exited, waiting up to 60 seconds. A process that
+   outlives the server is ended with SIGTERM, then SIGKILL; one that cannot be
+   ended is named and the command exits 1. A server still running after the
+   wait is named and left alone, and the command exits 1; its PID file is
+   kept, so ``osprey web stop`` can be run again.
+
+``osprey web sessions``
+   Group for the commands that manage the sessions kept on disk.
+
+``osprey web sessions clear [--repo DIRECTORY] [--force]``
+   Forget the sessions this project has kept on disk, so everyone has to open
+   the login URL again. It refuses to run while a server is using them — stop
+   it first with ``osprey web stop``.
+
+   ``--force`` — Delete them even so. Browsers already signed in to the running
+   server keep working until that server exits.
+
+   This is not the multi-user terminal's **Logout** button: there, Logout ends
+   one person's session in a running server, while ``sessions clear`` empties
+   the stored sessions of a stopped one.
+
+.. code-block:: bash
+
+   osprey web
+   osprey web --port 9000 --host 0.0.0.0
+   osprey web --detach
+   osprey web stop
+   osprey web sessions clear
+
+osprey theme-lab
+================
+
+Design a theme in the browser. Starts a local server for OSPREY's design
+system and opens the Theme Lab, where you pick an accent color and see it
+previewed live on dark and light mock-ups of the web terminal, with contrast
+badges that update as you go. Copying the export block gives you a
+ready-to-paste description of the theme to request; the lab itself does not
+write theme files. See :doc:`/how-to/web-terminal/theming`.
+
+``osprey theme-lab [OPTIONS]``
+   Serve the Theme Lab and open it. The URL is printed as well, so the page can
+   be opened by hand if no browser appears. It is a login URL at the server root
+   (``…/?token=…``): opening it sets a session cookie and then redirects to the
+   lab itself.
+
+   ``-p, --port INTEGER`` — Port to serve on (default: an unused port chosen
+   automatically).
+
+   ``--no-browser`` — Do not open a browser window; print the URL only.
+
+.. code-block:: bash
+
+   osprey theme-lab
+   osprey theme-lab --port 9000
+   osprey theme-lab --no-browser
+
+osprey audit
+============
+
+Audit a build profile or project directory for safety risks. Uses an AI
+reviewer to analyze permissions, hooks, MCP server configs, convention
+directories, and lifecycle scripts.
+
+.. code-block:: bash
+
+   osprey audit TARGET [OPTIONS]
+
+The reviewer runs on the deployment's configured provider
+(``claude_code.provider``), so an audit needs a built project: point it at one,
+or pass ``--build`` to build the profile first.
+
+``--build`` — Build a profile in a temp directory, then audit the result.
+
+``--model TEXT`` — Model for the reviewer agent. Defaults to the project's
+main model.
+
+``--budget FLOAT`` — Maximum budget in USD.
+
+``-v, --verbose`` — Show verbose output.
+
+``--json`` — Output as JSON.
+
+.. code-block:: bash
+
+   osprey audit my-project/
+   osprey audit profile.yml --build
+   osprey audit project/ --json
+
+osprey scaffold
+===============
+
+Emit the repository's CI files and boot unit, and manage build artifact
+ownership.
+Framework-managed build artifacts (agents, rules, etc.) can be claimed
+per-facility for in-place editing. A claim moves the artifact out of the build
+zone and into the profile beside it; the next build copies it back and registers
+it as user-owned, so a rebuild leaves your version alone.
+
+All subcommands accept a common flag:
+
+``--repo DIRECTORY`` — Deployment repository to act on (default: the nearest
+``profile.yml`` at or above the working directory).
+
+``osprey scaffold ci [--force]``
+   Emit this repository's CI pipeline and health check from the profile's
+   ``deploy:`` block: the pipeline at the repository root and the post-deploy
+   health check at ``scripts/verify.sh``. Run it again whenever the block
+   changes. Re-running is safe — a file whose content already matches is left
+   untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
+   file the scaffolder did not write is reported and left alone unless
+   ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
+   pipeline includes it. The health check exits 0 unless run with ``--strict``,
+   which exits 1 when a container or a probe is flagged.
+
+``osprey scaffold systemd [--force]``
+   Emit the files that start this deployment at boot: a systemd user unit,
+   ``osprey.service`` at the repository root, and a boot hook,
+   ``scripts/osprey-boot-hook.sh``, plus the commands to install the unit. The unit runs
+   ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
+   the repository and the ``osprey`` program written in as full paths — systemd
+   starts a unit with no working directory and a short ``PATH``. Run it on the
+   machine that will run the deployment, and again after the repository moves or
+   OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
+   ``ci``: a matching file is left untouched, and a file the scaffolder did not
+   write needs ``--force``. Refuses when no ``osprey`` program can be found to
+   name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
+   see :doc:`/how-to/deploy-a-facility`. When ``$HOME`` is on an NFS or autofs
+   mount it also warns that linger alone will not survive a reboot there, prints
+   the root-only ``user@<uid>.service`` drop-in that orders the user manager
+   after a systemd-managed mount, and shows the two crontab lines that run the
+   boot hook at boot — the route for a daemon-managed autofs home, and the
+   no-root fallback elsewhere.
+
+``osprey scaffold tiers [--from PRESET] [--force]``
+   Write ``tiers/<name>.yml`` for every tier the preset's web-terminal roster
+   names, as ``osprey init`` does. A file that already matches is left
+   untouched; one that differs is reported and left alone unless ``--force``
+   is given. ``--from`` names the preset (default: the preset this repo was
+   created from).
+
+``osprey scaffold pull PRESET[:PATH] [--list] [--force] [--with-content] [--repo DIRECTORY]``
+   Copy a preset's packaged content into this repo, each file at the same path,
+   for you to edit and commit: ``demo`` copies the whole app
+   template, ``demo:data/facility/knowledge`` one subtree of it.
+   ``--list`` prints every path the preset offers and copies nothing. The
+   knowledge base arrives as its ``index.md`` files alone, rebuilt from what
+   landed; ``--with-content`` brings its documents too. A file that is already
+   here stops the pull before anything is written unless ``--force`` is given;
+   a symlink on the way to a target is always refused.
+
+``osprey scaffold list``
+   List all build artifacts and their ownership status (framework vs.
+   user-owned).
+
+``osprey scaffold claim NAME``
+   Move an artifact out of ``build/`` and into the repository's profile, into
+   the convention directory for its kind (``rules/safety.md``,
+   ``skills/orbit-check/``, ``services/postgresql/``, ``hooks/my-guard``). A
+   file moves as a file; skills and services move as whole directories. The
+   build copy is *moved*, not copied — it lives in one place until the next
+   ``osprey build`` renders it again.
+
+   Refused, with the reason: a **generated** artifact rather than an authored one —
+   ``CLAUDE.md``, ``.claude/settings.json``, ``.mcp.json``,
+   ``hook_config.json`` — where the message names the config key that does
+   control it; and a profile slot that is already occupied. See
+   :ref:`profile-claim`.
+
+``osprey scaffold diff NAME``
+   Show a unified diff between the current framework template (re-rendered)
+   and your file at the canonical output path. For a claimed service
+   directory, diffs every file in the directory against the packaged
+   template.
+
+``osprey scaffold unclaim NAME``
+   Release ownership and restore framework management. The next build overwrites
+   the file with the framework template. Ownership a build derived from the
+   profile is re-registered by the next build, so this holds only until then —
+   give the artifact up for good by deleting it from the profile's convention
+   directory.
+
+``osprey scaffold web-terminals``
+   Group for the two verbs that check and render the deployment's
+   ``modules.web_terminals`` stanza.
+
+``osprey scaffold web-terminals lint [--repo DIRECTORY]``
+   Validate the deployment's ``modules.web_terminals`` stanza (port-family
+   allocation, reserved service names, duplicate users, login references).
+   Exits non-zero on error-severity findings; warnings do not fail the check,
+   so it is safe to wire into a CI gate. The retired ``--config`` is refused,
+   as under ``render`` below.
+
+``osprey scaffold web-terminals render [--repo DIRECTORY] -o DIRECTORY``
+   Render the multi-user deployment artifacts (docker-compose overlay, nginx
+   routing fragment, static landing page) into ``-o/--output``. Lints first by
+   default and aborts on errors; ``--no-lint`` skips the pre-check.
+
+   Both verbs read the stanza from the repository's built ``config.yml``.
+   ``--config`` is retired: it is still accepted so that an old command line
+   gets an error naming what replaced it (``--repo`` and the built
+   ``config.yml``), and the verb exits 1 without doing anything.
+
+.. code-block:: bash
+
+   osprey scaffold ci                             # Re-emit the CI files
+   osprey scaffold systemd                        # Write the boot unit
+   osprey scaffold tiers                          # Write the tier files
+   osprey scaffold pull demo --list               # Show what a preset offers
+   osprey scaffold list                           # Show all artifacts
+   osprey scaffold claim agents/channel-finder    # Claim for editing
+   osprey scaffold claim services/postgresql      # Freeze a service template
+   osprey scaffold diff agents/channel-finder     # Compare yours vs framework
+   osprey scaffold unclaim rules/safety           # Restore framework management
+   osprey scaffold web-terminals lint             # lint this project's stanza
+   osprey scaffold web-terminals render -o deploy/
+
+osprey vendor
+=============
+
+Manage locally bundled vendor assets (JS/CSS/fonts) for firewalled
+deployments. By default OSPREY interfaces load third-party libraries directly
+from CDN; set ``OSPREY_OFFLINE=1`` (or ``offline: true`` in ``config.yml``) to
+switch the interfaces over to local bundles.
+
+``osprey vendor fetch [OPTIONS]``
+   Download all vendor assets declared in the manifest into
+   ``static/vendor/``. Run once on firewalled deployments before starting
+   ``osprey web`` with ``OSPREY_OFFLINE=1``. In default CDN mode this command
+   is optional.
+
+   ``-q, --quiet`` — Suppress per-file output.
+
+   ``-t, --target DIR`` — Fetch only the assets for this manifest target
+   directory, e.g. ``tuning/static/vendor/`` (repeatable). Default: every target.
+   A target the manifest marks ``"base": "package"`` is named relative to the
+   ``osprey`` package rather than its ``interfaces`` package; an unknown target is
+   refused with the list of known ones. An application's own ``vendor:`` entries
+   are fetched by ``osprey build``, not by this command.
+
+   Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
+   fails cert verification until it is pointed at the site's CA bundle.
+   That is the first remedy to reach for — verification stays on:
+
+   .. code-block:: bash
+
+      OSPREY_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+        osprey vendor fetch
+
+   ``SSL_CERT_FILE`` works too (Python's default SSL context honors it);
+   ``OSPREY_CA_BUNDLE`` wins when both are set. The path above is the
+   RHEL-family system bundle — on Debian-family hosts it is
+   ``/etc/ssl/certs/ca-certificates.crt``.
+
+   ``-k, --insecure`` — The fallback when no CA bundle is at hand: skip TLS
+   cert verification. Every asset is still checked against its manifest
+   SHA256, so this is safe behind corporate proxies that intercept TLS.
+   Also enabled via ``OSPREY_VENDOR_INSECURE=1``.
+
+``osprey vendor verify``
+   Verify all vendor assets exist on disk with correct SHA256 checksums.
+
+.. code-block:: bash
+
+   osprey vendor fetch                    # Download all assets
+   OSPREY_CA_BUNDLE=/path/to/ca.pem osprey vendor fetch   # TLS-intercepting proxy, verified
+   osprey vendor fetch --insecure         # Fallback: no CA bundle at hand
+   osprey vendor verify                   # Check checksums
+
+Environment Variables
+=====================
+
+The variables the CLI reads, and where they belong, are listed in
+:doc:`/reference/configuration/environment-variables`.

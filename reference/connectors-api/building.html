@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Building Connectors &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Building Connectors &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Connector Contracts" href="contracts.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
@@ -1982,12 +1983,6 @@ touched only by <a class="reference internal" href="#osprey_connectors.connectio
 <span class="sig-name descname"><span class="pre">ca_bundle</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.connection.ConnectionSettings.ca_bundle" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
-<dl class="py property">
-<dt class="sig sig-object py" id="osprey_connectors.connection.ConnectionSettings.credential_env_names">
-<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">credential_env_names</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.connection.ConnectionSettings.credential_env_names" title="Link to this definition">#</a></dt>
-<dd><p>The environment variables the login’s secret is read from; <code class="docutils literal notranslate"><span class="pre">()</span></code> without one.</p>
-</dd></dl>
-
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.connection.ConnectionSettings.timeout_or">
 <span class="sig-name descname"><span class="pre">timeout_or</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">default</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/connection.html#ConnectionSettings.timeout_or"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.connection.ConnectionSettings.timeout_or" title="Link to this definition">#</a></dt>
@@ -2445,7 +2440,6 @@ block are both covered.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.connection.ConnectionSettings.timeout_s"><code class="docutils literal notranslate"><span class="pre">ConnectionSettings.timeout_s</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.connection.ConnectionSettings.login"><code class="docutils literal notranslate"><span class="pre">ConnectionSettings.login</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.connection.ConnectionSettings.ca_bundle"><code class="docutils literal notranslate"><span class="pre">ConnectionSettings.ca_bundle</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.connection.ConnectionSettings.credential_env_names"><code class="docutils literal notranslate"><span class="pre">ConnectionSettings.credential_env_names</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.connection.ConnectionSettings.timeout_or"><code class="docutils literal notranslate"><span class="pre">ConnectionSettings.timeout_or()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.connection.ConnectionSettings.resolve_credential"><code class="docutils literal notranslate"><span class="pre">ConnectionSettings.resolve_credential()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.connection.ConnectionSettings.ssl_context"><code class="docutils literal notranslate"><span class="pre">ConnectionSettings.ssl_context()</span></code></a></li>

@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.control_system._base &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.control_system._base &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -452,9 +452,12 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrEnum</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">os</span><span class="w"> </span><span class="kn">import</span> <span class="n">PathLike</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">TypeAlias</span><span class="p">,</span> <span class="n">TypeGuard</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">TypeAlias</span><span class="p">,</span> <span class="n">TypeGuard</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">override</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">posture_store</span><span class="p">,</span> <span class="n">write_authorization</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._contract_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContractAny</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system.write_door</span><span class="w"> </span><span class="kn">import</span> <span class="n">open_door</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">RefusalReason</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_readonly_run</span>
@@ -530,7 +533,7 @@
     <span class="n">enum_labels</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="c1">#: The label for the value of THIS reading; None off enums and when unresolvable.</span>
     <span class="n">enum_label</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">raw_metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="n">raw_metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
     <span class="c1">#: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.</span>
     <span class="n">control_low</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">control_high</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -545,7 +548,7 @@
 
 <div class="viewcode-block" id="ChannelMetadata.__post_init__">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelMetadata.__post_init__">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Ensure raw_metadata is a dict and normalise the limits and ``writable``.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">raw_metadata</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">raw_metadata</span> <span class="o">=</span> <span class="p">{}</span>
@@ -614,7 +617,7 @@
 <span class="k">class</span><span class="w"> </span><span class="nc">ChannelValue</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Value of a control system channel with metadata.&quot;&quot;&quot;</span>
 
-    <span class="n">value</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">value</span><span class="p">:</span> <span class="n">ContractAny</span>
     <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span>
     <span class="n">metadata</span><span class="p">:</span> <span class="n">ChannelMetadata</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">ChannelMetadata</span><span class="p">)</span></div>
 
@@ -695,15 +698,18 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_scalars_match</span><span class="p">(</span><span class="n">sent</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">observed</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Compare two scalars: floats by relative closeness, everything else by ``==``.&quot;&quot;&quot;</span>
+    <span class="c1"># The bools are excluded first: ``bool`` is a ``numbers.Real`` at runtime,</span>
+    <span class="c1"># though the type stubs do not say so.</span>
     <span class="k">if</span> <span class="p">(</span>
-        <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">observed</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span>
+        <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">observed</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">observed</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">)</span>
     <span class="p">):</span>
         <span class="k">return</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">sent</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">observed</span><span class="p">),</span> <span class="n">rel_tol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
 
-    <span class="n">result</span> <span class="o">=</span> <span class="n">sent</span> <span class="o">==</span> <span class="n">observed</span>
+    <span class="c1"># Not always a bool: a numpy comparison answers an array.</span>
+    <span class="n">result</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">sent</span> <span class="o">==</span> <span class="n">observed</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">result</span>
     <span class="c1"># A numpy (or other array-like) elementwise comparison reduces to one verdict.</span>
@@ -760,20 +766,6 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">as_number</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;``value`` as a float, or ``None`` when it is not a number.</span>
-
-<span class="sd">    A reading that is not a number — a string, an enum label, a waveform — has</span>
-<span class="sd">    no numeric form and is reported as ``None`` (&quot;no numeric value&quot;), never</span>
-<span class="sd">    coerced into one. A string that happens to parse as a number is still a</span>
-<span class="sd">    string here: what the channel holds is text, and inventing a number for it</span>
-<span class="sd">    is the fabrication this helper exists to prevent.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">):</span>
-        <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-
-
 <span class="c1">#: The outcomes whose result carries an ``error_message``: each has something</span>
 <span class="c1">#: the operator has to be told.</span>
 <span class="n">_MESSAGE_OUTCOMES</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">FAILED</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">UNCONFIRMED</span><span class="p">})</span>
@@ -811,8 +803,7 @@
 <span class="sd">    them apart without parsing ``error_message``; it is ``None`` on every</span>
 <span class="sd">    other result. ``observed_value`` is whatever the confirming</span>
 <span class="sd">    re-read returned, in the type the channel holds — a number, a string, an</span>
-<span class="sd">    enum label, a waveform; :attr:`observed_number` narrows it to a float</span>
-<span class="sd">    where that makes sense.</span>
+<span class="sd">    enum label, a waveform.</span>
 
 <span class="sd">    Alarm state (``alarm_status``, ``alarm_severity``) is carried</span>
 <span class="sd">    protocol-agnostically — the alarm *name* as a string, the severity as an</span>
@@ -824,13 +815,13 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Channel that was written</span>
-    <span class="n">value_written</span><span class="p">:</span> <span class="n">Any</span>  <span class="c1"># Value that was sent</span>
+    <span class="n">value_written</span><span class="p">:</span> <span class="n">ContractAny</span>  <span class="c1"># Value that was sent</span>
     <span class="n">outcome</span><span class="p">:</span> <span class="n">WriteOutcome</span>  <span class="c1"># The one verdict, set by the connector</span>
     <span class="c1"># Set iff refused, enforced at construction</span>
     <span class="n">refusal_reason</span><span class="p">:</span> <span class="n">RefusalReason</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="c1"># Set iff refused, failed or unconfirmed, enforced at construction</span>
     <span class="n">error_message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">observed_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># What the confirming re-read returned</span>
+    <span class="n">observed_value</span><span class="p">:</span> <span class="n">ContractAny</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># What the confirming re-read returned</span>
     <span class="c1"># Alarm name reported for the reading, e.g. &quot;NO_ALARM&quot;/&quot;HIHI&quot;; None if not reported</span>
     <span class="n">alarm_status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="c1"># Alarm severity: 0 healthy, higher is worse; None if not reported</span>
@@ -857,11 +848,19 @@
 <span class="sd">                is missing on a ``refused``, ``failed`` or ``unconfirmed``</span>
 <span class="sd">                result or set on any other.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="p">):</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">outcome</span> <span class="o">=</span> <span class="n">WriteOutcome</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span><span class="p">,</span> <span class="n">RefusalReason</span><span class="p">):</span>
+        <span class="c1"># Read as ``object``: the fields&#39; types say what they hold once coerced.</span>
+        <span class="n">outcome</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">outcome</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">outcome</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">outcome</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="c1"># The words the enum&#39;s own lookup raises for a value it does not hold.</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">outcome</span><span class="si">!r}</span><span class="s2"> is not a valid </span><span class="si">{</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="vm">__qualname__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">outcome</span> <span class="o">=</span> <span class="n">WriteOutcome</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
+        <span class="n">reason</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span>
+        <span class="k">if</span> <span class="n">reason</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reason</span><span class="p">,</span> <span class="n">RefusalReason</span><span class="p">):</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span> <span class="o">=</span> <span class="n">RefusalReason</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reason</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span> <span class="o">=</span> <span class="n">RefusalReason</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
             <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                     <span class="sa">f</span><span class="s2">&quot;Write result for &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; (outcome </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="si">}</span><span class="s2">): &quot;</span>
@@ -880,12 +879,7 @@
                 <span class="sa">f</span><span class="s2">&quot;Write result for &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; (outcome </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="si">}</span><span class="s2">): &quot;</span>
                 <span class="sa">f</span><span class="s2">&quot;error_message must be </span><span class="si">{</span><span class="n">expected</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">error_message</span><span class="si">!r}</span><span class="s2">&quot;</span>
             <span class="p">)</span></div>
-
-
-    <span class="nd">@property</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">observed_number</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;:attr:`observed_value` as a float, or ``None`` when it is not a number.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">as_number</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">observed_value</span><span class="p">)</span></div>
+</div>
 
 
 
@@ -1047,6 +1041,17 @@
     <span class="p">)</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_refusing_verdict</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;WriteVerdict&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict behind a ``_writes_enabled`` that has just answered no.</span>
+
+<span class="sd">    The one that evaluation memoised on ``_last_verdict``, or a fresh</span>
+<span class="sd">    :func:`_monitor_verdict` for a subclass that overrides the property and so</span>
+<span class="sd">    never sets it. Read here, not where the guard cleared the memo: the property</span>
+<span class="sd">    sets it as a side effect the caller&#39;s own narrowing cannot see.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">connector</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="n">connector</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">_verdict_refusal</span><span class="p">(</span>
     <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">verdict</span><span class="p">:</span> <span class="s2">&quot;WriteVerdict&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
@@ -1110,7 +1115,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">connector</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">_overrides_writes_enabled</span><span class="p">(</span><span class="n">connector</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">connector</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">connector</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="n">connector</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_refusing_verdict</span><span class="p">(</span><span class="n">connector</span><span class="p">)</span>
     <span class="n">section</span> <span class="o">=</span> <span class="n">_monitor_section</span><span class="p">()</span>
     <span class="n">target</span> <span class="o">=</span> <span class="n">connector</span><span class="o">.</span><span class="n">_control_target</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">connector</span><span class="o">.</span><span class="n">_write_route_open</span><span class="p">():</span>
@@ -1335,7 +1340,71 @@
 <span class="n">_SendStep</span><span class="p">:</span> <span class="n">TypeAlias</span> <span class="o">=</span> <span class="n">_CheckNotMade</span> <span class="o">|</span> <span class="n">_SendFailed</span> <span class="o">|</span> <span class="kc">None</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_accepts_on_connection</span><span class="p">(</span><span class="n">subscribe</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">_WriteChannelFunction</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A connector class&#39;s own ``write_channel`` as its ``__dict__`` holds it, unbound.</span>
+
+<span class="sd">    Called with the connector first; whatever follows the value is passed</span>
+<span class="sd">    through to it unread.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">connector</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="o">/</span><span class="p">,</span>
+        <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Awaitable</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span> <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_BatchWriteFunction</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A connector class&#39;s own ``write_multiple_channels`` as its ``__dict__`` holds it, unbound.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">connector</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
+        <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span>
+        <span class="o">/</span><span class="p">,</span>
+        <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]]:</span> <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_SubscribeFunction</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A connector class&#39;s own ``subscribe`` as its ``__dict__`` holds it, unbound.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">connector</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">callback</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">ChannelValue</span><span class="p">],</span> <span class="kc">None</span><span class="p">],</span>
+        <span class="o">/</span><span class="p">,</span>
+        <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span> <span class="o">...</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_ConnectionSubscribeFunction</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``subscribe`` :func:`_compat_subscribe_without_on_connection` installs.</span>
+
+<span class="sd">    Spelled with the parameter names of :meth:`ControlSystemConnector.subscribe`,</span>
+<span class="sd">    ``self`` included, so it stands in the class for that method; the</span>
+<span class="sd">    protocol&#39;s own instance is ``_protocol_self``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="n">_protocol_self</span><span class="p">,</span>
+        <span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">callback</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">ChannelValue</span><span class="p">],</span> <span class="kc">None</span><span class="p">],</span>
+        <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="n">on_connection</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">bool</span><span class="p">],</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Coroutine</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span> <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_accepts_on_connection</span><span class="p">(</span><span class="n">subscribe</span><span class="p">:</span> <span class="n">_SubscribeFunction</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``.&quot;&quot;&quot;</span>
     <span class="n">parameters</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
     <span class="k">return</span> <span class="nb">any</span><span class="p">(</span>
@@ -1345,8 +1414,8 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_compat_subscribe_without_on_connection</span><span class="p">(</span>
-    <span class="n">owner</span><span class="p">:</span> <span class="nb">type</span><span class="p">,</span> <span class="n">subscribe</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Coroutine</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">type</span><span class="p">,</span> <span class="n">subscribe</span><span class="p">:</span> <span class="n">_SubscribeFunction</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_ConnectionSubscribeFunction</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Give a ``subscribe()`` that predates ``on_connection`` the keyword. Deprecated.</span>
 
 <span class="sd">    A connector that reports no connection state of its own still shows one</span>
@@ -1368,7 +1437,6 @@
         <span class="n">stacklevel</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
     <span class="p">)</span>
 
-    <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_subscribe</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
         <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -1390,6 +1458,7 @@
 
         <span class="k">return</span> <span class="k">await</span> <span class="n">subscribe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">_deliver</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
+    <span class="n">functools</span><span class="o">.</span><span class="n">update_wrapper</span><span class="p">(</span><span class="n">_subscribe</span><span class="p">,</span> <span class="n">subscribe</span><span class="p">)</span>
     <span class="c1"># inspect.signature() reads __signature__ before following __wrapped__, so</span>
     <span class="c1"># the wrapper reports the keyword it takes; mypy knows no such attribute.</span>
     <span class="n">signature</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span>
@@ -1456,7 +1525,7 @@
     <span class="c1"># A subclass&#39;s own ``write_channel`` before the guard wrapped it, set by</span>
     <span class="c1"># ``__init_subclass__``: what an authorized batch writes each operation</span>
     <span class="c1"># through once the whole call was judged and its step spent.</span>
-    <span class="n">_unguarded_write_channel</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]]</span>
+    <span class="n">_unguarded_write_channel</span><span class="p">:</span> <span class="n">_WriteChannelFunction</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_writes_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -1499,7 +1568,11 @@
 
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_validation_refusal</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">BaseException</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="c1"># The value write_channel was given: the extension contract leaves it open.</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
+        <span class="n">error</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The REFUSED result a non-limits validation error owes the caller.</span>
 
@@ -1529,7 +1602,8 @@
 
 <div class="viewcode-block" id="ControlSystemConnector.__init_subclass__">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.__init_subclass__">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">__init_subclass__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="nd">@override</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__init_subclass__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Auto-wrap write methods with the write-verdict pre-check.</span>
 
 <span class="sd">        Any subclass that defines ``write_channel()`` or</span>
@@ -1568,16 +1642,13 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init_subclass__</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
-        <span class="n">original_subscribe</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subscribe&quot;</span><span class="p">)</span>
+        <span class="n">original_subscribe</span><span class="p">:</span> <span class="n">_SubscribeFunction</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subscribe&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">original_subscribe</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">_accepts_on_connection</span><span class="p">(</span><span class="n">original_subscribe</span><span class="p">):</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">subscribe</span> <span class="o">=</span> <span class="n">_compat_subscribe_without_on_connection</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">original_subscribe</span><span class="p">)</span>  <span class="c1"># type: ignore[method-assign]  # wraps the subclass&#39;s own method</span>
 
-        <span class="n">original_write</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
-            <span class="s2">&quot;write_channel&quot;</span>
-        <span class="p">)</span>
+        <span class="n">original_write</span><span class="p">:</span> <span class="n">_WriteChannelFunction</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_channel&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">original_write</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 
-            <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">original_write</span><span class="p">)</span>
             <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_write</span><span class="p">(</span>
                 <span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
                 <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -1594,7 +1665,7 @@
                         <span class="k">return</span> <span class="k">await</span> <span class="n">original_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
                 <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
-                    <span class="n">verdict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+                    <span class="n">verdict</span> <span class="o">=</span> <span class="n">_refusing_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
                     <span class="k">return</span> <span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">verdict</span><span class="p">)</span>
                 <span class="n">held</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
                 <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -1602,22 +1673,21 @@
                 <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
                     <span class="k">return</span> <span class="k">await</span> <span class="n">original_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
+            <span class="n">functools</span><span class="o">.</span><span class="n">update_wrapper</span><span class="p">(</span><span class="n">_guarded_write</span><span class="p">,</span> <span class="n">original_write</span><span class="p">)</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">write_channel</span> <span class="o">=</span> <span class="n">_guarded_write</span>  <span class="c1"># type: ignore[method-assign]  # wraps the subclass&#39;s own method</span>
             <span class="c1"># The write past the guard, for an authorized batch that was judged</span>
             <span class="c1"># and spent whole (:meth:`write_multiple_channels`).</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_unguarded_write_channel</span> <span class="o">=</span> <span class="n">original_write</span>
 
-        <span class="n">original_multi</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">)</span>
-        <span class="p">)</span>
+        <span class="n">original_multi</span><span class="p">:</span> <span class="n">_BatchWriteFunction</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">original_multi</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 
-            <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">original_multi</span><span class="p">)</span>
             <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_multi</span><span class="p">(</span>
                 <span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
                 <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span>
-                <span class="o">*</span><span class="n">args</span><span class="p">,</span>
-                <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+                <span class="c1"># The batch&#39;s own parameters, which the base class&#39;s batch takes too.</span>
+                <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
+                <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
             <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
                 <span class="k">if</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="c1"># Under an authorization a batch is the base class&#39;s: one</span>
@@ -1630,7 +1700,7 @@
                     <span class="c1"># One verdict for the batch, not one per operation: the</span>
                     <span class="c1"># whole batch was refused by one answer, and every result</span>
                     <span class="c1"># must tell the same story about why.</span>
-                    <span class="n">verdict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+                    <span class="n">verdict</span> <span class="o">=</span> <span class="n">_refusing_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
                     <span class="k">return</span> <span class="p">[</span><span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">addr</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">verdict</span><span class="p">)</span> <span class="k">for</span> <span class="n">addr</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">operations</span><span class="p">]</span>
                 <span class="n">held</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
                 <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -1638,6 +1708,7 @@
                 <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
                     <span class="k">return</span> <span class="k">await</span> <span class="n">original_multi</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
+            <span class="n">functools</span><span class="o">.</span><span class="n">update_wrapper</span><span class="p">(</span><span class="n">_guarded_multi</span><span class="p">,</span> <span class="n">original_multi</span><span class="p">)</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">write_multiple_channels</span> <span class="o">=</span> <span class="n">_guarded_multi</span>  <span class="c1"># type: ignore[method-assign]  # wraps the subclass&#39;s own method</span></div>
 
 
@@ -1667,7 +1738,7 @@
 <div class="viewcode-block" id="ControlSystemConnector.connect">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.connect">[docs]</a>
     <span class="nd">@abstractmethod</span>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Establish connection to control system.</span>
 
@@ -1719,7 +1790,7 @@
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_channel</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
         <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
@@ -1797,7 +1868,11 @@
 <div class="viewcode-block" id="ControlSystemConnector.write_channel_checked">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.write_channel_checked">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_channel_checked</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
+        <span class="c1"># Passed straight through to write_channel, whatever this connector&#39;s takes.</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Await write_channel and enforce the reference monitor&#39;s denial contract.</span>
 
@@ -1869,7 +1944,8 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.write_multiple_channels">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_multiple_channels</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="c1"># Each value as write_channel takes it: the extension contract leaves it open.</span>
+        <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]],</span>
         <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
@@ -1951,7 +2027,7 @@
             <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
                 <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
-                    <span class="n">refused</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+                    <span class="n">refused</span> <span class="o">=</span> <span class="n">_refusing_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
                 <span class="k">else</span><span class="p">:</span>
                     <span class="n">refused</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
                 <span class="k">if</span> <span class="n">refused</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -1970,7 +2046,8 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">_write_precheck</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>  <span class="c1"># noqa: ARG002 - a connector&#39;s refusal carries the value</span>
+        <span class="c1"># The value write_channel was given: the extension contract leaves it open.</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>  <span class="c1"># noqa: ARG002 - a connector&#39;s refusal carries the value</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;One write&#39;s name, and the refusal this connector answers before the limits.</span>
 
@@ -1980,7 +2057,7 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="n">channel_address</span><span class="p">,</span> <span class="kc">None</span>
 
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_current_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_current_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;What the named channels hold now, for a batch&#39;s ``max_step`` checks.</span>
 
 <span class="sd">        ``None`` when the connector has no reader, and the step checks then</span>
@@ -2075,10 +2152,10 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
-                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">_refusing_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">_overrides_writes_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">_refusing_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
         <span class="n">verdict</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">authorized_execution_verdict</span><span class="p">(</span>
             <span class="n">_monitor_section</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">authorization</span><span class="o">=</span><span class="n">authorization</span>
         <span class="p">)</span>
@@ -2086,7 +2163,8 @@
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_send_batch</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">batch</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="c1"># Each value as write_channel takes it: the extension contract leaves it open.</span>
+        <span class="n">batch</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]],</span>
         <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>

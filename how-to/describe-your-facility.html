@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Describe your facility &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Describe your facility &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Safety watchdogs" href="safety-watchdogs.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -661,7 +661,16 @@ setpoint with the readback that shares its <code class="docutils literal notrans
 (<code class="docutils literal notranslate"><span class="pre">gap_setpoint</span></code> with <code class="docutils literal notranslate"><span class="pre">gap_readback</span></code>). It does so only when exactly
 one setpoint and one readback of that quantity share it, no stated
 <code class="docutils literal notranslate"><span class="pre">pair</span></code> names the readback, and the two agree in <code class="docutils literal notranslate"><span class="pre">value_type</span></code>,
-<code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code>; else it pairs the setpoint with itself.</p></td>
+<code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code> (a command and its status need not); else it
+pairs the setpoint with itself. A setpoint and readback whose signals
+name one quantity must agree in those three, stated or derived; a
+command and the status it reads back on, or a pair whose quantity no
+signal states, may differ. Several setpoints may name one readback (a
+set and a reset command read back on one channel). The simulation
+drives a readback from its setpoint only where exactly one setpoint
+names it and the two agree in type; any other readback it drives from
+no setpoint. The readback’s seed <code class="docutils literal notranslate"><span class="pre">follows</span></code> changes that for one pair
+(see Seeds).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tolerance</span></code></p></td>
 <td><p>On a float setpoint, how close its readback must come before a move
@@ -768,8 +777,24 @@ refused:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">taper_setpoint</span>
 <span class="w">  </span><span class="nt">aliases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">gap taper</span><span class="p p-Indicator">]</span>
 <span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Commanded gap difference between an undulator&#39;s two ends.</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bootloader_version_readback</span>
+<span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Bootloader version a controller reports.</span>
+<span class="w">  </span><span class="nt">nameplate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">trip_level_readback</span>
+<span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Level at which a protection circuit trips.</span>
+<span class="w">  </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Trip</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">nameplate:</span> <span class="pre">true</span></code> marks a signal that names the unit it is read from rather
+than its state; a device card shows such a signal with what the device is,
+never as a key tile. The vocabulary’s own <code class="docutils literal notranslate"><span class="pre">model_readback</span></code>,
+<code class="docutils literal notranslate"><span class="pre">serial_number_readback</span></code> and <code class="docutils literal notranslate"><span class="pre">firmware_version_readback</span></code> are marked so.</p>
+<p><code class="docutils literal notranslate"><span class="pre">title</span></code> is the short word a screen names the signal by, on a tile or a value
+row; with none, the signal’s name stands. The vocabulary titles its general
+signals with the operator’s word: <code class="docutils literal notranslate"><span class="pre">Current</span></code>, <code class="docutils literal notranslate"><span class="pre">Setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">Voltage</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Ramp</span> <span class="pre">rate</span></code>, <code class="docutils literal notranslate"><span class="pre">On</span> <span class="pre">command</span></code>, <code class="docutils literal notranslate"><span class="pre">Strength</span></code> (a multipole’s normalized
+strength), <code class="docutils literal notranslate"><span class="pre">Kick</span></code> (a corrector’s angle), and <code class="docutils literal notranslate"><span class="pre">Lolo</span></code>, <code class="docutils literal notranslate"><span class="pre">Lo</span></code>, <code class="docutils literal notranslate"><span class="pre">Hi</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Hihi</span></code> for the temperature alarm limits. A <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row’s <code class="docutils literal notranslate"><span class="pre">label</span></code> wins over it.</p>
 </section>
 <section id="layers">
 <h2>Layers<a class="headerlink" href="#layers" title="Link to this heading">#</a></h2>
@@ -787,7 +812,26 @@ get a <code class="docutils literal notranslate"><span class="pre">members-disag
 until they agree or a <code class="docutils literal notranslate"><span class="pre">set</span></code> fix names <code class="docutils literal notranslate"><span class="pre">members</span></code>. A place’s or device’s
 <code class="docutils literal notranslate"><span class="pre">scheme_names</span></code> are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
-content is still a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.</p>
+content is still a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.
+A channel’s seed (<code class="docutils literal notranslate"><span class="pre">simulation</span></code>, which <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> states too) is joined
+per key: one layer may state <code class="docutils literal notranslate"><span class="pre">follows</span></code> and another the seed’s values, and
+only one key two layers state differently is a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.</p>
+<p>A place, device, channel or group record may say what the fields it states rest
+on. <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code> with a <code class="docutils literal notranslate"><span class="pre">rule</span></code> says a named rule derived them, not a
+source; with neither, they are stated. A producer that pairs channels by their
+names writes such a layer:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># data/facility/imported/names/channels.yaml</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BR:DIAG:TV:01:PADDLE:SP</span>
+<span class="w">  </span><span class="nt">pair</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BR:DIAG:TV:01:PADDLE:RB</span>
+<span class="w">  </span><span class="nt">basis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inferred</span>
+<span class="w">  </span><span class="nt">rule</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">an SP channel pairs with the RB channel of its name</span>
+</pre></div>
+</div>
+<p>The two words are no fields of the record: the build keeps them in the
+provenance entry of that layer’s file. Screens mark such a field inferred,
+unless another layer states the same value outright. A record’s fields all rest
+on one basis, so a layer that states some fields and infers others writes them
+as two layers.</p>
 <p>The importers are <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code>,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">relations</span></code>.</p>
 <section id="a-middle-layer-export">
@@ -859,11 +903,11 @@ SR:MAG:QF:01:CURRENT:RB,,,QF01,1.5,A,Focusing quadrupole current readback
 </div>
 <p>The files under <code class="docutils literal notranslate"><span class="pre">imported/list/</span></code> belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. Each device a row gives an <code class="docutils literal notranslate"><span class="pre">s</span></code> is written to
-<code class="docutils literal notranslate"><span class="pre">imported/list/devices.yaml</span></code>; a <code class="docutils literal notranslate"><span class="pre">model</span></code> column names the model whose deck
-<code class="docutils literal notranslate"><span class="pre">s</span></code> is measured along. A run whose list states no <code class="docutils literal notranslate"><span class="pre">s</span></code> leaves no
-<code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>, and a device the list then names needs a record of its own,
-such as an <code class="docutils literal notranslate"><span class="pre">add</span></code> fix, or the build stops with <code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>. The
+into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. Each device a row names is written to
+<code class="docutils literal notranslate"><span class="pre">imported/list/devices.yaml</span></code>, with its <code class="docutils literal notranslate"><span class="pre">s</span></code> where a row gives one; a
+<code class="docutils literal notranslate"><span class="pre">model</span></code> column names the model whose deck <code class="docutils literal notranslate"><span class="pre">s</span></code> is measured along. A
+misspelt <code class="docutils literal notranslate"><span class="pre">device</span></code> cell makes a device of its own: when other sources declare
+devices too, the import prints a line naming those only the list declares. The
 list import runs the same step as every format: it replaces a bundled facility
 and refuses only hand-written channel and device lists, so it still positions
 a list against your own deck, models and places.</p>
@@ -1318,6 +1362,36 @@ archive’s start state see. The build stops with <code class="docutils literal 
 <code class="docutils literal notranslate"><span class="pre">period_s</span></code> is not above zero, and with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when <code class="docutils literal notranslate"><span class="pre">topoff</span></code> has
 a <code class="docutils literal notranslate"><span class="pre">nominal</span></code> beside it or <code class="docutils literal notranslate"><span class="pre">topoff_lifetime.of</span></code> names no channel with a
 <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed. Live reads and the archive show the same sawtooth.</p>
+<p><code class="docutils literal notranslate"><span class="pre">follows</span></code> says whether the simulation copies a setpoint’s writes into this
+readback. By default it does when exactly one setpoint names the readback as
+its <code class="docutils literal notranslate"><span class="pre">pair</span></code> and the two agree in <code class="docutils literal notranslate"><span class="pre">value_type</span></code>, <code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code>.
+<code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">&lt;setpoint&gt;</span></code> makes the copy where the default does not, and
+<code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code> stops it where the default makes it. A followed readback
+starts at its setpoint’s value and takes each write at once, with its own noise
+and drift on top.</p>
+<p>A labelled readback (<code class="docutils literal notranslate"><span class="pre">bool</span></code> or <code class="docutils literal notranslate"><span class="pre">enum</span></code>) may follow a setpoint of another
+type through <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">&lt;setpoint&gt;</span></code>, and then takes the state of the same
+index. From a labelled setpoint of as many labels, <code class="docutils literal notranslate"><span class="pre">Clear</span> <span class="pre">/</span> <span class="pre">Set</span></code> into
+<code class="docutils literal notranslate"><span class="pre">Off</span> <span class="pre">/</span> <span class="pre">On</span></code> copies <code class="docutils literal notranslate"><span class="pre">Set</span></code> as <code class="docutils literal notranslate"><span class="pre">On</span></code>. From a setpoint that holds a number,
+<code class="docutils literal notranslate"><span class="pre">1</span></code> (or <code class="docutils literal notranslate"><span class="pre">1.0</span></code>) holds the readback’s second label, and a fraction or a number
+past its labels is refused and holds nothing. The default never copies by
+index: only a seed asks for it.</p>
+<p>The build stops with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when <code class="docutils literal notranslate"><span class="pre">follows</span></code> sits on a channel no
+setpoint names, on a readback several setpoints name, names a setpoint whose
+<code class="docutils literal notranslate"><span class="pre">pair</span></code> is another channel, or names a setpoint it cannot copy: one of another
+type into an unlabelled readback, one with a different number of labels, or one
+that holds neither labels nor a number. It stops when a number setpoint’s start
+value is no index of the readback’s labels. It stops too when a followed
+readback’s seed gives it a value of its own (<code class="docutils literal notranslate"><span class="pre">topoff</span></code>, <code class="docutils literal notranslate"><span class="pre">topoff_lifetime</span></code>,
+<code class="docutils literal notranslate"><span class="pre">linear</span></code> or <code class="docutils literal notranslate"><span class="pre">pulse</span></code>): a write to the setpoint would replace that value, so
+state <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code> on it. The simulator view’s <code class="docutils literal notranslate"><span class="pre">follows.json</span></code> lists every
+pair with whether the simulation follows it (<code class="docutils literal notranslate"><span class="pre">default</span></code>, <code class="docutils literal notranslate"><span class="pre">seed</span></code> or
+<code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">followed</span></code>), why, and for a followed pair how it copies (<code class="docutils literal notranslate"><span class="pre">value</span></code> or
+<code class="docutils literal notranslate"><span class="pre">index</span></code>, with the label of each index), and counts each.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:VAC:VALVE:01:POSITION:OPEN</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">follows</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+</pre></div>
+</div>
 <p>At run time the <code class="docutils literal notranslate"><span class="pre">gate</span></code> acts on the channel’s held value, after a <code class="docutils literal notranslate"><span class="pre">linear</span></code>
 sum; <code class="docutils literal notranslate"><span class="pre">drift</span></code> and <code class="docutils literal notranslate"><span class="pre">noise</span></code> are added on top and <code class="docutils literal notranslate"><span class="pre">clamp</span></code> applied. A gated
 float reads its value
@@ -1360,9 +1434,112 @@ record binds that a scenario may still misalign or give a multipole error; see
 <em>Element errors</em> in <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
 <p>A wiring record’s <code class="docutils literal notranslate"><span class="pre">calibration</span></code> converts between the channel’s hardware
 value and the engine’s physics value, as a <code class="docutils literal notranslate"><span class="pre">linear</span></code> gain and offset or a
-<code class="docutils literal notranslate"><span class="pre">table</span></code>. Channels no served model wires are served by the texture model from
+<code class="docutils literal notranslate"><span class="pre">table</span></code>.</p>
+<p>A readback record reads the setpoint record that names the same element (or
+slices), engine <code class="docutils literal notranslate"><span class="pre">attribute</span></code> and <code class="docutils literal notranslate"><span class="pre">index</span></code>. A readback that states the
+setpoint’s calibration, or none, reads the setpoint’s value on the setpoint’s
+way back. A readback that states another calibration reads the same physics
+value through its own: the setpoint’s <code class="docutils literal notranslate"><span class="pre">curve</span></code> gives the physics value, and
+the readback’s <code class="docutils literal notranslate"><span class="pre">inverse</span></code> (or, with none, the inverse of its <code class="docutils literal notranslate"><span class="pre">linear</span></code>
+curve) gives the reading. So one quantity can be read in a second unit. The
+voltage of the quadrupole’s circuit, 0.1 V per ampere, is a channel of its own:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">V</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">focusing quadrupole circuit voltage</span>
+</pre></div>
+</div>
+<p>and a third record on the element the current setpoint and its readback are
+wired to, with the strength a volt stands for as its curve:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">QF01</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PolynomB</span>
+<span class="w">    </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">calibration</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">curve</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">0.06006155556990854</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">brho</span>
+</pre></div>
+</div>
+<p>The readback’s <code class="docutils literal notranslate"><span class="pre">curve</span></code> runs the way every curve does, from its own unit to
+the physics value; a <code class="docutils literal notranslate"><span class="pre">table</span></code> needs an <code class="docutils literal notranslate"><span class="pre">inverse</span></code>. State the setpoint’s
+<code class="docutils literal notranslate"><span class="pre">energy_scaling</span></code> on it unless its unit does not move with the beam energy
+as the setpoint’s does. Its computed <code class="docutils literal notranslate"><span class="pre">default</span></code> is the value it is served
+with at start, and its seed’s noise and drift act in its own unit.</p>
+<p>A setpoint may drive a property of the whole deck: a record that names no
+element and the engine <code class="docutils literal notranslate"><span class="pre">attribute:</span> <span class="pre">energy</span></code> is the deck’s energy, set through
+the curve from its unit to electron-volts. The deck is at its own energy while
+that setpoint holds its <code class="docutils literal notranslate"><span class="pre">default</span></code>, and moves from there as the curve’s value
+does. A readback record with the same engine block reads that setpoint, and it
+too may state its own calibration. The current of a string of bending magnets
+and the string’s voltage, 0.5 V per ampere, are two channels:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">setpoint</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bending magnet string current</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">V</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bending magnet string voltage</span>
+</pre></div>
+</div>
+<p>and two records that name no element:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">energy</span>
+<span class="w">  </span><span class="nt">calibration</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">curve</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">4.0e+6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:BEND:VOLTAGE:RB</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">attribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">energy</span>
+<span class="w">  </span><span class="nt">calibration</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">curve</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">8.0e+6</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+</pre></div>
+</div>
+<p>The voltage reads the value of the setpoint’s curve at the current the
+setpoint holds, through its own way back: 250 V at 500 A here. Both curves end
+in the same unit, the one the setpoint’s curve states, so write the readback’s
+curve against the setpoint’s curve and not against the deck, whose energy may
+differ from the curve’s by a constant factor. Such a readback states
+<code class="docutils literal notranslate"><span class="pre">energy_scaling:</span> <span class="pre">none</span></code>, as the value of the setpoint’s curve does not move
+with the beam rigidity; the build stops on any other with <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code>.</p>
+<p>The model computes a wired readback from the setpoint record on its element,
+so it reads that setpoint whether or not the channels <code class="docutils literal notranslate"><span class="pre">pair</span></code> the two, where
+several setpoints name it, and where its seed states <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code>; its
+<code class="docutils literal notranslate"><span class="pre">default</span></code> is the value it is served with in each case.</p>
+<p>Channels no served model wires are served by the texture model from
 their seeds. Which models a deployment serves, and what a failed one looks like, is
 in <a class="reference internal" href="../architecture/facility-file.html#architecture-simulation-models"><span class="std std-ref">Simulation models</span></a>.</p>
+<p>A value served under more than one address has one wiring record. Each
+further address is a channel of its own:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LINE:RACK:03:UNIT:01:X</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM 01 horizontal position, as the rack unit names it</span>
+</pre></div>
+</div>
+<p>and the record lists it under <code class="docutils literal notranslate"><span class="pre">also</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LINE:DIAG:BPM:01:POSITION:X</span>
+<span class="w">  </span><span class="nt">also</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">LINE</span><span class="p p-Indicator">:</span><span class="nv">RACK</span><span class="p p-Indicator">:</span><span class="nv">03</span><span class="p p-Indicator">:</span><span class="nv">UNIT</span><span class="p p-Indicator">:</span><span class="nv">01</span><span class="p p-Indicator">:</span><span class="nv">X</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM01</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">axis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">x</span>
+</pre></div>
+</div>
+<p>Each address under <code class="docutils literal notranslate"><span class="pre">also</span></code> is a channel of <code class="docutils literal notranslate"><span class="pre">records/channels.yaml</span></code> with the
+<code class="docutils literal notranslate"><span class="pre">role</span></code>, <code class="docutils literal notranslate"><span class="pre">value_type</span></code>, <code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code> of the record’s <code class="docutils literal notranslate"><span class="pre">address</span></code>,
+and the same <code class="docutils literal notranslate"><span class="pre">unit</span></code> when both state one. It reads what <code class="docutils literal notranslate"><span class="pre">address</span></code> reads at
+the same instant, with the same calibration, motion and readout noise, and a
+write to it is a write to <code class="docutils literal notranslate"><span class="pre">address</span></code>. It carries no seed of its own, and a
+limit is still stated per address. A pair is stated between
+records’ <code class="docutils literal notranslate"><span class="pre">address</span></code> names: the build stops when an address under <code class="docutils literal notranslate"><span class="pre">also</span></code>
+states a <code class="docutils literal notranslate"><span class="pre">pair</span></code>, and when a setpoint’s <code class="docutils literal notranslate"><span class="pre">pair</span></code> names an address under
+<code class="docutils literal notranslate"><span class="pre">also</span></code>. A fault variable is named by <code class="docutils literal notranslate"><span class="pre">address</span></code>
+only (<code class="docutils literal notranslate"><span class="pre">LINE:DIAG:BPM:01:POSITION:X/offset</span></code>); a scenario block keyed by channel address
+(<code class="docutils literal notranslate"><span class="pre">overrides</span></code>, <code class="docutils literal notranslate"><span class="pre">noise</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_faults</span></code>, <code class="docutils literal notranslate"><span class="pre">still</span></code>) may name
+either. An address belongs to one wiring record: the build stops when two
+records name it, and when two records read the same axis of one monitor.</p>
 </section>
 <section id="measurement">
 <h2>Measurement<a class="headerlink" href="#measurement" title="Link to this heading">#</a></h2>

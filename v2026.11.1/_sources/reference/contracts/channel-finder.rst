@@ -1,0 +1,173 @@
+.. _reference-channel-finder:
+
+========================
+Channel Finder Contracts
+========================
+
+The Channel Finder runs one of four pipelines — in-context, hierarchical,
+middle-layer, or graph — and **each paradigm has its own database contract**:
+the shape of what the pipeline reads is part of choosing it. This page gives
+the four contracts, the ``config.yml`` keys that select a pipeline and point it
+at its database, and how the active pipeline reaches the agent. For the task
+of choosing and running one, see :doc:`/how-to/use-channel-finder`.
+
+
+Database Contracts, per Paradigm
+================================
+
+.. _channel-finder-db-in-context:
+
+In-context
+----------
+
+A flat JSON structure, the index ``osprey build`` writes from every channel, or
+from the subset the facility tags ``in_context``: one row per channel, sorted by
+address, loaded by the flat ``ChannelDatabase``. A row's ``channel`` is the
+channel's ``label``, else its address:
+
+.. literalinclude:: examples/channel-finder-in-context.json
+   :language: json
+
+``count`` is the number of rows.
+
+.. _channel-finder-db-hierarchical:
+
+Hierarchical
+------------
+
+Declares the levels the pipeline navigates and the naming pattern the
+addresses follow, with the tree itself underneath:
+
+.. literalinclude:: examples/channel-finder-hierarchical.json
+   :language: json
+
+An ``instances`` level is a node named after the level in capitals (``DEVICE``
+here), whose ``_expansion`` lists the instances. This tree holds two channels,
+``SR:BPM[01]:X:RB`` and ``SR:BPM[02]:X:RB``.
+
+.. _channel-finder-db-middle-layer:
+
+Middle-layer
+------------
+
+MATLAB Middle Layer (MML) style organization: channels grouped by functional
+hierarchy — system, family, field, optional subfield — rather than by naming
+pattern, with the addresses listed under a channel key and the family's device
+roster in its ``setup`` block:
+
+.. literalinclude:: examples/channel-finder-middle-layer.json
+   :language: json
+
+``DeviceList`` holds ``[place index, ordinal]`` pairs: the device's place
+numbered among its sibling places at the same level, by beam position, and the
+device's ordinal inside that place. A device whose place has no sibling places
+— one at the machine itself, or with no place — has place index 0, and those
+devices are numbered together, so no two rows of a family are equal.
+Only a device with a channel is listed: a rack, a supply or a host with none
+is in no family, and a system or family left without a device is absent.
+``PlaceList``, when present, holds each device's place beside its row.
+It is parallel to ``CommonNames``, which is each device's label, else its id.
+An existing MML export keeps its metadata keys (``Units``, ``DataType``,
+``Description``, …) — the pipeline skips them during navigation rather than
+requiring their removal.
+
+**Two channel keys, one per protocol.** A field lists its addresses under
+``ChannelNames`` (Channel Access) or ``TangoNames`` (Tango device attributes),
+or under both when the same signal is reachable either way. Each channel the
+pipeline loads carries a ``protocol`` of ``ca`` or ``tango`` accordingly, so a
+database can describe a facility that runs both. The ``list_channels`` tool
+takes a ``protocol`` argument to pick between them; without one it returns the
+``ChannelNames`` list, and asking for a protocol the field does not carry is an
+error naming the keys it does.
+
+**The row count.** Every index ``osprey build`` writes states ``count`` beside
+``schema``: the rows of an in-context index, the leaves of a hierarchical
+tree, the distinct addresses listed under the fields of a middle-layer index
+(a channel of no family is not counted). ``osprey channel-finder benchmark``
+records it as the run's ``channel_count`` and refuses an index that does not
+state it; in graph mode the number is the store's channel count. A
+middle-layer System cannot be named ``schema`` or ``count``.
+
+.. _channel-finder-db-graph:
+
+Graph
+-----
+
+The graph pipeline has no channel database of its own: the facility graph
+describes the machine. Its contract is the graph schema documented in
+:doc:`/how-to/facility-knowledge/use-facility-graph`, carried by the Turtle
+corpus ``osprey build`` writes from the facility file into
+``data/graph/facility.ttl``. The build writes that path into every rendered
+``services.graphdb`` block as ``ttl_path`` unless the profile names a corpus of
+its own. ``osprey up`` loads that corpus into the ``services.graphdb`` store.
+
+The corpus is the source of truth, and two things are built from it. The store
+answers questions about structure — which device an address belongs to, what a
+class is a kind of — and the device card and the agent's Cypher tools read it.
+``osprey build`` also derives a flat search index from the same file, and every
+render with a ``services.graphdb`` block ships that index as
+``data/channel_databases/graph.duckdb`` under the render, a fixed path no key
+moves. Nothing parses the corpus while the deployment runs; ``osprey build &&
+osprey up`` rebuilds the index and reseeds the store from the same file, so the
+two agree.
+
+The deployment's **channel roster** — the one answer to which channels the
+facility has, and which of them are written — is the facility file
+(``facility.json``) the build writes at the root of the render, not the corpus
+or the index. The web interface enumerates and validates against it, and
+``osprey build`` derives the queue server's plan devices from it
+(:doc:`/how-to/bluesky/write-plans`).
+
+
+Configuration Reference
+=======================
+
+Key ``config.yml`` settings:
+
+.. code-block:: yaml
+
+   channel_finder:
+     pipeline_mode: in_context  # "in_context", "hierarchical", "middle_layer", or "graph"
+     pipelines:
+       in_context:
+         database: {path: data/channel_finder/in_context.json}
+       hierarchical:
+         database: {path: data/channel_finder/hierarchical.json}
+       middle_layer:
+         database:
+           path: data/channel_finder/middle_layer.json
+           duckdb_path: data/channel_finder/middle_layer.duckdb
+       # graph has no entry: it is configured by the `services.graphdb` block.
+     benchmark:
+       # Stated by the build when the facility ships benchmark query sources;
+       # the benchmarks view writes the mode's query file here.
+       dataset_path: data/benchmarks/queries.json
+       # Concurrency and output dir are set per run via CLI flags
+       # (osprey channel-finder benchmark --concurrency / --output-dir);
+       # they are not read from config.yml.
+
+Three of the four pipelines name the database they read, so a build renders the
+one block its mode needs. Graph mode renders none: ``pipeline_mode: graph`` plus
+the ``services.graphdb`` block is its whole configuration.
+
+
+.. _channel-finder-framework-integration:
+
+Framework Integration
+=====================
+
+Each pipeline ships as its own MCP server package
+(``channel_finder_in_context``, ``channel_finder_hierarchical``,
+``channel_finder_middle_layer``, ``channel_finder_graph``), and whichever one
+``channel_finder.pipeline_mode`` names in ``config.yml`` is served to the agent
+under the single name ``channel-finder`` — so the tools change with the mode
+but the server the agent reaches does not. It is wired into the agent's
+artifacts when you run ``osprey build``, and rebuilt by the next
+``osprey build`` after you edit the config. There is no public Python
+``find_channels(...)`` entry point — drive the resolver from natural
+language via the agent, or invoke the CLI directly:
+
+.. code-block:: bash
+
+   osprey channel-finder validate     # check the configured database
+   osprey channel-finder benchmark    # evaluate on a query dataset

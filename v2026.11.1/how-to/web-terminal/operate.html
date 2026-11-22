@@ -1,0 +1,1570 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Run the Web Terminal &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/web-terminal/operate';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/web-terminal/operate.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Theming" href="theming.html" />
+    <link rel="prev" title="Web Terminal" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../register-a-measurement-kind.html">Register a measurement kind</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="canopy.html">CANOPY</a></li>
+<li class="toctree-l2"><a class="reference internal" href="canopy-library.html">Share CANOPY Screens</a></li>
+<li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/slack.html">Slack</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../control-systems/machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Web Terminal</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Run the Web Terminal</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="run-the-web-terminal">
+<h1>Run the Web Terminal<a class="headerlink" href="#run-the-web-terminal" title="Link to this heading">#</a></h1>
+<p>Start the Web Terminal from any OSPREY project directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>It boots a local server on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100</span></code> and prints a login URL of
+the form <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100/?token=…</span></code>. Your browser opens that URL for
+you.</p>
+<p>Opening the URL signs you in and then redirects to the clean
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100</span></code> address. Every later request rides the cookie it
+sets.</p>
+<p>The cookie is good for 12 hours by default, and it outlives closing the
+browser. On a console other people sit at, shorten it: set
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> in the deployment’s config
+(see <a class="reference internal" href="multi-user/login.html"><span class="doc">Require a Login</span></a>).</p>
+<p>The URL is printed once, but the token in it is the server’s own secret. It
+keeps working for as long as that server runs, so treat it like a password
+rather than a one-shot code.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET</span></code> is already set in the environment you launch
+from, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> uses that value rather than minting one. It says so
+instead of printing a URL: the URL was printed wherever that secret came from.
+Unset it and start again to get a freshly minted one.</p>
+<p>Override the defaults, or point it at another project, with <code class="docutils literal notranslate"><span class="pre">--host</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--port</span></code>, and <code class="docutils literal notranslate"><span class="pre">--repo</span></code>.</p>
+<p>To keep it running after you close the terminal, start it in the background:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web<span class="w"> </span>--detach<span class="w">     </span><span class="c1"># start in the background</span>
+osprey<span class="w"> </span>web<span class="w"> </span>stop<span class="w">         </span><span class="c1"># stop it again</span>
+</pre></div>
+</div>
+<p>In background mode the process id and logs are written to
+<code class="docutils literal notranslate"><span class="pre">var/osprey-web.pid</span></code> and <code class="docutils literal notranslate"><span class="pre">var/osprey-web.log</span></code> in the project directory.</p>
+<p>The login token lives only in the running process’s memory and is never
+written to disk. If you lose the printed URL, there is no way to recover it.
+Stop the server and start it again (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> then
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--detach</span></code>) to mint a fresh one.</p>
+<p>Browsers already signed in stay signed in across that restart, because their
+sessions live in a store on disk. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">sessions</span> <span class="pre">clear</span></code> (with the
+server stopped) forgets them.</p>
+<section id="what-you-get">
+<h2>What you get<a class="headerlink" href="#what-you-get" title="Link to this heading">#</a></h2>
+<p>The window has a sidebar on the left and two panes:</p>
+<ul>
+<li><p><strong>Sidebar</strong> (left) — the list of everything you can open:
+the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> (which
+machine this deployment writes to, and whether it may), search, the
+<strong>Sessions</strong> row, the <strong>Apps</strong> and <strong>System</strong> sections, and a footer with <strong>Docs</strong>,
+<strong>Feedback</strong> (see <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>), <strong>Sign out</strong> (multi-user
+deployments only) and <strong>☰ More</strong>. See
+<a class="reference internal" href="#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p></li>
+<li><p><strong>Agent</strong> (right) — the operator chat, or a real terminal running the OSPREY
+agent when you open one from the pane’s session switcher (the session title
+at the left of the Agent bar). It survives reconnects, and you can keep a
+few background conversations alive and hop between them.
+Close the pane with its <strong>×</strong>; the <strong>Sessions</strong> row in the sidebar opens it again.</p></li>
+<li><p><strong>Work pane</strong> (middle) — the artifacts and panels you open from the sidebar,
+in tiles you arrange by dragging (<a class="reference internal" href="#tiles">Tiles</a>). New artifacts, plots, and data
+files appear under their session in the sidebar (<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>)
+as the agent creates them, with no refresh. Your control-system tools
+(Channel Finder, the Logbook, the knowledge panel, and so on) open here too.
+See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p>
+<p>On a fresh demo deployment the tree is not empty. Its first deploy lays down
+three past sessions from the <code class="docutils literal notranslate"><span class="pre">demo-history</span></code> scenario, with their
+transcripts and artifacts. You can open and resume them (see
+<a class="reference internal" href="../control-systems/use-virtual-accelerator.html#how-to-run-scenarios"><span class="std std-ref">Scenarios</span></a>).</p>
+</li>
+</ul>
+<p>The settings drawer (<strong>☰ More</strong> › <strong>Settings</strong>) lets you read and edit the
+project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, and the agent’s own setup and memory files, from the
+browser. You rarely need to drop back to an editor. Changes prompt you to
+restart the terminal so the agent picks them up.</p>
+<p>Copying text works the way it does in a desktop terminal: drag over the
+agent’s output and the selection is already on your clipboard, with no key to
+press.</p>
+<p>To grab raw screen text instead (say, while the agent is busy), hold Option
+(macOS) or Shift while dragging. Then copy with Cmd+C or Ctrl+Shift+C. Plain
+Ctrl+C always interrupts the agent.</p>
+<p>Serve the terminal over HTTPS for copying to work in every browser. On a plain
+<code class="docutils literal notranslate"><span class="pre">http://</span></code> page, copying falls back to an older browser mechanism that Safari
+may refuse.</p>
+</section>
+<section id="tiles">
+<span id="web-terminal-tiles"></span><h2>Tiles<a class="headerlink" href="#tiles" title="Link to this heading">#</a></h2>
+<p>The work pane is tiles, and a tile shows one panel. Its header shows the
+panel’s name, up to three of the panel’s icons, <strong>⋯</strong>, <strong>Open in new window</strong>
+and <strong>×</strong>.</p>
+<p><strong>⋯</strong>, or a right-click on the header, opens the tile’s menu. <strong>This panel</strong>
+lists the panel’s own actions and any icons a narrow tile has no room for.
+<strong>Tile</strong> lists the tile’s actions, among them <strong>Open panel</strong> (▸ <strong>Right</strong>,
+<strong>Down</strong>, <strong>Replace here</strong>), <strong>Zoom</strong>, <strong>Open in new session</strong>, <strong>Reload</strong> and,
+when the panel has a documentation page, <strong>Help</strong>. Shift+right-click shows the
+browser’s own menu.</p>
+<p><strong>Open in new session</strong> starts a new session and opens that pane in it, on the
+left of the Agent pane. The new session has no other pane. The pane opens at
+its start page, not at the page it showed. The same row is in the menu of a
+panel’s row in the sidebar, whether or not the panel is open, and in the menu
+of an artifact under a session in the sidebar. An artifact opens as a tile that
+shows the notice that it comes from another session. If the agent is working,
+OSPREY asks before it ends the turn. If you keep the turn, nothing changes.</p>
+<p>To zoom one pane and not the page, hold Ctrl and scroll over the pane. On
+macOS, hold Cmd. A pinch on a trackpad does the same. <strong>Zoom</strong> in the tile’s
+menu sets a level from 75% to 200%. While a pane is not at 100%, its header
+shows the level; click the level to go back to 100%. The Agent pane and each
+panel keep one zoom, and each artifact keeps its own. The browser remembers
+them. Over content that the page cannot listen to (a plot, a table or a
+notebook in an artifact), Ctrl+scroll zooms the page; use <strong>Zoom</strong> in the menu
+there.</p>
+<p>A panel you open — from its sidebar row, from a link, from the <strong>+</strong> menu,
+or one the agent opens for you — takes the service tile you used last and
+replaces the panel it showed. Nothing resizes,
+and the panel it replaced stays in the sidebar, one click away. A panel
+already open is brought forward where it is. To open a panel in a tile of
+its own, pick <strong>Open in a new tile</strong> from its row’s menu, or drag the row
+(below).</p>
+<p>Drag a whole tile (by its header) or a sidebar row, and drop it on a tile’s
+edge or on the work pane’s edge:</p>
+<ul class="simple">
+<li><p><strong>Edge</strong>, the outer band of a tile on each side: the tile splits in two, the
+dropped item on that side. No other tile changes size.</p></li>
+<li><p><strong>Dock edge</strong>, the outermost strip of the work pane: a new tile along that
+whole side.</p></li>
+</ul>
+<p>The highlight during the drag is where the item lands. A drop on a tile’s
+header or centre does nothing. The agent pane is always its own tile: a drop
+onto it splits it, and a panel never replaces it.</p>
+<p><strong>×</strong> closes the tile; its space goes to the tile it was split from. The panel
+stays in the sidebar, and its row opens it again. The browser you set it in
+remembers the arrangement: tiles, the panel each shows, and sizes.</p>
+<p>A layout saved by an earlier release with several panels in one tile comes
+back showing the panel that was in front. The others are in the sidebar.</p>
+</section>
+<section id="the-chat-and-the-terminal">
+<span id="web-terminal-one-session"></span><h2>The chat and the terminal<a class="headerlink" href="#the-chat-and-the-terminal" title="Link to this heading">#</a></h2>
+<p>The Agent pane is the operator chat. To reach the agent’s terminal, click the
+session title at the left of the Agent bar and pick <strong>Open terminal</strong>, the last
+row; <strong>Back to chat</strong> returns. The choice belongs to the browser tab, and a new
+tab opens on the chat.</p>
+<p>The chat and the terminal are two windows onto one conversation. They share
+one session, one write state and one transcript, and only the one you are
+looking at runs the agent. A deployment can leave the terminal out; see
+<a class="reference internal" href="../../reference/configuration/config.html#config-web-terminal"><span class="std std-ref">Offering the terminal</span></a>.</p>
+<p>Handing the agent over waits for the work in flight. What you see depends on
+what the agent on the other side is doing when you switch:</p>
+<ul class="simple">
+<li><p><strong>Mid-turn.</strong> The side you arrive in reads <em>Finishing the running turn</em>,
+with the time you have been waiting, and offers <strong>Stop and switch now</strong>. Let
+the turn finish and the conversation reappears where it left off, with
+everything said so far already in the log.</p></li>
+<li><p><strong>Idle.</strong> There is nothing to wait for. The side you arrive in reads
+<em>Restarting the agent…</em>, with no clock and no stop button. A restart that
+runs past about four seconds turns into the mid-turn wait.</p></li>
+</ul>
+<p>Nothing ends the wait on a clock: only the turn finishing, closing the page,
+or <strong>Stop and switch now</strong> ends it. The button interrupts the agent, and stops
+it outright if it has not yielded within five seconds. A deployment built
+before this wait existed behaves differently; see
+<a class="reference internal" href="#web-terminal-upgrading"><span class="std std-ref">Upgrading from earlier releases</span></a>.</p>
+<p>A refusal can meet you instead of the wait:</p>
+<ul class="simple">
+<li><p><em>This session is in use in another tab.</em> means another browser tab holds
+it. Close that tab, or work there instead.</p></li>
+<li><p><em>The previous agent is still shutting down.</em> is the one worth retrying, and
+the card offers <strong>Retry</strong>.</p></li>
+</ul>
+<p>The chat and the terminal run the same Claude Code version, the one
+<code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names. If the chat is refused because that version
+is not installed, the server log says which one to install; see
+<a class="reference internal" href="../../getting-started/installation.html"><span class="doc">Installation</span></a>.</p>
+<p>While a turn runs in the chat, <strong>Send</strong> becomes <strong>Stop</strong>. A message entered
+meanwhile waits above the composer and is sent when the turn ends; <strong>Interrupt
+and ask now</strong> ends the turn and sends it at once.</p>
+<section id="clearing-a-conversation">
+<h3>Clearing a conversation<a class="headerlink" href="#clearing-a-conversation" title="Link to this heading">#</a></h3>
+<p>Run <code class="docutils literal notranslate"><span class="pre">/clear</span></code> in the terminal to start a new conversation under the same
+session. The write state and the machine you are standing on carry over, and
+the chat shows the cleared conversation too.</p>
+<p>Beneath the composer, a context meter shows how full the context window is.
+From 80 percent it suggests <code class="docutils literal notranslate"><span class="pre">/compact</span></code> or a new conversation.
+On the same line, a tag shows the name of the model that answers in the chat.
+Hover over the tag to see the full model ID. The tag shows the model only: you
+cannot change the model from the chat.</p>
+</section>
+<section id="attaching-a-file">
+<h3>Attaching a file<a class="headerlink" href="#attaching-a-file" title="Link to this heading">#</a></h3>
+<p>Attach a file to a message with the paperclip button. You can also paste an
+image, or drop a file on the composer. The file is uploaded when you attach
+it. An attachment chip shows the file name and its size. To remove an
+attachment, select its chip’s <strong>x</strong> button. Type your question, then send.
+The chat does not send a file by itself. The agent opens the file with its
+Read tool.</p>
+<p>The chat accepts images (PNG, JPEG, GIF, WebP), PDF files, and plain-text files
+(TXT, LOG, CSV, JSON, YAML, Markdown, Python). A file can be 20 MB at most. A
+message can carry 10 files. One chat can hold 200 MB of files. A file of
+another type, or a file that is too large, is refused. The attachment chip
+shows the reason.</p>
+<p>The agent reads an attached file from the uploads directory under the agent
+data directory. The deployment allows the agent to read that directory, so the
+read raises no approval card. A file outside it can still raise one. A file
+that you attach but never send is deleted after 24 hours.</p>
+</section>
+</section>
+<section id="the-control-target-chip">
+<span id="web-terminal-session-posture"></span><h2>The control-target chip<a class="headerlink" href="#the-control-target-chip" title="Link to this heading">#</a></h2>
+<p>The chip shows which machine the agent writes to and whether it may. It sits
+in the sidebar and answers, at a glance, the question every write depends on:
+<em>if the agent writes now, which machine does it land on, and may it?</em></p>
+<p>It is one row: an icon with the machine’s dot, the machine’s name, the write
+state, a dot for the health of the deployment’s services, and an arrow. It
+reads like this:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>⌖ Rehearsal  writes asked  •  ⇕
+</pre></div>
+</div>
+<p>Put the pointer on the chip to see the same facts as one sentence, for
+example <em>Control system: Rehearsal, writes asked</em>. Put the pointer on the small
+health dot to see the health of the services.</p>
+<p>The first part names the machine this deployment stands on, by what it <strong>is</strong>:</p>
+<ul class="simple">
+<li><p><strong>Live</strong> — the facility’s own. Writes move hardware.</p></li>
+<li><p><strong>Rehearsal</strong> — a copy of the real machine’s controls, same channel names,
+no hardware behind it. Nothing moves.</p></li>
+<li><p><strong>Simulator</strong> — the virtual accelerator: a physics model with beam in it,
+served from its container or in process. Nothing moves.</p></li>
+</ul>
+<p>A deployment can put its own names on its machines (<em>Example Research
+Facility storage ring</em> rather than <em>Live</em>). What the machine is stays behind
+the small ⓘ beside its name either way. That tooltip also keeps the controls
+server’s own technical label.</p>
+<p>The second part is <strong>your login’s</strong> write switch for that machine, and what
+the next write would get:</p>
+<ul class="simple">
+<li><p><strong>writes asked</strong> — every machine write asks you first, in the approval card.</p></li>
+<li><p><strong>writes allowed</strong> — the same writes run without a prompt.</p></li>
+<li><p><strong>writes off</strong> — writes are refused. Reads are untouched: the agent keeps
+its full view of the control system and of the project, and can still run
+analysis, plots and read-only Python.</p></li>
+<li><p><strong>writes locked</strong> — your switch is armed, but something the chip cannot lift
+refuses the write. The popover shows the phrase for it and who lifts it.</p></li>
+<li><p><strong>· program</strong> after any of these — for example <strong>writes off · program</strong>:
+a program’s write authorization you approved is in force on this machine
+(see <a class="reference internal" href="#web-terminal-approve-program"><span class="std std-ref">Approve a program’s writes</span></a>). The word before it is still your
+own switch. The program may write the channels you approved, inside their
+ranges, until it ends, whatever your switch says. Its dot is a ring around a
+centre rather than a solid dot. The machine’s <em>off</em> control revokes it, and
+the program’s next write is refused.</p></li>
+</ul>
+<p>A switch is one login’s. Two logins on the same machine each have their own,
+and one login’s position never changes the other’s writes.</p>
+<p>Click the chip to open a popover next to the sidebar. It covers <strong>every</strong>
+control target the deployment configures, not only the one you are standing
+on. A click outside the popover, Escape, or a change of the window or sidebar
+width closes it. When a confirm dialog is open over the popover, the first
+Escape closes only the dialog.</p>
+<section id="the-machine-you-are-on-and-the-others">
+<h3>The machine you are on, and the others<a class="headerlink" href="#the-machine-you-are-on-and-the-others" title="Link to this heading">#</a></h3>
+<p>The machine the agent stands on is a card at the top: its name and its write
+switch. Every other machine is a row below the card with the same shape and
+the actions.</p>
+<p>What writing to a machine means (<em>Writes move hardware</em>, or one of the
+<em>nothing moves</em> lines) sits behind the small ⓘ beside each name, on hover or
+keyboard focus. The machine’s endpoint and the server’s own label sit there
+too. The controls are:</p>
+<ul class="simple">
+<li><p><strong>The write switch</strong> — per machine, for every session of this login:
+<em>off</em>, <em>asked</em> or <em>allowed</em>. <em>Off</em> is always available. A position your tier
+or a lock forbids is disabled, with the reason on hover.</p></li>
+<li><p><strong>Switch to</strong> — moves the deployment onto that machine. Where a switch is
+not available, the button’s place is taken by a short phrase for the reason
+— <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">set</span> <span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">needs</span> <span class="pre">gateway</span> <span class="pre">ack</span></code> — with the server’s full
+sentence on the tooltip. On a fresh deployment the real machine reading
+<code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">set</span> <span class="pre">up</span></code> is the normal state, not a fault: authoring its gateways is
+the go-live edit.</p></li>
+</ul>
+<p>A machine that stops answering says so — <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">answering</span></code>, in red, next to
+its name. A machine that answers says nothing about it. Endpoints, gateway
+roles and the age of the last probe stay on the tooltips and in the
+confirmation dialogs, where the decision is actually made.</p>
+<p>The foot has <strong>Turn all writes off</strong>. In one click, every switch of your login
+goes off, a machine no longer configured included, and every program
+authorization you approved is revoked. It stops your login’s writes only;
+other logins keep theirs. It is enabled while any of your switches is armed or
+a program authorization of yours is in force.</p>
+</section>
+<section id="approve-a-program-s-writes">
+<span id="web-terminal-approve-program"></span><h3>Approve a program’s writes<a class="headerlink" href="#approve-a-program-s-writes" title="Link to this heading">#</a></h3>
+<p>A program that writes with nobody at a prompt, such as an optimizer run, asks
+for a <strong>write authorization</strong>: these channels, inside these ranges, this many
+writes, until this time. To approve a request that names your login:</p>
+<ol class="arabic">
+<li><p>Click the chip. The request appears in the popover under <strong>Programs</strong>, with
+<strong>Review</strong>.</p></li>
+<li><p>Click <strong>Review</strong>.</p>
+<p>While the current values are read, the request line says
+<em>reading values…</em> in place of <strong>Review</strong>; a machine that does not answer
+within a few seconds leaves them <em>not read</em>. The card then shows:</p>
+<ul class="simple">
+<li><p>every channel with the range asked for, the limits-database bound it sits
+inside, and its current value;</p></li>
+<li><p>the number of writes (steps), what the run does at the end (nothing,
+apply the best point found, or restore the values it started from), the
+expiry, the lease the program renews while it runs, the program (holder)
+and the run’s label;</p></li>
+<li><p>that a write the limits refuse still costs its step.</p></li>
+</ul>
+</li>
+<li><p>Click <strong>Approve</strong> to issue the authorization.</p>
+<p>Approving is the confirmation for every write the run makes inside it,
+even when your tier is <em>asked</em>: the program’s writes are not prompted one
+by one. Once approved, the machine’s word reads <strong>· program</strong> after it.
+The authorization is listed under <strong>Programs</strong> with its steps used of its
+total, when it ends (the time left; hover for the exact time) and
+<strong>Revoke</strong>.</p>
+</li>
+</ol>
+<p>What can go wrong:</p>
+<ul class="simple">
+<li><p><strong>Approve</strong> is refused, with the reason on the card, when any of these
+holds:</p>
+<ul>
+<li><p>your tier is <code class="docutils literal notranslate"><span class="pre">never</span></code> or cannot be read;</p></li>
+<li><p>this terminal runs read-only;</p></li>
+<li><p>a range is outside the limits database;</p></li>
+<li><p>a channel has no numeric range there, or a current value that is not a
+number;</p></li>
+<li><p>another program already holds one of the channels on this machine.</p></li>
+</ul>
+</li>
+<li><p>A program that issued its own authorization while your switch stood at
+<em>allowed</em> is listed under <strong>Programs</strong> too, marked self-issued, and an
+approval refuses to overlap it. It has no <strong>Revoke</strong>: moving the machine’s
+switch off <em>allowed</em> ends it.</p></li>
+<li><p><strong>Revoke</strong> on an authorization that had already ended says
+<em>Already stopped</em>.</p></li>
+</ul>
+<p>An authorization ends when its steps are used, at its expiry, when the
+program stops renewing its lease, or at a stop. One whose steps are used or
+whose lease lapsed leaves the chip at once. Nothing renews an ended
+authorization; the program asks again.</p>
+<p>To stop an authorization, use <strong>Revoke</strong>, the machine’s <em>off</em> control, or
+<strong>Turn all writes off</strong>. The program’s next write is refused.</p>
+<p>The same approval is available without a web terminal through
+<a class="reference internal" href="../../reference/cli.html#cli-osprey-write-authorization"><span class="std std-ref">osprey write-authorization</span></a>.</p>
+</section>
+<section id="turn-writes-off-or-on">
+<h3>Turn writes off, or on<a class="headerlink" href="#turn-writes-off-or-on" title="Link to this heading">#</a></h3>
+<p>The switch is <strong>per machine</strong>. Turn the real machine off and work on the
+simulator carries on. That is the point: you put the machine you are worried
+about out of reach without giving up the one you are working on.</p>
+<p><strong>Narrowing</strong> (to <em>asked</em>, or to <em>off</em>) applies as you click, and nothing
+refuses it — no lock, no read-only run, no second terminal. If a stop cannot
+be recorded, you are told plainly that it did not take effect. The chip never
+shows an off that was not recorded.</p>
+<p><strong>Widening</strong> asks first. The confirmation names the machine and says whether
+writes will still prompt.</p>
+<ul class="simple">
+<li><p>Tick <em>Don’t ask again on any machine</em> to skip the confirmation for every
+move to <em>asked</em> or <em>allowed</em>, the live machine included.</p></li>
+<li><p>Shift-click, or <em>Ask again</em> in the popover, brings it back.</p></li>
+<li><p>If a stop lands while you are confirming, the move does not take effect.
+The chip re-reads and you click again.</p></li>
+</ul>
+<p><strong>Nothing is restarted.</strong> Every gate reads the switch at the moment of the
+write.</p>
+<ul class="simple">
+<li><p>A narrowing reaches every next write, runs already going included: the
+agent’s next tool call, a running notebook cell’s or Python run’s next
+write.</p></li>
+<li><p>A widening reaches the agent’s tool writes at their next call. A notebook
+cell or Python run already going keeps the position it started with, and
+the next one follows (<a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>). The confirmation says so.</p></li>
+</ul>
+<p><strong>What the chip cannot lift.</strong> A write is refused for one reason: the first
+that holds. Locks that no click lifts are checked before the switch. The chip
+shows that reason’s phrase on the row, and the agent is refused in the same
+words.
+Each phrase ends by naming the machine — <em>(Concerns the rehearsal
+machine.)</em>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 50.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Phrase</p></th>
+<th class="head"><p>Who lifts it</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>the deployment is running read-only</em></p></td>
+<td><p>The deployment admin. The chip cannot.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>this login’s write tier does not allow them</em>, <em>this login’s write tier
+is not known</em></p></td>
+<td><p>The deployment admin.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>this scheduled or triggered job runs for no login</em></p></td>
+<td><p>The deployment admin. No switch covers it.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>this machine’s writes belong to another login</em></p></td>
+<td><p>Only that login.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>the machine this connector writes to is not known</em>, <em>the write switch
+cannot be read</em>, <em>the write gateway has not yet followed the switch</em></p></td>
+<td><p>Retry, then the deployment admin.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>this run was started with writes held off</em></p></td>
+<td><p>Run it again without the pin.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Writes are off</em>, <em>a stop came after the turn-on began</em></p></td>
+<td><p>You: move the switch to asked or allowed.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A position past your login’s tier (<a class="reference internal" href="multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>) acts as the tier
+until the tier is restored.</p>
+</section>
+<section id="switch-the-deployment-to-another-machine">
+<h3>Switch the deployment to another machine<a class="headerlink" href="#switch-the-deployment-to-another-machine" title="Link to this heading">#</a></h3>
+<p><strong>Switch to</strong> on a row moves the whole deployment onto that machine. To
+switch:</p>
+<ol class="arabic">
+<li><p>Click <strong>Switch to</strong> on the machine’s row.</p>
+<p>A confirmation opens. It says where every control read and write goes
+next, and your switch’s position there: the switch is per machine, and it
+does not travel with you. This dialog too can be skipped with its own
+<em>Don’t ask again on any machine</em>.</p>
+</li>
+<li><p>Confirm the move.</p>
+<p>The page that holds the control context runs the same checks the agent’s
+own switch runs. It checks that the move is allowed, and that nothing is
+mid-flight on the machine you are leaving. It records the outcome. The
+deployment’s control-system servers then move themselves onto the machine
+and report when they have arrived.</p>
+</li>
+<li><p>Watch the row. It reads <code class="docutils literal notranslate"><span class="pre">switching…</span></code> until every server has arrived, and
+then <code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>. A bar under it, and on the chip, counts the steps:
+request sent, accepted, then one per server.</p></li>
+</ol>
+<p>The outcome line leaves the row after about a minute — an outcome is news
+for as long as someone is watching for it.</p>
+<p>What can go wrong:</p>
+<ul class="simple">
+<li><p>The row reads <code class="docutils literal notranslate"><span class="pre">✗</span></code> with the phrase for the refusal — the same refusal,
+for the same reason, the agent is given.</p></li>
+<li><p>A server that could not make the move says so by name, so you know which
+one to look at.</p></li>
+<li><p>If nothing answers within 30 seconds, the row reads <code class="docutils literal notranslate"><span class="pre">✗</span> <span class="pre">no</span> <span class="pre">answer</span></code>:
+nothing that could carry out the switch was alive to pick it up.</p></li>
+<li><p>Ask for a second switch while one is still landing and it is refused
+rather than queued, naming the servers still working. Wait for the chip to
+settle and ask again.</p></li>
+</ul>
+<p><strong>Switch to</strong> is the one control a second web terminal of the same login does
+not hold. Only the process holding the control context moves the deployment,
+and elsewhere the button’s place names the holder. The write switches work
+from either.</p>
+<p>What the switch itself is gated on — the approval prompt, the limits
+posture, the archive — is <a class="reference internal" href="../control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
+</section>
+<section id="where-the-control-target-and-the-write-state-live">
+<h3>Where the control target and the write state live<a class="headerlink" href="#where-the-control-target-and-the-write-state-live" title="Link to this heading">#</a></h3>
+<p>Both belong to <strong>the login the terminal acts as</strong>, not to any one session,
+and nothing is written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Every session, window and notebook
+kernel of that login sees the same machine and the same switches. Turning
+writes off on a machine takes them away from all of them, and a switch made in
+one window applies in the other. That is the point — a switch you can
+only see from the page you happen to be on is not a safety control.</p>
+<p>Both are recorded together on disk. They are written as soon as you click and
+read back when a server starts. Restarting the container therefore never
+quietly widens a switch or moves the deployment off the machine somebody put
+it on. Coming back to the deployment baseline is a switch like any other.</p>
+<p>That record sits in a directory named for whoever the terminal is acting as:
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/&lt;name&gt;/control_context.json</span></code>. On a multi-user
+deployment every user has their own container and their own volumes
+(<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>). There, “the deployment” means the stack that user
+is working in, and <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;</span></code> is that user: alice’s settings are in
+<code class="docutils literal notranslate"><span class="pre">control_target/alice/</span></code> on the host. No user’s chip decides another user’s
+writes.</p>
+</section>
+<section id="what-refuses-a-write-and-how-firmly">
+<h3>What refuses a write, and how firmly<a class="headerlink" href="#what-refuses-a-write-and-how-firmly" title="Link to this heading">#</a></h3>
+<p>Each write route is refused by the layer that owns it. One of them is
+best-effort rather than enforced:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>What the agent tries</p></th>
+<th class="head"><p>What refuses it</p></th>
+<th class="head"><p>What that means</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — any control-system write</p></td>
+<td><p>The connector, before the control system is asked</p></td>
+<td><p><strong>Enforced.</strong> The writes-check hook denies it first as well, but the
+connector is the layer that holds if the hook does not run.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">execute</span></code> with <code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code></p></td>
+<td><p>The Python executor’s own gate</p></td>
+<td><p><strong>Enforced.</strong> The run is refused outright; a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> <code class="docutils literal notranslate"><span class="pre">execute</span></code>
+is unaffected and runs normally.</p></td>
+</tr>
+<tr class="row-even"><td><p>Any other write tool the writes-check hook covers — for example the
+Bluesky queue’s arming tools, where that server is enabled</p></td>
+<td><p>The writes-check hook</p></td>
+<td><p><strong>Best-effort.</strong> It is the first hook in the chain and the only
+switch-aware layer those tools have; a hook that fails to run does not
+refuse.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every layer speaks the phrase from the table above, so a refusal never sends
+you to the wrong control. A switch you turned off sounds like <em>“Writes are
+off; turn it on from the chip in the web terminal. (Concerns the live
+machine.)”</em> — and the chip is where you move it. A read-only run says the
+chip cannot lift it, and a refusal nobody set — a switch that cannot be read
+— says to retry, then ask the deployment admin.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>The other surfaces.</strong> The operator chat and websocket run
+their agent through the Agent SDK rather than a terminal, and notebook
+kernels run no agent at all. All of them read your login’s switches at
+write time, so a switch you set and a move you make reach every one of
+them — because what the chip changes is your login’s record rather than
+anything belonging to the window you are looking at.</p>
+<p>A notebook kernel is the one surface where <em>when</em> is worth knowing. Off
+refuses the running cell’s next write; a widening, or a move to another
+machine, reaches the next cell you run. See <a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>.</p>
+<p id="web-terminal-service-door">Where a deployment also serves a panel at an address of its own, that
+address is a <strong>service door, not a terminal</strong>. Log in there directly and the
+deployment has no name to put on what you do, so no switch covers it: a
+plan queued from that page writes nothing (<code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code>). Reaching the
+same panel from its place in the terminal is the named path, and the one the
+chip governs.</p>
+</div>
+</section>
+</section>
+<section id="the-sidebar">
+<span id="web-terminal-sidebar"></span><h2>The sidebar<a class="headerlink" href="#the-sidebar" title="Link to this heading">#</a></h2>
+<p>The sidebar is on the left. From top to bottom, it shows:</p>
+<ul>
+<li><p>The OSPREY mark and the label toggle.</p></li>
+<li><p>The control-target chip. It is one row that shows the machine that this
+deployment writes to, if the agent can write to it, and the health of the
+services. Click the chip to open the
+<a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target popover</span></a>.</p></li>
+<li><p><strong>Search</strong>. It opens the command palette. The shortcut is ⌘K on macOS and
+Ctrl+K on other systems.</p></li>
+<li><p>The groups of panel rows. At first there are three:</p>
+<ul class="simple">
+<li><p><strong>Sessions</strong>, the first group, has no heading. It starts with this row:</p>
+<ul>
+<li><p><strong>Sessions</strong> opens the agent pane and your session tree below it
+(<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>); with the pane open, it folds or unfolds
+the tree. Its <strong>+</strong> starts a new session. When the pane is closed, the
+row is dimmed. When the agent waits for your answer, the row shows the
+number of open questions. It is always the first row of the sidebar.</p></li>
+</ul>
+</li>
+<li><p><strong>Apps</strong> starts with all other panels that this deployment enables.</p></li>
+<li><p><strong>System</strong> starts with <strong>Events</strong> (only when the deployment enables the
+events panel) and <strong>Health</strong>.</p></li>
+</ul>
+<p>In each group, the rows are in your order. <strong>+ Add panel</strong> is always the
+last row of <strong>Apps</strong>. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p>
+</li>
+<li><p>The footer: <strong>Docs</strong>, <strong>Feedback</strong>, <strong>Sign out</strong> and <strong>☰ More</strong>. <strong>Sign
+out</strong> shows only on a multi-user deployment. See
+<a class="reference internal" href="#web-terminal-sign-out"><span class="std std-ref">Sign out</span></a>.</p></li>
+</ul>
+<p>When the window is short, only the group that holds the session tree
+scrolls. The other groups and the footer always stay on the screen.</p>
+<section id="sessions-and-artifacts">
+<span id="web-terminal-sessions"></span><h3>Sessions and artifacts<a class="headerlink" href="#sessions-and-artifacts" title="Link to this heading">#</a></h3>
+<p>The <strong>Sessions</strong> row lists your sessions, newest first. A session is named
+from your first prompt (“naming…” until the name arrives); <code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts a
+new one. Under a session, its artifacts are grouped by day; <strong>Artifacts by</strong> ▸ <strong>Kind</strong>
+sorts them into <strong>Runs</strong>, <strong>Plots</strong>, <strong>Trends</strong>, <strong>Tables</strong>, <strong>Documents</strong>,
+<strong>Dashboards</strong>, <strong>Images</strong>, <strong>Data</strong>, plus any kind the deployment registers.
+A script run is one row with a dot for <strong>succeeded</strong>, <strong>failed</strong> or <strong>not
+run</strong> (none while it runs); its approval preview, code and outputs are its
+parts. A run that was never run
+opens on its proposed code. <strong>More sessions</strong> loads older ones.</p>
+<ul class="simple">
+<li><p>Click a session name to switch to it: its layout comes back as you left it
+(panels, tiles, sizes, the Agent pane, and each panel’s page where the hub
+can read it), with the artifact last open there (its newest if none). An
+older session with no stored layout keeps the layout on screen. The sidebar
+stays as it is.
+Click the current session’s name to fold or unfold it. Only the current
+session shows its artifacts; the others stay folded until you switch to them.
+⌥-click (Alt+click) a session or <strong>Sessions</strong> to expand every session, or
+collapse them all if all are open. The session the agent works in has a
+breathing accent bar.</p></li>
+<li><p>A new session starts with only the Agent pane. All the other tiles close,
+and a panel in a window of its own closes with its window. The panels keep
+their sidebar rows, so you can open them again. The session that you leave
+keeps its layout. Each way to start a session does this: the <strong>+</strong> in the
+Agent pane header, <strong>+ New session</strong> in the switcher, the <strong>+</strong> of
+<strong>Sessions</strong>, and <strong>New session</strong> in a menu. <code class="docutils literal notranslate"><span class="pre">/clear</span></code> and <strong>Restart
+terminal</strong> do not close tiles.</p></li>
+<li><p>Hover a folded session to see its artifacts; click one to show it.</p></li>
+<li><p>Click an artifact to show it. This never changes the session.</p></li>
+<li><p>Drag an artifact into the work pane to open it in a tile of its own
+(<a class="reference internal" href="#tiles">Tiles</a>). The tile always shows that artifact. The details icon in its
+header names the session that made the artifact. When that is not the
+current session, the icon has the warning colour until you click <strong>Got it</strong>
+in the details card.</p></li>
+<li><p>The view button beside <strong>+</strong> changes how the session list shows. <strong>Last
+activity</strong> keeps the sessions of today, of the last 3, 7 or 30 days, or all
+of them. <strong>Group by</strong> puts the sessions under date headings or state
+headings; the days are days on the facility clock. <strong>With artifacts only</strong>
+hides the sessions that made no artifact. <strong>Artifact counts</strong> shows or
+hides the count on each row. The current session always shows. A dot on
+the button means that the list is not at its defaults, and <strong>Reset to
+defaults</strong> restores them. The browser remembers your choices.</p></li>
+<li><p>The title in the agent tile’s header has its own ▾ switcher: your sessions
+with state, age and message count, and <strong>+ New session</strong>.</p></li>
+<li><p>While the agent is answering in chat, a switch from any of these asks
+first: <strong>Cancel</strong>, or <strong>Stop &amp; switch</strong>.</p></li>
+</ul>
+<p>Right-click a session to pin, rename, export or copy its ID, or delete a
+past session with its artifacts; a run, here or its row in chat, to open its
+result, approval preview or code; <strong>Sessions</strong> to start a session or to pick
+<strong>Artifacts by</strong> <strong>Activity</strong> or <strong>Kind</strong>. An artifact also has <strong>Open in new
+session</strong> (<a class="reference internal" href="#tiles">Tiles</a>). Runs and artifacts also have <strong>Delete…</strong>.</p>
+<p>Pinned sessions (the pin button on a row) also show in the <strong>Pinned</strong> group
+above <strong>Sessions</strong>; right-click its heading to rename or hide it. <strong>Show pinned
+sessions</strong>, on the <strong>Sessions</strong> menu or on empty sidebar space, brings it back.</p>
+<p>A reload, a new tab or another device resumes your last session and its
+layout. Its last-open artifact is shown in the Artifacts panel if that panel
+is docked, otherwise revealed in the tree. The tree highlights only the
+artifact the Artifacts panel shows. The command
+palette finds your sessions and artifacts (by name, kind, or session name);
+opening a result enters its session. The Artifacts panel has no sidebar row;
+open it from the palette.</p>
+</section>
+<section id="arrange-the-groups">
+<span id="web-terminal-sidebar-groups"></span><h3>Arrange the groups<a class="headerlink" href="#arrange-the-groups" title="Link to this heading">#</a></h3>
+<p>You can rename the groups, add your own groups, and move rows between them.</p>
+<p>To change a group, right-click its heading (or focus its name and press
+Shift+F10). The menu has these items:</p>
+<ul class="simple">
+<li><p><strong>Rename…</strong>. Type the new name and press Enter. Press Escape to keep the old
+name. A name can have up to 40 characters. An empty name keeps the old one.</p></li>
+<li><p><strong>New group below</strong>. This adds an empty group below this group and opens
+its name for editing.</p></li>
+<li><p><strong>Move up</strong> and <strong>Move down</strong>. These move the group in the sidebar.</p></li>
+<li><p><strong>Collapse group</strong> or <strong>Expand group</strong>.</p></li>
+<li><p><strong>Delete group</strong>. The rows of the group go back to <strong>Apps</strong>. It is
+disabled for <strong>Apps</strong> and <strong>System</strong>, but you can rename them.</p></li>
+</ul>
+<p>Double-click a group’s name to fold it down to its heading, and double-click
+again to unfold it. <strong>Sessions</strong>, the first group, has no
+heading and always stays first. To make it taller, drag the
+faint line below it; double-click the line to go back to automatic height.</p>
+<p>To move a row to a different group, do one of these:</p>
+<ul class="simple">
+<li><p>Right-click the row and pick <strong>Move to</strong> ▸ and the name of the group, or
+<strong>New group…</strong> to put the row in a new group below its current group.
+Then type the name of the new group.</p></li>
+<li><p>Drag the row into the other group. Release it where it must go.</p></li>
+</ul>
+<p>You can move each row except <strong>Sessions</strong>. A group without rows shows “No
+panels — move one here from a row’s menu”.</p>
+<p>Your groups are kept in this browser, for your user only. They do not change
+the sidebar of other users.</p>
+</section>
+<section id="hide-the-labels">
+<h3>Hide the labels<a class="headerlink" href="#hide-the-labels" title="Link to this heading">#</a></h3>
+<p>To hide the labels, click the toggle at the top of the sidebar, or press ⌘\
+(Ctrl+\ on other systems). The sidebar then shows only icons. Put the pointer
+on an icon to see its name. In this state, a click on <strong>Sessions</strong> opens the
+session tree next to the sidebar. To show the labels again, click the toggle
+or press the same keys.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>When a terminal has the focus, Ctrl+\ goes to the terminal, not
+to the sidebar. In the terminal, Ctrl+\ sends SIGQUIT to the running
+program. To hide or show the labels in this state, click the toggle.</p>
+</div>
+<p>You can also press Tab, also after a click inside a panel. Tab does not hide
+or show the labels when the cursor is in a text field, in the message box, in
+the terminal, or in an open menu or dialog. In those places, Tab does its
+usual work. Shift+Tab moves the focus back, as usual. To turn the Tab key off,
+open <strong>More</strong> and clear <strong>Tab shows or hides the sidebar</strong>.</p>
+</section>
+<section id="open-a-pane-in-a-new-window">
+<span id="web-terminal-pop-out"></span><h3>Open a pane in a new window<a class="headerlink" href="#open-a-pane-in-a-new-window" title="Link to this heading">#</a></h3>
+<p>To move a pane into a window of its own, click <strong>Open in new window</strong> in its
+tile’s header, or pick it from the <strong>Tile</strong> section of its <strong>⋯</strong> menu or from
+a right-click on its sidebar row. The command palette has
+<strong>Open &lt;panel&gt; in new window</strong>. This works for the Agent pane and for each
+service panel. The tile leaves the workspace.</p>
+<p>The window’s bar is the tile’s own bar, with <strong>Reattach</strong> at the top right.
+The pane’s sidebar row shows the reattach icon: a click on the row brings the
+window to the front, a click on the icon reattaches the pane. Reattach puts
+the pane back where it was. With no room for it, the pane stays in its window
+and the terminal shows <em>No room to reattach &lt;panel&gt;.</em></p>
+<p>Closing the window closes the pane. Reloading the window (Cmd+R) keeps the
+pane in it. After you reload the terminal, the windows are closed and their
+panes are back in place. The terminal’s keyboard shortcuts do not work in the
+window.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If the browser blocks pop-ups for this site, the terminal shows
+<em>Pop-ups are blocked for this site.</em> and the tile stays. Allow pop-ups for
+the site in the browser, then try again.</p>
+<p>A panel that runs at an opaque origin (a page the agent wrote) cannot open
+in a new window. Its <strong>Open in new window</strong> button and row are disabled.</p>
+</div>
+</section>
+<section id="the-more-menu">
+<h3>The More menu<a class="headerlink" href="#the-more-menu" title="Link to this heading">#</a></h3>
+<p><strong>☰ More</strong>, or a right-click on the sidebar footer, shows your user name and
+role at the top. It holds the theme
+(see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), <strong>Settings</strong>, the tour and the <strong>Activity log</strong>
+(see <a class="reference internal" href="../health-and-monitoring/agent-record.html#agent-record-read-a-session"><span class="std std-ref">Read a session</span></a>).</p>
+</section>
+<section id="sign-out">
+<span id="web-terminal-sign-out"></span><h3>Sign out<a class="headerlink" href="#sign-out" title="Link to this heading">#</a></h3>
+<p>On a multi-user deployment, the sidebar footer has a <strong>Sign out</strong> row above
+<strong>☰ More</strong>. To sign out:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>Sign out</strong>. You can also click the OSPREY mark at the top of the
+sidebar, or pick <strong>Log out</strong> in the command palette.</p></li>
+<li><p>Read the dialog. It asks <em>Sign out of OSPREY?</em> and tells you that your
+terminal and agent sessions end, and that the agent stops what it does.</p></li>
+<li><p>Click <strong>Sign out</strong> to sign out. Click <strong>Cancel</strong> or press Escape to stay.</p></li>
+</ol>
+<p>When you sign out, the browser goes to the landing page of the deployment. A
+deployment for one user has no <strong>Sign out</strong> row, and the OSPREY mark goes to
+the start page.</p>
+</section>
+<section id="where-your-preferences-live">
+<h3>Where your preferences live<a class="headerlink" href="#where-your-preferences-live" title="Link to this heading">#</a></h3>
+<p>The browser remembers the theme, the sidebar
+labels, the open lists in the sidebar, the sidebar groups, and the panel
+layout. A different browser or a different machine starts from the defaults
+of the deployment. For the arrangements earlier releases saved, see
+<a class="reference internal" href="#web-terminal-upgrading"><span class="std std-ref">Upgrading from earlier releases</span></a>.</p>
+</section>
+</section>
+<section id="a-user-s-own-claude-subscription">
+<span id="personal-login"></span><h2>A user’s own Claude subscription<a class="headerlink" href="#a-user-s-own-claude-subscription" title="Link to this heading">#</a></h2>
+<p>By default every terminal authenticates with the deployment’s provider
+(<code class="docutils literal notranslate"><span class="pre">claude_code.provider</span></code>), one gateway and one key. Some sites let a
+colleague use their own Claude subscription inside the terminal, but forbid
+the deployment to hold that person’s credential. The route that satisfies
+both is the interactive <code class="docutils literal notranslate"><span class="pre">/login</span></code> inside the user’s own terminal. Its
+credential stays in that terminal’s config volume.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.allow_personal_login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># default false</span>
+</pre></div>
+</div>
+<p>With the key on, a terminal that holds a completed <code class="docutils literal notranslate"><span class="pre">/login</span></code> is launched
+with the deployment provider withheld: no auth token, base URL or model
+variables, and no translation proxy. Claude Code’s own credential precedence
+then falls through to the subscription.</p>
+<p>The decision is made per terminal container at launch, by the presence of the
+credential file under that user’s <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>. The file is never
+read. A login survives a container restart, because the config volume does.</p>
+<p>A terminal without a login routes to the deployment provider exactly as
+before, and shows a dismissable card saying <code class="docutils literal notranslate"><span class="pre">/login</span></code> is on offer. With the
+key off, nothing changes.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">/login</span></code> flow inside a terminal container is untested: the first
+site that enables the key does that trial. In a headless container the CLI
+should fall back to its paste-a-code path, which the terminal can carry.</p>
+</div>
+<p>Two consequences follow:</p>
+<ul class="simple">
+<li><p>A login-routed session bypasses the gateway, so it leaves no row in the
+deployment’s spend ledger. That is the point.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> can no longer treat a failed probe of the agent provider
+as the whole deployment down. With the key on, it stays a warning, naming
+the dispatch worker and the terminals without a login as the ones affected.</p></li>
+</ul>
+<p>The dispatch worker and every other headless path keep the deployment
+provider unconditionally.</p>
+<p>A login covers the agent only. A few features send their own model request,
+outside the agent, and authenticate with the provider’s API key and nothing
+else:</p>
+<ul class="simple">
+<li><p>session naming, which otherwise leaves a session its first-prompt title;</p></li>
+<li><p>logbook compose in the artifact gallery;</p></li>
+<li><p>the in-context channel finder (<a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>);</p></li>
+<li><p>the ARIEL semantic processor and image captions, when enabled;</p></li>
+<li><p>the model chat check of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--full</span></code>.</p></li>
+</ul>
+<p>This holds for any deployment that runs without a provider key, with or
+without <code class="docutils literal notranslate"><span class="pre">allow_personal_login</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> each name the enabled features whose key is missing, as
+warnings that do not change the exit status. A line reads
+<code class="docutils literal notranslate"><span class="pre">session</span> <span class="pre">naming</span> <span class="pre">needs</span> <span class="pre">ANTHROPIC_API_KEY</span> <span class="pre">(not</span> <span class="pre">set):</span> <span class="pre">sessions</span> <span class="pre">keep</span> <span class="pre">their</span>
+<span class="pre">first-prompt</span> <span class="pre">title</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> reads the profile and not a build,
+so it misses a channel finder the profile takes from its preset;
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reports it.</p>
+<p>Add the key to the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> to use them. A feature whose
+provider needs no key, such as a local Ollama server, is not listed.</p>
+</section>
+<section id="documentation-and-feedback-settings">
+<h2>Documentation and feedback settings<a class="headerlink" href="#documentation-and-feedback-settings" title="Link to this heading">#</a></h2>
+<p>Five <code class="docutils literal notranslate"><span class="pre">web</span></code> keys aim the sidebar’s <strong>Docs</strong> link and <strong>Feedback</strong> button
+— including the issue trackers the dialog offers — and bound the feedback
+store. The table, the shipped defaults, and what a blank value means are in
+<a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a>.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text">Under the hood</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Settings</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">Two sections in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> are easy to confuse. <code class="docutils literal notranslate"><span class="pre">web_terminal:</span></code>
+is the terminal <strong>process</strong> — which shell to launch, which directory to
+watch for live files, how many background conversations to keep alive —
+and command-line flags override those for a single run. <code class="docutils literal notranslate"><span class="pre">web:</span></code> is the
+browser <strong>UI</strong> the process renders, including the deployment name and
+the bounds on the operator-chat pool; those keys are catalogued in
+<a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a>.</p>
+<p class="sd-card-text">One key sits outside both, in the multi-user <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
+block: <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> sets how long a
+login cookie stays valid, in whole seconds, and defaults to <code class="docutils literal notranslate"><span class="pre">43200</span></code>
+(12 hours). It is the only key <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> reads from that block.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Companion servers</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">The panels are powered by small companion servers OSPREY launches for
+you — an artifact gallery always, and a domain server for each enabled
+panel. You normally never touch them.</p>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+For developers</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">Every feature above is backed by a REST and WebSocket API. The endpoints
+are discoverable directly in the source
+(<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/web_terminal/</span></code>); a coding agent working in the
+codebase can wire against them without a hand-maintained list here.</p>
+</div>
+</div>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3" id="web-terminal-upgrading">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-history" viewBox="0 0 16 16" aria-hidden="true"><path d="m.427 1.927 1.215 1.215a8.002 8.002 0 1 1-1.6 5.685.75.75 0 1 1 1.493-.154 6.5 6.5 0 1 0 1.18-4.458l1.358 1.358A.25.25 0 0 1 3.896 6H.25A.25.25 0 0 1 0 5.75V2.104a.25.25 0 0 1 .427-.177ZM7.75 4a.75.75 0 0 1 .75.75v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5A.75.75 0 0 1 7.75 4Z"></path></svg></span><span class="sd-summary-text">Upgrading from earlier releases</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Deployments built before the chat–terminal wait.</strong> The wait needs the
+<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> hook, which tells the web terminal when a turn starts and
+ends. A deployment scaffolded earlier does not have it: add
+<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> to the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p class="sd-card-text">Without it, switching away from a terminal that might be working never
+waits. It says <em>The agent may still be working.</em> and offers only
+<strong>Stop and switch now</strong>. A terminal that was idle all along can still
+take the full five seconds to hand over.</p>
+<p class="sd-card-text"><strong>The header and status bar.</strong> Earlier releases had a header and a status
+bar that you could arrange. The terminal does not show them, and it does
+not read the bar arrangements that those releases saved.</p>
+</div>
+</details><div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="theming.html"><span class="doc">Theming</span></a></dt><dd><p>Choose or design the theme every OSPREY interface uses.</p>
+</dd>
+<dt><a class="reference internal" href="panels.html"><span class="doc">Panels</span></a></dt><dd><p>Add your own tools as side panels.</p>
+</dd>
+<dt><a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a></dt><dd><p>The feedback dialog these settings configure, and the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span></code>
+verbs that read the results back.</p>
+</dd>
+<dt><a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a></dt><dd><p>Every <code class="docutils literal notranslate"><span class="pre">web</span></code> key, with its default and what a blank value means.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Web Terminal</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="theming.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Theming</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-get">What you get</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tiles">Tiles</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-chat-and-the-terminal">The chat and the terminal</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#clearing-a-conversation">Clearing a conversation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#attaching-a-file">Attaching a file</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-chip">The control-target chip</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-machine-you-are-on-and-the-others">The machine you are on, and the others</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#approve-a-program-s-writes">Approve a program’s writes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-writes-off-or-on">Turn writes off, or on</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switch-the-deployment-to-another-machine">Switch the deployment to another machine</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-control-target-and-the-write-state-live">Where the control target and the write state live</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-refuses-a-write-and-how-firmly">What refuses a write, and how firmly</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-sidebar">The sidebar</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sessions-and-artifacts">Sessions and artifacts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#arrange-the-groups">Arrange the groups</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hide-the-labels">Hide the labels</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#open-a-pane-in-a-new-window">Open a pane in a new window</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-more-menu">The More menu</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sign-out">Sign out</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-your-preferences-live">Where your preferences live</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-user-s-own-claude-subscription">A user’s own Claude subscription</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-settings">Documentation and feedback settings</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/web-terminal/operate.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

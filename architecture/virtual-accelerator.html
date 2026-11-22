@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Virtual Accelerator &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Virtual Accelerator &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -61,12 +61,12 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Reference" href="../reference/index.html" />
-    <link rel="prev" title="Facility Relations" href="facility-relations.html" />
+    <link rel="next" title="Testing" href="testing.html" />
+    <link rel="prev" title="Facility Packages" href="facility-packages.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -402,7 +402,11 @@
 
 
 
+<li class="toctree-l1"><a class="reference internal" href="facility-packages.html">Facility Packages</a></li>
+
+
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 </ul>
 </div>
 </nav></div>
@@ -519,7 +523,7 @@ container and no network.</p>
   <rect class="nb-foc" x="136" y="136" width="688" height="56"/>
   <text class="te" x="160" y="168">03</text>
   <text class="tn" x="200" y="168">engine plug-in</text>
-  <text class="ts" x="800" y="168" text-anchor="end">pyat — a LUMEModel via lume-pyat, found under the osprey.simulation.engines entry-point group</text>
+  <text class="ts" x="800" y="168" text-anchor="end">pyat — a LUMEModel via lume-pyat, registered under osprey_connectors.simulation.engines</text>
   <text class="te" x="160" y="224">04</text>
   <text class="tn" x="200" y="224">composite</text>
   <text class="ts" x="800" y="224" text-anchor="end">setpoint → calibration → solve → BPM readings</text>
@@ -548,7 +552,7 @@ composite, each physics model is an engine plug-in reached only through its
 <p>The served list is the simulator view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>: its <code class="docutils literal notranslate"><span class="pre">channels</span></code>,
 every channel address the facility declares, then one
 <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> address for each served physics model, then the
-view’s <code class="docutils literal notranslate"><span class="pre">ioc_health</span></code> list: read-only <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>,
+view’s <code class="docutils literal notranslate"><span class="pre">server_health</span></code> list: read-only <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>,
 <code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> and <code class="docutils literal notranslate"><span class="pre">ENGINEER</span></code> addresses for every served model, texture
 included. Which models are served is the view’s <code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>, with
 the texture model always last. A physics model is one child of the composite,
@@ -571,6 +575,11 @@ the fast period, <code class="docutils literal notranslate"><span class="pre">si
 <code class="docutils literal notranslate"><span class="pre">event</span></code>, one that changes with each event the engine raises, such as a
 shot.</p></li>
 </ul>
+<p>A wiring record that states further addresses under <code class="docutils literal notranslate"><span class="pre">also</span></code> is still one
+record and one engine variable, named by its <code class="docutils literal notranslate"><span class="pre">address</span></code>. The served composite
+answers a read, a write or a readout group under a further address as it
+answers the record’s address, so every address of a record shows one value at
+one instant; no engine sees a further address.</p>
 <p>Each channel also names the node it is <code class="docutils literal notranslate"><span class="pre">on</span></code>.</p>
 <p>The server publishes channel values in <em>passes</em>: one after each write, one at
 start-up, the periodic passes, and the timed passes of a view holding a
@@ -773,8 +782,8 @@ failed build reads on the model’s <code class="docutils literal notranslate"><
 <p>The runner serves one composite, and the composite builds one child per
 served physics model from the view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> and the model’s deck,
 <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, through the engine plug-in the model’s record names:
-its <code class="docutils literal notranslate"><span class="pre">engine</span></code>, looked up in the <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point
-group. Nothing in the entrypoint, a profile or <code class="docutils literal notranslate"><span class="pre">.env</span></code> names an engine.</p>
+its <code class="docutils literal notranslate"><span class="pre">engine</span></code>, looked up in the <code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code>
+entry-point group. Nothing in the entrypoint, a profile or <code class="docutils literal notranslate"><span class="pre">.env</span></code> names an engine.</p>
 <p><strong>A pyAT deck is data.</strong> Any facility’s pyAT deck is served by the shipped
 <code class="docutils literal notranslate"><span class="pre">pyat</span></code> engine. The facility tree stages it beside the model record that names
 it and the wiring that ties channels to its elements, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
@@ -842,7 +851,10 @@ a channel address. A monitor reading carries <code class="docutils literal notra
 and <code class="docutils literal notranslate"><span class="pre">polarity</span></code> on its own axis, and a monitor one <code class="docutils literal notranslate"><span class="pre">roll</span></code>, on its x-axis
 reading or its only one. A setpoint on <code class="docutils literal notranslate"><span class="pre">PolynomB</span></code> or <code class="docutils literal notranslate"><span class="pre">KickAngle</span></code> carries
 <code class="docutils literal notranslate"><span class="pre">cal_factor</span></code> and <code class="docutils literal notranslate"><span class="pre">cal_offset</span></code>; a calibration is the supply’s, so where one
-element is driven by two setpoints, each is miscalibrated alone. A monitor’s
+element is driven by two setpoints, each is miscalibrated alone. A cavity
+setpoint carries the one field that names a real error of it: <code class="docutils literal notranslate"><span class="pre">cal_offset</span></code>
+on <code class="docutils literal notranslate"><span class="pre">Frequency</span></code> and on <code class="docutils literal notranslate"><span class="pre">TimeLag</span></code>, <code class="docutils literal notranslate"><span class="pre">cal_factor</span></code> on <code class="docutils literal notranslate"><span class="pre">Voltage</span></code>
+(<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-rf-setpoints"><span class="std std-ref">RF setpoints</span></a>). A monitor’s
 roll turns the beam position in the deck’s unit, before the monitor’s
 conversion to the unit it publishes, and its offset, gain, noise and polarity
 then act on the published reading.</p>
@@ -907,6 +919,22 @@ written. Systematic multipoles are facts of the deck, written into the lattice
 file, not scenario faults. A scenario whose errors leave no closed orbit does
 not boot quietly wrong: its model fails with the solve error, which names the
 elements seeded, and the model’s status names the scenario.</p>
+<p>One fault is the lattice’s own: <code class="docutils literal notranslate"><span class="pre">lattice/circumference_error</span></code>, the length
+by which the ring as built differs from its design, in metres and bounded to
+10 cm. A scenario writes it under <code class="docutils literal notranslate"><span class="pre">faults.&lt;model&gt;</span></code> as
+<code class="docutils literal notranslate"><span class="pre">{lattice/circumference_error:</span> <span class="pre">2.0e-4}</span></code> or as
+<code class="docutils literal notranslate"><span class="pre">{lattice:</span> <span class="pre">{circumference_error:</span> <span class="pre">2.0e-4}}</span></code>. It is seeded once, when the
+model is built, by scaling every drift of the model’s copy of the deck by one
+factor; the magnets keep their lengths. The beam still makes its harmonic
+number of RF periods per turn, so a ring longer by <code class="docutils literal notranslate"><span class="pre">dC</span></code> is the design ring
+driven at a frequency higher by <code class="docutils literal notranslate"><span class="pre">f</span> <span class="pre">*</span> <span class="pre">dC</span> <span class="pre">/</span> <span class="pre">C</span></code>: the closed orbit moves to the
+energy whose path has the design length, and the RF frequency that centres
+the beam is lower than the design one by that much. A <code class="docutils literal notranslate"><span class="pre">single_pass</span></code> model
+declares no such fault.</p>
+<p>Radiation is not a fault but a statement about the deck: <code class="docutils literal notranslate"><span class="pre">pyat.radiation:</span>
+<span class="pre">true</span></code> in a model’s settings gives the magnets of the model’s copy their
+radiating pass methods before any error is seeded, for the build and for the
+response matrix alike (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-radiation"><span class="std std-ref">A radiating ring</span></a>).</p>
 <p>A readout fault never moves the orbit; it changes what a monitor reports.
 <code class="docutils literal notranslate"><span class="pre">diff</span></code> is where it becomes visible, as a served reading that has parted from
 the composite’s own value.</p>
@@ -936,20 +964,20 @@ the composite’s own value.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="facility-relations.html"
+       href="facility-packages.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Facility Relations</p>
+        <p class="prev-next-title">Facility Packages</p>
       </div>
     </a>
     <a class="right-next"
-       href="../reference/index.html"
+       href="testing.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Reference</p>
+        <p class="prev-next-title">Testing</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

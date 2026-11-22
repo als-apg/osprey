@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>CLI Reference &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>CLI Reference &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Reference" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/audit-trail.html">Audit Trail Contract</a></li>
@@ -574,6 +575,11 @@ output, and durable state:</p>
   var/                           agent memory and audit log; gitignored
 </pre></div>
 </div>
+<p>An active <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> or <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block is written whole, so that
+its run limits and identity can be read and changed where the block sits: each
+key the preset leaves unstated appears at its default, with a one-line comment.
+Keys the build derives (the ports it takes from <code class="docutils literal notranslate"><span class="pre">port_base</span></code>, the archiver
+host) or that have no default are left out.</p>
 <p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and an initial commit run at the end, unless a git repository
 already encloses the target or <code class="docutils literal notranslate"><span class="pre">--no-git</span></code> is given.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> — Bundled preset to materialize.</p>
@@ -781,6 +787,7 @@ source a deployment is built from — see <a class="reference internal" href="..
 osprey<span class="w"> </span>profile<span class="w"> </span>presets
 osprey<span class="w"> </span>profile<span class="w"> </span>artifacts
 osprey<span class="w"> </span>profile<span class="w"> </span>card
+osprey<span class="w"> </span>profile<span class="w"> </span>panels
 </pre></div>
 </div>
 <dl class="simple">
@@ -804,6 +811,18 @@ machine it talks to, and what runs beside it. It reads <code class="docutils lit
 the login files beside it; nothing is built, started or probed.
 <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints the rows as one JSON array of <code class="docutils literal notranslate"><span class="pre">{group,</span> <span class="pre">label,</span> <span class="pre">value}</span></code>
 objects on stdout and every warning on stderr.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">panels</span> <span class="pre">[--json]</span> <span class="pre">[--html</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print which login shows which panel: one row per panel, one column for the
+deployment’s own profile and for every file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>. A cell is
+<code class="docutils literal notranslate"><span class="pre">DEFAULT</span></code> (the tab the login opens on), <code class="docutils literal notranslate"><span class="pre">tab</span></code>, <code class="docutils literal notranslate"><span class="pre">menu</span></code> (selected but
+hidden, so reachable from the panel menu only) or <code class="docutils literal notranslate"><span class="pre">-</span></code>. It reads each
+login’s resolved profile, the way the build does; nothing is built.
+<code class="docutils literal notranslate"><span class="pre">--json</span></code> prints the table as one document in which every cell names the
+file whose line selects the panel and the file whose line hides it.
+<code class="docutils literal notranslate"><span class="pre">--html</span> <span class="pre">FILE</span></code> writes the table as one self-contained page, where
+selecting a cell says which file decides it. A login that selects the
+<code class="docutils literal notranslate"><span class="pre">roster</span></code> panel reads the same page inside the web terminal, as of the
+last build.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
@@ -905,11 +924,16 @@ store’s container survives.</p>
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code>, which asks first.</p>
 <p>If <code class="docutils literal notranslate"><span class="pre">build/</span></code> is gone or was never rendered, <code class="docutils literal notranslate"><span class="pre">down</span></code> does not re-derive the
 compose files from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — those describe what would be started now,
-not what is running. Instead it stops the containers this repository labelled as
-its own, which is the recovery path for a <code class="docutils literal notranslate"><span class="pre">build/</span></code> deleted while the stack was
-up. Containers are labelled when they are <em>created</em>, so a stack started before
-this labelling existed cannot be found that way; run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to restore
-<code class="docutils literal notranslate"><span class="pre">build/</span></code> and <code class="docutils literal notranslate"><span class="pre">down</span></code> works normally again.</p>
+not what is running. Instead it stops the services the last start recorded, in
+the compose project it recorded. That is the recovery path for a <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+deleted while the stack was up.</p>
+<p>While another checkout of this repository holds the project name, <code class="docutils literal notranslate"><span class="pre">down</span></code>
+refuses, names that copy, and stops nothing.</p>
+<p>A deployment whose record names no services, or a repository with no record, is
+stopped by the label this repository put on its containers. Containers are
+labelled when they are <em>created</em>, so a stack started before this labelling
+existed cannot be found that way; run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to restore <code class="docutils literal notranslate"><span class="pre">build/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">down</span></code> works normally again.</p>
 </section>
 <section id="osprey-restart">
 <h3>osprey restart<a class="headerlink" href="#osprey-restart" title="Link to this heading">#</a></h3>
@@ -953,7 +977,8 @@ osprey<span class="w"> </span>logs<span class="w"> </span>--tail<span class="w">
 <p>Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>, strips the tokens <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> minted
-out of <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and deletes <code class="docutils literal notranslate"><span class="pre">build/</span></code> and <code class="docutils literal notranslate"><span class="pre">var/deployment.json</span></code>.</p>
+out of <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and deletes <code class="docutils literal notranslate"><span class="pre">build/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/deployment.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">var/host-network-ports.json</span></code>.</p>
 <p>What survives, the plan lists before you confirm:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> — the audit files written before the agent record;</p></li>
@@ -1471,7 +1496,9 @@ search index have no verb of their own: <code class="docutils literal notranslat
 the second run changes nothing.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">validate</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Check every document in a bundle against the OKF format, including each
-<code class="docutils literal notranslate"><span class="pre">index.md</span></code> against its directory.</p>
+<code class="docutils literal notranslate"><span class="pre">index.md</span></code> against its directory. An embedded image that is missing, of a
+disallowed type, over 10 MB or without alt text gets a warning, one line
+per problem, and does not fail the bundle.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-from-ttl</span> <span class="pre">BUNDLE</span> <span class="pre">[--ttl</span> <span class="pre">PATH]</span> <span class="pre">[--force]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write stub concept documents into a bundle from the build’s graph view,
 one per device, for a person to fill in. The view read is
@@ -1501,11 +1528,14 @@ is refused, and whatever exists at <code class="docutils literal notranslate"><s
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Run what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks of the applications the <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block of
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> names, then the import boundary over each of their Python
-packages, that <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code> loads the design-system <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>,
-<code class="docutils literal notranslate"><span class="pre">base.css</span></code> and <code class="docutils literal notranslate"><span class="pre">primitives.css</span></code> and every class the panel sets has a CSS
-rule, ESLint over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> when it holds JS, and Vitest over
-<code class="docutils literal notranslate"><span class="pre">tests/**/*.test.{js,mjs}</span></code> when that matches a file. Prints every violation
-with its application, field and rule, and exits 1. An <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> the block
+packages, that <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code> passes the panel validator’s rules (the
+three design-system sheets, the theme boot script, the font sheet, no raw hex
+colour, the page-ready mark, no module of its own loaded <code class="docutils literal notranslate"><span class="pre">async</span></code>), ESLint
+over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> when it holds JS, and
+Vitest over <code class="docutils literal notranslate"><span class="pre">tests/**/*.test.{js,mjs}</span></code> when that matches a file. Prints every
+violation with its application, field and rule, and exits 1. A panel rule that
+only reports (a class with no CSS rule) is printed as
+<code class="docutils literal notranslate"><span class="pre">[undefined_class:</span> <span class="pre">report]</span></code> and does not fail the check. An <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> the block
 does not name is reported and not checked. An application an installed package
 ships is checked too; its violations name the
 distribution (<code class="docutils literal notranslate"><span class="pre">&lt;dist&gt;:&lt;module</span> <span class="pre">path&gt;/&lt;file&gt;</span></code>). The JS checks execute the
@@ -1519,10 +1549,18 @@ JS needs neither.</p>
 <span id="cli-osprey-facility"></span><h2>osprey facility<a class="headerlink" href="#osprey-facility" title="Link to this heading">#</a></h2>
 <p>Check and show the facility description under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and import
 an export into it. See <a class="reference internal" href="../how-to/import-mml-export.html"><span class="doc">Import a Middle Layer export</span></a> for the import end to end.</p>
-<dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Run every check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> makes of <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and render the
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--all-limits]</span></code></dt><dd><p>Run every check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> makes of <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and render the
 facility views against the repo’s main profile in a temporary directory.
-Nothing is written into the repo. A clean tree exits 0, and each model with
+Nothing is written into the repo. A clean tree reports two limits findings
+on stderr, each a <code class="docutils literal notranslate"><span class="pre">limits:</span></code> count line and one indented line per
+address, sorted: the setpoints with no limits record (the target serves
+them writable with no range when <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code> is
+<code class="docutils literal notranslate"><span class="pre">optional</span></code>, and refuses writes to them otherwise), and the limits records
+that state one of <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> (served not writable until
+they state both). A finding lists its first ten addresses and counts the
+rest; <code class="docutils literal notranslate"><span class="pre">--all-limits</span></code> lists every one. The findings change nothing,
+the exit code included, and a finding with no address is not printed. A clean tree exits 0, and each model with
 a kept <code class="docutils literal notranslate"><span class="pre">imported/mml/&lt;model&gt;.response.json</span></code> prints one
 <code class="docutils literal notranslate"><span class="pre">response</span> <span class="pre">check</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">…</span></code> line on stderr, pass or fail; a failing check
 exits 1 before the render. When the check left rows out of the comparison,
@@ -1530,6 +1568,10 @@ a second line for that model follows on stderr, giving the number of rows
 left out and the count per reason (unwired, no width, unsolved, table
 calibration); it does not change the verdict or the exit code:
 <code class="docutils literal notranslate"><span class="pre">response</span> <span class="pre">check</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">left</span> <span class="pre">out</span> <span class="pre">&lt;n&gt;</span> <span class="pre">rows</span> <span class="pre">(&lt;k&gt;</span> <span class="pre">unwired,</span> <span class="pre">&lt;j&gt;</span> <span class="pre">no</span> <span class="pre">width,</span> <span class="pre">&lt;u&gt;</span> <span class="pre">unsolved,</span> <span class="pre">&lt;t&gt;</span> <span class="pre">table</span> <span class="pre">calibration)</span></code>.
+Each model with a deck gets <code class="docutils literal notranslate"><span class="pre">length</span></code> (its beam path in metres) and
+<code class="docutils literal notranslate"><span class="pre">periodic</span></code> (<code class="docutils literal notranslate"><span class="pre">true</span></code> for a ring, <code class="docutils literal notranslate"><span class="pre">false</span></code> for a line) in the facility file,
+from the deck; a model with a deck that states either stops with
+<code class="docutils literal notranslate"><span class="pre">model-conflict</span></code>, and a model without one may state them.
 A device whose stated <code class="docutils literal notranslate"><span class="pre">s</span></code> lies outside its periodic model’s deck is placed
 modulo the deck’s length, and both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and this command print
 one <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">place-wrapped:</span> <span class="pre">device</span> <span class="pre">&lt;id&gt;</span> <span class="pre">—</span> <span class="pre">…;</span> <span class="pre">fix:</span> <span class="pre">…</span></code> warning per device
@@ -1660,11 +1702,15 @@ means readback), <code class="docutils literal notranslate"><span class="pre">pa
 <code class="docutils literal notranslate"><span class="pre">model</span></code> (the model whose deck <code class="docutils literal notranslate"><span class="pre">s</span></code> is measured in), in any order. A file
 whose first row names no <code class="docutils literal notranslate"><span class="pre">address</span></code> column holds one address per line.
 <code class="docutils literal notranslate"><span class="pre">s</span></code> and <code class="docutils literal notranslate"><span class="pre">model</span></code> are the position of the row’s device: for each device a
-row states <code class="docutils literal notranslate"><span class="pre">s</span></code> for, the import writes <code class="docutils literal notranslate"><span class="pre">{id,</span> <span class="pre">s}</span></code>, plus <code class="docutils literal notranslate"><span class="pre">model</span></code> when
+row names, the import writes <code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code> where stated and <code class="docutils literal notranslate"><span class="pre">model</span></code> when
 stated, to <code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/devices.yaml</span></code>, and no other
 device field, so the device merges with one another source declares, or is
-created holding only its position. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> places it by the span
-of its model containing <code class="docutils literal notranslate"><span class="pre">s</span></code>. A row that names both a device and a place,
+created holding only its id and position. A list naming no device leaves
+no <code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> places a device with an <code class="docutils literal notranslate"><span class="pre">s</span></code> by the
+span of its model containing it. When <code class="docutils literal notranslate"><span class="pre">records/devices.yaml</span></code> or another
+layer declares devices and a listed device is in none of them, one stderr
+line names it: <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">list:</span> <span class="pre">declared</span> <span class="pre">by</span> <span class="pre">this</span> <span class="pre">list</span> <span class="pre">only:</span> <span class="pre">&lt;ids&gt;</span></code>.
+A row that names both a device and a place,
 states a role other than <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code>, has no
 address or repeats one, states <code class="docutils literal notranslate"><span class="pre">s</span></code> or <code class="docutils literal notranslate"><span class="pre">model</span></code> with no device, or
 states an <code class="docutils literal notranslate"><span class="pre">s</span></code> that is not a finite number, a row with more cells than
@@ -1692,6 +1738,493 @@ import never writes is refused. A refused name, directory or row prints one
 <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">source-invalid:</span></code> line per problem; the import writes nothing
 and exits 1. A profile that does not resolve prints a one-line failure and
 exits 1. A profile that states <code class="docutils literal notranslate"><span class="pre">machine:</span></code> imports into that machine root.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span></code></dt><dd><p><strong>Experimental.</strong> The commands, the rule tables under <code class="docutils literal notranslate"><span class="pre">panels/</span></code>, the
+<code class="docutils literal notranslate"><span class="pre">draw.json</span></code> settings and the screens they write may change in any release,
+without a compatibility path.</p>
+<p>Group for the operator screens drawn from the built facility. Both verbs
+read the facility file <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> (<code class="docutils literal notranslate"><span class="pre">--facility</span> <span class="pre">FILE</span></code> names
+another; neither verb builds) and the rule tables in <code class="docutils literal notranslate"><span class="pre">panels/</span></code> beside the
+facility tree (<code class="docutils literal notranslate"><span class="pre">--tables</span> <span class="pre">DIRECTORY</span></code> names another), and draw with the
+settings in <code class="docutils literal notranslate"><span class="pre">draw.json</span></code> beside the tables (<code class="docutils literal notranslate"><span class="pre">--draw</span> <span class="pre">FILE</span></code> names another;
+with neither, the empty settings, and one line says so). Its optional
+<code class="docutils literal notranslate"><span class="pre">write_under</span></code> lists place ids a write keeps to: the home, those places and
+the places within them, the devices placed there, each device in no place one
+relation joins to one of those, and each group with one of those devices as a
+member. A written screen links only to files of the same write: it names a
+screen the write does not produce as text, without a link, and
+<code class="docutils literal notranslate"><span class="pre">index.json</span></code> lists those screens under <code class="docutils literal notranslate"><span class="pre">outside</span></code>. Under it the home lists
+only what the write keeps,
+the kept places that lie in no kept place at the top and one line naming the
+places the write keeps to, and the not-placed indexes only kept devices; a
+group is cut to its kept members, and a group cut to the same members as
+another is written once (the one all of whose members are kept, else the
+first by id); the other holds no members under the scope, so screens name the
+kept one. <code class="docutils literal notranslate"><span class="pre">check</span></code> reads the same key: a screen outside it may
+be absent, and only the health rules of what it keeps must be read. The
+screens are
+Canopy Screen-IR documents, one file per screen, in nine view kinds:
+<code class="docutils literal notranslate"><span class="pre">home</span></code> (the one screen above all others: the top places, those that hold
+a device of a model first as the machines and the others below, every set under
+its class and every group with no set view, and what is in no place, by
+class, each class opening a page of its devices, so every screen is reached
+from it), <code class="docutils literal notranslate"><span class="pre">card</span></code> (one device, its signals, picture, relations and calibration
+records), <code class="docutils literal notranslate"><span class="pre">channels</span></code> (every channel of a device with more than a card
+lists, grouped by role, then record type: the one plain list), <code class="docutils literal notranslate"><span class="pre">set</span></code> (the members of a group as a grid), <code class="docutils literal notranslate"><span class="pre">calibration</span></code> (one
+calibration kind over a set), <code class="docutils literal notranslate"><span class="pre">place</span></code> (a place’s devices in beam order
+with a band of key numbers: positions are each device’s pose in its model’s
+beam frame, else its <code class="docutils literal notranslate"><span class="pre">s</span></code> along its model. A model’s beam frame is the
+<code class="docutils literal notranslate"><span class="pre">positions.csv</span></code> frame in which most of its devices’ rows state an <code class="docutils literal notranslate"><span class="pre">s_m</span></code>
+and assume nothing (the devices with no model count as one more model), so
+two rings each have their own; a tie goes to the frame with the most such
+rows of all devices; a frame where fewer are stated is a local frame; one strip keeps to the beam path most of its
+devices are on, the others wait in its tray (a device’s card says which
+position it uses and where it is read from, and gives the facility file’s
+<code class="docutils literal notranslate"><span class="pre">s</span></code> beside a pose that differs from it by more than 1 cm), and a stretch across a ring’s
+start is drawn in one piece; a card’s strip window reads on across the start
+the same way. A ring is a model the facility file marks <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, at its
+<code class="docutils literal notranslate"><span class="pre">length</span></code>, and a beam frame takes the length of its model), <code class="docutils literal notranslate"><span class="pre">rack</span></code> (a rack elevation, chassis at their
+unit; a half-width unit, whose <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claim states <code class="docutils literal notranslate"><span class="pre">side</span></code> <code class="docutils literal notranslate"><span class="pre">L</span></code> or
+<code class="docutils literal notranslate"><span class="pre">R</span></code>, fills that half, two halves of one unit side by side), <code class="docutils literal notranslate"><span class="pre">rollup</span></code> (the health of a place and everything in it, level by
+level; a place with at least two children along a beam path the facility
+file marks <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, going round it (no gap between their positions half
+the ring or more, so one sector’s places are no ring), draws them as arcs of
+a ring, in beam order) and <code class="docutils literal notranslate"><span class="pre">checkout</span></code> (every setpoint beside its readback).</p>
+<p>Every screen but the home leads back to it first in its crumbs, then out
+through the places around it (to each place’s view where it has one). The
+ways down meet at a device’s card: by place (a place view’s racks open their
+elevations, its sets their set views) and by system (the roll-up of one
+system within a place opens the sets of its devices); a set opens its
+members’ cards, and a card names its sets on a line of their own above its
+sources. A place’s card draws at most 60 lights of its own channels and
+counts the rest, which its roll-up reads. Controls of one group that share
+a word are each named by what tells their channel apart (“Enable CH2”), and
+a device whose presses all stand on its front has no operate block.</p>
+<p>A set is a group whose <code class="docutils literal notranslate"><span class="pre">kind</span></code> is <code class="docutils literal notranslate"><span class="pre">family</span></code> (the default; a <code class="docutils literal notranslate"><span class="pre">section</span></code> is
+never a set) and whose members are all devices of one class; <code class="docutils literal notranslate"><span class="pre">check</span></code>
+notes a family that is no set only because some members are no device of a
+stated class (<code class="docutils literal notranslate"><span class="pre">unset_group</span></code>, naming them). A set of more than 96 members
+is paged by its rows, each page linking the others; a member with no health
+light shows the value its card’s first key tile shows. A device whose card
+lists counts rather than its channels gets a roll-up of its own, paged at
+400 rule-bearing channels, which its node in the place roll-up opens: every
+rule-bearing channel is read by exactly one roll-up page.</p>
+<p>The rule tables are CSV files, each held to its header, and each may be
+absent. What the facility file states is the default, and a table states
+only what it does not: a setpoint’s readback is its channel’s <code class="docutils literal notranslate"><span class="pre">pair</span></code> and
+nothing else (a pair the build derives is marked inferred, with its rule), a thing’s short name what <code class="docutils literal notranslate"><span class="pre">names.csv</span></code> states,
+else its <code class="docutils literal notranslate"><span class="pre">label</span></code>, else the last <code class="docutils literal notranslate"><span class="pre">:</span></code>- or <code class="docutils literal notranslate"><span class="pre">/</span></code>-separated part of its id, a
+channel is drawn by its <code class="docutils literal notranslate"><span class="pre">role</span></code> (a setpoint as an entry
+beside its readback, a readback as a value; <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code> names its
+record type and, where its <code class="docutils literal notranslate"><span class="pre">drawn_as</span></code> is not empty, any other drawing), and a channel on a device that states a
+<code class="docutils literal notranslate"><span class="pre">signal</span></code> plays that signal as its role on the device’s card, shown as an
+entry, a word or a value by how it is drawn, a state that <code class="docutils literal notranslate"><span class="pre">panels/health.csv</span></code> rows
+rule as a lamp; such a role says what the channel is, never how it is pressed:
+a writable channel no row names is offered as any such channel is (a choice
+of its stated words, an action, an entry) (<code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> names
+walked scopes, labels, presses and channels with no signal; a row’s stated
+<code class="docutils literal notranslate"><span class="pre">label</span></code> is the word the card shows for the channel on every tile, value row
+and group title, and stays in front of what tells two channels of one role
+apart, while a choice’s or an action’s label is the word on its press). <code class="docutils literal notranslate"><span class="pre">check</span></code>
+prints one <code class="docutils literal notranslate"><span class="pre">redundant:</span> <span class="pre">&lt;table&gt;:</span> <span class="pre">&lt;n&gt;</span> <span class="pre">rows</span></code> line per table whose rows only
+restate the facility file or these defaults with no column of them read for
+anything else (a
+<code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row without which every device it matches plays the same
+roles in the same order, read the same, so never a press), so a
+deployment can delete them, and one <code class="docutils literal notranslate"><span class="pre">redundant:</span> <span class="pre">record_types.csv</span> <span class="pre">drawn_as</span></code>
+line for the rows whose <code class="docutils literal notranslate"><span class="pre">drawn_as</span></code> is their role’s: their record type is
+read, so the row stays and only that value may be left empty.
+The tables: <code class="docutils literal notranslate"><span class="pre">positions.csv</span></code>
+(where a thing sits), <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code>,
+<code class="docutils literal notranslate"><span class="pre">panels/health.csv</span></code> (the state a channel’s value means: <code class="docutils literal notranslate"><span class="pre">normal</span></code>,
+<code class="docutils literal notranslate"><span class="pre">warn</span></code>, <code class="docutils literal notranslate"><span class="pre">bad</span></code>; a value no row names is <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, and one that two
+sources give two states is <code class="docutils literal notranslate"><span class="pre">disagree</span></code>),
+<code class="docutils literal notranslate"><span class="pre">excluded.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">names.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code>,
+<code class="docutils literal notranslate"><span class="pre">probe_pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibration_kinds.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibrations.csv</span></code>,
+<code class="docutils literal notranslate"><span class="pre">calibration_curves.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">state_labels.csv</span></code> (the word each value of a
+discrete channel means; a command’s button reads the word for the value it
+writes, else the action its channel’s name says), <code class="docutils literal notranslate"><span class="pre">units.csv</span></code> (a channel’s
+unit and the divisor its raw value is shown through), <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code>
+(what a channel is to a device card, by class and name pattern; its <code class="docutils literal notranslate"><span class="pre">scope</span></code>
+is <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">parts</span></code>, or a relation type of the vocabulary that runs from
+a device to a device, such as <code class="docutils literal notranslate"><span class="pre">read_out_by</span></code>, <code class="docutils literal notranslate"><span class="pre">controlled_by</span></code> or
+<code class="docutils literal notranslate"><span class="pre">interlocked_by</span></code>, walked from the device and its pattern filled from the
+relation’s port) and
+<code class="docutils literal notranslate"><span class="pre">card_recipes.csv</span></code> (a class’s card recipe, optionally for the devices under a
+place, a part by its whole’s place, or whose id matches a pattern; the first
+row that takes a device wins),
+<code class="docutils literal notranslate"><span class="pre">card_sections.csv</span></code> (a recipe’s drawn sections in order) and <code class="docutils literal notranslate"><span class="pre">chains.csv</span></code>
+(the hops of a recipe’s chains: each walks one relation in one direction from
+the device or an earlier hop, keeps the things its <code class="docutils literal notranslate"><span class="pre">to</span></code> filter takes, and
+shows its roles in the block; a hop that reaches nothing is a dashed “not
+stated” block, two answers are stacked as contested) and <code class="docutils literal notranslate"><span class="pre">symbols.csv</span></code> (how
+every strip, a card’s and a place’s, draws a device of a class, optionally
+only those whose id matches a pattern: one of the drawing’s symbols and a
+lane above, on or below the beam pipe; a place’s strip has one lane off the
+beam; a class no row names is not drawn on a strip). <code class="docutils literal notranslate"><span class="pre">draw.json</span></code> keeps
+only <code class="docutils literal notranslate"><span class="pre">colours</span></code> and <code class="docutils literal notranslate"><span class="pre">annotate</span></code> (both keyed by symbol) and
+<code class="docutils literal notranslate"><span class="pre">write_under</span></code>; a rack is a place some <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claim gives a unit in. A strip section draws the devices of its
+classes within its window of the device along the beam, to scale, each with
+the value of the section’s role (a window of 3 m either side when the section
+states none); a device placed only by a place around it is drawn in a dashed
+bracket over that place’s stretch (the place’s own position and those of the
+devices in it), the window widened to hold it, and a card
+whose device is placed by neither says “where it sits is not stated”.
+<code class="docutils literal notranslate"><span class="pre">fronts.csv</span></code> (a recipe’s connectors: one row per connector or numbered range
+<code class="docutils literal notranslate"><span class="pre">Outlet{n}</span></code>, by face, group and order) draws a front section: the connectors
+at one pitch on a panel body, numbered by a stated count, else the served
+channels that match the row’s <code class="docutils literal notranslate"><span class="pre">channel</span></code>, else the sockets that exist as things
+of their own (<code class="docutils literal notranslate"><span class="pre">&lt;device&gt;:&lt;connector&gt;</span></code>), else the ports the relation states, in
+number order; under each, what is on it (the thing whose <code class="docutils literal notranslate"><span class="pre">far_relation</span></code> names
+that port, <code class="docutils literal notranslate"><span class="pre">in</span></code>; the device’s own relation from it, <code class="docutils literal notranslate"><span class="pre">out</span></code>; both sides of a
+socket thing, <code class="docutils literal notranslate"><span class="pre">socket</span></code>), a dashed “—” where nothing is stated and every thing,
+dashed and “contested”, where a side has two; its state lamp; under the line,
+in bands each labelled at the left (the role’s title and unit, “press” for
+the buttons; where every connector has as many rows and the labels at each
+place end alike, one band per place, labelled with the words they share),
+the section’s
+roles of that connector and its presses (drawn there, not again under
+operate). A row’s optional <code class="docutils literal notranslate"><span class="pre">roles</span></code> column (<code class="docutils literal notranslate"><span class="pre">;</span></code>-separated) names the section
+roles its connectors carry; empty means every section role. A role binds to a
+connector only through a row that lists it, so two groups numbered alike
+(outlets 1-8, phases 1-3) never take each other’s channels; on a connector
+with no number the listed roles bind the device’s channel of that role whose
+name carries the connector’s name. A <code class="docutils literal notranslate"><span class="pre">{n}</span></code> row with <code class="docutils literal notranslate"><span class="pre">roles</span></code> and no
+<code class="docutils literal notranslate"><span class="pre">channel</span></code> is numbered by the last number of the device’s channels of its
+first role, with no lamp; a device that serves none gets no such group. A
+connector with no number whose row lists <code class="docutils literal notranslate"><span class="pre">roles</span></code> is left out on a device
+where neither its lamp nor any listed role binds, and a group all of whose
+connectors are left out is dropped. <code class="docutils literal notranslate"><span class="pre">far_relation</span></code> and <code class="docutils literal notranslate"><span class="pre">far_direction</span></code>
+are given together or both left empty; a row with neither is a reading, and
+a group whose connectors wrap onto a second line names it “&lt;group&gt;
+(continued)”; a group of readings is a table on a line of its own: no socket, cable or far end, the connectors’
+names as column heads, the lamps first in a “state” band, then a band per
+role. Clients the relation names on no stated port
+are drawn apart by class, unless the row’s optional <code class="docutils literal notranslate"><span class="pre">apart</span></code> column says
+<code class="docutils literal notranslate"><span class="pre">no</span></code>: then only the clients on a stated port are drawn; a range with nothing in it is left out. <code class="docutils literal notranslate"><span class="pre">write</span></code>
+prints per recipe the connectors with something stated, contested or nothing,
+the readings apart, and the devices with every connector that is not a reading
+stated, some, none, or readings only. A <code class="docutils literal notranslate"><span class="pre">ring-strip</span></code> section draws a group
+(<code class="docutils literal notranslate"><span class="pre">same</span> <span class="pre">place</span></code>: the devices of the card’s recipe in the device’s place; or
+<code class="docutils literal notranslate"><span class="pre">&lt;relation&gt;</span> <span class="pre">&lt;direction&gt;</span></code>: the devices that relation names) one column each,
+by ring position, else in number order with “in number order: positions not
+stated”, each with the value or lamp of the first of the section’s roles it
+plays (an empty ring where it plays none), the device in focus and every other
+opening its card; values are shown as numbers, since no table states a scale
+for a bar. When the members have places, they run by place, a row each
+under the place’s name, at the finest level of the place tree that gives two
+to eight places, in ring order (in number order without positions), those
+with no place last; over the strip, “giving &lt;first role&gt; now: n of m” counts
+the lamps ok now with one formula over the same lamps’ rules, or, when that
+formula is too long, each place’s row counts its own. Inside a place a
+member shows the last segment of its id (two alike keep what follows the part
+of their ids they share), its full id on hover. A chain hop, a front
+connector’s far end or a ring-strip member that rests on a relation claim
+with <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code> says “inferred” beside it, the claim’s <code class="docutils literal notranslate"><span class="pre">rule</span></code> on
+hover (“the rule is not stated” when it has none); when every member of a
+ring-strip is inferred, its caption says it once (“all 12 inferred: &lt;rule&gt;”)
+and no member does; when most are, the caption says “inferred unless marked
+stated: &lt;rule&gt;” and only the others are marked “stated”. A <code class="docutils literal notranslate"><span class="pre">ladder</span></code> section draws the section’s first role against the
+others as set points, evenly in their order (not to scale), each with its live
+value, and the live value as a dot in the gap between the set points it lies
+between; a set point not served is left out and named, and <code class="docutils literal notranslate"><span class="pre">write</span></code> counts
+the ladders drawn whole. A <code class="docutils literal notranslate"><span class="pre">section</span></code> row with a <code class="docutils literal notranslate"><span class="pre">focus</span></code> relation
+(<code class="docutils literal notranslate"><span class="pre">part_of</span></code>) draws a part’s card: the thing that relation names, drawn as its
+class’s picture with the part outlined in the focus colour (the picture rows
+whose <code class="docutils literal notranslate"><span class="pre">signal</span></code> matches a channel of the part), and beside it what is stated
+about the part (its relations, each opening the other thing) and, dashed, what
+is not (its owner, its place on the drawing, a drawing at all, each hop of the
+recipe’s chains that found nothing). A <code class="docutils literal notranslate"><span class="pre">curve</span></code> section draws the points of
+the claim in force of the calibration kind its <code class="docutils literal notranslate"><span class="pre">members</span></code> names (an
+excitation curve) as dots joined by a line, the least and most of each axis
+at its corners and the claim’s source under it; the operating point is not
+drawn, since no table states the conversion from set point to current. A
+device with no such curve says none is stated. The claim in force is the
+newest accepted one: a contested claim is never in force nor a base value; it
+is named “contested, not in force” beside the value in force, alone it makes
+the row and its cell “contested” with no value, and a contested curve is not
+drawn. The calibration block is the
+<code class="docutils literal notranslate"><span class="pre">calibration-strip</span></code>. A device with no place of its own and an accepted
+<code class="docutils literal notranslate"><span class="pre">part_of</span></code> to a placed whole stands where the whole is: in its crumbs, on
+strips at the whole’s position, and its card says “in &lt;place&gt; by its whole
+&lt;whole&gt;”. A device that is an endpoint of channels another device holds (a
+family’s shared supply) shows that supply’s value roles read-only under
+“shared supply &lt;id&gt;”, with a link to the supply’s card; the supply’s presses
+stay on its own card. A device gets a card when it has a channel its card shows (one on it, one it
+is an endpoint of, or one a <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row walks to from it) or a
+drawing (a <code class="docutils literal notranslate"><span class="pre">card_recipes.csv</span></code> row or a <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code> row that applies to
+it); a pose or a relation alone gives none. <code class="docutils literal notranslate"><span class="pre">cards.csv</span></code> (action, class,
+under, devices, attribute, when, owner_relation, owner_direction, owner_to,
+reason, source) holds the exceptions: <code class="docutils literal notranslate"><span class="pre">action</span></code> <code class="docutils literal notranslate"><span class="pre">keep</span></code> gives the devices a
+row selects a card, <code class="docutils literal notranslate"><span class="pre">drop</span></code> takes theirs. <code class="docutils literal notranslate"><span class="pre">class</span></code> <code class="docutils literal notranslate"><span class="pre">*</span></code> matches any class,
+<code class="docutils literal notranslate"><span class="pre">under</span></code> holds a device whose place is it or lies within it, and a part by
+its whole’s place (a part with no place of its own sits where its whole sits), <code class="docutils literal notranslate"><span class="pre">devices</span></code> is an id pattern, <code class="docutils literal notranslate"><span class="pre">attribute</span></code> is <code class="docutils literal notranslate"><span class="pre">name=value</span></code>, a
+value the device’s <code class="docutils literal notranslate"><span class="pre">attributes</span></code> map states (a list value matches each of its
+items), and <code class="docutils literal notranslate"><span class="pre">when</span></code> is <code class="docutils literal notranslate"><span class="pre">no-channel</span></code> (no channel its card shows),
+<code class="docutils literal notranslate"><span class="pre">no-drawing</span></code> (no recipe, no picture) or both joined by <code class="docutils literal notranslate"><span class="pre">;</span></code>. Every selector a
+row states must hold, and the first row that selects a device decides. A
+<code class="docutils literal notranslate"><span class="pre">drop</span></code> row may name an owner by a relation and a direction (a <code class="docutils literal notranslate"><span class="pre">keep</span></code> row
+may not): the device is drawn on its owner’s card, a link to it opens that
+card, and <code class="docutils literal notranslate"><span class="pre">index.json</span></code> lists it under <code class="docutils literal notranslate"><span class="pre">drawn_on</span></code> with the owner’s screen. A
+device with no card and no owner found gets no screen and no entry: a related
+card names it without a link. <code class="docutils literal notranslate"><span class="pre">check</span></code> counts the devices with no card, those
+the default alone leaves without one, and how many devices each row decides. A device card is drawn:
+its title line, up to five key tiles (the <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code> rows of view
+<code class="docutils literal notranslate"><span class="pre">card</span></code> whose <code class="docutils literal notranslate"><span class="pre">level</span></code> names its recipe, else the roles exactly one of the
+device’s own channels plays, a neighbour’s channel its roles reach not
+counted, but never a role whose word is a <code class="docutils literal notranslate"><span class="pre">nameplate</span></code> signal, which says what the device is, not how
+it is (a <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row giving the channel another word overrides
+it); a tile’s measure is
+<code class="docutils literal notranslate"><span class="pre">value</span></code> or <code class="docutils literal notranslate"><span class="pre">word</span></code> of the role’s first channel, or over every channel of
+the role on the device <code class="docutils literal notranslate"><span class="pre">count_true</span></code> shown “k of N”, <code class="docutils literal notranslate"><span class="pre">max</span></code> or <code class="docutils literal notranslate"><span class="pre">sum</span></code>, a
+dash and “one of N has no value” while any member has none), its relations as
+a chain of blocks (the device’s own block showing only roles one channel of
+it plays: a role played per connector or member is not rows there), its
+drawings (a drawing none of whose parts has a place is a compact row of
+blocks, each the part’s name over its signal’s light and value, with
+“arrangement not stated”, not an empty frame; a picture any of whose rows
+has state <code class="docutils literal notranslate"><span class="pre">schematic</span></code>, or that is drawn wholly at the default proportions,
+says “schematic, not to scale” in its caption, while a stated scale keeps its
+bar; a light is <code class="docutils literal notranslate"><span class="pre">disagree</span></code> only at
+a value its rows give two states, so a value every row calls normal is
+normal), an operate block (its control roles, else its
+writable channels: a choice of stated states, an action, or a typed value
+applied with Apply, never a text record (<code class="docutils literal notranslate"><span class="pre">drawn_as:</span> <span class="pre">text</span></code>: Apply writes
+only a number, so it stays in the channels view), a line beside Apply saying what it will write from the
+same formula as its press value; more than six entries of one role are a grid
+of three columns under the role’s title, their line naming no channel (each
+on hover), and an entry of a front’s role on a connector is set under the
+front, named by the connector; press groups side by side, up to three; a choice with one
+stated value is an action with the live status beside it; “no operator
+actions stated” when there is none), every channel the card is about in a
+grid (its own, and of a device its roles reach the channels beside the ones a
+role names; up to 60; a device with more shows the counts by
+owner and opens its <code class="docutils literal notranslate"><span class="pre">channels</span></code> view), then one muted line for where it is
+and one for its sources (the count of statements and their documents, each
+statement on hover). A channel <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> gives the role
+<code class="docutils literal notranslate"><span class="pre">internal</span></code> (a driver’s own record) is never offered and never listed on a
+card, only counted. A relation the chain names is drawn once per thing it
+reaches after the <code class="docutils literal notranslate"><span class="pre">to</span></code> filter (the place for <code class="docutils literal notranslate"><span class="pre">located_in</span></code>, a device for
+the rest); only two distinct things after the filter make the hop contested,
+both named (a claim’s own standing does not); a hop after a step that reached
+several things walks from each and unites what they reach. A button writes
+only a value a source states (a role’s press value or the value of its state
+word) or one marked inferred (a role’s inferred press value, 1 for a command
+whose states do not name 1), and an inferred value is said so wherever the
+card names it (“(value inferred, not stated in the database)”); a press with
+no value is left out. A writable channel of another thing that the card
+reaches only through a relation claim with <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code> (a walked
+relation such as <code class="docutils literal notranslate"><span class="pre">read_out_by</span></code>, or <code class="docutils literal notranslate"><span class="pre">part_of</span></code>) is never offered as an
+action, a choice or an entry: it is shown read only where it would have
+stood, under “join inferred, command not offered” with the claim’s rule on
+hover; the device’s own channels are not affected. <code class="docutils literal notranslate"><span class="pre">check</span></code> counts the
+presses stated, inferred, left out, and withheld because their join is
+inferred. Apply stays off the canvas and out of the page (so the keyboard
+cannot reach it either), with “type a value first” in its place, until the
+field holds a number, so no press writes a value nobody typed. A light takes a
+colour only where its meaning is stated (a state word, or a number’s
+thresholds); else it is the neutral outline, on a tile, in a chain block and in
+the grid alike. An arrow’s word and a block’s title are never cut: the arrow
+takes the run its word needs, a word may take two lines or its last name
+segment with the whole word on hover, and a title two lines. <code class="docutils literal notranslate"><span class="pre">check</span></code> also counts the default-recipe
+cards with no key tile (no card metric and no role that shows a value). A class with no recipe row is drawn with the default recipe (the
+sections stated for the recipe <code class="docutils literal notranslate"><span class="pre">default</span></code>, else a chain of its place, power,
+network and controller); <code class="docutils literal notranslate"><span class="pre">write</span></code> prints how many device cards each recipe
+drew, per chain, how many were drawn whole and the hop most often missing, and
+per strip, how many devices are placed, placed by their place or not placed. A table that breaks its schema
+prints the file and line and exits 1. A <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code> row with a place id
+in its optional <code class="docutils literal notranslate"><span class="pre">under</span></code> column draws only the devices of its class in that
+place (and one with a <code class="docutils literal notranslate"><span class="pre">devices</span></code> id pattern only the devices it matches,
+with <code class="docutils literal notranslate"><span class="pre">!</span></code> first every device but those), so two machines with devices of one class name each state their own
+drawing; a device under no row’s place gets no drawing and no note. Health
+is computed by the viewer from rules written into the screen; nothing is
+read from the control system while screens are written.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">write</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--kind</span> <span class="pre">KIND]...</span> <span class="pre">[--under</span> <span class="pre">PLACE_ID]</span> <span class="pre">[--top</span> <span class="pre">N]</span> <span class="pre">[--tables</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--facility</span> <span class="pre">FILE]</span> <span class="pre">[--draw</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write the screens under <code class="docutils literal notranslate"><span class="pre">--out</span></code> as <code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;/&lt;screen</span> <span class="pre">id&gt;.screen.json</span></code>
+with an <code class="docutils literal notranslate"><span class="pre">index.json</span></code> that lists them. Equal inputs give equal bytes: no
+file holds a time, an absolute path or a host name, and each screen’s
+description ends with the facility’s hash and the panels format number.
+Files an earlier run listed and that are no screen any more are deleted;
+nothing else is touched, and a non-empty <code class="docutils literal notranslate"><span class="pre">--out</span></code> without an
+<code class="docutils literal notranslate"><span class="pre">index.json</span></code> is refused. <code class="docutils literal notranslate"><span class="pre">--kind</span></code> (repeatable) and <code class="docutils literal notranslate"><span class="pre">--under</span></code> write
+only the screens that match; links to the others are still written. The
+command prints the screen count and size per view kind, the class summary
+(see <code class="docutils literal notranslate"><span class="pre">panels</span> <span class="pre">classes</span></code>) and the <code class="docutils literal notranslate"><span class="pre">--top</span></code> largest screens (default 10).</p>
+<p>Each entry of <code class="docutils literal notranslate"><span class="pre">index.json</span></code> names its screen’s <code class="docutils literal notranslate"><span class="pre">class</span></code>, and the index’s
+<code class="docutils literal notranslate"><span class="pre">classes</span></code> table states, per class, its key, its <code class="docutils literal notranslate"><span class="pre">standard</span></code> screen, its
+member count, how many members are <code class="docutils literal notranslate"><span class="pre">off_standard</span></code>, how many have a <code class="docutils literal notranslate"><span class="pre">cut</span></code>
+label, a <code class="docutils literal notranslate"><span class="pre">layout</span></code> hash (of the standard’s structure, the format and the
+drawing settings), a <code class="docutils literal notranslate"><span class="pre">drawing</span></code> digest (of the standard’s written file
+without the model stamp, which moves when the screen is drawn otherwise and
+not when only the facility file’s content hash does, taken by the rule the
+index states as <code class="docutils literal notranslate"><span class="pre">drawing_rule</span></code>) and a <code class="docutils literal notranslate"><span class="pre">sample</span></code>;
+<code class="docutils literal notranslate"><span class="pre">class_summary</span></code> holds the counts
+a gate reads, with the classes of one screen per view kind. Two screens are
+of one class when they have one key: for a device’s card and its channel
+list, the device’s class, the card recipe it is drawn from and the set of
+signal roles the device’s channels play (a role played by two channels
+counts once; the driver-internal role and channels with no role are not in
+it), and, for a device with no channels of its own, <code class="docutils literal notranslate"><span class="pre">own_channels:</span> <span class="pre">none</span></code>, so it is
+not classed with one whose channels play no stated role. Where cards
+of one such class drawn by the default recipe show different blocks (a card
+one can act from and a read-only one, a card with or without key tiles),
+the key also holds <code class="docutils literal notranslate"><span class="pre">blocks</span></code>, the kinds of block the card shows by presence
+(a channel list drawn as a grid or as a count is one block), and the class
+splits into one per kind of card; a class whose cards all show the same
+blocks keeps its key and its id. For a
+calibration overview, its calibration kind and its structure (a gain and an
+offset are judged apart even where they are drawn alike); for every other
+screen (a set, a place, a rack, a roll-up, a checkout, the card of a place or
+a group), its view kind, the kind of thing it shows and its structure. The
+device types of a set’s members are names, not a layout, and are not in its
+key.</p>
+<p>Sameness is measured on what a screen shows, not on its file. Its structure
+is its sections and the kinds of item, block and relation they hold. Left
+out are text and numbers; how many items a repeated block holds and their
+order (a size); the parts that state what is known rather than what is drawn,
+such as a source, a unit, a stated position or a link to the thing’s screen
+(a gap where one is missing); and data-state flags such as inferred,
+contested or writable. The standard is the member whose structure most
+members share (a tie goes to the smaller structure hash), and the <code class="docutils literal notranslate"><span class="pre">layout</span></code>
+hash covers the standard’s structure, the panels format and the drawing
+settings: it changes when the class’s typical screen changes, not when a
+member is added or renamed.</p>
+<p>An entry off its standard lists how under <code class="docutils literal notranslate"><span class="pre">differs</span></code>, in words: a section,
+a kind of item, a block or a relation present or missing (<code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">tiles</span>
+<span class="pre">section</span></code>, <code class="docutils literal notranslate"><span class="pre">relations:</span> <span class="pre">a</span> <span class="pre">value</span> <span class="pre">row,</span> <span class="pre">which</span> <span class="pre">the</span> <span class="pre">standard</span> <span class="pre">has</span> <span class="pre">not</span></code>). What
+varies from the standard without making another screen is under
+<code class="docutils literal notranslate"><span class="pre">varies</span></code>: sizes (<code class="docutils literal notranslate"><span class="pre">foot:</span> <span class="pre">where:</span> <span class="pre">4,</span> <span class="pre">the</span> <span class="pre">standard</span> <span class="pre">3</span></code>), gaps, flags and
+drawing variants (a channel list drawn as a count above its size). Each
+entry also states its own <code class="docutils literal notranslate"><span class="pre">sizes</span></code>, <code class="docutils literal notranslate"><span class="pre">gaps</span></code> (per gap the count, such as
+<code class="docutils literal notranslate"><span class="pre">unit</span></code> or <code class="docutils literal notranslate"><span class="pre">where</span> <span class="pre">without</span> <span class="pre">a</span> <span class="pre">link</span></code>, for a checker to total per class),
+<code class="docutils literal notranslate"><span class="pre">flags</span></code>, its longest <code class="docutils literal notranslate"><span class="pre">label</span></code> in characters, and under <code class="docutils literal notranslate"><span class="pre">cuts</span></code> the labels
+the layout cut to fit. A rack screen numbers every unit, draws a free one as
+a slot and keeps the lists of the rack in one column beside it, down to the
+rack’s foot and never past it: those at no unit, then the classes and
+sources, then those side by side at one unit, level with it and joined to it
+by a line, the bar over them saying whether they are listed beside the rack
+or under it. The list of those at no unit takes the room the rest leaves;
+what does not fit beside stands under the rack across the full width: the
+rest of the list under its heading continued, then each group side by side
+that did not fit, its units on its heading in place of the line. A list
+takes as many columns as fit with each as wide as its own longest name; a
+name longer than the whole width keeps the part that tells it from the
+others, the whole on hover. A rack’s list is filled downward in
+balanced columns (two columns of a band differ by one row at most), a larger
+gap after every fourth row, in bands of twenty rows read down then across; a
+list of one or two rows fills across. An operate panel draws each control as one row on one
+set of columns: tag, name, now, field or button, what it does; groups whose
+rows end at their button or value (actions, choices, read-only values) stand
+up to three side by side, and a group of many such rows takes up to three
+columns, filled downward, as do a choice’s segments that wrap. Said once:
+the kind’s tag stands at the head of a run of one kind (groups of one kind
+that follow each other, each with its line of what it writes, are one run),
+and a row whose button says its name has no name beside it. Every list
+ordered by name takes the numbers in a name by value (<code class="docutils literal notranslate"><span class="pre">2</span></code> before <code class="docutils literal notranslate"><span class="pre">10</span></code>);
+it only orders, it groups nothing. A thing’s channels come in that order,
+so a role’s rows, a block’s lines and a card’s channel list follow it. Frames in a row whose content needs at most half
+the width each stand in two columns when they have one role
+(live values, references, an action block, a picture with its curve; two
+groups of a channel list only as stated groups of one grouping, a group of
+no stated kind alone), read downward, split where the taller column is least
+tall, so short frames stack beside a long one; a frame keeps its own height
+unless matching its neighbour’s foot adds at most a third of it, and the page
+under a shorter column stays plain; content that stretches (a curve’s plot) is drawn
+after the next frame and, where that one takes at most half, fills the other
+half. A screen shows what it is for first: sections of
+nothing but links follow the rest, key numbers with no data yet fold into
+one line, on the band’s last row where it fits there, else under it, and a roll-up’s summed state is larger than what it sums, a
+child it does not sum set apart in a dashed outline on the same row where
+all fit one row at their content’s width, its counts one muted line on the
+heading’s line. Every widget that draws a view item names it in its
+<code class="docutils literal notranslate"><span class="pre">meta</span></code> comment, which a viewer does not read: <code class="docutils literal notranslate"><span class="pre">item:</span> <span class="pre">&lt;kind&gt;</span></code>, then
+<code class="docutils literal notranslate"><span class="pre">thing:</span> <span class="pre">&lt;id&gt;</span></code> where the item stands for one thing and <code class="docutils literal notranslate"><span class="pre">order:</span> <span class="pre">&lt;n&gt;</span></code> where
+the view states an order (a rack unit’s by where it stands in the rack, not
+by the order its units are listed). The kinds are <code class="docutils literal notranslate"><span class="pre">rack-unit</span></code> and <code class="docutils literal notranslate"><span class="pre">grid-row</span></code>,
+which read down (top to bottom, then on in the next column), and
+<code class="docutils literal notranslate"><span class="pre">strip-element</span></code>, <code class="docutils literal notranslate"><span class="pre">key-tile</span></code> and <code class="docutils literal notranslate"><span class="pre">chain-block</span></code>, which read across (left
+to right, then on in the next row). The list is complete: a key figure’s
+members (its lamps, its holder names) are parts of its tile, not items of
+their own. A class’s <code class="docutils literal notranslate"><span class="pre">drawing</span></code> digest leaves these comments out (rule 2;
+an index with no <code class="docutils literal notranslate"><span class="pre">drawing_rule</span></code> was written by rule 1, which kept them in,
+so between the two every class’s digest differs once). Every widget stands
+on whole pixels, each edge rounded where it is written, and every screen
+ends one margin under its lowest frame. A section’s heading line carries
+what qualifies it: a count, a one-line legend, or the one row of chips that
+fits beside it. The layout measures text in the viewer’s own font
+(IBM Plex Sans): a column takes the width its longest label needs (a
+checkout’s channel and thing columns their longest names), a long
+label in a chain block takes two lines, a muted line of prose (a caption, a
+note, what a press writes, a source, also beside a fact) takes as many lines
+as it needs, conditions that several calibration rows state alike are stated
+once under the rows, set off by half a row of space and a thin rule and
+tied to their rows by a reference mark (1, 2, …) after each row’s title
+and at the start of the line, which says the text alone, a name with no separator breaks where a small letter
+meets a capital, and a text still longer than its box is cut there with an
+ellipsis and listed. The engine writes the whole text as a tooltip on a box
+over the cut label (a link drawn over it carries that whole text too in its tooltip, several cut labels joined one per line, a text another line holds left out; its one-line hover label is the link’s own label, at most 40 characters and cut
+with an ellipsis past that, the basis of an inferred relation said in the
+tooltip only); a viewer that
+shows tooltips shows it, and no viewer has to shrink or clip a label. A
+value display is as wide as the widest text the facility
+states it can show: its longest state word, else its limits as the display
+prints them when they are wider than the stand-in <code class="docutils literal notranslate"><span class="pre">-0.00123</span></code>, else that
+stand-in, with the unit where the display prints it. Every text label’s box
+is at least one line of the font high (a light’s mark among them), grown
+about its middle where it was lower. A class’s <code class="docutils literal notranslate"><span class="pre">sample</span></code> names the members a reviewer
+opens: the standard, the smallest, the largest, the one with the longest
+label, the first off standard, and one member on each side of every
+variation that changes the drawing (a part drawn with or without a stated
+position, a channel list drawn as a grid or a count). Each member of the
+sample is <code class="docutils literal notranslate"><span class="pre">{&quot;file&quot;,</span> <span class="pre">&quot;as&quot;}</span></code>: its file and what it stands for, one or more of
+<code class="docutils literal notranslate"><span class="pre">standard</span></code>, <code class="docutils literal notranslate"><span class="pre">smallest</span></code>, <code class="docutils literal notranslate"><span class="pre">largest</span></code>, <code class="docutils literal notranslate"><span class="pre">longest</span> <span class="pre">labels</span></code> and <code class="docutils literal notranslate"><span class="pre">off</span>
+<span class="pre">standard</span></code>, and the drawing sides it is the first to show (<code class="docutils literal notranslate"><span class="pre">x_mm</span> <span class="pre">missing</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channel</span> <span class="pre">list</span> <span class="pre">drawn</span> <span class="pre">as</span> <span class="pre">ChannelCount</span></code>).
+A device’s card and channel list also state, under <code class="docutils literal notranslate"><span class="pre">others</span></code>, what they
+show of other things on purpose: each thing, the kind of item that draws it
+(<code class="docutils literal notranslate"><span class="pre">strip</span> <span class="pre">member</span></code>, <code class="docutils literal notranslate"><span class="pre">chain</span> <span class="pre">block</span></code>, …) and the channels of it the screen
+binds; a row that names no thing (a channel list’s row of a device the
+roles reach) is placed by its channel’s owner. A checker can then tell a
+neighbour’s channel from a channel on the wrong screen.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">check</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--strict]</span> <span class="pre">[--max-bytes</span> <span class="pre">N]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--tables</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--facility</span> <span class="pre">FILE]</span> <span class="pre">[--draw</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Regenerate every screen and compare it with the files under <code class="docutils literal notranslate"><span class="pre">--out</span></code>;
+nothing is written. It prints the count of each problem kind and the first
+<code class="docutils literal notranslate"><span class="pre">--limit</span></code> of each (default 20), and exits 1 on any failing problem:
+<code class="docutils literal notranslate"><span class="pre">stale</span></code>, <code class="docutils literal notranslate"><span class="pre">missing</span></code>, <code class="docutils literal notranslate"><span class="pre">orphan</span></code>, <code class="docutils literal notranslate"><span class="pre">dangling_link</span></code>, <code class="docutils literal notranslate"><span class="pre">unknown_channel</span></code>,
+<code class="docutils literal notranslate"><span class="pre">stamp</span></code>, <code class="docutils literal notranslate"><span class="pre">invalid</span></code>, <code class="docutils literal notranslate"><span class="pre">incomplete</span></code>, <code class="docutils literal notranslate"><span class="pre">oversize</span></code> (over
+<code class="docutils literal notranslate"><span class="pre">--max-bytes</span></code>), <code class="docutils literal notranslate"><span class="pre">unrolled</span></code> (a rule channel no roll-up reads),
+<code class="docutils literal notranslate"><span class="pre">static_rollup</span></code>, <code class="docutils literal notranslate"><span class="pre">long_formula</span></code> (an expression over the viewer’s
+length limit), <code class="docutils literal notranslate"><span class="pre">over_budget</span></code> (more rules or channels than one screen
+may bind) or <code class="docutils literal notranslate"><span class="pre">stale_class</span></code> (a screen’s class or what its entry states about
+it, or the class table or its summary, in <code class="docutils literal notranslate"><span class="pre">index.json</span></code> other than the
+model gives now). A link outside the written set, a card or checkout over its
+budget, a probe row whose signal no channel states, and a <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>
+row whose signal binds no channel (<code class="docutils literal notranslate"><span class="pre">unbound_picture</span></code>) or channels of two
+devices (<code class="docutils literal notranslate"><span class="pre">ambiguous_picture</span></code>), and a strip badge’s stem drawn through
+another thing’s state word (<code class="docutils literal notranslate"><span class="pre">crossed_word</span></code>) are notes, and fail only with
+<code class="docutils literal notranslate"><span class="pre">--strict</span></code>.
+Before the problems it prints the device classes by how <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>
+draws them (with a drawing, with parts only, with none) and, per class, the
+parts not placed (no position and no angle): information, never a problem.
+After the problems it prints the class summary from the index. A clean set
+prints <code class="docutils literal notranslate"><span class="pre">The</span> <span class="pre">written</span> <span class="pre">screens</span> <span class="pre">match</span> <span class="pre">the</span> <span class="pre">model.</span></code></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">classes</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--differs]</span></code></dt><dd><p>Print the class table of the <code class="docutils literal notranslate"><span class="pre">index.json</span></code> under <code class="docutils literal notranslate"><span class="pre">--out</span></code>; nothing else is
+read. One row per class, the largest first: its members, those off the
+standard, those with a cut label, the class and its standard’s file; the
+first <code class="docutils literal notranslate"><span class="pre">--limit</span></code> rows (default 30, <code class="docutils literal notranslate"><span class="pre">0</span></code> for all). Then one row per view
+kind: its screens, classes, classes of one screen, screens off their
+standard and screens with a cut label. <code class="docutils literal notranslate"><span class="pre">--differs</span></code> adds every screen off
+its standard, and how. The last line is the summary a gate reads:
+<code class="docutils literal notranslate"><span class="pre">classes:</span> <span class="pre">N</span> <span class="pre">classes</span> <span class="pre">(S</span> <span class="pre">of</span> <span class="pre">more</span> <span class="pre">than</span> <span class="pre">one</span> <span class="pre">screen),</span> <span class="pre">M</span> <span class="pre">screens</span> <span class="pre">off</span> <span class="pre">their</span>
+<span class="pre">standard,</span> <span class="pre">C</span> <span class="pre">with</span> <span class="pre">a</span> <span class="pre">label</span> <span class="pre">cut;</span> <span class="pre">single:</span> <span class="pre">&lt;view&gt;</span> <span class="pre">&lt;count&gt;,</span> <span class="pre">...</span></code>. Exits 1 when
+the index is missing or holds no class table.</p>
+<p>Where a screen needs a widget the Screen-IR format lacks (a five-state
+light, a hatched fill, a scrolling table, clickable text, a condition on an
+enum label, a viewer- or server-side aggregate state, a rule longer than
+the expression limit), the nearest widget is drawn and the node’s
+<code class="docutils literal notranslate"><span class="pre">meta.comment</span></code> names the need as <code class="docutils literal notranslate"><span class="pre">format-request:</span> <span class="pre">&lt;name&gt;</span></code>;
+<code class="docutils literal notranslate"><span class="pre">osprey.facility.panels.layout.FORMAT_REQUESTS</span></code> lists them.</p>
 </dd>
 </dl>
 </section>
@@ -1861,7 +2394,12 @@ restart the server to mint a new one.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--skip-preflight</span></code> — Skip the pre-flight checks (companion port collisions
 and the like) and start anyway. Without it, a failed check refuses the start.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Stop a background web terminal server.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Stop a background web terminal server. Returns once the server and the
+processes it started have exited, waiting up to 60 seconds. A process that
+outlives the server is ended with SIGTERM, then SIGKILL; one that cannot be
+ended is named and the command exits 1. A server still running after the
+wait is named and left alone, and the command exits 1; its PID file is
+kept, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> can be run again.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">sessions</span></code></dt><dd><p>Group for the commands that manage the sessions kept on disk.</p>
 </dd>

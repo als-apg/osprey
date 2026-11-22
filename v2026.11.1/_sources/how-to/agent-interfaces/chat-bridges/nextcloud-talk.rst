@@ -1,0 +1,245 @@
+.. _how-to-nextcloud-talk:
+
+==============
+Nextcloud Talk
+==============
+
+How to let your team ask the OSPREY agent questions from a Nextcloud Talk room,
+and get answers, plots, and files back in the same room.
+
+.. dropdown:: Before you start
+   :color: info
+   :icon: checklist
+
+   - A project whose build profile has a ``dispatch:`` block — see
+     :doc:`../event-dispatch`.
+   - Docker or Podman, for the container path.
+   - A Nextcloud instance with the Talk app, and permission to create a user
+     account on it.
+
+Overview
+========
+
+The bridge turns a Talk room into a way of talking to the agent. Someone
+mentions the bot in the room, the bridge hands that question to the
+:doc:`event dispatch pipeline <../event-dispatch>`, and the answer is posted
+back as a reply in the room.
+
+It is a **poller, not a server**: it asks Nextcloud for new messages and waits
+for them, making only outbound calls.
+
+Like every bridge, it :ref:`remembers each question and conversation
+<bridge-memory>`. What is particular to Talk is that each room's reading position
+is saved too, so messages posted while the bridge was down are picked up rather
+than missed.
+
+The **first** time the bridge sees a room is the exception: it starts from the
+room as it stands at that moment and does not answer the backlog behind it. The
+anchor is saved immediately, so "first time" means once per room and not once
+per restart. Add the bot to a busy room and it joins the conversation from
+there, rather than replying to a month of history.
+
+Enable It in a Profile
+======================
+
+Add a ``nextcloud_bridge:`` block to your build profile. Two settings: which
+dispatcher trigger the bridge fires — that trigger decides what the agent is
+allowed to do with a chat question — and whether the agent may @mention people:
+
+.. literalinclude:: ../examples/profile-nextcloud-bridge.yml
+   :language: yaml
+   :caption: profile.yml
+
+.. note::
+
+   The bridge and the dispatch pair must sit on the same network. Workers go on
+   the host's network whenever the agent has to reach a control system or a
+   co-deployed bridge at a loopback address (:ref:`deployment-network-attachment`),
+   and this bridge then has to move with them: add
+   ``services.nextcloud_bridge.network: host`` to your profile's ``config:``
+   block. ``osprey build`` refuses a split pair and names the key to change.
+
+Rooms and credentials are **not** profile settings. They are runtime values you
+supply, because they differ per deployment and the password must never be baked
+into a build. Listing them under ``env.required`` documents them in
+``.env.example``; fill the values into the **profile's** ``.env``, which is
+where a secret survives a rebuild. The build derives the project's ``.env``
+from it (created mode ``0600``, readable only by you).
+
+Two mistakes are caught at **build** time rather than at runtime: declaring the
+bridge without a ``dispatch:`` block, and naming a trigger that your triggers
+file does not declare. Both fail the build with a message naming the problem,
+instead of producing a project that deploys and then fails on every message.
+
+Runtime settings
+----------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Variable
+     - Meaning
+   * - ``NEXTCLOUD_BASE_URL``
+     - Your Nextcloud instance, with no trailing slash, e.g.
+       ``https://cloud.example.org``. HTTPS is the production expectation; a
+       plain ``http://`` URL still starts but logs a warning at startup, because
+       the bot's password and every message cross the network unencrypted.
+   * - ``NEXTCLOUD_BOT_ACCOUNT``
+     - The Nextcloud user id the bridge signs in as — the account people mention
+       to ask a question.
+   * - ``NEXTCLOUD_APP_PASSWORD``
+     - An app password for that account (not the account's login password).
+   * - ``NEXTCLOUD_ROOMS``
+     - Comma-separated Talk room tokens to watch. A room's token is the last
+       part of its URL: in ``…/call/a1b2c3d4`` the token is ``a1b2c3d4``.
+   * - ``DISPATCH_TRIGGER``
+     - The trigger to fire. Filled in for you from the profile block.
+   * - ``NEXTCLOUD_MENTIONS``
+     - Whether @mentions are on. Filled in for you from the profile block.
+   * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
+     - The two shared secrets the bridge needs to reach the dispatcher and the
+       worker, generated for you when unset — see
+       :ref:`Authentication <event-dispatch-auth>`.
+
+.. dropdown:: Optional settings you can usually leave alone
+   :icon: gear
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 30 70
+
+      * - Variable
+        - Meaning
+      * - ``DISPATCHER_URL``, ``WORKER_URL``
+        - Where the dispatcher and worker are. Filled in for you when they run
+          in the same stack; when they run elsewhere you must set them, and the
+          bridge refuses to start without them.
+      * - ``DISPATCH_TIMEOUT_SEC``
+        - How long the worker may spend on one run. Comes from your project
+          configuration, so raising it raises it for both halves at once.
+      * - ``POLL_BUDGET``
+        - How long the bridge waits for an answer before giving up on it.
+          Defaults to 30 seconds more than the worker's own limit, and may never
+          be less than that limit — the bridge refuses to start if it is.
+      * - ``POLL_INTERVAL``
+        - Seconds between checks on an answer in progress (default 2).
+      * - ``DRAIN_INTERVAL``
+        - Seconds between sweeps of the queue of questions that could not be
+          handed off yet (default 60).
+      * - ``RETRY_MIN_AGE``
+        - How long a failed hand-off is held before it is retried, so a brief
+          outage has time to clear (default 20 minutes).
+      * - ``RETRY_GIVE_UP``
+        - Age at which a question that still cannot be handed off is abandoned
+          (default 48 hours).
+      * - ``RETRY_LIFETIME_CAP``
+        - Hard ceiling on how long anything may sit in that queue, whatever its
+          state (default 7 days).
+      * - ``BRIDGE_TRUST_ENV``
+        - Set to ``1`` only if this host's outbound calls must go through your
+          site's web proxy. Off by default, so a proxy inherited from a shell or
+          a CI runner cannot quietly place itself in front of Nextcloud.
+      * - ``HISTORY_ANSWER_LIMIT``
+        - Longest earlier answer, in characters, sent back in full with a
+          follow-up (default 3000). A longer one is sent as its opening, and the
+          agent reads the rest only if it needs it. ``0`` always sends every
+          answer in full.
+      * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
+        - Optional alert host. With ``GITLAB_URL`` and ``GITLAB_ISSUES_TOKEN``
+          set, the bridge holds queued questions while ``GITLAB_PROJECT`` has an
+          open ``osprey-alert`` issue, or while GitLab cannot be reached. Leave
+          them unset to skip the check.
+      * - ``DEDUP_PATH``, ``OFFSETS_PATH``
+        - Where the bridge keeps what it remembers: the questions it has
+          answered and how far it has read in each room. Both default to files
+          under ``/data``, its own volume; change them only if you deliberately
+          relocate that state, and move both together: losing ``OFFSETS_PATH``
+          alone replays or skips history.
+      * - ``TZ``
+        - Timezone, taken from your project configuration so timestamps match
+          the rest of the stack.
+
+Bring It Up
+===========
+
+**1. Create the bot account.** In Nextcloud, add a regular user for the agent to
+speak as — the display name is what your team sees replying, so make it obvious
+(for example ``OSPREY agent``). Sign in as that user once, then create an app
+password under *Settings → Security*. An app password can be revoked on its own
+without disturbing the account, which is why the bridge uses one.
+
+**2. Invite it to the rooms it should serve.** The bot only sees rooms it is a
+member of. Add it to each room you want served, and collect those rooms' tokens.
+
+**3. Fill in the environment file.** Set the four values from the table above in
+the **profile's** ``.env`` (the build derives the project's ``.env`` from it):
+
+.. code-block:: bash
+
+   NEXTCLOUD_BASE_URL=https://cloud.example.org
+   NEXTCLOUD_BOT_ACCOUNT=osprey-agent
+   NEXTCLOUD_APP_PASSWORD=xxxxx-xxxxx-xxxxx-xxxxx-xxxxx
+   NEXTCLOUD_ROOMS=a1b2c3d4,e5f6g7h8
+
+**4. Bring the stack up.** The bridge is registered in ``deployed_services``, so
+it starts with everything else:
+
+.. code-block:: bash
+
+   osprey up        # add --dev to bake in a local osprey checkout
+
+Then mention the bot in one of the listed rooms and ask it something. If nothing
+happens, check the service's logs first: a missing credential stops the bridge at
+startup with the missing variable named, rather than letting it run in a broken
+state.
+
+.. important::
+
+   The bridge keeps what it remembers — which questions it has answered, recent
+   conversation, and each room's reading position — in a named volume mounted at
+   ``/data``. Do not remove that volume. Without it, a restart forgets everything
+   and the room's history is either replayed from the beginning or skipped past.
+
+Who Is in the Room, and @Mentions
+=================================
+
+Each question reaches the agent with who asked it and who is in the room. The
+bridge reads the room's participant list as the bot account, which is already a
+member, so there is no extra permission to grant. Signed-in users are listed by
+their Nextcloud display name; guests and users from other servers are not
+listed.
+
+In a room with the lobby turned on, Nextcloud shows the list only to
+moderators. Make the bot account a moderator of that room, or its questions
+reach the agent with the asker only.
+
+The agent may @mention a participant of the same room only when someone in the
+room asks it to pass something on or to notify someone. It never does so on its
+own. Anyone not in the room is written by name, as plain text, without an
+``@``. Any other ``@name`` in an answer is posted without its ``@`` too. Inside
+code the ``@`` is kept (so ``@dataclass`` survives) unless the word is a room
+member's user id, so the agent never notifies anyone outside these rules.
+
+Set ``mentions: false`` in the profile block to have every mention posted as
+plain text instead.
+
+Who Can Ask, and What Is Shared
+===============================
+
+Who may reach the agent, and what the trigger lets it do, is the same for every
+bridge — see :ref:`bridge-access`. What is particular to Nextcloud Talk:
+
+**The rooms are exactly the ones you list.** Adding a room token to
+``NEXTCLOUD_ROOMS`` grants access to everyone Nextcloud says is in that room, so
+choose rooms as deliberately as you would choose who gets an account.
+
+**Mentions are matched against the mention Talk itself records**, not against the
+message text, so writing the bot's name in passing does not trigger it, and
+neither does ``@all``. The bridge also ignores its own messages, which is what
+stops it answering itself in a loop.
+
+**Files are shared into the room, never published.** When an answer includes a
+plot or a file, the bridge uploads it to the bot's own storage and shares it with
+the room, so only that room's members can open it. **No world-readable link is
+ever created** — there is no public URL to leak, forward, or index.

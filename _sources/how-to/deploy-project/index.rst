@@ -18,7 +18,7 @@ up to date.
    - Overriding service images, and mirroring every image into one registry
    - Where the deeper reference lives: compose templates, networking, and the ``.env`` chain each have their own subpage
 
-   **Prerequisites:** Docker or Podman installed locally.
+   **Prerequisites:** Docker Engine 20.10 or newer (Docker Desktop 4.0 or newer on macOS and Windows) or Podman 4.1 or newer, and a supported compose provider (see :ref:`compose-provider-compatibility`).
 
 .. tip::
 
@@ -334,7 +334,7 @@ networks. The ``optimizer`` service does the same with the optimizer and its
 Redis job store. So these containers must resolve each other by name. On
 Podman, that depends on which networking backend the host runs:
 
-* **netavark** (Podman 4.0+ default) — ships aardvark-dns, which serves
+* **netavark** — ships aardvark-dns, which serves
   container-name DNS on every network a container is attached to. **Required.**
 * **cni** (the legacy backend, still configured on some RHEL 8 hosts) — has no
   aardvark-dns. A dual-homed container receives only its *first* network's
@@ -407,8 +407,8 @@ reports each one as it does (``· terminal alice ready (21s)``). A terminal that
 stops, or does not answer within the window, fails the start. Nothing is torn
 down. The message names the terminals that are serving beside the ones that
 are not, with the log lines of each one that is not. While a terminal's app is
-still starting, nginx answers for it with a page that reloads itself, instead
-of a bare ``502 Bad Gateway``.
+still starting, nginx answers for it with a waiting page that opens the
+terminal once it is ready, instead of a bare ``502 Bad Gateway``.
 
 Both limits are settings, and each takes a number of seconds. The environment
 variable wins over the top-level config key.
@@ -629,6 +629,10 @@ failure lists what was still pending. It also shows the last log lines of each
 container that exited or is unhealthy; that log is usually the cause. If the
 start is only slow (images pulled over a slow link, a loaded host), raise the
 limit (:ref:`deployment-start-waits`).
+
+**A start reported services with no running container:** compose said it
+succeeded, but the named services were not running afterwards. ``osprey logs
+<service>`` shows why.
 
 **"Unsupported compose provider":** OSPREY cannot drive the host's compose
 implementation correctly, so it stopped before starting anything. The message

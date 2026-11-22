@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.simulation.texture &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.simulation.texture &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -447,7 +447,10 @@
 <span class="sd">``linear`` input counting as its own sum. Noise and drift are pure functions</span>
 <span class="sd">of the address and the epoch millisecond, so a live read and an archived</span>
 <span class="sd">sample at the same instant agree. Writing a setpoint holds the</span>
-<span class="sd">value and echoes it into the readback its ``pair`` names.</span>
+<span class="sd">value and echoes it into the readback its ``pair`` names. A labelled readback</span>
+<span class="sd">takes a state by index: the index of a labelled setpoint&#39;s label, or a number</span>
+<span class="sd">written to the setpoint, which must be an integral index of the readback&#39;s</span>
+<span class="sd">labels; a write the readback refuses holds nothing.</span>
 
 <span class="sd">A ``noise`` record states one term: ``{absolute: sigma}`` adds ``sigma``</span>
 <span class="sd">times a keyed normal draw, and ``{relative: f}`` adds ``f`` times</span>
@@ -487,9 +490,10 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">lume.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">LUMEModel</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">lume.variables</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">EnumVariable</span><span class="p">,</span>
@@ -499,19 +503,24 @@
     <span class="n">StrVariable</span><span class="p">,</span>
     <span class="n">Variable</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">override</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation</span><span class="w"> </span><span class="kn">import</span> <span class="n">pulse</span><span class="p">,</span> <span class="n">series</span><span class="p">,</span> <span class="n">topoff</span><span class="p">,</span> <span class="n">values</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.envelope</span><span class="w"> </span><span class="kn">import</span> <span class="n">declares_motion</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.view</span><span class="w"> </span><span class="kn">import</span> <span class="n">SETPOINT</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation._records</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.records</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">ChannelRecord</span><span class="p">,</span>
         <span class="n">GateRecord</span><span class="p">,</span>
         <span class="n">LinearTerm</span><span class="p">,</span>
         <span class="n">ModelEntry</span><span class="p">,</span>
+        <span class="n">NoiseRecord</span><span class="p">,</span>
         <span class="n">PulseRecord</span><span class="p">,</span>
+        <span class="n">ResolvedCoupling</span><span class="p">,</span>
         <span class="n">SeedRecord</span><span class="p">,</span>
+        <span class="n">SeedsDocument</span><span class="p">,</span>
+        <span class="n">VariablesDocument</span><span class="p">,</span>
     <span class="p">)</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
@@ -536,7 +545,7 @@
 
 <div class="viewcode-block" id="channel_value_type">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.channel_value_type">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">channel_value_type</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">channel_value_type</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A channel record&#39;s ``value_type``, ``float`` when it states none.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">values</span><span class="o">.</span><span class="n">DEFAULT_VALUE_TYPE</span></div>
 
@@ -544,13 +553,13 @@
 
 <div class="viewcode-block" id="is_float_channel">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.is_float_channel">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">is_float_channel</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_float_channel</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a channel record holds a ``float``.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">channel_value_type</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;float&quot;</span></div>
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_bounds</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_bounds</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The view&#39;s ``value_range`` as ``(low, high)``; ``None`` when both sides are null.&quot;&quot;&quot;</span>
     <span class="n">bounds</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_range&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">bounds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -561,7 +570,7 @@
     <span class="k">return</span> <span class="n">low</span><span class="p">,</span> <span class="n">high</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_int_range</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int_range</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;An ``int`` variable&#39;s range from the view&#39;s ``value_range``; a null side is unbounded.&quot;&quot;&quot;</span>
     <span class="n">bounds</span> <span class="o">=</span> <span class="n">_bounds</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">bounds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -573,7 +582,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_float_range</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_float_range</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A scalar variable&#39;s range from the view&#39;s ``value_range``; a null side is unbounded.&quot;&quot;&quot;</span>
     <span class="n">bounds</span> <span class="o">=</span> <span class="n">_bounds</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">bounds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -613,7 +622,7 @@
 
 <div class="viewcode-block" id="channel_variable">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.channel_variable">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">channel_variable</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">nominal</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Variable</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">channel_variable</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">,</span> <span class="n">nominal</span><span class="p">:</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Variable</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The LUME variable of one channel of the view&#39;s ``variables.json``.</span>
 
 <span class="sd">    A setpoint the view marks writable is settable; every other channel is</span>
@@ -639,8 +648,13 @@
         <span class="k">return</span> <span class="n">EnumVariable</span><span class="p">(</span>
             <span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="n">options</span><span class="p">,</span> <span class="n">default_value</span><span class="o">=</span><span class="n">nominal</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="n">read_only</span>
         <span class="p">)</span>
+    <span class="c1"># The start value is in the stored representation of the channel&#39;s value</span>
+    <span class="c1"># type, which the type checker does not see; ``model_validate`` validates</span>
+    <span class="c1"># it exactly as the constructor would.</span>
     <span class="k">if</span> <span class="n">value_type</span> <span class="o">==</span> <span class="s2">&quot;string&quot;</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">StrVariable</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">default_value</span><span class="o">=</span><span class="n">nominal</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="n">read_only</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">StrVariable</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
+            <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">address</span><span class="p">,</span> <span class="s2">&quot;default_value&quot;</span><span class="p">:</span> <span class="n">nominal</span><span class="p">,</span> <span class="s2">&quot;read_only&quot;</span><span class="p">:</span> <span class="n">read_only</span><span class="p">}</span>
+        <span class="p">)</span>
     <span class="k">if</span> <span class="n">value_type</span> <span class="o">==</span> <span class="s2">&quot;waveform&quot;</span><span class="p">:</span>
         <span class="n">shape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">size</span><span class="p">)</span> <span class="k">for</span> <span class="n">size</span> <span class="ow">in</span> <span class="n">channel</span><span class="p">[</span><span class="s2">&quot;shape&quot;</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">NDVariable</span><span class="p">(</span>
@@ -651,19 +665,23 @@
             <span class="n">read_only</span><span class="o">=</span><span class="n">read_only</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">if</span> <span class="n">value_type</span> <span class="o">==</span> <span class="s2">&quot;int&quot;</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">IntVariable</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span>
-            <span class="n">default_value</span><span class="o">=</span><span class="n">nominal</span><span class="p">,</span>
-            <span class="n">value_range</span><span class="o">=</span><span class="n">_int_range</span><span class="p">(</span><span class="n">channel</span><span class="p">),</span>
-            <span class="n">unit</span><span class="o">=</span><span class="n">unit</span><span class="p">,</span>
-            <span class="n">read_only</span><span class="o">=</span><span class="n">read_only</span><span class="p">,</span>
+        <span class="k">return</span> <span class="n">IntVariable</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">address</span><span class="p">,</span>
+                <span class="s2">&quot;default_value&quot;</span><span class="p">:</span> <span class="n">nominal</span><span class="p">,</span>
+                <span class="s2">&quot;value_range&quot;</span><span class="p">:</span> <span class="n">_int_range</span><span class="p">(</span><span class="n">channel</span><span class="p">),</span>
+                <span class="s2">&quot;unit&quot;</span><span class="p">:</span> <span class="n">unit</span><span class="p">,</span>
+                <span class="s2">&quot;read_only&quot;</span><span class="p">:</span> <span class="n">read_only</span><span class="p">,</span>
+            <span class="p">}</span>
         <span class="p">)</span>
-    <span class="k">return</span> <span class="n">ScalarVariable</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span>
-        <span class="n">default_value</span><span class="o">=</span><span class="n">nominal</span><span class="p">,</span>
-        <span class="n">value_range</span><span class="o">=</span><span class="n">_float_range</span><span class="p">(</span><span class="n">channel</span><span class="p">),</span>
-        <span class="n">unit</span><span class="o">=</span><span class="n">unit</span><span class="p">,</span>
-        <span class="n">read_only</span><span class="o">=</span><span class="n">read_only</span><span class="p">,</span>
+    <span class="k">return</span> <span class="n">ScalarVariable</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">address</span><span class="p">,</span>
+            <span class="s2">&quot;default_value&quot;</span><span class="p">:</span> <span class="n">nominal</span><span class="p">,</span>
+            <span class="s2">&quot;value_range&quot;</span><span class="p">:</span> <span class="n">_float_range</span><span class="p">(</span><span class="n">channel</span><span class="p">),</span>
+            <span class="s2">&quot;unit&quot;</span><span class="p">:</span> <span class="n">unit</span><span class="p">,</span>
+            <span class="s2">&quot;read_only&quot;</span><span class="p">:</span> <span class="n">read_only</span><span class="p">,</span>
+        <span class="p">}</span>
     <span class="p">)</span></div>
 
 
@@ -684,21 +702,19 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.__init__">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">variables</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-        <span class="n">seeds</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">variables</span><span class="p">:</span> <span class="n">VariablesDocument</span><span class="p">,</span>
+        <span class="n">seeds</span><span class="p">:</span> <span class="n">SeedsDocument</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">clock</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_clock</span> <span class="o">=</span> <span class="n">clock</span>
-        <span class="n">seeded</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SeedRecord</span><span class="p">]</span> <span class="o">=</span> <span class="n">seeds</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;seeds&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_seeds</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SeedRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">):</span> <span class="n">seed</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">seed</span> <span class="ow">in</span> <span class="n">seeded</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">):</span> <span class="n">seed</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">seed</span> <span class="ow">in</span> <span class="p">(</span><span class="n">seeds</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;seeds&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
         <span class="p">}</span>
-        <span class="n">channels</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ChannelRecord</span><span class="p">]</span> <span class="o">=</span> <span class="n">variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;channels&quot;</span><span class="p">,</span> <span class="p">[])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]):</span> <span class="n">channel</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">channels</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]):</span> <span class="n">channel</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;channels&quot;</span><span class="p">,</span> <span class="p">[])</span>
         <span class="p">}</span>
-        <span class="n">models</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ModelEntry</span><span class="p">]</span> <span class="o">=</span> <span class="n">variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;models&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">models</span> <span class="o">=</span> <span class="n">variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;models&quot;</span><span class="p">,</span> <span class="p">[])</span>
         <span class="n">unserved_defaults</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unserved_wiring_defaults</span><span class="p">(</span><span class="n">models</span><span class="p">)</span>
         <span class="n">unserved</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">model</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">])</span> <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">models</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">model</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;served&quot;</span><span class="p">)}</span>
 
@@ -719,14 +735,14 @@
             <span class="n">address</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominal</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">unserved_defaults</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">))</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span>
         <span class="p">}</span>
         <span class="k">for</span> <span class="n">setpoint</span><span class="p">,</span> <span class="n">readback</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">readback</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">setpoint</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">readback</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echoed</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="n">setpoint</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">setpoint</span><span class="p">])</span>
         <span class="n">start</span> <span class="o">=</span> <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_derived</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span><span class="p">}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Variable</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">address</span><span class="p">:</span> <span class="n">channel_variable</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">],</span> <span class="n">start</span><span class="p">[</span><span class="n">address</span><span class="p">])</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span>
         <span class="p">}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_couple</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_noise</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_couple</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">ResolvedCoupling</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_noise</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">NoiseRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_still</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_active</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span></div>
@@ -740,8 +756,32 @@
                 <span class="k">continue</span>
             <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;wiring&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]:</span>
                 <span class="k">if</span> <span class="s2">&quot;default&quot;</span> <span class="ow">in</span> <span class="n">record</span><span class="p">:</span>
-                    <span class="n">defaults</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]),</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">])</span>
+                    <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">],</span> <span class="o">*</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;also&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">())):</span>
+                        <span class="n">defaults</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">),</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">defaults</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_echoed</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">readback</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">setpoint</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The value ``readback`` holds for its setpoint&#39;s held ``value``.</span>
+
+<span class="sd">        A labelled readback takes a state by index: a labelled setpoint&#39;s label</span>
+<span class="sd">        gives its index in the setpoint&#39;s labels, a number must be an integral</span>
+<span class="sd">        index. Any other readback takes the value itself.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The readback refuses the value or the index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">channel_value_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">readback</span><span class="p">])</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">values</span><span class="o">.</span><span class="n">LABELLED_TYPES</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="n">setpoint_channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">setpoint</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">channel_value_type</span><span class="p">(</span><span class="n">setpoint_channel</span><span class="p">)</span> <span class="ow">in</span> <span class="n">values</span><span class="o">.</span><span class="n">LABELLED_TYPES</span><span class="p">:</span>
+            <span class="n">index</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">channel_labels</span><span class="p">(</span><span class="n">setpoint_channel</span><span class="p">)</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">and</span> <span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">is_integer</span><span class="p">():</span>
+            <span class="n">index</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">index</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">readback</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_coerce</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">:</span>
         <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
@@ -764,12 +804,14 @@
         <span class="p">)</span>
 
     <span class="nd">@property</span>
+    <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">supported_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Variable</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The texture-owned channels, by address.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span>
 
 <div class="viewcode-block" id="TextureModel.reset">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.reset">[docs]</a>
+    <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Return every texture-owned channel to its nominal, then apply the active writes.&quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_held</span> <span class="o">=</span> <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">}</span>
@@ -902,8 +944,8 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.set_motion">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_motion</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">couple</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]],</span>
-        <span class="n">noise</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">couple</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ResolvedCoupling</span><span class="p">]],</span>
+        <span class="n">noise</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">NoiseRecord</span><span class="p">],</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">still</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(),</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -920,13 +962,13 @@
 <span class="sd">            still: Addresses served without motion.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_couple</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">):</span> <span class="nb">list</span><span class="p">(</span><span class="n">terms</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">terms</span> <span class="ow">in</span> <span class="n">couple</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_noise</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">):</span> <span class="nb">dict</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">noise</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_noise</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">):</span> <span class="p">{</span><span class="o">**</span><span class="n">entry</span><span class="p">}</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">noise</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_still</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">still</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="TextureModel.motion">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.motion">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">motion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">base</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">motion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">base</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The motion of a channel at absolute epoch seconds.</span>
 
 <span class="sd">        Drift, then the held couplings, then a ``topoff`` seed&#39;s tooth</span>
@@ -963,7 +1005,8 @@
             <span class="n">total</span> <span class="o">=</span> <span class="n">total</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coupling</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">flat</span><span class="p">)</span>
         <span class="n">record</span> <span class="o">=</span> <span class="n">topoff</span><span class="o">.</span><span class="n">topoff_record</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">record</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">total</span> <span class="o">=</span> <span class="n">total</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tooth</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">flat</span><span class="p">,</span> <span class="n">base</span><span class="p">)</span>
+            <span class="n">tau</span><span class="p">,</span> <span class="n">period</span> <span class="o">=</span> <span class="n">topoff</span><span class="o">.</span><span class="n">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
+            <span class="n">total</span> <span class="o">=</span> <span class="n">total</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tooth</span><span class="p">(</span><span class="n">tau</span><span class="p">,</span> <span class="n">period</span><span class="p">,</span> <span class="n">topoff</span><span class="o">.</span><span class="n">period_mean</span><span class="p">(</span><span class="n">record</span><span class="p">),</span> <span class="n">flat</span><span class="p">,</span> <span class="n">base</span><span class="p">)</span>
         <span class="n">term</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">subkey</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_noise_term</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">value</span><span class="p">:</span>
             <span class="n">normals</span> <span class="o">=</span> <span class="n">series</span><span class="o">.</span><span class="n">keyed_normals</span><span class="p">(</span><span class="n">key</span> <span class="o">+</span> <span class="n">subkey</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">rint</span><span class="p">(</span><span class="n">flat</span> <span class="o">*</span> <span class="n">_MS_PER_S</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">))</span>
@@ -1016,16 +1059,23 @@
         <span class="k">return</span> <span class="n">term</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">replacement</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">term</span><span class="p">)</span> <span class="ow">or</span> <span class="mf">0.0</span><span class="p">),</span> <span class="n">subkey</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_tooth</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">base</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``.&quot;&quot;&quot;</span>
-        <span class="n">tau</span><span class="p">,</span> <span class="n">period</span> <span class="o">=</span> <span class="n">topoff</span><span class="o">.</span><span class="n">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_tooth</span><span class="p">(</span>
+        <span class="n">tau</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">period</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">mean</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">times</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">base</span><span class="p">:</span> <span class="nb">object</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``.</span>
+
+<span class="sd">        ``tau`` and ``period`` are a ``topoff`` record&#39;s, in seconds, and</span>
+<span class="sd">        ``mean`` its sawtooth&#39;s mean ``m``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">unit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">mod</span><span class="p">(</span><span class="n">times</span><span class="p">,</span> <span class="n">period</span><span class="p">)</span> <span class="o">/</span> <span class="n">tau</span><span class="p">)</span>
         <span class="n">level</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
-        <span class="n">tooth</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="n">level</span> <span class="o">*</span> <span class="p">(</span><span class="n">unit</span> <span class="o">/</span> <span class="n">topoff</span><span class="o">.</span><span class="n">period_mean</span><span class="p">(</span><span class="n">record</span><span class="p">)</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span>
+        <span class="n">tooth</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">=</span> <span class="n">level</span> <span class="o">*</span> <span class="p">(</span><span class="n">unit</span> <span class="o">/</span> <span class="n">mean</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">tooth</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_coupling</span><span class="p">(</span><span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">coupling</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_coupling</span><span class="p">(</span>
+        <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">coupling</span><span class="p">:</span> <span class="n">ResolvedCoupling</span><span class="p">,</span> <span class="n">times</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;``gain * (1 + gain_wander(t)) * driver(t)`` of one coupling.&quot;&quot;&quot;</span>
         <span class="n">driver</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">coupling</span><span class="p">[</span><span class="s2">&quot;driver&quot;</span><span class="p">])</span>
         <span class="n">drive</span> <span class="o">=</span> <span class="n">coupling</span><span class="p">[</span><span class="s2">&quot;drive&quot;</span><span class="p">]</span>
@@ -1035,7 +1085,7 @@
             <span class="nb">float</span><span class="p">(</span><span class="n">drive</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">]),</span>
             <span class="nb">float</span><span class="p">(</span><span class="n">drive</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">]),</span>
         <span class="p">)</span>
-        <span class="n">gain</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">coupling</span><span class="p">[</span><span class="s2">&quot;gain&quot;</span><span class="p">])</span>
+        <span class="n">gain</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">coupling</span><span class="p">[</span><span class="s2">&quot;gain&quot;</span><span class="p">])</span>
         <span class="n">envelope</span> <span class="o">=</span> <span class="n">coupling</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gain_wander&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">envelope</span><span class="p">:</span>
             <span class="n">gain</span> <span class="o">=</span> <span class="n">gain</span> <span class="o">*</span> <span class="p">(</span>
@@ -1056,7 +1106,9 @@
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_seeds</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pulse&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="kc">None</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_pulse_trace</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">PulseRecord</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_pulse_trace</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">PulseRecord</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The trace of a ``pulse`` channel at *t_s* from its driver and enable held values.</span>
 
 <span class="sd">        A driver or enable channel the model does not hold counts as zero or</span>
@@ -1083,6 +1135,7 @@
         <span class="k">return</span> <span class="n">series</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">band</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">band</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span></div>
 
 
+    <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
         <span class="n">t_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span>
         <span class="n">outputs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1102,7 +1155,8 @@
                 <span class="n">outputs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">held</span>
         <span class="k">return</span> <span class="n">outputs</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="nd">@override</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_hold</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_hold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -1112,7 +1166,7 @@
             <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
         <span class="p">}</span>
         <span class="n">echoes</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">]:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="n">value</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">]:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echoed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">coerced</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
             <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span>
         <span class="p">}</span>

@@ -55,8 +55,8 @@ Where the panels live
 Panels have a row in the sidebar on the left of the window.
 **Sessions** is the first row and has no heading. **Artifacts** has no row: its
 artifacts are in the session tree, and the palette opens the panel.
-**Events** (when the deployment enables it) and **Health** are in the
-**System** section. All other panels are in the **Apps** section, which ends
+**Events** (when the deployment enables it), **Health** and **Roster** (for a
+login that selects it) are in the **System** section. All other panels are in the **Apps** section, which ends
 with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
@@ -332,6 +332,31 @@ last. A panel sends two kinds:
 
 Everything else a panel needs goes in its own toolbar, inside the panel.
 
+The Roster panel
+----------------
+
+**Roster** shows which login opens which panel: one row per panel, one column
+for the deployment's own profile and for every file under ``tiers/``, with the
+logins each column stands for. A cell is the tab the login opens on, a tab, a
+panel reachable from the panel menu only, or nothing. Selecting a cell names
+the file whose line decides it.
+
+Select it like any other panel:
+
+.. code-block:: yaml
+
+   web_panels:
+     - roster
+
+No bundled login selects it; a deployment adds it to the login its
+maintainers use, typically ``tiers/admin.yml``. The panel has no server: ``osprey build`` writes the page into a render that
+selects it, so it shows the deployment as it was last built, which is what the
+running terminals were made from. ``osprey profile panels`` prints the same
+table from the files as they are now (see :doc:`/reference/cli`).
+
+A profile that already gives a custom panel the id ``roster``, with a
+``web.panels.roster.url``, keeps that panel.
+
 The Bluesky panel
 -----------------
 
@@ -415,8 +440,13 @@ Once the panel is written and validated:
         allow_runtime_panels: true    # off by default
 
    On the next start, every valid panel under ``panels/`` shows up as a tab.
-   Invalid ones are skipped and logged, so one bad panel never breaks the
-   others.
+   Invalid ones are skipped, so one bad panel never breaks the others.
+   ``osprey build`` prints a warning with every reason
+   (``web_terminals.panel_not_served``) for each invalid panel in the render it
+   builds. The panels list, ``GET /api/panels``, carries every panel the
+   running web terminal skipped under ``refused``, including one added after
+   the build. A finding that only reports does not count: the panel is served
+   and the log names it.
 
 .. warning::
 
@@ -597,7 +627,10 @@ server's tools.
          entry file, and version). Two rules make it theme itself for free, and a
          validator enforces both: it must **boot the shared theme before the page
          paints** (so it never flashes the wrong colors), and it must use **only
-         design tokens** for color — never a raw hex value. Copy OSPREY's
+         design tokens** for color — never a raw hex value. It must also say
+         when it can be driven: ``<html data-page-ready="pending">``, the
+         page-ready script loaded first, and a ``markPageReady()`` call. A
+         module of its own loaded ``async`` is refused. Copy OSPREY's
          reference panel and you start compliant.
 
       .. tab-item:: Serving & discovery
@@ -605,7 +638,9 @@ server's tools.
          Discovered panels are served straight from disk, with no proxy. They
          run at an opaque origin, not the terminal's own; see
          :ref:`web-terminal-panels-opaque-origin`. Discovery is
-         **fail-closed**: only a fully valid panel is ever served. The
+         **fail-closed**: a panel that breaks a rule is not served. The
+         exception is a rule that only reports, such as a class with no CSS
+         rule: its finding is logged and the panel is served. The
          ``allow_runtime_panels`` switch is deliberately off by default because
          it is also what lets the agent register panels at runtime. Turning it
          on is your explicit decision to trust the panels the terminal makes

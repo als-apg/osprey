@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.directory._contract &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.directory._contract &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -477,7 +477,7 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/services.html#osprey_connectors.directory.DirectoryRecord">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">DirectoryRecord</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;One PV in full. Every property is optional and a string, as measured.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One channel in full. Every property is optional and a string, as measured.&quot;&quot;&quot;</span>
 
     <span class="n">row</span><span class="p">:</span> <span class="n">DirectoryRow</span>
     <span class="n">properties</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
@@ -545,10 +545,29 @@
 
 
 
+<div class="viewcode-block" id="ServerRow">
+<a class="viewcode-back" href="../../../reference/connectors-api/services.html#osprey_connectors.directory.ServerRow">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ServerRow</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One server process, as the directory lists it: an EPICS IOC, a Tango device server.</span>
+
+<span class="sd">    ``name`` is the value the directory&#39;s rows carry in ``server``, ``host`` the</span>
+<span class="sd">    machine it runs on (``None`` when the directory does not say), ``channel_count``</span>
+<span class="sd">    how many channels the directory lists for it and ``inactive_count`` how many</span>
+<span class="sd">    of those it marks ``Inactive``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">channel_count</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">inactive_count</span><span class="p">:</span> <span class="nb">int</span></div>
+
+
+
 <div class="viewcode-block" id="ChannelDirectory">
 <a class="viewcode-back" href="../../../reference/connectors-api/services.html#osprey_connectors.directory.ChannelDirectory">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">ChannelDirectory</span><span class="p">(</span><span class="n">_Backend</span><span class="p">,</span> <span class="n">ABC</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Search the control system&#39;s own directory of PVs.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Search the control system&#39;s own directory of channels.&quot;&quot;&quot;</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">field_properties</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
@@ -578,7 +597,7 @@
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">describe</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">deadline</span><span class="p">:</span> <span class="nb">float</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DirectoryRecord</span> <span class="o">|</span> <span class="n">Literal</span><span class="p">[</span><span class="n">Outcome</span><span class="o">.</span><span class="n">NOT_LISTED</span><span class="p">]</span> <span class="o">|</span> <span class="n">Unavailable</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;The record of the PV called exactly *name*, or ``NOT_LISTED``.&quot;&quot;&quot;</span></div>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The record of the channel called exactly *name*, or ``NOT_LISTED``.&quot;&quot;&quot;</span></div>
 
 
 <div class="viewcode-block" id="ChannelDirectory.property_names">
@@ -595,6 +614,18 @@
         <span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">deadline</span><span class="p">:</span> <span class="nb">float</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="n">Unavailable</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The values of property *name*, those starting with *prefix* if given.&quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ChannelDirectory.list_servers">
+<a class="viewcode-back" href="../../../reference/connectors-api/services.html#osprey_connectors.directory.ChannelDirectory.list_servers">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_servers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">deadline</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ServerRow</span><span class="p">]</span> <span class="o">|</span> <span class="n">Unavailable</span><span class="p">:</span>  <span class="c1"># noqa: ARG002</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every server the directory lists, one row each, unique by name.</span>
+
+<span class="sd">        The list is complete or not given: a deadline miss or a page-through cut</span>
+<span class="sd">        short answers ``Unavailable``, never part of the list. A backend that</span>
+<span class="sd">        cannot list its servers keeps this default, which says so.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">Unavailable</span><span class="p">(</span><span class="s2">&quot;this directory cannot list its servers&quot;</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="ChannelDirectory.probe">

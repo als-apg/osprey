@@ -1,0 +1,1582 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>How to Use the Channel Finder &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/use-channel-finder';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/use-channel-finder.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Import a Middle Layer export" href="import-mml-export.html" />
+    <link rel="prev" title="Measure with the pyAML tools" href="measure-with-pyaml.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="register-a-measurement-kind.html">Register a measurement kind</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy.html">CANOPY</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/slack.html">Slack</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="control-systems/machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML tools</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">How to Use the Channel Finder</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="how-to-use-the-channel-finder">
+<span id="how-to-channel-finder"></span><h1>How to Use the Channel Finder<a class="headerlink" href="#how-to-use-the-channel-finder" title="Link to this heading">#</a></h1>
+<p>The Channel Finder translates natural language queries, such as “beam current”
+or “RF cavity voltage”, into control system addresses, such as
+<code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code> or <code class="docutils literal notranslate"><span class="pre">SR:RF:CAVITY:01:VOLTAGE:RB</span></code> in the
+demo preset. It uses LLM-based pipelines, so a query can use
+everyday terms rather than exact channel names.</p>
+<p>Four pipelines do this, each by a different paradigm. They differ in the size
+of the channel catalog they suit and in how far the search moves from the
+channels as named to the channels as meant:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 400" role="img" aria-labelledby="cf-paradigms-title cf-paradigms-desc">
+  <title id="cf-paradigms-title">The four channel finder paradigms</title>
+  <desc id="cf-paradigms-desc">Four cards, one per pipeline. In-context: a dictionary of channel names with plain-text descriptions, all of it in the model's context. Hierarchical: a sequence of constrained choices, system then family then field, that narrows the catalog down to the target channels. Middle layer: a ReAct agent that calls query tools in an order it chooses. Graph: devices, signals and their typed relationships. Two arrows run beneath the cards from left to right: catalog scale, from hundreds of PVs to hundreds of thousands, and abstraction, from literal (channels as named) to semantic (channels as meant).</desc>
+  <defs>
+    <marker id="cf-paradigms-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- in-context pipeline -->
+  <g transform="translate(12,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">IN-CONTEXT PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Direct in-context lookup</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">Dictionary lookup.</text>
+    <text class="ts" x="14" y="281">Every PV is paired with a plain-text</text>
+    <text class="ts" x="14" y="293">description, and the whole list is</text>
+    <text class="ts" x="14" y="305">dropped into the LLM's context.</text>
+    <path class="nb" d="M9 84 Q111 76 111 84 V232 Q111 224 9 232 Z" style="stroke: var(--od-muted)"/>
+    <path class="nb" d="M213 84 Q111 76 111 84 V232 Q111 224 213 232 Z" style="stroke: var(--od-muted)"/>
+    <line class="e-thin e-dash" x1="111" y1="82" x2="111" y2="228"/>
+    <rect class="nb-foc" x="13" y="97" width="92" height="26" rx="3"/>
+    <text class="ts" x="17" y="108" style="font-size: 8px; fill: var(--od-ink); font-weight: 600">MAG:DIPOLE01:RB</text>
+    <text x="17" y="118" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-ink)">Dipole 1 field readback</text>
+    <text class="ts" x="17" y="140" style="font-size: 8px; fill: var(--od-ink)">MAG:CORR04:RB</text>
+    <text x="17" y="150" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Corrector 4 readback</text>
+    <text class="ts" x="17" y="172" style="font-size: 8px; fill: var(--od-ink)">MAG:QUAD03:SP</text>
+    <text x="17" y="182" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Quadrupole 3 setpoint</text>
+    <text class="ts" x="17" y="204" style="font-size: 8px; fill: var(--od-ink)">RF:CAVITY:PHA</text>
+    <text x="17" y="214" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Cavity 1 RF phase</text>
+    <text class="ts" x="119" y="108" style="font-size: 8px; fill: var(--od-ink)">MAG:DIPOLE03:RB</text>
+    <text x="119" y="118" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Dipole 3 field readback</text>
+    <text class="ts" x="119" y="140" style="font-size: 8px; fill: var(--od-ink)">VAC:GAUGE07:PR</text>
+    <text x="119" y="150" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Vacuum gauge 7 pressure</text>
+    <text class="ts" x="119" y="172" style="font-size: 8px; fill: var(--od-ink)">DIAG:BPM12:X</text>
+    <text x="119" y="182" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">BPM 12 x position</text>
+    <rect class="nb-foc" x="115" y="193" width="92" height="26" rx="3"/>
+    <text class="ts" x="119" y="204" style="font-size: 8px; fill: var(--od-ink); font-weight: 600">DIAG:SCREEN:IMG</text>
+    <text x="119" y="214" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-ink)">Screen 1 camera image</text>
+  </g>
+
+  <!-- hierarchical pipeline -->
+  <g transform="translate(250,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">HIERARCHICAL PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Hierarchical descent</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">Multiple-choice, top-down.</text>
+    <text class="ts" x="14" y="281">A sequence of constrained LLM calls</text>
+    <text class="ts" x="14" y="293">narrows the catalog down to the</text>
+    <text class="ts" x="14" y="305">target PVs.</text>
+    <g transform="translate(5.4,72) scale(0.66)">
+      <line class="e-thin" x1="146" y1="38" x2="80" y2="78" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-thin" x1="174" y1="38" x2="240" y2="78" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-thin" x1="172" y1="108" x2="210" y2="146" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-warn" x1="160" y1="44" x2="160" y2="78" style="stroke-width: 2.6"/>
+      <line class="e-warn" x1="148" y1="108" x2="110" y2="146" style="stroke-width: 2.6"/>
+      <line class="e-warn" x1="110" y1="182" x2="110" y2="206" style="stroke-width: 2.6"/>
+      <polygon class="nb-warn" points="160,8 202,26 160,44 118,26"/>
+      <text class="tn" x="160" y="30" text-anchor="middle" style="font-size: 13px">System?</text>
+      <polygon class="nb" points="80,78 122,96 80,114 38,96" style="stroke: var(--od-soft)"/>
+      <polygon class="nb-warn" points="160,78 202,96 160,114 118,96"/>
+      <text class="tn" x="160" y="100" text-anchor="middle" style="font-size: 13px">Family?</text>
+      <polygon class="nb" points="240,78 282,96 240,114 198,96" style="stroke: var(--od-soft)"/>
+      <text class="ts" x="108" y="64" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">vac</text>
+      <text class="ts" x="172" y="68" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">mag</text>
+      <text class="ts" x="212" y="64" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">rf</text>
+      <text class="ts" x="118" y="132" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">dipole</text>
+      <text class="ts" x="204" y="132" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">quad</text>
+      <polygon class="nb-warn" points="110,146 152,164 110,182 68,164"/>
+      <text class="tn" x="110" y="168" text-anchor="middle" style="font-size: 13px">Field?</text>
+      <polygon class="nb" points="210,146 252,164 210,182 168,164" style="stroke: var(--od-soft)"/>
+      <text class="ts" x="132" y="198" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">RB</text>
+      <rect class="nb-foc" x="20" y="206" width="280" height="28" rx="4"/>
+      <text class="ts t-acc" x="160" y="225" text-anchor="middle" style="font-size: 13px; font-weight: 600">MAG:DIPOLE01:RB</text>
+    </g>
+  </g>
+
+  <!-- middle layer pipeline -->
+  <g transform="translate(488,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">MIDDLE LAYER PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Interactive agent (ReAct)</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">The agent decides each step.</text>
+    <text class="ts" x="14" y="281">Tools expose slices of the same</text>
+    <text class="ts" x="14" y="293">catalog, but the agent reasons about</text>
+    <text class="ts" x="14" y="305">each result and chooses the next</text>
+    <text class="ts" x="14" y="317">call itself.</text>
+    <rect class="zone" x="12" y="68" width="198" height="62" rx="5" style="stroke: var(--od-soft); stroke-dasharray: 4 3"/>
+    <rect class="nb" x="19" y="75" width="76" height="16" rx="3"/>
+    <text class="ts" x="57" y="86" text-anchor="middle" style="fill: var(--od-ink)">list_systems</text>
+    <rect class="nb" x="101" y="75" width="82" height="16" rx="3"/>
+    <text class="ts" x="142" y="86" text-anchor="middle" style="fill: var(--od-ink)">list_families</text>
+    <rect class="nb" x="19" y="96" width="88" height="16" rx="3"/>
+    <text class="ts" x="63" y="107" text-anchor="middle" style="fill: var(--od-ink)">inspect_fields</text>
+    <rect class="nb" x="113" y="96" width="82" height="16" rx="3"/>
+    <text class="ts" x="154" y="107" text-anchor="middle" style="fill: var(--od-ink)">list_channels</text>
+    <text class="ts" x="20" y="124">+4 more</text>
+    <text class="te" x="111" y="145" text-anchor="middle">ORDERED PROBES</text>
+    <circle cx="22" cy="161" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="164" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">1</text>
+    <rect class="nb-warn" x="37" y="153" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="164" style="fill: var(--od-ink)">list_families(&quot;SR&quot;)</text>
+    <text class="ts" x="40" y="179" style="font-size: 8px">→ BPM, DIPOLE, QUAD, …</text>
+    <circle cx="22" cy="191" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="194" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">2</text>
+    <rect class="nb-warn" x="37" y="183" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="194" style="fill: var(--od-ink)">inspect_fields(&quot;DIPOLE&quot;)</text>
+    <text class="ts" x="40" y="209" style="font-size: 8px">→ SP, RB, CMD</text>
+    <circle cx="22" cy="221" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="224" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">3</text>
+    <rect class="nb-warn" x="37" y="213" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="224" style="fill: var(--od-ink)">list_channels(&quot;DIPOLE&quot;,&quot;RB&quot;)</text>
+    <text class="ts" x="40" y="239" style="font-size: 8px">→ 2 PVs ✓</text>
+  </g>
+
+  <!-- graph pipeline -->
+  <g transform="translate(726,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">GRAPH PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Ontology-based search</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">A graph of typed relationships.</text>
+    <text class="ts" x="14" y="281">Devices, signals, and their</text>
+    <text class="ts" x="14" y="293">relationships are explicit.</text>
+    <g transform="translate(5.4,76) scale(0.66)">
+      <line class="e" x1="56" y1="50" x2="220" y2="50" style="stroke-width: 1.6"/>
+      <line class="e" x1="220" y1="50" x2="270" y2="138" style="stroke-width: 2.4"/>
+      <line class="e" x1="156" y1="186" x2="220" y2="50" style="stroke-width: 1.6"/>
+      <line class="e" x1="156" y1="186" x2="270" y2="138" style="stroke-width: 2.4"/>
+      <line class="e e-dash" x1="156" y1="186" x2="50" y2="186" style="stroke-width: 1.6"/>
+      <circle class="mask" cx="56" cy="50" r="44" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="56" cy="50" r="44" style="stroke-width: 1.8"/>
+      <text class="tn" x="56" y="54" text-anchor="middle" style="font-size: 13px">PowerSupply</text>
+      <circle class="mask" cx="220" cy="50" r="42" style="fill: var(--od-box)"/>
+      <circle class="nb-warn" cx="220" cy="50" r="42" style="stroke-width: 1.8"/>
+      <text class="tn" x="220" y="54" text-anchor="middle" style="font-size: 13px">Magnet</text>
+      <circle class="mask" cx="270" cy="138" r="38" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="270" cy="138" r="38" style="stroke-width: 1.8"/>
+      <text class="tn" x="270" y="142" text-anchor="middle" style="font-size: 13px">Signal</text>
+      <circle class="mask" cx="156" cy="186" r="38" style="fill: var(--od-box)"/>
+      <circle class="nb-warn" cx="156" cy="186" r="38" style="stroke-width: 1.8"/>
+      <text class="tn" x="156" y="190" text-anchor="middle" style="font-size: 13px">Dipole</text>
+      <circle class="mask" cx="50" cy="186" r="42" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="50" cy="186" r="42" style="stroke-width: 1.8"/>
+      <text class="tn" x="50" y="190" text-anchor="middle" style="font-size: 13px">Beamline</text>
+      <text class="ts" x="138" y="36" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">controls</text>
+      <text class="ts" x="248" y="96" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">readback</text>
+      <text class="ts" x="178" y="124" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">is-a</text>
+      <text class="ts" x="224" y="168" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">setpoint</text>
+      <text class="ts" x="103" y="178" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">part of</text>
+    </g>
+  </g>
+
+  <!-- axes -->
+  <text class="te" x="150" y="359" text-anchor="end" style="font-size: 9px">CATALOG SCALE</text>
+  <text class="tn" x="164" y="360" style="font-size: 13px">hundreds of PVs</text>
+  <line class="e" x1="282" y1="356" x2="784" y2="356" style="stroke-width: 1.6" marker-start="url(#cf-paradigms-arr)" marker-end="url(#cf-paradigms-arr)"/>
+  <text class="tn" x="944" y="360" text-anchor="end" style="font-size: 13px">hundreds of thousands</text>
+  <text class="te" x="150" y="385" text-anchor="end" style="font-size: 9px">ABSTRACTION</text>
+  <text class="tn t-acc" x="164" y="386" style="font-size: 13px">literal — channels as named</text>
+  <line class="e-acc" x1="356" y1="382" x2="734" y2="382" style="stroke-width: 1.6" marker-start="url(#cf-paradigms-arr)" marker-end="url(#cf-paradigms-arr)"/>
+  <text class="tn t-acc" x="944" y="386" text-anchor="end" style="font-size: 13px">semantic — channels as meant</text>
+</svg>
+</div>
+<p>The pipelines search the <em>curated</em> channels: the ones the facility description
+declares and describes. A channel name met in an alarm, a script or a logbook
+entry is often not one of them. For those names the Channel Finder also reads
+the control system’s own directory, which lists every channel the control
+system serves: see <a class="reference internal" href="#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a>.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>T. Hellert et al., <em>Mach. Learn.: Sci. Technol.</em> <strong>7</strong>, 045010 (2026) ·
+<a class="reference external" href="https://doi.org/10.1088/2632-2153/ae8219">doi:10.1088/2632-2153/ae8219</a>.</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../architecture/retrieval-paths.html#retrieval-paths"><span class="std std-ref">Retrieval Paths</span></a></dt><dd><p>Where the Channel Finder sits among OSPREY’s retrieval stacks — it is
+the one that uses no embeddings at all.</p>
+</dd>
+<dt><a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a></dt><dd><p>The database JSON schemas, the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys, and how the active
+pipeline is served to the agent.</p>
+</dd>
+</dl>
+</div>
+<section id="choosing-a-pipeline">
+<h2>Choosing a Pipeline<a class="headerlink" href="#choosing-a-pipeline" title="Link to this heading">#</a></h2>
+<p>Set the active pipeline with the top-level <code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span></code> field in
+the deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># or &quot;hierarchical&quot;, &quot;middle_layer&quot;, &quot;graph&quot;</span>
+</pre></div>
+</div>
+<p>or from the command line, which writes the same line:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
+</pre></div>
+</div>
+<p>The build renders that field into <code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> and the
+per-mode <code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines</span></code> block in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Both are the
+build’s to write: a <code class="docutils literal notranslate"><span class="pre">config:</span></code> line for either is refused, naming the field to
+set instead (<a class="reference internal" href="../reference/configuration/profile.html#profile-derived-keys"><span class="std std-ref">Keys the build renders</span></a>).</p>
+<p>When the field is unset, OSPREY auto-detects: it uses the first
+pipeline that has a database configured, preferring middle layer, then
+hierarchical, then in-context. Auto-detection never lands on <code class="docutils literal notranslate"><span class="pre">graph</span></code> — that
+pipeline reads no database file, so there is nothing to detect and you name it
+explicitly.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Pipeline</p></th>
+<th class="head"><p>Best for</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>In-Context</strong></p></td>
+<td><p>Small/medium systems (&lt; few hundred channels)</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Hierarchical</strong></p></td>
+<td><p>Large systems with strict naming patterns</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Middle Layer</strong></p></td>
+<td><p>Large systems organized by function (MML)</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Graph</strong></p></td>
+<td><p>Machines described in a knowledge graph</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The four are not size tiers of one design. Each takes a differently shaped
+database and resolves a query by a different mechanism:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 364" role="img" aria-labelledby="cf-pipelines-title cf-pipelines-desc">
+  <title id="cf-pipelines-title">The three channel-finder pipelines</title>
+  <desc id="cf-pipelines-desc">The three pipelines are not size tiers of one design — each takes a differently shaped channel database, resolves a query by a different mechanism, and is exposed through its own MCP server. In-context puts the whole database in one prompt; hierarchical selects recursively level by level; middle layer runs a React agent over query tools.</desc>
+
+  <!-- selection band -->
+  <text class="te" x="16" y="42">SELECTION</text>
+  <rect class="zone" x="156" y="16" width="774" height="44" rx="4"/>
+  <text class="ts" x="172" y="36">pipeline_mode set → that pipeline.</text>
+  <text class="ts" x="172" y="52">unset → the first pipeline with a database configured, preferring middle_layer › hierarchical › in_context</text>
+
+  <!-- column headers -->
+  <text class="tn" x="281" y="84" text-anchor="middle">in_context</text>
+  <text class="tn" x="543" y="84" text-anchor="middle">hierarchical</text>
+  <text class="tn" x="805" y="84" text-anchor="middle">middle_layer</text>
+  <line class="divider" x1="156" y1="94" x2="406" y2="94"/>
+  <line class="divider" x1="418" y1="94" x2="668" y2="94"/>
+  <line class="divider" x1="680" y1="94" x2="930" y2="94"/>
+
+  <!-- row 1 · database shape -->
+  <text class="te" x="16" y="152">DATABASE</text>
+  <text class="te" x="16" y="166">SHAPE</text>
+  <rect class="nb" x="156" y="112" width="250" height="72" rx="6"/>
+  <text class="tn" x="281" y="136" text-anchor="middle">flat JSON</text>
+  <text class="ts" x="281" y="153" text-anchor="middle">standalone entries plus</text>
+  <text class="ts" x="281" y="167" text-anchor="middle">template entries per family</text>
+  <rect class="nb" x="418" y="112" width="250" height="72" rx="6"/>
+  <text class="tn" x="543" y="136" text-anchor="middle">nested tree</text>
+  <text class="ts" x="543" y="153" text-anchor="middle">levels + naming_pattern</text>
+  <text class="ts" x="543" y="167" text-anchor="middle">{system}:{family}[{device}]…</text>
+  <rect class="nb" x="680" y="112" width="250" height="72" rx="6"/>
+  <text class="tn" x="805" y="136" text-anchor="middle">MML functional</text>
+  <text class="ts" x="805" y="153" text-anchor="middle">System → Family →</text>
+  <text class="ts" x="805" y="167" text-anchor="middle">Field → ChannelNames</text>
+
+  <!-- row 2 · query mechanism -->
+  <text class="te" x="16" y="243">QUERY</text>
+  <text class="te" x="16" y="257">MECHANISM</text>
+  <rect class="nb-foc" x="156" y="200" width="250" height="92" rx="6"/>
+  <text class="tn" x="281" y="224" text-anchor="middle">one LLM call</text>
+  <text class="ts" x="281" y="242" text-anchor="middle">the whole database sits</text>
+  <text class="ts" x="281" y="256" text-anchor="middle">in the system prompt</text>
+  <text class="ts" x="281" y="270" text-anchor="middle">no splitting, no retry</text>
+  <rect class="nb-foc" x="418" y="200" width="250" height="92" rx="6"/>
+  <text class="tn" x="543" y="224" text-anchor="middle">recursive selection</text>
+  <text class="ts" x="543" y="242" text-anchor="middle">the model picks once</text>
+  <text class="ts" x="543" y="256" text-anchor="middle">per level: system → family</text>
+  <text class="ts" x="543" y="270" text-anchor="middle">→ device → field → subfield</text>
+  <rect class="nb-foc" x="680" y="200" width="250" height="92" rx="6"/>
+  <text class="tn" x="805" y="224" text-anchor="middle">React agent loop</text>
+  <text class="ts" x="805" y="242" text-anchor="middle">calls query tools —</text>
+  <text class="ts" x="805" y="256" text-anchor="middle">list_systems, inspect_fields,</text>
+  <text class="ts" x="805" y="270" text-anchor="middle">list_channels, run_sql</text>
+
+  <!-- row 3 · mcp server -->
+  <text class="te" x="16" y="328">MCP SERVER</text>
+  <rect class="nb-st" x="156" y="304" width="250" height="40" rx="6"/>
+  <text class="ts" x="281" y="328" text-anchor="middle">channel_finder_in_context</text>
+  <rect class="nb-st" x="418" y="304" width="250" height="40" rx="6"/>
+  <text class="ts" x="543" y="328" text-anchor="middle">channel_finder_hierarchical</text>
+  <rect class="nb-st" x="680" y="304" width="250" height="40" rx="6"/>
+  <text class="ts" x="805" y="328" text-anchor="middle">channel_finder_middle_layer</text>
+</svg>
+</div>
+</section>
+<section id="in-context-pipeline">
+<h2>In-Context Pipeline<a class="headerlink" href="#in-context-pipeline" title="Link to this heading">#</a></h2>
+<p>Loads the entire channel database into the LLM context for direct semantic
+matching.</p>
+<p><strong>How it works:</strong> a single inner-LLM call. The complete channel database is
+embedded in the system prompt. The model returns the most relevant channels in
+one shot, with no query-splitting or iterative-correction stage.</p>
+<p>That call is OSPREY’s own request to the provider, not the agent’s, so it needs
+the provider’s API key: a personal Claude login does not cover it
+(<a class="reference internal" href="web-terminal/operate.html#personal-login"><span class="std std-ref">A user’s own Claude subscription</span></a>). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>
+warn when the key is missing. The hierarchical, middle layer and graph
+pipelines make no model request of their own. The agent drives their tools, so
+they need no key beyond what the agent uses.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the database from the facility description as
+<code class="docutils literal notranslate"><span class="pre">data/channel_finder/in_context.json</span></code>. It holds one row per channel, or per
+channel of the subset the facility tags <code class="docutils literal notranslate"><span class="pre">in_context</span></code>, with its name, address
+and description. See <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a> for the schema.
+A facility description with no channel stops the build with
+<code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>.</p>
+<p>Validate and preview:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
+</pre></div>
+</div>
+</section>
+<section id="hierarchical-pipeline">
+<h2>Hierarchical Pipeline<a class="headerlink" href="#hierarchical-pipeline" title="Link to this heading">#</a></h2>
+<p>Navigates a tree level by level, with LLM-guided selection at each level. The
+tree the build generates has the place levels, then <code class="docutils literal notranslate"><span class="pre">class</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, and
+a leaf per channel keyed by its signal; the leaf holds the address. The place
+levels are the level words of the places that hold a channel or are an
+ancestor of one, by the depth at which each first appears; a place tree with no
+channel, such as a rack tree beside the ring, adds no level. The build stops
+with <code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code> when two of those level words first appear at one
+depth, or one branch orders two against their depths; the stop names the trees
+and the words. Use one level word per depth across them, keep channels out of
+one tree, or select another <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code>. Two channels of one device
+that the tree would key alike, because one channel’s address is another’s
+signal, also stop the build with <code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>.</p>
+<p>The database declares the levels the pipeline navigates — see
+<a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a> for the schema.</p>
+<p>Validate and preview:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview<span class="w"> </span>--depth<span class="w"> </span><span class="m">4</span><span class="w"> </span>--sections<span class="w"> </span>tree,stats
+</pre></div>
+</div>
+</section>
+<section id="middle-layer-pipeline">
+<h2>Middle Layer Pipeline<a class="headerlink" href="#middle-layer-pipeline" title="Link to this heading">#</a></h2>
+<p>A ReAct (reason and act) agent explores the database using query tools
+(<code class="docutils literal notranslate"><span class="pre">list_systems</span></code>, <code class="docutils literal notranslate"><span class="pre">list_families</span></code>, <code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code>,
+<code class="docutils literal notranslate"><span class="pre">list_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">get_common_names</span></code>, <code class="docutils literal notranslate"><span class="pre">statistics</span></code>, <code class="docutils literal notranslate"><span class="pre">validate</span></code>, and —
+when DuckDB is installed — <code class="docutils literal notranslate"><span class="pre">run_sql</span></code>). What <code class="docutils literal notranslate"><span class="pre">run_sql</span></code> hands back is bounded
+by <code class="docutils literal notranslate"><span class="pre">channel_finder.query_max_rows</span></code> (default 500). A longer result is cut and
+flagged, naming the key, so the agent narrows the query instead of presenting a
+partial list. The cap is on the agent’s context, not on the database, which is
+why it is set per deployment.</p>
+<p>The database follows MATLAB Middle Layer (MML) functional organization
+(system, then family, then field, then the channel names). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+writes it from the facility description as
+<code class="docutils literal notranslate"><span class="pre">data/channel_finder/middle_layer.json</span></code>. The DuckDB copy <code class="docutils literal notranslate"><span class="pre">run_sql</span></code> reads
+sits beside it as <code class="docutils literal notranslate"><span class="pre">data/channel_finder/middle_layer.duckdb</span></code>. In that
+database:</p>
+<ul class="simple">
+<li><p>A System is a top place.</p></li>
+<li><p>A Family is a group of kind <code class="docutils literal notranslate"><span class="pre">family</span></code>, the kind of a group that states
+none; a <code class="docutils literal notranslate"><span class="pre">section</span></code> is no Family. The devices of a
+class that no single-class group holds form a Family named by the class
+under their top place.</p></li>
+<li><p>A Field is a channel’s signal, one channel per member, described by the
+vocabulary’s sentence for that signal.</p></li>
+</ul>
+<p>A channel whose signal some member lacks or has twice, or that has no signal,
+is keyed by its address. A channel belongs to every Family that holds its
+device. A channel listed under several Fields of one Family is found under each
+of them.</p>
+<p>Two things stop the build with <code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>:</p>
+<ul class="simple">
+<li><p>a facility description with no group and no classed device;</p></li>
+<li><p>a channel whose address is the signal another channel’s Field in the same
+Family is keyed by.</p></li>
+</ul>
+<p>A facility that runs a Middle Layer
+already has that structure: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code>
+(<a class="reference internal" href="import-mml-export.html"><span class="doc">Import a Middle Layer export</span></a>) brings it into the facility description.</p>
+</section>
+<section id="graph-pipeline">
+<h2>Graph Pipeline<a class="headerlink" href="#graph-pipeline" title="Link to this heading">#</a></h2>
+<p>Searches the facility knowledge graph instead of a channel database. A
+graph-mode project ships no channel database: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the graph
+view <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> from the facility file. The channel finder
+subagent finds addresses in one of two ways:</p>
+<ul class="simple">
+<li><p>by keyword lookup in the search index the build writes from that view;</p></li>
+<li><p>by writing read-only Cypher against the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store seeded from it.</p></li>
+</ul>
+<p><strong>How it works:</strong> five tools, served under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name like
+every other pipeline’s:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">capabilities</span></code></dt><dd><p>Reports how addresses are spelled and what prose the corpus carries.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">search_channels</span></code></dt><dd><p>Looks a phrase up in the search index and returns matching addresses a page
+at a time, with facet counts for section, system, class, signal and
+direction.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">example_queries</span></code></dt><dd><p>Returns runnable Cypher for the common channel questions, each with
+framework-default parameter values. The seed-time snapshot may replace those
+values with values captured from this corpus.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">get_schema</span></code></dt><dd><p>Lists the labels, relationship types and property names <em>this</em> graph
+actually holds.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code></dt><dd><p>Runs one query and returns rows.</p>
+</dd>
+</dl>
+<p>There is no resolution API behind them — the subagent looks a
+phrase up or adapts an example rather than calling a lookup.</p>
+<p>Configuration is the mode plus the store, and nothing else — no <code class="docutils literal notranslate"><span class="pre">tier</span></code>,
+because the pipeline has no tiered artifacts:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
+</pre></div>
+</div>
+<p>The render that field produces has no graph entry under
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines</span></code>: that section comes out empty in graph mode,
+because graph names no database file.</p>
+<p>The search index the finder reads needs no key. The build writes it to
+<code class="docutils literal notranslate"><span class="pre">./data/channel_databases/graph.duckdb</span></code> beside the render’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>,
+which is why the mode and the store are the whole of the configuration.</p>
+<p>The store comes from the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, either one this deployment
+runs or one the facility already hosts (an explicit <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code>
+and <code class="docutils literal notranslate"><span class="pre">username</span></code>, with <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>). See
+<a class="reference internal" href="../reference/configuration/profile.html#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a> for both shapes, and <a class="reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a> for the
+block itself. A build that enables the channel finder but renders no
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is refused, naming the missing block, rather than
+shipping a pipeline with nothing to read. The channel-finder login runs on its
+host deployment’s services, so it reads this mode from the host’s
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> loads the build’s graph view into the store when the deployment
+runs the store; a store the facility hosts holds whatever the facility loaded
+into it. See <a class="reference internal" href="facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> for what the graph
+holds.</p>
+<p><strong>What the subagent can search</strong> depends on the corpus. On the build’s graph
+view a phrase can be matched against:</p>
+<ul class="simple">
+<li><p>the description written for a single channel;</p></li>
+<li><p>the prose for a group of devices or a top place;</p></li>
+<li><p>the synonyms an operator would say out loud.</p></li>
+</ul>
+<p>A corpus the profile names in place of the view (<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>)
+may carry less prose. There the way in is a name, an alternate name, a section
+or a device class.</p>
+<p><code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code> have no channel database to open on this pipeline,
+so both report what the store is and which commands act on it.</p>
+<p>Health reports the store and the search index instead of a database
+(<a class="reference internal" href="health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>):</p>
+<ul class="simple">
+<li><p>whether the store is reachable and how many resources it holds;</p></li>
+<li><p>whether the index is there and was built from the corpus the store was
+seeded with.</p></li>
+</ul>
+<p>The web explorer opens on this pipeline too: its Explore view searches the
+index rather than browsing a channel tree, and the device card reads the store.
+See <a class="reference internal" href="#web-interface">Web Interface</a> below.</p>
+</section>
+<section id="the-channel-directory">
+<span id="channel-finder-directory"></span><h2>The Channel Directory<a class="headerlink" href="#the-channel-directory" title="Link to this heading">#</a></h2>
+<p>Whichever pipeline runs, it answers only for the curated channels. An operator
+who meets an unfamiliar name in an alarm or a script still wants to know what
+it is and which server serves it. The channel directory answers that question.
+It is the control system’s own record of every channel it serves and of the
+server process behind each one. OSPREY shows the names, descriptions and
+properties exactly as the control system records them: nothing in the
+directory is curated, and nothing that reads it can write.</p>
+<p>At an EPICS facility, for example, the channels are PVs, the servers are IOCs,
+and the directory is usually a ChannelFinder service. The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset
+needs no such service, because its directory lists what the virtual
+accelerator serves.</p>
+<p>The directory is on when <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section, and
+the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships one. The same section can name an alarm server, an
+alarm log and a put log, so that the alarms and the recorded writes of a
+channel appear beside its record. <a class="reference internal" href="../reference/configuration/config.html#config-channel-directory"><span class="std std-ref">channel_directory: — channel records, alarms and put history</span></a> lists the keys
+and shows how to switch the section off.</p>
+<p>The section serves the agent and the operator from the same sources:</p>
+<ul class="simple">
+<li><p>The agent gains the <code class="docutils literal notranslate"><span class="pre">channel-directory</span></code> MCP server. With it the agent
+searches the directory, reads the record of a channel or of a server and,
+where their source is configured, reads alarms and recorded writes. Every
+tool is a read and runs without an approval prompt. The agent’s prompt tells
+it to check the curated channels first and to say when a name is the control
+system’s own. <a class="reference internal" href="../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a> lists the tools.</p></li>
+<li><p>The operator gains the directory view of the Channel Finder panel and, where
+their service is configured, the servers, Alarms and Archive views. See
+<a class="reference internal" href="#the-directory-servers-alarms-and-archive-views">The Directory, Servers, Alarms and Archive Views</a>.</p></li>
+</ul>
+<p>Every answer comes from the machine the control-target chip shows. On
+<em>Simulator</em> the answers are the simulator’s own channels and its replayed
+alarm feed. On <em>Live</em> and <em>Rehearsal</em> they come from the facility’s services.
+When the current target has no source for an answer, the answer reads
+<code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">available</span> <span class="pre">for</span> <span class="pre">this</span> <span class="pre">target</span></code>. <a class="reference internal" href="../reference/connectors-api/services.html"><span class="doc">Directory, alarms and put log</span></a>
+has the table of sources per target.</p>
+<section id="the-control-system-s-words">
+<span id="channel-directory-words"></span><h3>The control system’s words<a class="headerlink" href="#the-control-system-s-words" title="Link to this heading">#</a></h3>
+<p>Every control system has its own names for a channel and for the server that
+serves it, and the people who run the machine use those names. The panel and
+the agent’s answers use them too. OSPREY takes the words from the connector of
+the control target an answer comes from:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Control system</p></th>
+<th class="head"><p>A channel</p></th>
+<th class="head"><p>A server</p></th>
+<th class="head"><p>Directory view</p></th>
+<th class="head"><p>Servers view</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>EPICS, simulator, stand-in</p></td>
+<td><p>PV</p></td>
+<td><p>IOC</p></td>
+<td><p>All PVs</p></td>
+<td><p>IOCs</p></td>
+</tr>
+<tr class="row-odd"><td><p>TANGO</p></td>
+<td><p>attribute</p></td>
+<td><p>device server</p></td>
+<td><p>Attributes</p></td>
+<td><p>Device servers</p></td>
+</tr>
+<tr class="row-even"><td><p>DOOCS</p></td>
+<td><p>property</p></td>
+<td><p>server</p></td>
+<td><p>Properties</p></td>
+<td><p>Servers</p></td>
+</tr>
+<tr class="row-odd"><td><p>Any other</p></td>
+<td><p>channel</p></td>
+<td><p>server</p></td>
+<td><p>Channels</p></td>
+<td><p>Servers</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The simulator and the stand-in use the EPICS words because both serve their
+channels the way EPICS soft IOCs do. The words follow the target, so a TANGO
+facility reads about PVs and IOCs while a session is on the simulator, and
+about attributes and device servers on the live machine. Config keys, tool
+names and commands are the same on every control system, and this page calls
+the two views the directory view and the servers view.</p>
+<p>A facility that writes its own connector states its words on the connector
+class, in a <code class="docutils literal notranslate"><span class="pre">channel_vocabulary</span></code> attribute. The attribute is a mapping with
+the keys <code class="docutils literal notranslate"><span class="pre">channel</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">server</span></code> and <code class="docutils literal notranslate"><span class="pre">servers</span></code>, and optionally
+<code class="docutils literal notranslate"><span class="pre">directory</span></code> and <code class="docutils literal notranslate"><span class="pre">servers_view</span></code> for the titles of the two views. A title
+that is left out is the plural with a capital first letter. A connector
+without the attribute gets the words of the last row.</p>
+</section>
+<section id="directory-backends">
+<span id="channel-directory-backends"></span><h3>Directory backends<a class="headerlink" href="#directory-backends" title="Link to this heading">#</a></h3>
+<p>A directory backend reads one kind of directory service. Two ship with OSPREY:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">channelfinder</span></code> reads a ChannelFinder service, the directory that EPICS
+facilities commonly run. Name it in <code class="docutils literal notranslate"><span class="pre">channel_directory.type</span></code> and give the
+address of the service in <code class="docutils literal notranslate"><span class="pre">channel_directory.settings.url</span></code>.</p></li>
+<li><p>The simulator’s backend lists every channel the virtual accelerator serves.
+It needs no configuration: OSPREY uses it on the simulator target whenever
+the section is present.</p></li>
+</ul>
+<p>A facility whose directory is another service, such as a TANGO database,
+writes a backend for it and names the class by its dotted path in
+<code class="docutils literal notranslate"><span class="pre">channel_directory.type</span></code>. The backend implements the <code class="docutils literal notranslate"><span class="pre">ChannelDirectory</span></code>
+contract in <a class="reference internal" href="../reference/connectors-api/services.html"><span class="doc">Directory, alarms and put log</span></a>. The contract asks for a
+search, the record of one channel and the values of a property. Listing the
+servers is optional, and the server fleet depends on it. The alarm and
+put-log sources of the section work the same way, and that page lists their
+shipped backends too.</p>
+</section>
+</section>
+<section id="the-server-fleet">
+<span id="channel-finder-server-fleet"></span><h2>The Server Fleet<a class="headerlink" href="#the-server-fleet" title="Link to this heading">#</a></h2>
+<p>The directory says which servers exist. It does not say which of them are
+running, and that is the first question when channels stop answering.
+Answering it for a whole facility means reading a liveness channel on every
+server, which is too many reads to repeat each time someone asks. The server
+fleet service therefore reads them once per refresh period and keeps one
+snapshot per control target. The servers view of the panel, the agent’s
+<code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> tool and the page of each server all answer from that
+snapshot. The three always agree, and asking again costs the control system
+nothing.</p>
+<p>At an EPICS facility the servers are IOCs, the liveness channel is the
+heartbeat PV of each IOC, and the panel titles the view <strong>IOCs</strong>
+(<a class="reference internal" href="#channel-directory-words"><span class="std std-ref">The control system’s words</span></a>). The fleet reads through the connector of
+each target and works with any directory backend that can list its servers,
+which both shipped backends can (<a class="reference internal" href="#channel-directory-backends"><span class="std std-ref">Directory backends</span></a>).</p>
+<p>The service is off until <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet</span></code>
+block; an empty one (<code class="docutils literal notranslate"><span class="pre">fleet:</span> <span class="pre">{}</span></code>) is enough. The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset runs the
+service with a 10 s period, and <a class="reference internal" href="../getting-started/demo.html"><span class="doc">The Demo Deployment</span></a> stops a server
+to show how the view responds. <a class="reference internal" href="../reference/configuration/config.html#config-channel-directory"><span class="std std-ref">channel_directory: — channel records, alarms and put history</span></a> lists the keys.</p>
+<section id="reading-the-servers-view">
+<h3>Reading the servers view<a class="headerlink" href="#reading-the-servers-view" title="Link to this heading">#</a></h3>
+<p>The header shows when the snapshot was taken and how old it is, whether the
+read path works, and the outcome of the directory listing and of each roster
+source. Below it, one tile per state and per finding carries its count.
+Selecting a tile keeps only its rows, and so do words typed into the search
+box. The table has one row per server: its name, its host, its state, how
+long it has been in that state, its findings, its status in the directory and
+the roster sources that name it. The worst rows come first: stalled, silent,
+unreached with a finding, alive with a finding, unknown, unreached, alive.
+<strong>Group by</strong> gathers the rows under the field that
+<code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.group_by</span></code> names.</p>
+<p>Each server has one state:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 85.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>State</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">alive</span></code></p></td>
+<td><p>The liveness channel answered and, where it is a counter, moved since
+the previous reading.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">stalled</span></code></p></td>
+<td><p>It answered, and the counter has not moved.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">silent</span></code></p></td>
+<td><p>It gives no answer now and has answered before through this read path.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">unreached</span></code></p></td>
+<td><p>It has never answered through this read path.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">unknown</span></code></p></td>
+<td><p>No state could be established. The read failed, the read path is down,
+the server has no liveness channel, a counter has only one reading so
+far, or the read path is unverified and every server that answered in
+the last cycle went quiet at once.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Neither <code class="docutils literal notranslate"><span class="pre">unreached</span></code> nor <code class="docutils literal notranslate"><span class="pre">unknown</span></code> says that a server stopped: both mean
+that the service could not tell. A finding may stand beside the state:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Finding</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">degraded</span></code></p></td>
+<td><p>The server is alive and one of its health readings is outside its good
+range. A health channel that could not be read does not count.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">expected_running_not_alive</span></code></p></td>
+<td><p>A roster source expects the server to run, and it is stalled, silent or
+unreached.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">expected_stopped_alive</span></code></p></td>
+<td><p>A roster source expects the server to be stopped, and it is alive.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">alive_unexpected</span></code></p></td>
+<td><p>The server is alive, and no roster source expects it to run or to stop.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The three expectation findings appear only when a roster source is
+configured (<a class="reference internal" href="#roster-sources">Roster sources</a>), and <code class="docutils literal notranslate"><span class="pre">unknown</span></code> never carries a finding.</p>
+<p>When the service has no state to show, the view says why instead of listing
+servers, and adds that this says nothing about whether any server runs:</p>
+<ul class="simple">
+<li><p><em>No snapshot yet</em>: the first refresh of the target has not completed.</p></li>
+<li><p><em>Target not refreshed</em>: the target is not in
+<code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.targets</span></code>, it is a virtual accelerator served in
+process, or the service cannot connect to it.</p></li>
+<li><p><em>Cannot list the servers</em>: no listing of the directory has succeeded so far,
+or the directory backend cannot list its servers.</p></li>
+<li><p><em>Snapshot stale</em>: the service stopped refreshing, and the snapshot is older
+than three refresh periods (or three cycles, when a cycle outlasts the
+period).</p></li>
+<li><p><em>server fleet unavailable</em>: the service gave no usable answer.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> tool answers the agent from the same snapshot, with the
+counts, the meaning of each state and the rows that pass its filters for
+state, finding, group, host or text. It makes the same statements, except
+that it still returns the rows of a stale snapshot, marked as the states of
+that time.</p>
+</section>
+<section id="which-servers-are-listed">
+<h3>Which servers are listed<a class="headerlink" href="#which-servers-are-listed" title="Link to this heading">#</a></h3>
+<p>Each target lists the servers of its own directory, including a server whose
+channels are all inactive, and reads their liveness from that target. The
+stand-in uses the directory of the facility, so a server whose liveness
+channel the stand-in does not serve shows <code class="docutils literal notranslate"><span class="pre">unreached</span></code>. A server that has
+left the directory and every roster source stays in the view, marked
+<code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">listed</span></code>, for as long as it answers and for
+<code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.retention_days</span></code> after it goes quiet.</p>
+<p>Before it reads any server, each refresh reads the probe channel of the
+target, one channel that the target always serves. When the probe does not
+answer, a silent server proves nothing, so every server is <code class="docutils literal notranslate"><span class="pre">unknown</span></code> and
+the header reports the read path as down. A target with no probe channel is
+reported as <em>unverified</em>.</p>
+<p>With the fleet on, the page of a server and the <code class="docutils literal notranslate"><span class="pre">server_record</span></code> tool show
+the row of the snapshot: the state, the findings and the time the liveness
+channel was read. Neither makes a read of its own, so the answer can be up to
+one refresh period old. Without a fresh row they say why, and that no state
+is known for the server.</p>
+</section>
+<section id="load-per-refresh">
+<h3>Load per refresh<a class="headerlink" href="#load-per-refresh" title="Link to this heading">#</a></h3>
+<p>Only the service reads liveness channels, so the load on the control system
+does not grow with the number of users. For each refreshed target, one
+refresh costs:</p>
+<ul class="simple">
+<li><p>one read of the probe, then one concurrent read of every liveness and
+health channel, or none when the probe does not answer;</p></li>
+<li><p>one audit record on the <code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> surface
+(<a class="reference internal" href="../reference/contracts/audit-trail.html"><span class="doc">Audit Trail Contract</span></a>);</p></li>
+<li><p>one read of each roster source, on <code class="docutils literal notranslate"><span class="pre">live</span></code> only.</p></li>
+</ul>
+<p>The directory is queried less often: on the first refresh, on every tenth
+after it and after a failed attempt. Each query lists the servers and runs
+one paged search per liveness and health suffix.</p>
+<p>As an example, take a light source with about 1,600 liveness and health
+channels behind one gateway. At the default period of 30 s the service makes
+about 53 reads per second, writes 2,880 audit records per day and lists the
+directory every five minutes.</p>
+</section>
+<section id="roster-sources">
+<h3>Roster sources<a class="headerlink" href="#roster-sources" title="Link to this heading">#</a></h3>
+<p>On its own the fleet knows only which servers answer. A roster source tells
+it what the facility expects: which servers should run, which should be
+stopped, and which class and group each belongs to. That expectation is what
+turns a <code class="docutils literal notranslate"><span class="pre">silent</span></code> server into the finding <code class="docutils literal notranslate"><span class="pre">expected_running_not_alive</span></code>.
+Roster sources and the named classes of <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.classes</span></code>
+apply on <code class="docutils literal notranslate"><span class="pre">live</span></code> only. On the virtual accelerator and the stand-in, every
+server is judged by the heartbeat channel that the directory lists for it.</p>
+<p>A roster source is a small piece of Python that the facility writes: any
+object with a <code class="docutils literal notranslate"><span class="pre">name</span></code> and a <code class="docutils literal notranslate"><span class="pre">read(deadline)</span></code> method that returns a list of
+<code class="docutils literal notranslate"><span class="pre">RosterRow(name,</span> <span class="pre">host,</span> <span class="pre">class_name,</span> <span class="pre">expected,</span> <span class="pre">group=None)</span></code> from
+<code class="docutils literal notranslate"><span class="pre">osprey.services.channel_directory.roster</span></code>. <code class="docutils literal notranslate"><span class="pre">expected</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;running&quot;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&quot;stopped&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">None</span></code>, and <code class="docutils literal notranslate"><span class="pre">read</span></code> raises to report a failure. The
+contract is public and may still change between releases.</p>
+<p><code class="docutils literal notranslate"><span class="pre">channel_directory.fleet.roster_sources</span></code> lists the sources, each as a
+<code class="docutils literal notranslate"><span class="pre">module:attribute</span></code> reference to a source object or to a function without
+arguments that returns one. The rows of all sources merge into one row per
+server. A source that fails is shown as unavailable with its reason, and the
+other sources still count.</p>
+<p><code class="docutils literal notranslate"><span class="pre">StaticRoster</span></code> is an example to start from. It reads a YAML list of
+servers and sits in <code class="docutils literal notranslate"><span class="pre">docs/source/how-to/control-systems/examples/roster/</span></code>
+with <code class="docutils literal notranslate"><span class="pre">roster_static.yml</span></code> beside it. With that directory importable,
+<code class="docutils literal notranslate"><span class="pre">roster_sources:</span> <span class="pre">[&quot;roster_static:roster&quot;]</span></code> uses it. To check a source of
+your own, call <code class="docutils literal notranslate"><span class="pre">check_roster_source(source)</span></code> from the roster module: it
+returns one line per problem, and none when the source conforms.</p>
+</section>
+</section>
+<section id="web-interface">
+<h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>
+<p>The browser-based channel explorer is the Channel Finder panel of the web
+terminal (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>).</p>
+<p>The explorer is read-only. To correct a channel, edit <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> in the
+facility tree and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p>The explorer browses a channel database. On the graph pipeline there is no such
+file, so its Explore view is a finder over the store instead. Type words into
+the search box in the panel toolbar (<code class="docutils literal notranslate"><span class="pre">/</span></code> focuses it) and it keeps the
+channels that match all of them. Each word is matched against the address, the
+description, the device or signal name, and the name or synonyms of the
+device’s class or any class above it. The view switch is at the toolbar’s
+left. It offers Explore alone, or Curated and the directory view when
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section, with the servers, Alarms
+and Archive views when their service is configured. There is no Feedback
+view: the graph keeps no saved hints, and its answers are not captured for
+review. The result count and the search box are at its right.</p>
+<p>The sidebar narrows further:</p>
+<ul class="simple">
+<li><p>Section, System and Signal count matching channels.</p></li>
+<li><p>Device class counts devices and rolls each class up over its subclasses.</p></li>
+<li><p>Direction splits them into read, write, read/write and undirected.</p></li>
+</ul>
+<p>A class that groups devices without being a kind of device itself
+is shown in muted italic. Every facet is counted with its own filter lifted, so
+a number says what a second pick in that facet would add. Each facet folds from
+its heading and clears with its ✕. Active filters show as chips you can click
+to remove, and when a facet list is capped the panel says so. The sidebar
+button at the left end of the toolbar shows and hides the sidebar. In a narrow
+panel the sidebar opens over the results. The ⋯ button at the right end of the
+toolbar switches the row density, chooses and resets the columns, and clears
+the filters or the selection. Inside the terminal, these entries are in the ⋯
+menu of the tile, under This panel.</p>
+<p>Results come fifty to a page: device, section, address, direction, signal and
+description. Click a header to sort on it, drag it to move the column, drag its
+right edge to resize it, and double-click that edge to fit it to its content.
+The header’s right-click menu also hides a column, fits all of them, or resets
+the layout. Order, widths and hidden columns are remembered per browser.</p>
+<p>Clicking a device name opens its card beside the results and marks its rows.
+The card shows where the device sits in the machine, and every channel bound to
+it grouped by signal. Escape closes it.</p>
+<p>Tick the rows you want, then:</p>
+<ul class="simple">
+<li><p><strong>Copy addresses</strong> puts them on the clipboard one per line.</p></li>
+<li><p><strong>Send to assistant</strong> puts them into the prompt on one line for you to send.
+It is offered only when the panel runs inside the terminal.</p></li>
+</ul>
+<p>The panel never submits anything itself.</p>
+<p>Right-click a row, a facet value, a chip or a channel in the card for the
+actions that apply there:</p>
+<ul class="simple">
+<li><p>copy the address, device name or row;</p></li>
+<li><p>send to the assistant;</p></li>
+<li><p>open the device;</p></li>
+<li><p>narrow the search to that row’s section, system or signal.</p></li>
+</ul>
+<p>Right-click the empty results area to clear the filters or the selection, or to
+choose columns. Shift+F10 or the menu key opens the same menu from the
+keyboard. The
+table is one Tab stop: arrows, Home and End move between rows, Space selects,
+Enter opens the device and ⌘C/Ctrl+C copies the address. A focused header sorts
+on Enter and moves with Alt+←/→.</p>
+<p>The strip below the results names:</p>
+<ul class="simple">
+<li><p>the corpus file and the store it was loaded into;</p></li>
+<li><p>the tools the OSPREY agent queries that same store with;</p></li>
+<li><p>the counts of devices, channels, classes, signals and sections, read live
+from the store.</p></li>
+</ul>
+<p>If the store is unreachable the view says so and offers a Retry. If it is
+reachable but empty, it names the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> command that
+fills it. Channel validation is not offered on this pipeline. The
+channel-suggestion typeahead in the web panels still works in graph mode:
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the channel names from the facility file and writes them
+into the snapshot the panels use.</p>
+<section id="the-directory-servers-alarms-and-archive-views">
+<h3>The Directory, Servers, Alarms and Archive Views<a class="headerlink" href="#the-directory-servers-alarms-and-archive-views" title="Link to this heading">#</a></h3>
+<p>With a <code class="docutils literal notranslate"><span class="pre">channel_directory</span></code> section (<a class="reference internal" href="#channel-finder-directory"><span class="std std-ref">The Channel Directory</span></a>) the view
+switch gains the directory view, which searches the directory. Its tab
+carries the control system’s own title (<a class="reference internal" href="#channel-directory-words"><span class="std std-ref">The control system’s words</span></a>). The
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset runs on the simulator, so there the tab reads <strong>All PVs</strong>:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>All PVs</strong>, type <code class="docutils literal notranslate"><span class="pre">cavity</span> <span class="pre">temperature</span></code> into the search box and press
+Enter. The rows are the channels whose description holds both words, each
+with its description, current value, alarm, type and server.</p></li>
+<li><p>Click <code class="docutils literal notranslate"><span class="pre">SR:RF:CAVITY:01:TEMPERATURE:RB</span></code> to open the page of that channel.
+A banner shows a latched alarm from the replayed alarm feed of the demo,
+with its guidance.</p></li>
+</ol>
+<p>Words match descriptions first, and names only when no description matched;
+every word must match. A word holding <code class="docutils literal notranslate"><span class="pre">*</span></code> or <code class="docutils literal notranslate"><span class="pre">?</span></code> matches names as a glob,
+and a leading <code class="docutils literal notranslate"><span class="pre">=</span></code> asks for the exact name. The sidebar filters the result,
+and <strong>show request</strong> reveals the request that ran.</p>
+<p>Each row carries one of two marks:</p>
+<ul class="simple">
+<li><p>◆ <strong>Curated</strong>: the facility description declares the channel.</p></li>
+<li><p>◇ <strong>Control system only</strong>: the control system serves it and the facility
+description does not declare it.</p></li>
+</ul>
+<p>The search words carry over from the Curated view. A <code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">here?</span></code> line under
+its results opens the directory view with the same words, and a curated
+search with no hits offers to search the whole directory instead. The names
+of ticked rows can be copied, sent to the assistant or, when CANOPY serves
+Trace, plotted.</p>
+<p>The page of a channel has one card per answer: Value, Alarm, Put history,
+Directory, Archive and Logbook. A card whose service is not configured is one
+dashed line. Clicking a server opens the page of that server, with its
+channels, the alarms on it, its health channels and a chip that says whether
+it is alive. The chip reads the heartbeat channel twice, 2 s apart, or shows
+the state from the fleet snapshot when <code class="docutils literal notranslate"><span class="pre">channel_directory.fleet</span></code> is set
+(<a class="reference internal" href="#channel-finder-server-fleet"><span class="std std-ref">The Server Fleet</span></a>).</p>
+<p>Three more views appear when their service is configured, and none of them
+writes:</p>
+<ul class="simple">
+<li><p>The servers view lists every server of the control target with its liveness
+state and findings (<a class="reference internal" href="#channel-finder-server-fleet"><span class="std std-ref">The Server Fleet</span></a>).</p></li>
+<li><p><strong>Alarms</strong> lists what is in alarm now on the control target, worst first.
+To acknowledge an alarm, use the client of the alarm server.</p></li>
+<li><p><strong>Archive</strong> says what the archive of the control target records: how many
+of the channels in the directory, and its newest sample.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys for every pipeline, and how the active one is served to
+the agent, are in <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a>.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="measure-with-pyaml.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Measure with the pyAML tools</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="import-mml-export.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Import a Middle Layer export</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-a-pipeline">Choosing a Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#in-context-pipeline">In-Context Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hierarchical-pipeline">Hierarchical Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#middle-layer-pipeline">Middle Layer Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-pipeline">Graph Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-channel-directory">The Channel Directory</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-system-s-words">The control system’s words</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-backends">Directory backends</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-server-fleet">The Server Fleet</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-the-servers-view">Reading the servers view</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-servers-are-listed">Which servers are listed</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#load-per-refresh">Load per refresh</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#roster-sources">Roster sources</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-interface">Web Interface</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-directory-servers-alarms-and-archive-views">The Directory, Servers, Alarms and Archive Views</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/use-channel-finder.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

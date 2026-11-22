@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.simulation.view &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.simulation.view &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -447,6 +447,12 @@
 <span class="sd">with a setpoint or not; a reader wanting the readback of a setpoint reads that</span>
 <span class="sd">setpoint channel&#39;s ``pair``.</span>
 
+<span class="sd">A wiring record may state further addresses of its variable under ``also``.</span>
+<span class="sd">Each is a channel of the view whose ``owner`` is the record&#39;s model, and it is</span>
+<span class="sd">served as the record&#39;s ``address`` is: :meth:`SimulatorView.record_address`</span>
+<span class="sd">gives the address a channel is served as, and :attr:`Binding.addresses` every</span>
+<span class="sd">address of a record.</span>
+
 <span class="sd">The module imports only the standard library and ``osprey_connectors``, so a</span>
 <span class="sd">reader that must not load a model can open a view.</span>
 <span class="sd">&quot;&quot;&quot;</span>
@@ -459,14 +465,20 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span><span class="p">,</span> <span class="n">PurePosixPath</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">MappingProxyType</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">overload</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">overload</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation._records</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.records</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">AddressesDocument</span><span class="p">,</span>
         <span class="n">ChannelRecord</span><span class="p">,</span>
         <span class="n">ModelEntry</span><span class="p">,</span>
         <span class="n">ScenarioRecord</span><span class="p">,</span>
+        <span class="n">ScenariosDocument</span><span class="p">,</span>
         <span class="n">SeedRecord</span><span class="p">,</span>
+        <span class="n">SeedsDocument</span><span class="p">,</span>
+        <span class="n">ServedModelsDocument</span><span class="p">,</span>
+        <span class="n">VariablesDocument</span><span class="p">,</span>
+        <span class="n">WiringRecord</span><span class="p">,</span>
     <span class="p">)</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
@@ -483,6 +495,7 @@
     <span class="s2">&quot;OUTPUT&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PERIODIC&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PERIODIC_IOC_HEALTH&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;PERIODIC_SERVER_HEALTH&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PLANES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;READBACK&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REFRESH&quot;</span><span class="p">,</span>
@@ -490,6 +503,7 @@
     <span class="s2">&quot;SCENARIOS_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCENARIOS_SCHEMA&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SERVED_SIGNAL_PROPERTY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SERVER_HEALTH_SIGNALS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCHEMAS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SEEDS_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SEEDS_SCHEMA&quot;</span><span class="p">,</span>
@@ -512,15 +526,17 @@
 <span class="c1">#: The view&#39;s directory under a render.</span>
 <span class="n">VIEW_RELPATH</span> <span class="o">=</span> <span class="n">PurePosixPath</span><span class="p">(</span><span class="s2">&quot;data/simulator&quot;</span><span class="p">)</span>
 
-<span class="n">SERVED_MODELS_FILE</span> <span class="o">=</span> <span class="s2">&quot;served_models.json&quot;</span>
+<span class="c1">#: The file names are ``Final`` so that :meth:`SimulatorView.document` types</span>
+<span class="c1">#: each one&#39;s document.</span>
+<span class="n">SERVED_MODELS_FILE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;served_models.json&quot;</span>
 <span class="n">SERVED_MODELS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.served_models/1&quot;</span>
-<span class="n">ADDRESSES_FILE</span> <span class="o">=</span> <span class="s2">&quot;addresses.json&quot;</span>
+<span class="n">ADDRESSES_FILE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;addresses.json&quot;</span>
 <span class="n">ADDRESSES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.addresses/1&quot;</span>
-<span class="n">VARIABLES_FILE</span> <span class="o">=</span> <span class="s2">&quot;variables.json&quot;</span>
+<span class="n">VARIABLES_FILE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;variables.json&quot;</span>
 <span class="n">VARIABLES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.simulator/4&quot;</span>
-<span class="n">SEEDS_FILE</span> <span class="o">=</span> <span class="s2">&quot;seeds.json&quot;</span>
+<span class="n">SEEDS_FILE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;seeds.json&quot;</span>
 <span class="n">SEEDS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.seeds/2&quot;</span>
-<span class="n">SCENARIOS_FILE</span> <span class="o">=</span> <span class="s2">&quot;scenarios.json&quot;</span>
+<span class="n">SCENARIOS_FILE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;scenarios.json&quot;</span>
 <span class="n">SCENARIOS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.scenarios/3&quot;</span>
 <span class="c1">#: The directory holding a byte copy of each deck-bearing model&#39;s deck.</span>
 <span class="n">DECKS_DIR</span> <span class="o">=</span> <span class="s2">&quot;decks&quot;</span>
@@ -573,12 +589,16 @@
 <span class="n">HEARTBEAT</span> <span class="o">=</span> <span class="s2">&quot;HEARTBEAT&quot;</span>
 <span class="n">UPTIME</span> <span class="o">=</span> <span class="s2">&quot;UPTIME&quot;</span>
 <span class="n">ENGINEER</span> <span class="o">=</span> <span class="s2">&quot;ENGINEER&quot;</span>
-<span class="c1">#: The signals of a model&#39;s IOC health addresses, ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;``,</span>
+<span class="c1">#: The signals of a model&#39;s server health addresses, ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;``,</span>
 <span class="c1">#: in the order a view lists them.</span>
-<span class="n">IOC_HEALTH_SIGNALS</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">,</span> <span class="n">ENGINEER</span><span class="p">)</span>
-<span class="c1">#: The IOC health signals each periodic pass publishes.</span>
-<span class="n">PERIODIC_IOC_HEALTH</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">)</span>
-<span class="c1">#: The directory property the simulator sets on each status and IOC health row,</span>
+<span class="n">SERVER_HEALTH_SIGNALS</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">,</span> <span class="n">ENGINEER</span><span class="p">)</span>
+<span class="c1">#: The server health signals each periodic pass publishes.</span>
+<span class="n">PERIODIC_SERVER_HEALTH</span> <span class="o">=</span> <span class="p">(</span><span class="n">HEARTBEAT</span><span class="p">,</span> <span class="n">UPTIME</span><span class="p">)</span>
+<span class="c1">#: The name :data:`SERVER_HEALTH_SIGNALS` was first released under.</span>
+<span class="n">IOC_HEALTH_SIGNALS</span> <span class="o">=</span> <span class="n">SERVER_HEALTH_SIGNALS</span>
+<span class="c1">#: The name :data:`PERIODIC_SERVER_HEALTH` was first released under.</span>
+<span class="n">PERIODIC_IOC_HEALTH</span> <span class="o">=</span> <span class="n">PERIODIC_SERVER_HEALTH</span>
+<span class="c1">#: The directory property the simulator sets on each status and server health row,</span>
 <span class="c1">#: valued with that row&#39;s signal; channel rows carry none.</span>
 <span class="n">SERVED_SIGNAL_PROPERTY</span> <span class="o">=</span> <span class="s2">&quot;signal&quot;</span>
 
@@ -588,7 +608,7 @@
 <span class="c1">#: The keys a wiring record&#39;s description adds.</span>
 <span class="n">_DESCRIPTION_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;engine_role&quot;</span><span class="p">,</span> <span class="s2">&quot;plane&quot;</span><span class="p">,</span> <span class="s2">&quot;refresh&quot;</span><span class="p">)</span>
 <span class="c1">#: The key listing the marks a wiring record carries; absent when it carries none.</span>
-<span class="n">_MARKS_KEY</span> <span class="o">=</span> <span class="s2">&quot;marks&quot;</span>
+<span class="n">_MARKS_KEY</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;marks&quot;</span>
 
 
 <div class="viewcode-block" id="NoSimulatorView">
@@ -666,13 +686,14 @@
 <div class="viewcode-block" id="Channel.from_entry">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Channel.from_entry">[docs]</a>
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">from_entry</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">entry</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Channel</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_entry</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">entry</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Channel</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Read one channel entry of ``variables.json``.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ViewSchemaError: the entry lacks a key every channel carries.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">try</span><span class="p">:</span>
+            <span class="n">on</span> <span class="o">=</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;on&quot;</span><span class="p">]</span>
             <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
                 <span class="n">address</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]),</span>
                 <span class="n">role</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;role&quot;</span><span class="p">],</span>
@@ -681,11 +702,11 @@
                 <span class="n">unit</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;unit&quot;</span><span class="p">],</span>
                 <span class="n">description</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;description&quot;</span><span class="p">],</span>
                 <span class="n">writable</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;writable&quot;</span><span class="p">]),</span>
-                <span class="n">value_range</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;value_range&quot;</span><span class="p">]),</span>
+                <span class="n">value_range</span><span class="o">=</span><span class="n">_bounds</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;value_range&quot;</span><span class="p">]),</span>
                 <span class="n">owner</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;owner&quot;</span><span class="p">],</span>
-                <span class="n">on</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;on&quot;</span><span class="p">]),</span>
-                <span class="n">options</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;options&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="s2">&quot;options&quot;</span> <span class="ow">in</span> <span class="n">entry</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-                <span class="n">shape</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;shape&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="s2">&quot;shape&quot;</span> <span class="ow">in</span> <span class="n">entry</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="n">on</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">on</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">MappingProxyType</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">on</span><span class="p">)),</span>
+                <span class="n">options</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;options&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="s2">&quot;options&quot;</span> <span class="ow">in</span> <span class="n">entry</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="n">shape</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;shape&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="s2">&quot;shape&quot;</span> <span class="ow">in</span> <span class="n">entry</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
                 <span class="n">precision</span><span class="o">=</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;precision&quot;</span><span class="p">),</span>
             <span class="p">)</span>
         <span class="k">except</span> <span class="ne">KeyError</span> <span class="k">as</span> <span class="n">missing</span><span class="p">:</span>
@@ -706,6 +727,8 @@
 <span class="sd">        id: The wiring record&#39;s id.</span>
 <span class="sd">        model: The model the record belongs to.</span>
 <span class="sd">        address: The channel address the record serves.</span>
+<span class="sd">        also: The further addresses that serve what ``address`` serves; empty</span>
+<span class="sd">            when the record states none.</span>
 <span class="sd">        direction: ``write`` or ``read``.</span>
 <span class="sd">        engine_role: One of :data:`ENGINE_ROLES`.</span>
 <span class="sd">            A ``readback`` reads an element&#39;s setting, paired with a setpoint</span>
@@ -729,13 +752,19 @@
     <span class="n">plane</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
     <span class="n">refresh</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">element</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
-    <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span>
     <span class="n">marks</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
+    <span class="n">also</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">addresses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every address the record serves: ``address``, then each of ``also``.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">address</span><span class="p">,</span> <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">also</span><span class="p">)</span>
 
 <div class="viewcode-block" id="Binding.from_record">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Binding.from_record">[docs]</a>
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">from_record</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Binding</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_record</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">WiringRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Binding</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Read one wiring record of ``variables.json``.</span>
 
 <span class="sd">        Raises:</span>
@@ -759,6 +788,7 @@
             <span class="n">element</span><span class="o">=</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;element&quot;</span><span class="p">),</span>
             <span class="n">record</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">record</span><span class="p">))),</span>
             <span class="n">marks</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">mark</span><span class="p">)</span> <span class="k">for</span> <span class="n">mark</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_MARKS_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
+            <span class="n">also</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;also&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
         <span class="p">)</span></div>
 </div>
 
@@ -815,10 +845,11 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
         <span class="n">parts</span> <span class="o">=</span> <span class="n">PurePosixPath</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">VIEW_RELPATH</span><span class="o">.</span><span class="n">parts</span><span class="p">)</span> <span class="p">:])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">render_root</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">parents</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="n">parts</span> <span class="o">==</span> <span class="n">VIEW_RELPATH</span> <span class="k">else</span> <span class="kc">None</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_models</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Model</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">ADDRESSES_FILE</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
             <span class="k">raise</span> <span class="n">NoSimulatorView</span><span class="p">(</span><span class="n">_NO_VIEW_MESSAGE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">))</span>
@@ -888,13 +919,39 @@
             <span class="k">return</span> <span class="kc">None</span></div>
 
 
+    <span class="c1"># A file of the view reaches a reader only through ``_parsed``, which</span>
+    <span class="c1"># refuses one whose ``schema`` is not a schema this OSPREY reads, and</span>
+    <span class="c1"># ``osprey build`` writes each file of a schema to that schema&#39;s shape: the</span>
+    <span class="c1"># overloads below state that shape, the records of</span>
+    <span class="c1"># :mod:`osprey_connectors.simulation.records`, for each file by name. The</span>
+    <span class="c1"># facility schema leaves a scenario&#39;s ``archiver`` events free-form; the</span>
+    <span class="c1"># build checks each one with ``osprey.facility.scenarios.check_scenario_events``</span>
+    <span class="c1"># before it writes ``scenarios.json``, and ``ArchiverEvent`` states what</span>
+    <span class="c1"># that check guarantees.</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;served_models.json&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">ServedModelsDocument</span><span class="p">:</span> <span class="o">...</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;addresses.json&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">AddressesDocument</span><span class="p">:</span> <span class="o">...</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;variables.json&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">VariablesDocument</span><span class="p">:</span> <span class="o">...</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;seeds.json&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">SeedsDocument</span><span class="p">:</span> <span class="o">...</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;scenarios.json&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">ScenariosDocument</span><span class="p">:</span> <span class="o">...</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span> <span class="o">...</span>
 <div class="viewcode-block" id="SimulatorView.document">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.document">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;One view file, parsed once and read-only.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            name: The file&#39;s name, one of :data:`SCHEMAS`.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The file&#39;s document, typed by its record in</span>
+<span class="sd">            :mod:`osprey_connectors.simulation.records` when ``name`` is one of</span>
+<span class="sd">            the view&#39;s file-name constants.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ViewSchemaError: the file&#39;s ``schema`` is absent or neither</span>
@@ -905,12 +962,19 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span></div>
 
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_parsed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_parsed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;variables.json&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">VariablesDocument</span><span class="p">:</span> <span class="o">...</span>
+    <span class="nd">@overload</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_parsed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span> <span class="o">...</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_parsed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One view file as parsed, not frozen; refused when its ``schema`` is not read here.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">:</span>
             <span class="n">path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">name</span>
-            <span class="n">parsed</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+            <span class="n">parsed</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
             <span class="n">expected</span> <span class="o">=</span> <span class="n">SCHEMAS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-            <span class="n">found</span> <span class="o">=</span> <span class="n">parsed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parsed</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parsed</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="n">parsed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">found</span> <span class="o">!=</span> <span class="n">expected</span> <span class="ow">and</span> <span class="n">found</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ALSO_READ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">()):</span>
                 <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">found</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">parsed</span>
@@ -926,7 +990,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">models</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Model</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Every model of the facility file, sorted by name.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">entries</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ModelEntry</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">]</span>
+            <span class="n">entries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">]</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_models</span></div>
 
@@ -966,8 +1030,7 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.served">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">served</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The names of the models the render serves, in ``served_models.json`` order.&quot;&quot;&quot;</span>
-        <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SERVED_MODELS_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">]</span>
-        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SERVED_MODELS_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">])</span></div>
 
 
 <div class="viewcode-block" id="SimulatorView.physics_models">
@@ -981,16 +1044,14 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.channels">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Every channel address of the facility file, sorted.&quot;&quot;&quot;</span>
-        <span class="n">addresses</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
-        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">addresses</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">])</span></div>
 
 
 <div class="viewcode-block" id="SimulatorView.status_addresses">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.status_addresses">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">status_addresses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Each served physics model&#39;s status address, ``&lt;code&gt;:SIM:&lt;model&gt;:STATUS``.&quot;&quot;&quot;</span>
-        <span class="n">status</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span>
-        <span class="n">listed</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">status</span><span class="p">)</span>
+        <span class="n">listed</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)[</span><span class="s2">&quot;status&quot;</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">MappingProxyType</span><span class="p">(</span>
             <span class="p">{</span>
                 <span class="n">model</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">address</span>
@@ -1000,32 +1061,40 @@
         <span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="SimulatorView.ioc_health_by_model">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">ioc_health_by_model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Each listed model&#39;s IOC health addresses by signal, ``{model: {signal: address}}``.</span>
+<div class="viewcode-block" id="SimulatorView.server_health_by_model">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.server_health_by_model">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">server_health_by_model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Each listed model&#39;s server health addresses by signal, ``{model: {signal: address}}``.</span>
 
 <span class="sd">        An address is ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;`` with ``&lt;signal&gt;`` one of</span>
-<span class="sd">        :data:`IOC_HEALTH_SIGNALS`; each model&#39;s signals keep the list&#39;s order.</span>
-<span class="sd">        ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from</span>
-<span class="sd">        a build without it yields an empty mapping. Unlike the status</span>
+<span class="sd">        :data:`SERVER_HEALTH_SIGNALS`; each model&#39;s signals keep the list&#39;s order.</span>
+<span class="sd">        The list is read from ``server_health``, or from ``ioc_health``, the key</span>
+<span class="sd">        it was first written under, when the document has no ``server_health``.</span>
+<span class="sd">        Both are optional under :data:`ADDRESSES_SCHEMA`: a view from a build</span>
+<span class="sd">        that wrote neither yields an empty mapping. Unlike the status</span>
 <span class="sd">        addresses, it lists the ``texture`` model too.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ViewSchemaError: a listed entry is not such an address.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">listed</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ioc_health&quot;</span><span class="p">,</span> <span class="p">())</span>
+        <span class="n">document</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="s2">&quot;server_health&quot;</span> <span class="k">if</span> <span class="s2">&quot;server_health&quot;</span> <span class="ow">in</span> <span class="n">document</span> <span class="k">else</span> <span class="s2">&quot;ioc_health&quot;</span>
+        <span class="n">listed</span> <span class="o">=</span> <span class="n">document</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;server_health&quot;</span><span class="p">,</span> <span class="n">document</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ioc_health&quot;</span><span class="p">,</span> <span class="p">()))</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">listed</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">MappingProxyType</span><span class="p">({})</span>
         <span class="n">prefix</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="si">}</span><span class="s2">:SIM:&quot;</span>
         <span class="n">by_model</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">listed</span><span class="p">:</span>
             <span class="n">model</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">signal</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span><span class="o">.</span><span class="n">removeprefix</span><span class="p">(</span><span class="n">prefix</span><span class="p">)</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">model</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">)</span> <span class="ow">or</span> <span class="n">signal</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">IOC_HEALTH_SIGNALS</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="ow">not</span> <span class="n">model</span>
+                <span class="ow">or</span> <span class="ow">not</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="n">signal</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">SERVER_HEALTH_SIGNALS</span>
+            <span class="p">):</span>
                 <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">ADDRESSES_FILE</span><span class="si">}</span><span class="s2"> lists </span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> under ioc_health, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">ADDRESSES_FILE</span><span class="si">}</span><span class="s2"> lists </span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> under </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">, &quot;</span>
                     <span class="sa">f</span><span class="s2">&quot;which is not </span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">&lt;model&gt;:&lt;signal&gt; with &lt;signal&gt; one of &quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">IOC_HEALTH_SIGNALS</span><span class="p">)</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">SERVER_HEALTH_SIGNALS</span><span class="p">)</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
                 <span class="p">)</span>
             <span class="n">by_model</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="p">{})[</span><span class="n">signal</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">MappingProxyType</span><span class="p">(</span>
@@ -1033,9 +1102,16 @@
         <span class="p">)</span></div>
 
 
+<div class="viewcode-block" id="SimulatorView.ioc_health_by_model">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ioc_health_by_model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;:meth:`server_health_by_model`, under the name it was first released with.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_health_by_model</span><span class="p">()</span></div>
+
+
     <span class="k">def</span><span class="w"> </span><span class="nf">_channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">entries</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ChannelRecord</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
+            <span class="n">entries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
                 <span class="p">{</span>
                     <span class="n">channel</span><span class="o">.</span><span class="n">address</span><span class="p">:</span> <span class="n">channel</span>
@@ -1043,16 +1119,6 @@
                 <span class="p">}</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_channel_entries</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ChannelRecord</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every channel entry of ``variables.json``, read-only, in file order.&quot;&quot;&quot;</span>
-        <span class="n">entries</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ChannelRecord</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
-        <span class="k">return</span> <span class="n">entries</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_seeds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SeedRecord</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every seed record of ``seeds.json``, read-only, by address.&quot;&quot;&quot;</span>
-        <span class="n">seeds</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SeedRecord</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SEEDS_FILE</span><span class="p">)[</span><span class="s2">&quot;seeds&quot;</span><span class="p">]</span>
-        <span class="k">return</span> <span class="n">seeds</span>
 
 <div class="viewcode-block" id="SimulatorView.channel">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.channel">[docs]</a>
@@ -1113,27 +1179,46 @@
         <span class="k">return</span> <span class="kc">None</span></div>
 
 
+<div class="viewcode-block" id="SimulatorView.record_address">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.record_address">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">record_address</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The address ``address`` is served as.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            address: A channel address.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The ``address`` of the served physics model&#39;s wiring record that</span>
+<span class="sd">            names ``address`` under ``also``; ``address`` itself for any other</span>
+<span class="sd">            channel.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="n">further</span><span class="p">:</span> <span class="n">binding</span><span class="o">.</span><span class="n">address</span>
+                    <span class="k">for</span> <span class="n">binding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_all_bindings</span><span class="p">(</span><span class="n">served_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">further</span> <span class="ow">in</span> <span class="n">binding</span><span class="o">.</span><span class="n">also</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span></div>
+
+
 <div class="viewcode-block" id="SimulatorView.seed">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.seed">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">seed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">seed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SeedRecord</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The seed record of the channel at ``address``, or ``None``.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seeds</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SEEDS_FILE</span><span class="p">)[</span><span class="s2">&quot;seeds&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="SimulatorView.scenarios">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.scenarios">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">scenarios</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">scenarios</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ScenarioRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Every scenario of ``scenarios.json``, sorted by name.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ViewSchemaError: A scenario&#39;s ``still`` is not a list of addresses.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_scenarios</span><span class="p">()</span></div>
-
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_scenarios</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ScenarioRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;:meth:`scenarios`, each record typed as the schema states it.&quot;&quot;&quot;</span>
-        <span class="n">scenarios</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ScenarioRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SCENARIOS_FILE</span><span class="p">)[</span><span class="s2">&quot;scenarios&quot;</span><span class="p">]</span>
+        <span class="n">scenarios</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SCENARIOS_FILE</span><span class="p">)[</span><span class="s2">&quot;scenarios&quot;</span><span class="p">])</span>
         <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">:</span>
             <span class="n">still</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;still&quot;</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">still</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span>
@@ -1143,7 +1228,8 @@
                     <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">SCENARIOS_FILE</span><span class="si">}</span><span class="s2">: scenario </span><span class="si">{</span><span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> states &quot;</span>
                     <span class="sa">f</span><span class="s2">&quot;`still` as </span><span class="si">{</span><span class="n">still</span><span class="si">!r}</span><span class="s2">, not a list of addresses: run osprey build&quot;</span>
                 <span class="p">)</span>
-        <span class="k">return</span> <span class="n">scenarios</span>
+        <span class="k">return</span> <span class="n">scenarios</span></div>
+
 
 <div class="viewcode-block" id="SimulatorView.motion_envelope">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.motion_envelope">[docs]</a>
@@ -1163,11 +1249,12 @@
         <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.envelope</span><span class="w"> </span><span class="kn">import</span> <span class="n">active_envelopes</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_active_scenarios</span>
 
+        <span class="n">address</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_address</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
         <span class="n">key</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">resolve_active_scenarios</span><span class="p">(</span><span class="n">active</span><span class="p">))</span>
         <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">active_envelopes</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_seeds</span><span class="p">(),</span>
-                <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_scenarios</span><span class="p">()},</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SEEDS_FILE</span><span class="p">)[</span><span class="s2">&quot;seeds&quot;</span><span class="p">],</span>
+                <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">scenarios</span><span class="p">()},</span>
                 <span class="n">key</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span></div>
@@ -1180,6 +1267,14 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">SCENARIOS_DIR</span> <span class="o">/</span> <span class="n">name</span></div>
 </div>
 
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_bounds</span><span class="p">(</span><span class="n">value_range</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A channel entry&#39;s ``value_range`` as ``(min, max)``; the build writes both or ``None``.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value_range</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">low</span><span class="p">,</span> <span class="n">high</span> <span class="o">=</span> <span class="n">value_range</span>
+    <span class="k">return</span> <span class="n">low</span><span class="p">,</span> <span class="n">high</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_on_nodes</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Channel</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>

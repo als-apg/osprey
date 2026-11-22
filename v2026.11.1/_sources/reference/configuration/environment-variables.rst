@@ -1,0 +1,324 @@
+.. _reference-environment-variables:
+
+=====================
+Environment Variables
+=====================
+
+Most of what a deployment can be told lives in the build profile and is
+rendered into ``config.yml``. What is left over — secrets, and the handful of
+choices that belong to the *host* a command runs on rather than to the
+deployment — arrives from the environment. This page is what that is.
+
+Secrets, and ``.env``
+=====================
+
+.. code-block:: bash
+
+   ANTHROPIC_API_KEY=sk-...          # Or OPENAI_API_KEY, GOOGLE_API_KEY, etc.
+
+Provider keys live in the deployment repository's ``.env`` and are read from
+there. No environment variable selects which deployment a command acts on:
+every lifecycle verb finds the repository by walking up from the working
+directory, and ``--repo DIRECTORY`` names another one.
+
+``.env.example``, rendered into the repository by ``osprey build``, is the
+starting point: copy it to ``.env`` and fill in what you need. It carries the
+variables **the deployment supplies** — the provider keys, whatever the
+profile's ``env.required`` / ``env.optional`` declares, and the tokens
+``osprey up`` mints for the services it starts. It is not an inventory of every
+name the framework reads: the host-level knobs below are set in the environment
+of the command you run, not in a file the build renders.
+
+Host-level knobs
+================
+
+Each of these belongs to the machine or the invocation rather than to the
+deployment, which is why none of them is a config key.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``CONTAINER_RUNTIME``
+     - ``docker`` or ``podman``: the runtime ``osprey up``, ``osprey restart``
+       and the repository's virtual-accelerator developer scripts start with.
+       ``osprey down``, ``status``, ``logs``, ``reset`` and the health checks
+       use the runtime ``var/deployment.json`` recorded. See
+       :doc:`/how-to/deploy-project/index`.
+   * - ``OSPREY_IMAGE_REGISTRY``, ``OSPREY_IMAGE_TAG``
+     - The two image axes for one build, outranking ``images.registry`` /
+       ``images.tag`` — see :ref:`the two image axes <deployment-image-overrides>`.
+   * - ``OSPREY_SITE_CA``, ``PIP_NO_PROXY``, ``PIP_INDEX_URL``,
+       ``PIP_EXTRA_INDEX_URL``, ``OSPREY_BASE_REGISTRY``,
+       ``PLAYWRIGHT_DOWNLOAD_HOST``
+     - The site's build settings — a CA bundle for a TLS-intercepting proxy, a
+       proxy bypass list, the package indexes pip resolves from, the
+       registry standing in for docker.io, and the host the headless browser
+       is downloaded from — for one build,
+       outranking ``images.site_ca`` / ``images.pip_no_proxy`` /
+       ``images.pip_index_url`` / ``images.pip_extra_index_url`` /
+       ``images.base_registry`` / ``images.playwright_download_host`` exactly as the two image axes outrank
+       ``images.registry`` / ``images.tag``. Whichever layer wins is handed to
+       every image ``osprey up`` builds, service images included; the registry
+       also moves every Docker Hub image it pulls — see
+       :doc:`/how-to/deploy-project/project-image`.
+   * - ``OSPREY_SKIP_BROWSER``
+     - ``1`` builds without the headless browser, outranking
+       ``images.skip_browser``. It is passed to every image ``osprey up``
+       builds; only the project image declares it.
+   * - ``OSPREY_OFFLINE``
+     - ``1`` switches the web interfaces from CDN-hosted libraries to the local
+       bundles ``osprey vendor fetch`` downloads. The equivalent config key is
+       ``offline``; use the variable for a single run, the key for a
+       deployment that is always firewalled. Whichever layer wins is also
+       passed to every image ``osprey up`` builds as the ``OSPREY_OFFLINE``
+       build argument; the recipes that serve web assets (the project image and
+       the bluesky-web image) run ``osprey vendor fetch`` under it, so the mode
+       an image was built for and the mode it serves in cannot disagree.
+   * - ``OSPREY_CA_BUNDLE``
+     - Path to a CA bundle for hosts behind a TLS-intercepting proxy, so
+       ``osprey vendor fetch`` verifies rather than skips. ``SSL_CERT_FILE``
+       works too; this one wins when both are set.
+   * - ``REGISTRY_PATH``
+     - Path to a facility's own component registry module, outranking the
+       ``registry_path`` config key. Meant for pointing a container at a
+       registry mounted somewhere the config could not have named.
+       ``registry_path`` at the top level of ``config.yml`` is the canonical
+       spelling of that key --- set it in your profile's ``config:`` block ---
+       and ``application.registry_path`` is accepted as an alias. All three
+       resolve through one function, so the registry that loads is the one
+       ``osprey health`` reports on.
+   * - ``OSPREY_MCP_READY_TIMEOUT``
+     - Seconds a run waits for every MCP server the project declares to finish
+       connecting before it goes ahead without them, default ``90``. A host
+       property, not a deployment one: a cold or oversubscribed machine takes
+       longer to start the same servers. Too low and ``osprey query`` exits 1
+       for a server that was still starting. The former spelling
+       ``OSPREY_E2E_MCP_READY_TIMEOUT`` is still read and will be dropped after
+       one release; the budget was never specific to tests.
+   * - ``OSPREY_TERMINAL_BIND_HOST``
+     - The address ``osprey web`` binds to, and **authoritative over both
+       ``--host`` and the config**. The multi-user compose sets it on every
+       per-user container so the reverse proxy stays the only path in from off
+       the host; a single-user ``osprey web`` sets nothing and ``--host`` is
+       honoured as given.
+
+``OSPREY_SITE_CA`` and the ``PIP_*`` names are host-level knobs and Docker
+**build arguments** at once: the Dockerfiles in
+:doc:`/how-to/deploy-project/project-image` declare an ARG of each name, and
+``osprey up`` supplies each one from the host variable, or from the
+``images.*`` key behind it. The ``PIP_*`` names come from your shell or that
+key, never from ``.env`` or ``.env.shared``: a line there is ignored with a
+warning, like every launch variable (see
+:ref:`launch variables <deployment-env-launch-variables>`). One spelling for
+one setting, whether the build is managed or a hand-run ``docker build``.
+What they configure is the build — a container that is already running reads
+nothing from them.
+
+The host's profile variant
+==========================
+
+``OSPREY_PROFILE_VARIANT`` names the overlay profile, ``profiles/<name>.yml``,
+that a build of this checkout merges over ``profile.yml``. Unlike the host-level
+knobs, it is not read from the shell environment or the ``.env`` chain. The
+build reads it only from the gitignored ``.env.variant`` file at the repository
+root (see :ref:`profile-host-variants`).
+
+.. code-block:: text
+
+   .env.variant:   OSPREY_PROFILE_VARIANT=teststand
+
+The archive pass
+================
+
+``osprey archive`` (:doc:`/reference/cli`) reads three of its options from a
+variable when the flag is not given. The archive service's compose file sets
+all three for its container.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``OSPREY_ARCHIVE_SOURCES``
+     - The sources tree, ``<sources>/<kind>/<name>/...``. Stands in for
+       ``--sources``.
+   * - ``OSPREY_ARCHIVE_DEST``
+     - The existing archive root the day directories are written into. Stands
+       in for ``--dest``.
+   * - ``OSPREY_ARCHIVE_INTERVAL_SECONDS``
+     - Seconds between passes under ``--watch``, at least ``60``, default
+       ``86400``. Stands in for ``--interval``.
+
+CANOPY payload
+==============
+
+A deployment that shows the CANOPY panel builds its images from a prebuilt
+CANOPY payload (:doc:`/how-to/web-terminal/canopy`). Two variables steer the
+``canopy-payload`` pre-build step that stages it.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``OSPREY_CANOPY_PAYLOAD``
+     - The payload directory the canopy repository's
+       ``scripts/build-payload.sh`` wrote. Read from the shell first, then
+       from the deployment's ``.env.shared`` and ``.env``. ``osprey build``
+       copies it into the deployment as ``canopy_payload/``; a directory that
+       is missing or not a finished payload stops the build. The payload must
+       be built at the CANOPY and PyDMConverter commits this OSPREY is proven
+       against; a payload built at any other commit stops the build.
+       :ref:`canopy-upgrading` covers moving to a new CANOPY.
+   * - ``OSPREY_CANOPY_PAYLOAD_CHECK``
+     - ``0`` skips the staging step, for a build that needs no CANOPY, such
+       as a test. It does not skip the check that the screen library still
+       matches its report.
+
+Virtual accelerator source
+==========================
+
+The virtual accelerator container serves the simulator view that
+``osprey build`` writes under its data mount; the image runs
+``osprey.services.virtual_accelerator.entrypoint`` by name. These variables,
+rendered by the compose file, name the instance it serves as and the mount
+points it reads.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``VA_INSTANCE``
+     - Which instance the container serves as: ``virtual_accelerator`` or
+       ``live_standin``. Required; a missing or unknown value refuses the
+       boot. It is written into the model logs and the model RPC's
+       ``status`` reply.
+   * - ``VA_DATA_DIR``
+     - The data root the simulator view sits under, read as
+       ``<VA_DATA_DIR>/simulator/``. Default ``/data``, where the compose file
+       mounts the render's ``build/data`` read-only.
+   * - ``VA_POLL_INTERVAL_S``
+     - The period of the served model's passes, in seconds, greater than
+       zero. Set by ``simulation.tick_s``; a project ``.env`` value is not
+       read.
+   * - ``VA_FAST_INTERVAL_S``
+     - The fast period, at which the served model publishes its ``fast``
+       channels, in seconds, greater than zero. Set by
+       ``simulation.fast_tick_s``; a project ``.env`` value is not read.
+   * - ``VA_STATE_DIR``
+     - The directory holding the active scenarios ``osprey sim apply``
+       writes; the container re-reads them when they change. Unset serves
+       ``nominal`` alone.
+   * - ``VA_MODEL_WRITE_TOKEN``
+     - The secret a model RPC write must present, passed through from the
+       project ``.env`` to the virtual accelerator instance only. Unset or
+       empty refuses every model write.
+
+The Phoebus server's overrides
+==============================
+
+The ``phoebus`` MCP server reads these three from its own environment each
+time a tool runs, and each one outranks a config key. They reach the server
+from the environment of the process that starts the agent;
+:doc:`/how-to/deploy-project/env-chain` covers how a deployment's ``.env``
+gets there.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``PHOEBUS_BRIDGE_URL``
+     - The agent bridge's full base URL, outranking ``phoebus.host`` /
+       ``phoebus.port``. The build renders it into the server's entry as a
+       ``${PHOEBUS_BRIDGE_URL:-…}`` reference whose fallback is the configured
+       host and port, so a value in the environment of the process that
+       starts the agent wins and an unset one leaves the keys in charge. A
+       second instance declared with ``extends`` sets its own value in its
+       ``env:``.
+   * - ``PHOEBUS_REQUIRE_HANDLE``
+     - ``1``/``true``/``yes``/``on`` or ``0``/``false``/``no``/``off``,
+       outranking ``phoebus.require_handle`` either way. Any other value falls
+       through to the key. A multi-user web-terminal deployment stamps ``1`` on
+       every terminal whose project runs a Phoebus server. Elsewhere it is
+       unset, so the switch is off by default and is turned on with
+       ``phoebus.require_handle: true`` or this variable set to ``1``.
+       ``phoebus.require_handle: false`` keeps ``"active"`` in a multi-user
+       deployment too.
+   * - ``PHOEBUS_ARCHIVER_URL``
+     - The archiver bound into generated Data Browser plots, outranking
+       ``phoebus.archiver_url``.
+
+Names the framework stamps
+==========================
+
+A deployment's containers carry more OSPREY variables than the ones above, and
+they are not settings. The build renders them: which user a container serves,
+which identity its audit records are filed under, which control target and
+write posture a session is running with. Setting one by hand does not
+reconfigure anything — it detaches a process from the thing that was tracking
+it, which is why the audit-critical names are stripped from every MCP server
+spec the build renders.
+
+:ref:`The audit identity ladder <audit-trail-identity-ladder>` covers that set
+and why it is closed.
+
+Three of them decide the account name a container's control-system writes
+arrive under (:ref:`containerize-control-identity`):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 36 64
+
+   * - Variable
+     - What it carries
+   * - ``OSPREY_CONTROL_IDENTITY``
+     - The name the entrypoint gives uid 1000 at start. Rendered for a
+       personal card behind a login wall that sets ``control_identity``, and
+       as ``osprey-dispatch-<i>`` for each dispatch worker. Unset, the
+       container writes as ``osprey``
+   * - ``OSPREY_CONTROL_IDENTITY_MODULE``
+     - The container path of the staged script that applies the name. Set
+       wherever ``OSPREY_CONTROL_IDENTITY`` is
+   * - ``OSPREY_CONTROL_IDENTITY_SKIPPED``
+     - Set by the entrypoint, to ``non-root-start``, when a container started
+       without root could not apply an ``osprey-*`` service identity. The
+       ``/health`` endpoint reports it and ``osprey health`` warns on it
+
+Three more tie a container's launches to the agent record:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 36 64
+
+   * - Variable
+     - What it carries
+   * - ``OSPREY_AGENT_RECORD_URL``
+     - The agent-record service's base URL, as this container reaches it. A
+       launch sends its log events to ``/v1/logs`` there
+   * - ``OSPREY_AGENT_RECORD_LOGIN``
+     - The container's own ``<login>:<token>`` record login, from its
+       ``.env.agent-record.login.<login>`` file. The record files every entry
+       under the identity that login stands for, never one a sender reports
+   * - ``OSPREY_TERMINAL_SESSION``
+     - The terminal session a launch belongs to, written into its audit
+       records and sent as the ``terminal.session`` attribute of its events,
+       so both carry the same session. Read by exact name: other variables
+       start with the same words
+
+.. seealso::
+
+   :doc:`config`
+      The settings that arrive from ``config.yml`` rather than the environment.
+
+   :doc:`/how-to/deploy-project/env-chain`
+      Which ``.env`` file wins where, and how ``${VAR}`` placeholders in the
+      compose files are resolved.

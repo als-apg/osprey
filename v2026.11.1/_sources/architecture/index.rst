@@ -1,0 +1,121 @@
+Architecture
+============
+
+OSPREY deploys agentic AI in safety-critical control system environments, such as
+particle accelerators. It uses **the OSPREY agent** as the orchestrator, **MCP servers** as
+the tool interface, and **pluggable connectors** for protocol-agnostic hardware access.
+
+.. figure:: /_static/resources/architecture.png
+   :alt: Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
+   :align: center
+   :width: 100%
+
+   Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
+
+Nine pages break that picture down — how a write is guarded on its way to the
+machine, how reading differs from writing, how one facility description feeds
+every service and how its code splits into packages, the subsystems with
+architecture of their own, and how all of it is tested:
+
+.. grid:: 1 1 2 2
+   :gutter: 3
+
+   .. grid-item-card:: Safety Chain
+      :link: safety-chain
+      :link-type: doc
+      :shadow: md
+
+      The six ways a write reaches the machine through the connector, the
+      Phoebus drive that bypasses it, and the checks and gates on each path.
+
+   .. grid-item-card:: Retrieval Paths
+      :link: retrieval-paths
+      :link-type: doc
+      :shadow: md
+
+      The three independent read stacks — ARIEL's Postgres, the qmd sidecar,
+      and the embedding-free channel finder — and which of them needs an
+      embedding provider on the host.
+
+   .. grid-item-card:: MCP Servers
+      :link: mcp-servers
+      :link-type: doc
+      :shadow: md
+
+      The ten core stdio servers the agent reaches, grouped by what they do,
+      with the complete tool list for each.
+
+   .. grid-item-card:: Python Executor
+      :link: python-executor
+      :link-type: doc
+      :shadow: md
+
+      How agent-written Python actually runs: ten safety layers, the
+      readonly/readwrite execution modes, and the zones executed code may
+      not touch.
+
+   .. grid-item-card:: Facility File and Its Views
+      :link: facility-file
+      :link-type: doc
+      :shadow: md
+
+      One description of the facility under ``data/facility/``, the facility
+      file the build makes of it, the view each service reads, the schema
+      behind it and the simulation models.
+
+   .. grid-item-card:: Facility Relations
+      :link: facility-relations
+      :link-type: doc
+      :shadow: md
+
+      Relations as claims, not device fields: the standing the build gives
+      each, the place a ``located_in`` claim projects, the views that read
+      them, and the sector-3 example.
+
+   .. grid-item-card:: Facility Packages
+      :link: facility-packages
+      :link-type: doc
+      :shadow: md
+
+      How the facility code leaves the framework as osprey-facility and
+      osprey-panels: the nine decisions behind the split and the boundary
+      check that holds the code to them.
+
+   .. grid-item-card:: Virtual Accelerator
+      :link: virtual-accelerator
+      :link-type: doc
+      :shadow: md
+
+      A whole facility on real EPICS with LUME-backed physics — the layer
+      map, the two transports, and the model seam that makes the physics
+      replaceable.
+
+   .. grid-item-card:: Testing
+      :link: testing
+      :link-type: doc
+      :shadow: md
+
+      The inventory of the suite — what each family of tests proves, when each
+      lane runs, how a scenario stages a fault for the agent to find, and what
+      the benchmarks measure.
+
+.. seealso::
+
+   :doc:`/how-to/control-systems/use-connectors`
+      How to add a custom control system connector.
+
+   :doc:`/how-to/deploy-project/index`
+      How to create and deploy an OSPREY project.
+
+.. toctree::
+   :hidden:
+
+   safety-chain
+   retrieval-paths
+   mcp-servers
+   python-executor
+   facility-file
+   facility-relations
+   facility-packages
+   virtual-accelerator
+   testing

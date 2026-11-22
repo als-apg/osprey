@@ -291,10 +291,12 @@ control: have the backend's state say whether writes are on, and the panel
 say *Writes are off*.
 
 The page says when it can be driven, which a browser test or a recording
-waits for: ``index.html`` carries ``<html data-page-ready="pending">``, and
-``panel.js`` imports ``markPageReady`` from
-``/design-system/js/page-ready.js`` and calls it once the first refresh has
-drawn, error or not. ``osprey app check`` refuses a panel without the import.
+waits for: ``index.html`` carries ``<html data-page-ready="pending">`` and
+loads ``/design-system/js/page-ready.js`` by its own tag before ``panel.js``,
+and ``panel.js`` imports ``markPageReady`` from it and calls it once the first
+refresh has drawn, error or not. ``osprey app check`` refuses a panel that
+lacks any of the three, or that loads a module of its own ``async``. The wait
+ends at ``true`` or ``failed``; ``failed`` means the page cannot be driven.
 
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
@@ -695,9 +697,12 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``panel.agent_routes``
      - ``[METHOD, /path]`` pairs the agent's tools may call; ``GET``,
        ``HEAD`` and ``OPTIONS`` read, every other method writes.
-   * - ``panel.roster_grant.single_user_alias`` [false]
-     - The panel works for the alias login of a single-user deployment,
-       which has no roster.
+   * - ``panel.roster_grant``
+     - Required when a roster card shows the panel: ``{}`` hands each such
+       card's secret to the panel's container, and on a single-user
+       deployment it names the one operator, so the panel's writes are
+       recorded under ``deployment.host_identity``. The build refuses the
+       panel without it.
    * - ``tools.module``
      - The Python module run as the tool server.
    * - ``tools.read``

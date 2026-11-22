@@ -105,7 +105,9 @@ Where a watchdog has flagged the session, the hook's verdict (gate 2), the serve
 the connector (gate 4) each refuse the write with ``session_held``, and so does a CANOPY
 panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). The terminal's
 panel proxy refuses an application panel's write, before it reaches the container: the
-agent's, which names its session, and the operator's. The approval prompt does
+agent's, which names its session, and the operator's. A write is a write method over HTTP and
+any frame the browser sends over a websocket, which the proxy then closes; what the
+application sends the browser keeps flowing. The approval prompt does
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 :ref:`Safety watchdogs <architecture-safety-watchdogs>`.
 
@@ -494,9 +496,9 @@ The panel's own address is neither of those doors: a login there mints no name a
 :ref:`service door, not a terminal <web-terminal-service-door>` for what that costs the person
 using it. In the single-user containerised shape, where one sidecar is reached with the
 deployment-wide secret, requests name nobody by design --- that secret says a request is
-allowed, not who sent it. The exceptions are the OPTIMIZER panel and an application panel that
-sets ``panel.roster_grant.single_user_alias``, whose writes would otherwise name nobody and could
-be refused ``owner_unknown``. While such a sidecar publishes on loopback, the secret the
+allowed, not who sent it. The exceptions are the OPTIMIZER panel and every application panel
+that declares ``panel.roster_grant``, whose writes would otherwise name nobody and could be
+refused ``owner_unknown``. While such a sidecar publishes on loopback, the secret the
 terminal's proxy sends names the one operator, ``deployment.host_identity``, and the chip
 governs those writes. That opens no new door: on a single-user host the same secret already
 signs in to ``osprey web`` as that operator. A login at the sidecar's own address names nobody.

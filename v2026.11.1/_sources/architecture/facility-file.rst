@@ -1,0 +1,500 @@
+.. _architecture-facility-file:
+
+===========================
+Facility File and Its Views
+===========================
+
+OSPREY keeps one description of a facility and derives everything else from
+it. The sources under ``data/facility/`` are combined by ``osprey build`` into
+the *facility file*, and each service reads a *view* of that file, a file in
+the shape the service needs. No service keeps a channel list of its own, so
+the channel finder, the limits check, the simulator and the knowledge graph
+cannot disagree about which channels exist or what they are.
+
+Writing the sources is in :doc:`/how-to/describe-your-facility`. This page is
+about what the build makes of them. How the facility code splits into the
+osprey-facility and osprey-panels packages is in :doc:`facility-packages`.
+
+.. raw:: html
+   :file: ../_diagrams/facility-map.html
+
+The facility file
+=================
+
+``build/facility.json`` is every record of the facility in one document,
+under a ``schema`` header: ``identity``, ``classes``, the ``signals`` and
+``relation_types`` tables, ``places``, ``devices``, ``channels``, ``groups``,
+``models`` with their wiring and inputs, ``limits`` and ``scenarios``. A model's *deck* is the lattice file its simulation engine
+loads, and its *wiring* is the set of records that tie channel addresses to
+elements of that deck.
+
+The file holds two things no source file does. The first is what the build
+computes:
+
+- the readback a setpoint is paired with, when no source names one;
+- for each device, its place and position along its model's deck, its ordinal
+  among its class in its place and in its model, and the groups that name it;
+- for each wiring record, its unit, direction, value range and operating
+  point, and what its model's engine says it is: engine_role, plane and refresh.
+
+The second is ``provenance``: per record, which layer and file stated each field
+(and, where the layer's record says so, the rule the field rests on), which fixes
+were applied, which fields the build filled, and of those the ones it derived by
+a named rule, such as a setpoint's pair.
+``osprey facility show <id>`` prints it.
+
+The file is the same in every render of a build. It carries no timestamp, no
+OSPREY version and no absolute path, so equal sources give equal bytes.
+
+The sources can start as a copy of a preset. A facility ``osprey init`` copies
+from a preset is *bundled*: every copied text file opens with the
+bundled-origin line. The exception is the knowledge indexes, which
+``osprey knowledge regen-index`` writes. Delete the line to make a file yours.
+The import, in every format, replaces the bundled files and refuses only
+hand-written records of the kinds that format writes, and those only while the
+facility holds no imported layer. A bundled facility
+carries data only: records, decks, models, limits, seeds, scenarios, knowledge
+pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
+agent or rule.
+
+Reading the facility file
+=========================
+
+Code reads the built file through one read model,
+``osprey.facility.records.FacilityRecords``: the records of a finished document
+by kind and id. A reference resolves to a channel or a device. A selection
+filters the file's own channel records and names a model or a place.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 36 20 20
+
+   * - Method
+     - What it answers
+     - Order
+     - Absence
+   * - ``FacilityRecords(document)``
+     - The index over one finished document.
+     -
+     - An absent or non-list kind has no records.
+   * - ``from_file(path)``
+     - The read model of a render's ``facility.json``.
+     -
+     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON or is not an object.
+   * - ``document``
+     - The mapping it was built from, read-only.
+     -
+     -
+   * - ``facility_bytes()``
+     - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey.facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
+     - Sorted keys.
+     -
+   * - ``facility_sha256()``
+     - The sha256 hex digest of ``facility_bytes()``, taken from the same one serialisation, so a view can key on the document without holding its bytes.
+     - Lowercase hex.
+     -
+   * - ``record(kind, id)``
+     - The one record of that kind and id.
+     -
+     - ``None``.
+   * - ``require(kind, id)``
+     - The same, for a caller that cannot go on without it.
+     -
+     - ``KeyError`` naming the kind and the id.
+   * - ``of_kind(kind)``
+     - Every record of a kind that carries its id; the first of a duplicate id.
+     - Document order.
+     - Empty.
+   * - ``ids(kind)``
+     - The ids of a kind.
+     -
+     - Empty.
+   * - ``find(id)``
+     - Every record, of any kind, with that id.
+     - ``RECORD_KINDS``: place, device, channel, group, model.
+     - Empty.
+   * - ``channels_on(device_id)``
+     - The channels whose ``on.device`` names the device or that list it in ``endpoint_of``.
+     - Document order, each once.
+     - Empty, also for an unknown id.
+   * - ``wired(address)``
+     - The one wiring record naming an address, as its ``address`` or under ``also``, as the file holds it.
+     -
+     - ``None`` for an address no model wires.
+   * - ``resolve(target)``
+     - The channel and device records a reference target names, by exact id.
+     - ``LINK_KINDS``: channel, then device.
+     - Empty when dangling.
+   * - ``targets()``
+     - Every string ``resolve`` resolves.
+     -
+     - Empty.
+   * - ``describe(target)``
+     - A fresh ``{kind, id, unit?, description?}`` per record ``resolve`` returns.
+     - ``resolve`` order.
+     - Empty when dangling.
+   * - ``resolve_link(target)``
+     - The records a knowledge-page link names: ``resolve(target)``, else the place a ``place/<id>`` target names.
+     - ``resolve`` order.
+     - Empty when dangling.
+   * - ``lookup(text)``
+     - A ``(match, record)`` pair per place or device named by id, then by name, then by a place's last id segment.
+     - ``RECORD_KINDS``, then id; each record once.
+     - Empty.
+   * - ``select_channels(selection)``
+     - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``engine_role`` and ``plane`` facets AND; a place takes every place under it; ``engine_role`` and ``plane`` match the wiring record naming the address.
+     - Document order.
+     - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or an engine_role or plane outside the schema's vocabulary.
+
+``osprey.facility.references.resolved_references`` is the one describer of
+references: every surface that returns ``facility_references`` calls it, and each
+reference's ``start`` and ``end`` are Unicode code-point offsets into the text it
+was found in.
+
+The read model relies on four things the build guarantees:
+
+- Ids are unique per kind, so one string may name records of several kinds but only one of each.
+- An address is wired at most once.
+- Every record carries its id, and every id a record names exists.
+- A channel's devices are its ``on.device`` and its ``endpoint_of``, each once.
+
+Two halves of the build
+=======================
+
+The first half makes the facility file, once, in memory. It runs in fixed
+stages and a stage runs only when every earlier one is clean:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Stage
+     - What it does
+   * - load
+     - Parses each source file and refuses unknown keys and fields only the
+       build may write.
+   * - combine
+     - Merges the layers field by field, stops on two layers that disagree,
+       applies ``fixes.yaml`` and fills the defaults.
+   * - schema
+     - Holds the combined file to the facility-agnostic schema.
+   * - references
+     - Every id a record names exists; device classes and signal roles are
+       known.
+   * - records
+     - The pair, value, limits and seed rules.
+   * - wiring
+     - Fills each wiring record's direction, unit, value range and start
+       value from its model's engine, and marks each command channel.
+   * - compute
+     - Positions, places, ordinals and groups, read off the decks, and the
+       checks only a deck can answer.
+   * - measurement
+     - Holds each measurement file to the kinds it allows, against the
+       groups and instruments its model wires.
+   * - knowledge
+     - Names each knowledge page linked to a device the facility lacks.
+       Warns and never stops.
+
+The second half writes. A build renders more than one tree (the deployment's
+own, one per login, one per container image) and each render receives the
+same facility file and the views its configuration and served models call
+for. A view a render does not carry is named once on stderr, with the
+configuration key or the model fact that left it out; a channel-finder index
+the profile did not select is neither written nor named.
+
+``osprey facility validate`` runs the first half and the main profile's render
+into a temporary directory, adds the response check of a Middle Layer import,
+and writes nothing into the repo. Login and image renders are checked by
+``osprey build`` alone.
+
+.. _architecture-facility-settings:
+
+Settings the facility decides
+=============================
+
+A few profile settings take their value from the facility: the build derives
+each one from the facility file or tree when the profile leaves it unstated. A
+stated value is an override checked against the facility, the one block of
+derived keys where a stated value is not refused.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 25 25
+
+   * - Key
+     - Stated at
+     - Derived from
+     - A stated value must
+   * - ``control_system.connector.virtual_accelerator.probe_channel``
+     - the key
+     - the first readback, by address, of the served models; only for a
+       render that carries the simulator's block
+     - be a channel of the facility file, as must a stated stand-in probe
+   * - ``health.categories.archiver.checks``
+     - ``va_archiver.freshness_channel``
+     - the probe's channel, for a profile with a ``va_archiver:`` block
+     - be a channel of the facility file
+   * - ``simulation.default_scenarios``
+     - the key
+     - the scenarios marked ``start: true``
+     - name only scenarios the facility serves (its own and the built-in
+       ``still``), and be absent beside a mark or a mounted machine
+   * - ``ariel.vocabulary.enabled``
+     - the key
+     - ``true`` when the tree ships ``ariel/vocabulary.yml``
+     - when ``true`` with no path, have that file in the tree
+   * - ``ariel.vocabulary.path``
+     - the key
+     - the shipped ``data/facility/ariel/vocabulary.yml``
+     - while the vocabulary is on, name a file, resolved against the project
+       root
+   * - ``channel_finder.benchmark.dataset_path``
+     - the key
+     - ``data/benchmarks/queries.json`` when the tree ships benchmark query
+       sources
+     - have benchmark query sources in the tree
+
+A value the facility contradicts stops the build with a ``profile-invalid``
+line naming the key.
+
+The views
+=========
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 30 20 34
+
+   * - View
+     - Written to (under the render)
+     - Written when
+     - Read by
+   * - simulator
+     - ``data/simulator/``
+     - always
+     - The Virtual Accelerator container, the same simulator served in
+       process, the ``osprey sim`` commands and the archiver recorder.
+   * - limits
+     - ``data/channel_limits.json``
+     - always
+     - The connector's reference monitor and the runtime's limits check, on
+       every write.
+   * - facts
+     - ``data/facility_facts.json``, ``data/facility_facts.md``
+     - always
+     - The agents' prompts and the ``facility_description`` tool.
+   * - bluesky
+     - ``data/bluesky_devices.yml``
+     - the render runs a Bluesky lane
+     - The Bluesky worker, as its device file.
+   * - in_context, hierarchical, middle_layer
+     - ``data/channel_finder/<mode>.json``; ``middle_layer.duckdb`` beside the
+       middle-layer index
+     - the profile's ``channel_finder_mode`` selects it
+     - The channel finder.
+   * - graph
+     - ``data/graph/facility.ttl``
+     - always
+     - The graph store ``osprey up`` seeds, and ``osprey knowledge
+       seed-from-ttl``.
+   * - benchmarks
+     - ``data/<dataset_path>``, by default ``data/benchmarks/queries.json``
+     - ``channel_finder.benchmark.dataset_path`` is stated and the facility
+       ships query sources under ``benchmarks/cross_paradigm/queries/``
+     - ``osprey channel-finder benchmark``.
+   * - pyaml
+     - ``data/pyaml/<model>/configuration.yaml`` and the files it names
+       (``lattice.json``, ``trm.json``, ``crm.json``)
+     - a served model names a deck and has a measurement file
+     - The measurement tools, and the approval prompt, which shows the view's
+       digest the facts record carries.
+
+**pyAML.** One configuration per measured model: its arrays, magnets, BPMs,
+RF plant and tools, read from the facility file and the model's measurement
+file, beside the deck its design simulator runs on; a model solved
+``single_pass`` has none. Each group role is one array, named after its group,
+or after the role when the role names several groups. A periodic model whose
+measurement file allows ``trm`` or ``crm`` and names the instruments they read
+(``tune``, and ``rf`` for ``crm``) gets ``trm.json`` or ``crm.json``, the
+design response of its ``quad`` or ``sext`` group, whenever every member has a
+finite modelled column; the tune or chromaticity correction tool that loads it
+is added only when the matrix has rank two. The build names on stderr each
+served model it gives no view (it names no deck, or has no measurement file)
+and each setpoint it leaves out, with the reason: pyAML has no magnet model
+for it, or its slices mix zero-length and thick elements.
+
+**Simulator.** The view lists every channel address of the facility and each
+served model's status address (``addresses.json``), every model with its wiring (``variables.json``), the
+models this render serves (``served_models.json``), the seeds, the scenarios
+and a byte copy of each deck. A simulator serves exactly the channels of
+``addresses.json``; an address outside it does not exist.
+
+**Limits.** One entry per record of ``limits.yaml`` and nothing else. A
+channel without a record is decided at write time by
+``control_system.limits_checking.mode``.
+
+**Facts.** What agents are told about the facility: its identity, the place
+tree with device counts, the device classes with their aliases, the signals in
+use and the models. It is how an agent knows the facility's own words without
+a prompt written by hand.
+
+**Bluesky.** One settable per setpoint and one readable per readback. A
+settable reads back its pair when the pair is another channel, and settles
+within the setpoint's ``tolerance``, else within the motion its readback's
+seed declares, else within the profile's floor.
+
+**Channel finder.** Three indexes, one per file-backed pipeline; a render
+carries the one its profile's ``channel_finder_mode`` selects. The fourth
+pipeline, ``graph``, reads ``data/channel_databases/graph.duckdb``, which the
+build indexes from the Turtle that ``services.graphdb.ttl_path`` names: the
+graph view, unless the profile names another.
+
+**Graph.** The facility file as Turtle: one node per place, device and
+channel and per signal named, with the device classes as a class tree; one
+edge per accepted or contested relation claim, one claim node per claim the
+``facility_graph`` settings keep, and one group node per group a claim names.
+Why relations are claims, and how a claim becomes an edge or a place:
+:doc:`facility-relations`.
+
+.. _architecture-facility-schema:
+
+The schema
+==========
+
+The facility file's shape is two `LinkML <https://linkml.io/>`_ modules (LinkML
+is a YAML language for data schemas) in
+``src/osprey/facility/schema/``: ``core.yaml``, the records, and
+``vocabulary.yaml``, the device classes, signal roles and property names. Both
+carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
+facility exports and mapping them across facilities. NARAD requires more than a bare channel list
+can state, so ``loosenings.yaml`` records, per slot NARAD requires, what became
+of it (``dropped``, ``optional``, ``renamed:<slot>`` or ``header``) and why.
+The graph view writes the facility file back in NARAD's terms. NARAD's
+optional relation slots are not carried; relations are claims
+(:doc:`facility-relations`).
+
+.. raw:: html
+   :file: ../_diagrams/facility-vocabulary.html
+
+A facility adds device classes in ``classes.yaml``, each under a vocabulary
+class or one it added earlier; they reach the facts view and the graph with their aliases. A
+channel's ``signal`` is a role the vocabulary lists or one the facility adds in
+``signals.yaml``. The build pairs setpoints with readbacks by the quantity their signals name, so a
+quantity the vocabulary lacks pairs only through an explicit ``pair``. The
+roles a measurement kind and an engine use are in
+:doc:`/reference/contracts/facility-kinds`.
+
+.. _architecture-simulation-models:
+
+Simulation models
+=================
+
+A facility file's ``models`` are what stands behind the channels when the
+deployment runs against a simulator. Each model record names an ``engine``, a
+``deck`` and the ``wiring`` that ties channel addresses to elements of the
+deck; a model of the ``injection`` engine names no deck.
+
+**Engines are plug-ins.** An engine is a module registered in the
+``osprey_connectors.simulation.engines`` entry-point group under the name a model's
+``engine`` gives. OSPREY ships ``pyat`` and ``injection``. The build reaches the engine to read
+the deck (where each element sits, each wired channel's operating point, what
+each wiring record is) without building a model, and stops with
+``engine-missing`` when no installed package registers the name. The contract
+is under :ref:`extending-lume-model`.
+
+**The texture model serves the rest.** Every channel no served model wires is
+served by ``texture``, from its seed: a setpoint holds the value written to it
+and echoes it into its paired readback, and every channel moves with the noise
+and drift its seed states.
+``texture`` is always served, so a facility with a channel list and no physics
+model is still a whole machine to a client.
+
+**A render chooses what it serves.** ``simulation.models`` names the physics
+models a render serves; absent, it serves every model the facility file holds,
+and ``[]`` serves ``texture`` alone. The choice is written into the simulator
+view's ``served_models.json``. Every model's record and deck are in the view
+whether or not it is served, so the set can change without a different view
+shape.
+
+**A failed model does not take the machine down.** Each served physics model
+has a status channel, ``<code>:SIM:<model>:STATUS``, which exists in no other
+view. A model whose engine raises while building or reading it (over a deck
+that does not load, say) is left failed: its status channel carries the
+engine's error text, and every other model and every texture channel is still
+served. ``osprey sim status`` prints one ``<model>: <status>`` line per served
+model, ``ok`` or ``FAILED:`` and that text, exits 1 when a model failed, and
+names each model's log. ``osprey health`` reads the same channels on every
+simulator the deployment serves from a container (the ``va`` and ``standin``
+targets) and reports a failed model as an ``error`` row of its ``simulator``
+category, since the container itself keeps serving and stays healthy.
+
+A model that names no deck and wires no channel is not a failure: nothing is
+built for it, its status is ``no deck``, and every channel of that machine is
+the texture's.
+
+Every served model, ``texture`` included, also has read-only health channels
+for its simulated server, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and
+``ENGINEER``, which the server pages of the channel directory and the server
+fleet read (:ref:`channel-finder-directory`).
+
+**A model may read another model's records.** A model record's ``inputs``
+lists records other models of the facility wire, each an ``address`` and an
+``engine`` block in the consuming engine's own words:
+
+.. code-block:: yaml
+
+   - name: down
+     engine: <an engine that takes inputs>
+     inputs:
+     - address: UP:CHARGE
+       engine: <the consuming engine's words for this input>
+
+An input is never wiring: the producer alone wires the address, and the
+consumer reads its value. The view carries each model's ``inputs`` only when
+it declares some. The build stops on the consuming model, naming the input,
+when:
+
+- the address is wired by no model (``reference-missing``);
+- the address is one the model wires itself (``value-invalid``);
+- the model lists the address twice (``value-invalid``);
+- the inputs form a cycle, a model reading, through other models, a record of
+  its own; the stop names every step of it (``value-invalid``);
+- the engine has no ``take_inputs`` (``engine-invalid``);
+- the engine's ``describe_input`` refuses the ``engine`` block
+  (``engine-invalid``, with the engine's text).
+
+A model without ``inputs`` builds and serves as before.
+
+**A pyat ring may serve turn-by-turn data.** Its ``pyat`` settings state a
+``turn_by_turn`` block naming at least the ``injection_element``; its inputs
+are an injection chain's records with ``engine: {signal: shot}``,
+``{signal: charge}`` and ``{signal: stored_current}``; and its wiring adds
+records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
+``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
+``rf_switch``, ``pilot_tone`` and ``stored``. Each array channel is declared
+``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. Each
+``arm`` and the chain's ``request`` are marked ``command`` by their engines. The build
+stops ``engine-invalid`` on a malformed block, a turn record on a ring
+without one, a record of the wrong value type or shape, and a monitor record
+whose element is not a monitor. The settings, their defaults and what a shot
+does are in :ref:`va-turn-by-turn`.
+
+How the composite serves the models over Channel Access and PVAccess is in
+:doc:`virtual-accelerator`.
+
+.. seealso::
+
+   :doc:`/how-to/describe-your-facility`
+      The source tree, file by file.
+
+   :doc:`facility-packages`
+      The split into osprey-facility and osprey-panels, and its boundary check.
+
+   :doc:`/how-to/control-systems/use-virtual-accelerator`
+      Running the simulator and serving a facility's own model.
+
+   :doc:`/reference/configuration/config`
+      ``simulation.models`` and ``simulation.tick_s``.
+
+   :doc:`/how-to/control-systems/switch-control-target`
+      ``control_system.limits_checking.mode``.

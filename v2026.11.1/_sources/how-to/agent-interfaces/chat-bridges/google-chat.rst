@@ -1,0 +1,287 @@
+.. _how-to-google-chat:
+
+===========
+Google Chat
+===========
+
+How to let your team ask the OSPREY agent questions from a Google Chat space,
+and get answers, plots, and files back in the same conversation.
+
+.. dropdown:: Before you start
+   :color: info
+   :icon: checklist
+
+   - A project whose build profile has a ``dispatch:`` block — see
+     :doc:`../event-dispatch`.
+   - Docker or Podman, for the container path.
+   - A Google Cloud project in which you can create a chat app, a service
+     account, and a message queue.
+
+Overview
+========
+
+The bridge turns a Google Chat conversation into a way of talking to the agent.
+Someone mentions the chat app in a space, and Google puts that message on a
+queue. The bridge picks it up and hands the question to the :doc:`event dispatch
+pipeline <../event-dispatch>`, and the answer is posted back in the same
+conversation thread.
+
+It is a **reader of a queue, not a server**. Google never calls it; it asks
+Google for waiting messages, making only outbound calls.
+
+Like every bridge, it :ref:`remembers each question and conversation
+<bridge-memory>`. What is particular to Google Chat is that there is no reading
+position to keep. A message the bridge has not finished with stays on the queue.
+So anything sent while the bridge was down is waiting when it comes back.
+
+Enable It in a Profile
+======================
+
+Add a ``gchat_bridge:`` block to your build profile. It holds two settings:
+
+- Which dispatcher trigger the bridge fires. That trigger decides what the agent
+  is allowed to do with a chat question.
+- Whether the agent may @mention people.
+
+The block is only meaningful next to a ``dispatch:`` block:
+
+.. literalinclude:: ../examples/profile-gchat-bridge.yml
+   :language: yaml
+   :caption: profile.yml
+
+.. note::
+
+   The bridge and the dispatch pair must sit on the same network. Workers go on
+   the host's network whenever the agent has to reach a control system or a
+   co-deployed bridge at a loopback address (:ref:`deployment-network-attachment`).
+   This bridge then has to move with them: add
+   ``services.gchat_bridge.network: host`` to your profile's ``config:`` block.
+   ``osprey build`` refuses a split pair and names the key to change.
+
+The queue, the service-account key and the bucket for files are **not** profile
+settings. Which queue this deployment reads, which key file it signs in with,
+and which storage bucket files are published through all differ per deployment.
+The key is also a secret that must never be baked into a build. Listing them
+under ``env.required`` documents them in ``.env.example``. Fill the values into
+the **profile's** ``.env``, which is where a secret survives a rebuild. The
+build derives the project's ``.env`` from it (created mode ``0600``, readable
+only by you).
+
+Two mistakes are caught at **build** time rather than at runtime: declaring the
+bridge without a ``dispatch:`` block, and naming a trigger your triggers file
+does not declare. Both fail the build with a message naming the problem.
+
+Runtime settings
+----------------
+
+These are the ones you create and set yourself.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Variable
+     - Meaning
+   * - ``GCHAT_SA_KEY``
+     - Path to the service-account key file the bridge signs in with. The file
+       must exist at that path on the deployment host; it is mounted read-only
+       into the container at the same path, so one value names it on both sides.
+   * - ``GCHAT_SUBSCRIPTION``
+     - The full name of the queue subscription to read, in the form
+       ``projects/your-project/subscriptions/your-subscription``. A short name
+       on its own does not work; the bridge warns at startup if what you set
+       does not look like the full form.
+   * - ``GCHAT_APP_ID``
+     - The chat app's own user id, e.g. ``users/1234567890``. This is also what
+       an @mention is matched against, so a wrong value makes the bridge ignore
+       every message instead of failing loudly — worth double-checking.
+   * - ``GCS_BUCKET``, ``GCS_PROJECT``
+     - Optional. The Cloud Storage bucket that plots and files are published to,
+       and the project that owns it. Without a bucket the agent still answers,
+       text only. **Read** :ref:`what-is-shared-gchat` **before setting one.**
+
+.. warning::
+
+   **One bridge per queue.** Deploy exactly one bridge against a given
+   subscription. Google hands each message to only *one* of a subscription's
+   readers. So a second deployment pointed at the same subscription does not get
+   its own copy of every message. It **silently splits** them: each bridge
+   answers only the messages it happened to receive. The other questions look to
+   your team like they were ignored, and nothing anywhere logs an error. The
+   second deployment can be a staging stack, a container someone forgot to
+   remove, or another facility reusing the name. Give every deployment its own
+   subscription.
+
+.. dropdown:: Settings that are filled in for you, or safe to leave alone
+   :icon: gear
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 30 70
+
+      * - Variable
+        - Meaning
+      * - ``DISPATCH_TRIGGER``
+        - The trigger to fire. Comes from the profile block.
+      * - ``GCHAT_MENTIONS``
+        - Whether @mentions are on. Comes from the profile block.
+      * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
+        - The two shared secrets the bridge needs to reach the dispatcher and
+          the worker, generated for you when unset — see
+          :ref:`Authentication <event-dispatch-auth>`.
+      * - ``DISPATCHER_URL``, ``WORKER_URL``
+        - Where the dispatcher and worker are — the bridge collects answers and
+          files from the worker directly. Filled in for you when they run in the
+          same stack; when they run elsewhere you must set them, and the bridge
+          refuses to start without them.
+      * - ``DISPATCH_TIMEOUT_SEC``
+        - How long the worker may spend on one run. Comes from your project
+          configuration, so raising it raises it for both halves at once.
+      * - ``POLL_BUDGET``
+        - How long the bridge waits for an answer before giving up on it.
+          Defaults to 30 seconds more than the worker's own limit, and may never
+          be less than that limit — the bridge refuses to start if it is.
+      * - ``POLL_INTERVAL``
+        - Seconds between checks on an answer in progress (default 2).
+      * - ``DRAIN_INTERVAL``
+        - Seconds between sweeps of the queue of questions that could not be
+          handed off yet (default 60).
+      * - ``RETRY_MIN_AGE``
+        - How long a failed hand-off is held before it is retried, so a brief
+          outage has time to clear (default 20 minutes).
+      * - ``RETRY_GIVE_UP``
+        - Age at which a question that still cannot be handed off is abandoned
+          (default 48 hours).
+      * - ``RETRY_LIFETIME_CAP``
+        - Hard ceiling on how long anything may sit in that queue, whatever its
+          state (default 7 days).
+      * - ``BRIDGE_TRUST_ENV``
+        - Set to ``1`` only if this host's outbound calls must go through your
+          site's web proxy. Off by default, so a proxy inherited from a shell or
+          a CI runner cannot quietly place itself in front of Google.
+      * - ``HISTORY_ANSWER_LIMIT``
+        - Longest earlier answer, in characters, sent back in full with a
+          follow-up (default 3000). A longer one is sent as its opening, and the
+          agent reads the rest only if it needs it. ``0`` always sends every
+          answer in full.
+      * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
+        - Optional alert host. With ``GITLAB_URL`` and ``GITLAB_ISSUES_TOKEN``
+          set, the bridge holds queued questions while ``GITLAB_PROJECT`` has an
+          open ``osprey-alert`` issue, or while GitLab cannot be reached. Leave
+          them unset to skip the check.
+      * - ``APP_VERSION_DISPLAY``
+        - A release label shown with each acknowledgement, so a conversation
+          shows which version answered. Omitted when unset.
+      * - ``DEDUP_PATH``
+        - Where the bridge keeps the questions it has answered. It defaults to
+          a file under ``/data``, its own volume; change it only if you
+          deliberately relocate that state.
+      * - ``TZ``
+        - Timezone, taken from your project configuration so timestamps match
+          the rest of the stack.
+
+Bring It Up
+===========
+
+**1. Create the chat app and the identity it speaks as.** In your Google Cloud
+project, create a Chat app for the agent. Its display name is what your team
+sees replying, so make it obvious (for example ``OSPREY agent``). Create a
+service account for it, download a key file for that account, and note the app's
+own user id (the ``users/…`` value).
+
+**2. Give this deployment its own queue.** Configure the chat app to publish its
+events to a topic. Create one subscription on that topic for *this* deployment,
+not one shared with any other. Allow the service account to read
+that subscription. See the warning above for what a shared subscription does.
+
+**3. Add the app to the spaces it should serve.** It only sees conversations it
+has been added to. Add it to each space you want served; people can also message
+it directly without any setup.
+
+**4. Optional: create a bucket for plots and files.** Allow the service account
+to write to it. Anything the agent publishes there has to be readable without
+signing in — see :ref:`what-is-shared-gchat` before you decide to do this at all.
+Skip this step and the agent answers text only.
+
+**5. Fill in the environment file.** Set the values from the table above in the
+**profile's** ``.env`` (the build derives the project's ``.env`` from it):
+
+.. code-block:: bash
+
+   GCHAT_SA_KEY=/etc/osprey/gchat-service-account.json
+   GCHAT_SUBSCRIPTION=projects/my-gcp-project/subscriptions/osprey-chat-events
+   GCHAT_APP_ID=users/1234567890
+   GCS_BUCKET=my-osprey-chat-artifacts   # optional; enables plots and files
+   GCS_PROJECT=my-gcp-project            # optional; the bucket's project
+
+**6. Bring the stack up.** The bridge is registered in ``deployed_services``, so
+it starts with everything else:
+
+.. code-block:: bash
+
+   osprey up        # add --dev to bake in a local osprey checkout
+
+Then mention the app in one of its spaces and ask it something. If nothing
+happens, check the service's logs first: a missing credential stops the bridge at
+startup with the missing variable named. A wrong app id is the quieter failure.
+The bridge runs happily and ignores every message, because nothing it sees looks
+like a mention of itself.
+
+.. important::
+
+   The bridge keeps what it remembers — which questions it has answered and the
+   recent conversation — in a named volume mounted at ``/data``. Do not remove
+   that volume. Without it, a restart in the middle of a question can answer it
+   twice or drop it, and conversations lose their thread of context.
+
+Who Is in the Space, and @Mentions
+==================================
+
+Each question reaches the agent with who asked it and who is in the space. The
+bridge lists the space's members with the app's own sign-in, so there is no
+extra permission to grant.
+
+A member's name is the one Google's member list gives. When Google gives none,
+it is the name the bridge saw when that person wrote to the app or was
+@mentioned in a message to it. Anyone with neither is listed without a name,
+and the agent is told not to guess.
+
+The agent may @mention a member of the same space only when someone in the
+space asks it to pass something on or to notify someone. It never does so on
+its own. Anyone not in the space is written as plain text.
+
+Set ``mentions: false`` in the profile block to have every mention posted as
+plain text instead.
+
+.. _what-is-shared-gchat:
+
+Who Can Ask, and What Is Shared
+===============================
+
+Who may reach the agent, and what the trigger lets it do, is the same for every
+bridge — see :ref:`bridge-access`. What is particular to Google Chat:
+
+**The spaces are the ones you added the app to**, plus anyone who messages it
+directly. Google, not Osprey, decides who is in those spaces. So add the app as
+deliberately as you would choose who gets an account.
+
+**Mentions are matched against the mention Google itself records**, not against
+the message text. So writing the app's name in passing does not trigger it.
+
+.. warning::
+
+   **Plots and files come back as public links.** This is where a Google Chat
+   deployment differs sharply from :doc:`Nextcloud Talk <nextcloud-talk>`. Chat
+   can only show an image in a message if Google itself can fetch it. So every
+   plot or file the agent produces is uploaded to the bucket you configured. It
+   is posted as an ordinary web address that **anyone who has the link can
+   open**: no sign-in, no membership check, no expiry. Forwarding the message forwards
+   that access with it, and a link that leaks stays usable until you delete the
+   object.
+
+   Treat that bucket as published material. Give it a bucket of its own, holding
+   nothing else, in a project with nothing sensitive in it. Consider a rule that
+   deletes objects after a while, so you are not accumulating a permanent public
+   archive of your plots. If publishing this way is not acceptable at
+   your facility, leave ``GCS_BUCKET`` unset: the agent then answers text only
+   and publishes nothing.

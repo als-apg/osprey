@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Simulation &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Simulation &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Supervising Connector Processes" href="supervision.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
@@ -534,7 +535,7 @@ or a numpy array, signed or unsigned bytes) is read up to its first NUL
 and decoded as UTF-8, an invalid byte becoming U+FFFD.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> | </em><em>Sequence</em><em>[</em><em>int</em><em>] </em><em>| </em><em>np.ndarray</em>) – The value read from the channel.</p>
+<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> | </em><em>Iterable</em><em>[</em><em>SupportsInt</em><em>]</em>) – The value read from the channel.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The decoded text.</p>
@@ -579,7 +580,7 @@ capped by the composite.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>connector</strong> (<em>Any</em>) – A connected control system connector.</p></li>
+<li><p><strong>connector</strong> (<em>object</em>) – A connected control system connector.</p></li>
 <li><p><strong>address</strong> (<em>str</em>) – The model’s status address, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>.</p></li>
 </ul>
 </dd>
@@ -598,15 +599,15 @@ capped by the composite.</p>
 <dd><p>The fast period a config asks for.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full project config.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full project config.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">simulation.fast_tick_s</span></code> in seconds, or <a class="reference internal" href="#osprey_connectors.simulation.DEFAULT_FAST_TICK_S" title="osprey_connectors.simulation.DEFAULT_FAST_TICK_S"><code class="xref py py-data docutils literal notranslate"><span class="pre">DEFAULT_FAST_TICK_S</span></code></a>
 when the <code class="docutils literal notranslate"><span class="pre">simulation</span></code> section or its <code class="docutils literal notranslate"><span class="pre">fast_tick_s</span></code> entry is absent.</p>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – If the value is not a number greater than zero; the
-    message names the key.</p>
+<dd class="field-odd"><p><strong>ValueError</strong> – If the value is not a number greater than zero, or the
+    <code class="docutils literal notranslate"><span class="pre">simulation</span></code> section is not a mapping; the message names the key.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>float</p>
@@ -620,15 +621,15 @@ when the <code class="docutils literal notranslate"><span class="pre">simulation
 <dd><p>The simulated machine’s tick period a config asks for.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full project config.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full project config.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code> in seconds, or <a class="reference internal" href="#osprey_connectors.simulation.DEFAULT_TICK_S" title="osprey_connectors.simulation.DEFAULT_TICK_S"><code class="xref py py-data docutils literal notranslate"><span class="pre">DEFAULT_TICK_S</span></code></a> when the
 <code class="docutils literal notranslate"><span class="pre">simulation</span></code> section or its <code class="docutils literal notranslate"><span class="pre">tick_s</span></code> entry is absent.</p>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – If the value is not a number greater than zero; the
-    message names the key.</p>
+<dd class="field-odd"><p><strong>ValueError</strong> – If the value is not a number greater than zero, or the
+    <code class="docutils literal notranslate"><span class="pre">simulation</span></code> section is not a mapping; the message names the key.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>float</p>
@@ -854,7 +855,7 @@ engine runs cannot describe different machines.</p>
 <dd><p>The targets a scenario writes: addresses, engine variables and coupled channels.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>scenario</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – One entry of the simulator view’s scenario list.</p>
+<dd class="field-odd"><p><strong>scenario</strong> (<em>ScenarioRecord</em>) – One entry of the simulator view’s scenario list.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The keys of its <code class="docutils literal notranslate"><span class="pre">overrides</span></code>, the keys of every fault’s <code class="docutils literal notranslate"><span class="pre">writes</span></code>,
@@ -942,6 +943,11 @@ stated at build time: its <code class="docutils literal notranslate"><span class
 <a class="reference internal" href="#osprey_connectors.simulation.view.MARKS" title="osprey_connectors.simulation.view.MARKS"><code class="xref py py-data docutils literal notranslate"><span class="pre">MARKS</span></code></a>). The words are the facility schema’s. A <code class="docutils literal notranslate"><span class="pre">readback</span></code> is any read of an element’s setting, paired
 with a setpoint or not; a reader wanting the readback of a setpoint reads that
 setpoint channel’s <code class="docutils literal notranslate"><span class="pre">pair</span></code>.</p>
+<p>A wiring record may state further addresses of its variable under <code class="docutils literal notranslate"><span class="pre">also</span></code>.
+Each is a channel of the view whose <code class="docutils literal notranslate"><span class="pre">owner</span></code> is the record’s model, and it is
+served as the record’s <code class="docutils literal notranslate"><span class="pre">address</span></code> is: <a class="reference internal" href="#osprey_connectors.simulation.view.SimulatorView.record_address" title="osprey_connectors.simulation.view.SimulatorView.record_address"><code class="xref py py-meth docutils literal notranslate"><span class="pre">SimulatorView.record_address()</span></code></a>
+gives the address a channel is served as, and <a class="reference internal" href="#osprey_connectors.simulation.view.Binding.addresses" title="osprey_connectors.simulation.view.Binding.addresses"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Binding.addresses</span></code></a> every
+address of a record.</p>
 <p>The module imports only the standard library and <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code>, so a
 reader that must not load a model can open a view.</p>
 <dl class="py data">
@@ -967,8 +973,7 @@ is <code class="docutils literal notranslate"><span class="pre">setpoint</span><
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">IOC_HEALTH_SIGNALS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME',</span> <span class="pre">'ENGINEER')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS" title="Link to this definition">#</a></dt>
-<dd><p>The signals of a model’s IOC health addresses, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code>,
-in the order a view lists them.</p>
+<dd><p>The name <a class="reference internal" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS" title="osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS"><code class="xref py py-data docutils literal notranslate"><span class="pre">SERVER_HEALTH_SIGNALS</span></code></a> was first released under.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -980,7 +985,13 @@ in the order a view lists them.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">PERIODIC_IOC_HEALTH</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH" title="Link to this definition">#</a></dt>
-<dd><p>The IOC health signals each periodic pass publishes.</p>
+<dd><p>The name <a class="reference internal" href="#osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH" title="osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH"><code class="xref py py-data docutils literal notranslate"><span class="pre">PERIODIC_SERVER_HEALTH</span></code></a> was first released under.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">PERIODIC_SERVER_HEALTH</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH" title="Link to this definition">#</a></dt>
+<dd><p>The server health signals each periodic pass publishes.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -1012,14 +1023,28 @@ under the facility tree and under the view alike.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.SERVED_SIGNAL_PROPERTY">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">SERVED_SIGNAL_PROPERTY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'signal'</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.SERVED_SIGNAL_PROPERTY" title="Link to this definition">#</a></dt>
-<dd><p>The directory property the simulator sets on each status and IOC health row,
+<dd><p>The directory property the simulator sets on each status and server health row,
 valued with that row’s signal; channel rows carry none.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">SERVER_HEALTH_SIGNALS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('HEARTBEAT',</span> <span class="pre">'UPTIME',</span> <span class="pre">'ENGINEER')</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS" title="Link to this definition">#</a></dt>
+<dd><p>The signals of a model’s server health addresses, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code>,
+in the order a view lists them.</p>
 </dd></dl>
 
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.SCHEMAS">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">SCHEMAS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'served_models.json':</span> <span class="pre">'osprey.facility.served_models/1',</span> <span class="pre">'addresses.json':</span> <span class="pre">'osprey.facility.addresses/1',</span> <span class="pre">'variables.json':</span> <span class="pre">'osprey.facility.simulator/4',</span> <span class="pre">'seeds.json':</span> <span class="pre">'osprey.facility.seeds/2',</span> <span class="pre">'scenarios.json':</span> <span class="pre">'osprey.facility.scenarios/3'})</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.SCHEMAS" title="Link to this definition">#</a></dt>
 <dd><p>Each view file and the schema it carries.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SERVED_MODELS_FILE">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">SERVED_MODELS_FILE</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'served_models.json'</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.SERVED_MODELS_FILE" title="Link to this definition">#</a></dt>
+<dd><p>The file names are <code class="docutils literal notranslate"><span class="pre">Final</span></code> so that <a class="reference internal" href="#osprey_connectors.simulation.view.SimulatorView.document" title="osprey_connectors.simulation.view.SimulatorView.document"><code class="xref py py-meth docutils literal notranslate"><span class="pre">SimulatorView.document()</span></code></a> types
+each one’s document.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -1036,7 +1061,7 @@ valued with that row’s signal; channel rows carry none.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.Binding">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">Binding</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">direction</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">engine_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plane</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">marks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">frozenset({})</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#Binding"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.Binding" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">Binding</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">direction</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">engine_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plane</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">marks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">frozenset({})</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">also</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#Binding"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.Binding" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>One wiring record of a physics model: the address it serves and what it is.</p>
 <dl class="field-list simple">
@@ -1045,6 +1070,8 @@ valued with that row’s signal; channel rows carry none.</p>
 <li><p><strong>id</strong> (<em>str</em>) – The wiring record’s id.</p></li>
 <li><p><strong>model</strong> (<em>str</em>) – The model the record belongs to.</p></li>
 <li><p><strong>address</strong> (<em>str</em>) – The channel address the record serves.</p></li>
+<li><p><strong>also</strong> (<em>tuple</em><em>[</em><em>str</em><em>, </em><em>...</em><em>]</em>) – The further addresses that serve what <code class="docutils literal notranslate"><span class="pre">address</span></code> serves; empty
+when the record states none.</p></li>
 <li><p><strong>direction</strong> (<em>str</em>) – <code class="docutils literal notranslate"><span class="pre">write</span></code> or <code class="docutils literal notranslate"><span class="pre">read</span></code>.</p></li>
 <li><p><strong>engine_role</strong> (<em>str</em>) – One of <a class="reference internal" href="#osprey_connectors.simulation.view.ENGINE_ROLES" title="osprey_connectors.simulation.view.ENGINE_ROLES"><code class="xref py py-data docutils literal notranslate"><span class="pre">ENGINE_ROLES</span></code></a>.
 A <code class="docutils literal notranslate"><span class="pre">readback</span></code> reads an element’s setting, paired with a setpoint
@@ -1054,7 +1081,7 @@ plane, else <code class="docutils literal notranslate"><span class="pre">None</s
 <li><p><strong>refresh</strong> (<em>str</em>) – One of <a class="reference internal" href="#osprey_connectors.simulation.view.REFRESH" title="osprey_connectors.simulation.view.REFRESH"><code class="xref py py-data docutils literal notranslate"><span class="pre">REFRESH</span></code></a>.</p></li>
 <li><p><strong>element</strong> (<em>str</em><em> | </em><em>None</em>) – The element the record names, or <code class="docutils literal notranslate"><span class="pre">None</span></code> (a record naming
 slices, or none).</p></li>
-<li><p><strong>record</strong> (<em>collections.abc.Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The wiring record as the view states it, read-only; the
+<li><p><strong>record</strong> (<em>collections.abc.Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The wiring record as the view states it, read-only; the
 engine’s <code class="docutils literal notranslate"><span class="pre">build</span></code> takes it verbatim.</p></li>
 <li><p><strong>marks</strong> (<em>frozenset</em><em>[</em><em>str</em><em>]</em>) – The <a class="reference internal" href="#osprey_connectors.simulation.view.MARKS" title="osprey_connectors.simulation.view.MARKS"><code class="xref py py-data docutils literal notranslate"><span class="pre">MARKS</span></code></a> the record carries; empty when it carries
 none.</p></li>
@@ -1103,13 +1130,29 @@ none.</p></li>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.Binding.record">
-<span class="sig-name descname"><span class="pre">record</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.simulation.view.Binding.record" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">record</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.simulation.view.Binding.record" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.Binding.marks">
 <span class="sig-name descname"><span class="pre">marks</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">frozenset</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({})</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.Binding.marks" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.Binding.also">
+<span class="sig-name descname"><span class="pre">also</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">()</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.Binding.also" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.Binding.addresses">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">addresses</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.simulation.view.Binding.addresses" title="Link to this definition">#</a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">address</span></code>, then each of <code class="docutils literal notranslate"><span class="pre">also</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Every address the record serves</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.Binding.from_record">
@@ -1121,14 +1164,14 @@ none.</p></li>
     <code class="docutils literal notranslate"><span class="pre">refresh</span></code>.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.simulation.view.Binding" title="osprey_connectors.simulation.view.Binding"><em>Binding</em></a></p>
+<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.simulation.view.Binding" title="osprey_connectors.simulation.view.Binding">Binding</a></p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.Binding.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">direction</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">engine_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plane</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">marks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">frozenset({})</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.simulation.view.Binding.__init__" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">direction</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">engine_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plane</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">marks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">frozenset({})</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">also</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.simulation.view.Binding.__init__" title="Link to this definition">#</a></dt>
 <dd><dl class="field-list simple">
 </dl>
 </dd></dl>
@@ -1236,7 +1279,7 @@ or <code class="docutils literal notranslate"><span class="pre">None</span></cod
 <dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.simulation.view.ViewSchemaError" title="osprey_connectors.simulation.view.ViewSchemaError"><strong>ViewSchemaError</strong></a> – the entry lacks a key every channel carries.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.simulation.view.Channel" title="osprey_connectors.simulation.view.Channel"><em>Channel</em></a></p>
+<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.simulation.view.Channel" title="osprey_connectors.simulation.view.Channel">Channel</a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -1417,18 +1460,33 @@ render itself.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.document">
-<span class="sig-name descname"><span class="pre">document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.document"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.document" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'served_models.json'</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ServedModelsDocument</span></span></span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.document"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.document" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'addresses.json'</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">AddressesDocument</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'variables.json'</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">VariablesDocument</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'seeds.json'</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">SeedsDocument</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'scenarios.json'</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ScenariosDocument</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span></span></dt>
 <dd><p>One view file, parsed once and read-only.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>name</strong> (<em>str</em>) – The file’s name, one of <a class="reference internal" href="#osprey_connectors.simulation.view.SCHEMAS" title="osprey_connectors.simulation.view.SCHEMAS"><code class="xref py py-data docutils literal notranslate"><span class="pre">SCHEMAS</span></code></a>.</p>
 </dd>
-<dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.simulation.view.ViewSchemaError" title="osprey_connectors.simulation.view.ViewSchemaError"><strong>ViewSchemaError</strong></a> – the file’s <code class="docutils literal notranslate"><span class="pre">schema</span></code> is absent or neither
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The file’s document, typed by its record in
+<code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.simulation.records</span></code> when <code class="docutils literal notranslate"><span class="pre">name</span></code> is one of
+the view’s file-name constants.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.simulation.view.ViewSchemaError" title="osprey_connectors.simulation.view.ViewSchemaError"><strong>ViewSchemaError</strong></a> – the file’s <code class="docutils literal notranslate"><span class="pre">schema</span></code> is absent or neither
     <code class="docutils literal notranslate"><span class="pre">SCHEMAS[name]</span></code> nor an older one this OSPREY still reads.</p>
 </dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Mapping</em>[str, <em>Any</em>]</p>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>Mapping</em>[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1509,13 +1567,15 @@ render itself.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">
-<span class="sig-name descname"><span class="pre">ioc_health_by_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.ioc_health_by_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model" title="Link to this definition">#</a></dt>
-<dd><p>Each listed model’s IOC health addresses by signal, <code class="docutils literal notranslate"><span class="pre">{model:</span> <span class="pre">{signal:</span> <span class="pre">address}}</span></code>.</p>
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.server_health_by_model">
+<span class="sig-name descname"><span class="pre">server_health_by_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.server_health_by_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.server_health_by_model" title="Link to this definition">#</a></dt>
+<dd><p>Each listed model’s server health addresses by signal, <code class="docutils literal notranslate"><span class="pre">{model:</span> <span class="pre">{signal:</span> <span class="pre">address}}</span></code>.</p>
 <p>An address is <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code> with <code class="docutils literal notranslate"><span class="pre">&lt;signal&gt;</span></code> one of
-<a class="reference internal" href="#osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS" title="osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS"><code class="xref py py-data docutils literal notranslate"><span class="pre">IOC_HEALTH_SIGNALS</span></code></a>; each model’s signals keep the list’s order.
-<code class="docutils literal notranslate"><span class="pre">ioc_health</span></code> is optional under <code class="xref py py-data docutils literal notranslate"><span class="pre">ADDRESSES_SCHEMA</span></code>: a view from
-a build without it yields an empty mapping. Unlike the status
+<a class="reference internal" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS" title="osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS"><code class="xref py py-data docutils literal notranslate"><span class="pre">SERVER_HEALTH_SIGNALS</span></code></a>; each model’s signals keep the list’s order.
+The list is read from <code class="docutils literal notranslate"><span class="pre">server_health</span></code>, or from <code class="docutils literal notranslate"><span class="pre">ioc_health</span></code>, the key
+it was first written under, when the document has no <code class="docutils literal notranslate"><span class="pre">server_health</span></code>.
+Both are optional under <code class="xref py py-data docutils literal notranslate"><span class="pre">ADDRESSES_SCHEMA</span></code>: a view from a build
+that wrote neither yields an empty mapping. Unlike the status
 addresses, it lists the <code class="docutils literal notranslate"><span class="pre">texture</span></code> model too.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
@@ -1523,6 +1583,17 @@ addresses, it lists the <code class="docutils literal notranslate"><span class="
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p><em>Mapping</em>[str, <em>Mapping</em>[str, str]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model">
+<span class="sig-name descname"><span class="pre">ioc_health_by_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.ioc_health_by_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model" title="Link to this definition">#</a></dt>
+<dd><p><a class="reference internal" href="#osprey_connectors.simulation.view.SimulatorView.server_health_by_model" title="osprey_connectors.simulation.view.SimulatorView.server_health_by_model"><code class="xref py py-meth docutils literal notranslate"><span class="pre">server_health_by_model()</span></code></a>, under the name it was first released with.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>Mapping</em>[str, <em>Mapping</em>[str, str]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1574,12 +1645,31 @@ channel’s <code class="docutils literal notranslate"><span class="pre">on</spa
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.record_address">
+<span class="sig-name descname"><span class="pre">record_address</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.record_address"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.record_address" title="Link to this definition">#</a></dt>
+<dd><p>The address <code class="docutils literal notranslate"><span class="pre">address</span></code> is served as.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>address</strong> (<em>str</em>) – A channel address.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The <code class="docutils literal notranslate"><span class="pre">address</span></code> of the served physics model’s wiring record that
+names <code class="docutils literal notranslate"><span class="pre">address</span></code> under <code class="docutils literal notranslate"><span class="pre">also</span></code>; <code class="docutils literal notranslate"><span class="pre">address</span></code> itself for any other
+channel.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.SimulatorView.seed">
 <span class="sig-name descname"><span class="pre">seed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/view.html#SimulatorView.seed"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.view.SimulatorView.seed" title="Link to this definition">#</a></dt>
 <dd><p>The seed record of the channel at <code class="docutils literal notranslate"><span class="pre">address</span></code>, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Mapping</em>[str, <em>Any</em>] | None</p>
+<dd class="field-odd"><p>SeedRecord | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1593,7 +1683,7 @@ channel’s <code class="docutils literal notranslate"><span class="pre">on</spa
 <dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.simulation.view.ViewSchemaError" title="osprey_connectors.simulation.view.ViewSchemaError"><strong>ViewSchemaError</strong></a> – A scenario’s <code class="docutils literal notranslate"><span class="pre">still</span></code> is not a list of addresses.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>tuple[<em>Mapping</em>[str, <em>Any</em>], …]</p>
+<dd class="field-even"><p>tuple[ScenarioRecord, …]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1677,7 +1767,7 @@ product of <code class="docutils literal notranslate"><span class="pre">shape</s
 <dd><p>The labels of a bool or enum channel record.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>channel</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The channel record.</p>
+<dd class="field-odd"><p><strong>channel</strong> (<em>ChannelRecord</em><em> | </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Sequence</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em><em>]</em>) – The channel record.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The record’s <code class="docutils literal notranslate"><span class="pre">options</span></code>, or <code class="xref py py-data docutils literal notranslate"><span class="pre">DEFAULT_BOOL_OPTIONS</span></code> without them.</p>
@@ -1834,7 +1924,7 @@ capped by the composite.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>connector</strong> (<em>Any</em>) – A connected control system connector.</p></li>
+<li><p><strong>connector</strong> (<em>object</em>) – A connected control system connector.</p></li>
 <li><p><strong>address</strong> (<em>str</em>) – The model’s status address, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>.</p></li>
 </ul>
 </dd>
@@ -1924,20 +2014,20 @@ share a timestamp agree on it.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>channels</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Each channel’s record in <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>, by address.</p></li>
+<li><p><strong>channels</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>ChannelRecord</em><em>]</em>) – Each channel’s record in <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>, by address.</p></li>
 <li><p><strong>held</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – Each channel’s held value at the start state, in its stored
 representation; a <code class="docutils literal notranslate"><span class="pre">gate</span></code> channel’s is its gated value while an
 input blocks, as the live read serves it.</p></li>
-<li><p><strong>events</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Sequence</em><em>[</em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em><em>]</em>) – The active scenarios’ archiver events, by address.</p></li>
+<li><p><strong>events</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Sequence</em><em>[</em><em>ArchiverEvent</em><em>]</em><em>]</em>) – The active scenarios’ archiver events, by address.</p></li>
 <li><p><strong>composite</strong> (<a class="reference internal" href="#osprey_connectors.simulation.composite.Composite" title="osprey_connectors.simulation.composite.Composite"><em>Composite</em></a>) – The composite at the start state, whose readings every
 float channel carries.</p></li>
 <li><p><strong>anchor_s</strong> (<em>float</em>) – The epoch seconds an <code class="docutils literal notranslate"><span class="pre">at_offset</span></code> event is placed from.</p></li>
 <li><p><strong>tz</strong> (<em>ZoneInfo</em><em> | </em><em>None</em>) – The zone a daily <code class="docutils literal notranslate"><span class="pre">at_time</span></code> event is placed in.</p></li>
 <li><p><strong>state</strong> (<em>tempfile.TemporaryDirectory</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – The directory holding <code class="docutils literal notranslate"><span class="pre">composite</span></code>’s active set, removed by
 <code class="docutils literal notranslate"><span class="pre">close</span></code>.</p></li>
-<li><p><strong>pulses</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>] </em><em>| </em><em>None</em>) – Each pulsed waveform channel’s <code class="docutils literal notranslate"><span class="pre">pulse</span></code> seed, by address: the
+<li><p><strong>pulses</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>PulseRecord</em><em>] </em><em>| </em><em>None</em>) – Each pulsed waveform channel’s <code class="docutils literal notranslate"><span class="pre">pulse</span></code> seed, by address: the
 <code class="docutils literal notranslate"><span class="pre">driver</span></code> and <code class="docutils literal notranslate"><span class="pre">enable</span></code> channels its trace is computed from.</p></li>
-<li><p><strong>topoffs</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>] </em><em>| </em><em>None</em>) – Each channel’s <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed record, by address, for the
+<li><p><strong>topoffs</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>TopoffRecord</em><em>] </em><em>| </em><em>None</em>) – Each channel’s <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed record, by address, for the
 channels whose <code class="docutils literal notranslate"><span class="pre">loss</span></code> events top-off refills.</p></li>
 </ul>
 </dd>
@@ -1959,7 +2049,7 @@ channels whose <code class="docutils literal notranslate"><span class="pre">loss
 <dd><p>The <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed record that refills <code class="docutils literal notranslate"><span class="pre">address</span></code>’s <code class="docutils literal notranslate"><span class="pre">loss</span></code> events, or None.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Mapping</em>[str, <em>Any</em>] | None</p>
+<dd class="field-odd"><p>TopoffRecord | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2011,7 +2101,7 @@ waveform channel without a <code class="docutils literal notranslate"><span clas
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>address</strong> (<em>str</em>) – A <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channel address of the view.</p></li>
-<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em>) – Epoch seconds, ascending.</p></li>
+<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em>) – Epoch seconds, ascending.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -2024,7 +2114,7 @@ waveform channel without a <code class="docutils literal notranslate"><span clas
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>list[<em>ndarray</em>]</p>
+<dd class="field-even"><p>list[<em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2058,7 +2148,7 @@ trace (<a class="reference internal" href="#osprey_connectors.simulation.archive
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>address</strong> (<em>str</em>) – A channel address of the view.</p></li>
-<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em>) – Epoch seconds, ascending.</p></li>
+<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em>) – Epoch seconds, ascending.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -2083,7 +2173,7 @@ runs once per timestamp for all of them rather than once per channel.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>addresses</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Channel addresses of the view.</p></li>
-<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em>) – Epoch seconds, ascending.</p></li>
+<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em>) – Epoch seconds, ascending.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -2370,7 +2460,7 @@ its directory, which is opened with <code class="xref py py-meth docutils litera
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>collection</strong> (<em>Collection</em>) – The sample collection.</p></li>
+<li><p><strong>collection</strong> (<em>Collection</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>]</em>) – The sample collection.</p></li>
 <li><p><strong>fingerprint</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – What <a class="reference internal" href="#osprey_connectors.simulation.archive.seed_fingerprint" title="osprey_connectors.simulation.archive.seed_fingerprint"><code class="xref py py-func docutils literal notranslate"><span class="pre">seed_fingerprint()</span></code></a> says the knobs are now.</p></li>
 </ul>
 </dd>
@@ -2407,7 +2497,7 @@ the reason the manifest was given no <code class="docutils literal notranslate">
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>scenarios</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – The simulator view’s scenarios, by name.</p></li>
+<li><p><strong>scenarios</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>ScenarioRecord</em><em>]</em>) – The simulator view’s scenarios, by name.</p></li>
 <li><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – The scenario names of the set, in set order; a name
 <code class="docutils literal notranslate"><span class="pre">scenarios</span></code> does not list contributes nothing.</p></li>
 </ul>
@@ -2417,7 +2507,7 @@ the reason the manifest was given no <code class="docutils literal notranslate">
 names with no events maps to an empty list.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, list[dict[str, <em>Any</em>]]]</p>
+<dd class="field-odd"><p>dict[str, list[ArchiverEvent]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2442,7 +2532,7 @@ chunk loop and so also before the manifest.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>collection</strong> (<em>Collection</em>) – The sample collection. Existing samples are not removed —
+<li><p><strong>collection</strong> (<em>Collection</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>]</em>) – The sample collection. Existing samples are not removed —
 a caller reseeding is expected to drop first, and one that is
 extending a store deliberately is not second-guessed here.</p></li>
 <li><p><strong>archive</strong> (<a class="reference internal" href="#osprey_connectors.simulation.archive.ArchiveComposite" title="osprey_connectors.simulation.archive.ArchiveComposite"><em>ArchiveComposite</em></a>) – The archive composite of the active set; every one of its
@@ -2455,7 +2545,7 @@ manifest because changing it changes the store’s size on disk.</p></li>
 <li><p><strong>chunk_size</strong> (<em>int</em>) – Timestamps synthesized and inserted per batch.</p></li>
 <li><p><strong>progress</strong> (<em>Callable</em><em>[</em><em>[</em><a class="reference internal" href="#osprey_connectors.simulation.archive.SeedReport" title="osprey_connectors.simulation.archive.SeedReport"><em>SeedReport</em></a><em>]</em><em>, </em><em>None</em><em>] </em><em>| </em><em>None</em>) – Called after each chunk with the running report, for a
 deploy-time progress line.</p></li>
-<li><p><strong>waveforms</strong> (<em>Collection</em><em> | </em><em>None</em>) – The <a class="reference internal" href="#osprey_connectors.simulation.archive.waveform_collection" title="osprey_connectors.simulation.archive.waveform_collection"><code class="xref py py-func docutils literal notranslate"><span class="pre">waveform_collection()</span></code></a> beside <code class="docutils literal notranslate"><span class="pre">collection</span></code>;
+<li><p><strong>waveforms</strong> (<em>Collection</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>] </em><em>| </em><em>None</em>) – The <a class="reference internal" href="#osprey_connectors.simulation.archive.waveform_collection" title="osprey_connectors.simulation.archive.waveform_collection"><code class="xref py py-func docutils literal notranslate"><span class="pre">waveform_collection()</span></code></a> beside <code class="docutils literal notranslate"><span class="pre">collection</span></code>;
 <code class="docutils literal notranslate"><span class="pre">None</span></code> opens it from <code class="docutils literal notranslate"><span class="pre">collection</span></code>’s database. Only a view with
 <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channels needs it.</p></li>
 </ul>
@@ -2514,7 +2604,7 @@ rewrite restoring a window it once protected — re-stamp a document correctly
 without knowing how it was originally produced.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2575,7 +2665,7 @@ it name one instant.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>event</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – An event carrying <code class="docutils literal notranslate"><span class="pre">at_offset</span></code> or <code class="docutils literal notranslate"><span class="pre">at_when</span></code>.</p></li>
+<li><p><strong>event</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – An event carrying <code class="docutils literal notranslate"><span class="pre">at_offset</span></code> or <code class="docutils literal notranslate"><span class="pre">at_when</span></code>.</p></li>
 <li><p><strong>anchor</strong> (<em>float</em>) – The activation anchor T0, in epoch seconds.</p></li>
 <li><p><strong>tz</strong> (<em>ZoneInfo</em><em> | </em><em>None</em>) – The facility timezone calendar days are counted in.</p></li>
 </ul>
@@ -2583,8 +2673,11 @@ it name one instant.</p>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The event’s instant in epoch seconds.</p>
 </dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>float</p>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>TypeError</strong> – <code class="docutils literal notranslate"><span class="pre">at_when</span></code> is not a mapping.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>float</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2607,7 +2700,7 @@ start at their instant and never move a sample before it; <code class="docutils 
 channel’s <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed record, which alone refills a loss.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2708,7 +2801,7 @@ share a channel’s name from replaying that channel’s own texture stream.</p>
 <dd><p>Convert timestamps to epoch seconds, or None when not convertible.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em> | None</p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]] | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2726,7 +2819,7 @@ when an anchored or time-of-day event cannot be placed because the
 timestamps were not convertible to epoch seconds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>list[tuple[<em>ndarray</em>, float]]</p>
+<dd class="field-odd"><p>list[tuple[<em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]], float]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2757,7 +2850,7 @@ equivalence against a per-sample reference implementation.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>channel_key</strong> (<em>bytes</em>) – Channel key, typically <a class="reference internal" href="#osprey_connectors.simulation.series.channel_key_bytes" title="osprey_connectors.simulation.series.channel_key_bytes"><code class="xref py py-func docutils literal notranslate"><span class="pre">channel_key_bytes()</span></code></a> output optionally
 suffixed with a subkey to get an independent stream.</p></li>
-<li><p><strong>counters_ms</strong> (<em>ndarray</em>) – Per-sample counters, conventionally epoch milliseconds.
+<li><p><strong>counters_ms</strong> (<em>_Buffer</em><em> | </em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>] </em><em>| </em><em>_NestedSequence</em><em>[</em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>]</em><em>] </em><em>| </em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em> | </em><em>_NestedSequence</em><em>[</em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em>]</em>) – Per-sample counters, conventionally epoch milliseconds.
 Floats are rounded to the nearest integer; any shape is accepted.</p></li>
 </ul>
 </dd>
@@ -2766,7 +2859,7 @@ Floats are rounded to the nearest integer; any shape is accepted.</p></li>
 <code class="docutils literal notranslate"><span class="pre">counters_ms</span></code>.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2781,7 +2874,7 @@ seconds from the anchor (paired with <code class="docutils literal notranslate">
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>event</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – A <code class="docutils literal notranslate"><span class="pre">step</span></code> event.</p></li>
+<li><p><strong>event</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – A <code class="docutils literal notranslate"><span class="pre">step</span></code> event.</p></li>
 <li><p><strong>anchor</strong> (<em>float</em>) – The activation anchor T0, in epoch seconds.</p></li>
 <li><p><strong>tz</strong> (<em>ZoneInfo</em><em> | </em><em>None</em>) – The facility timezone <code class="docutils literal notranslate"><span class="pre">until_when</span></code> calendar days are counted in.</p></li>
 </ul>
@@ -2814,7 +2907,7 @@ archiver windows agree exactly on their shared timestamps.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>channel_key</strong> (<em>bytes</em>) – Channel key, as for <a class="reference internal" href="#osprey_connectors.simulation.series.keyed_normals" title="osprey_connectors.simulation.series.keyed_normals"><code class="xref py py-func docutils literal notranslate"><span class="pre">keyed_normals()</span></code></a>.</p></li>
-<li><p><strong>t_abs_s</strong> (<em>ndarray</em>) – Absolute epoch seconds; any shape.</p></li>
+<li><p><strong>t_abs_s</strong> (<em>_Buffer</em><em> | </em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>] </em><em>| </em><em>_NestedSequence</em><em>[</em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>]</em><em>] </em><em>| </em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em> | </em><em>_NestedSequence</em><em>[</em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em>]</em>) – Absolute epoch seconds; any shape.</p></li>
 <li><p><strong>amplitude</strong> (<em>float</em>) – Envelope bound, in the channel’s declared units.</p></li>
 <li><p><strong>period_s</strong> (<em>float</em>) – Slowest period in seconds; must be positive.</p></li>
 </ul>
@@ -2827,7 +2920,7 @@ archiver windows agree exactly on their shared timestamps.</p>
     from turning a division by zero into silent <code class="docutils literal notranslate"><span class="pre">NaN</span></code> in the series.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><em>ndarray</em></p>
+<dd class="field-even"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2853,7 +2946,8 @@ the level a <code class="docutils literal notranslate"><span class="pre">topoff<
 channel that declares no motion, or that an active scenario stills, has an
 envelope of 0.0.</p>
 <p>The module imports only the standard library and the standard-library-only
-<a class="reference internal" href="#module-osprey_connectors.simulation.topoff" title="osprey_connectors.simulation.topoff"><code class="xref py py-mod docutils literal notranslate"><span class="pre">topoff</span></code></a>, so the build, the simulator
+<a class="reference internal" href="#module-osprey_connectors.simulation.topoff" title="osprey_connectors.simulation.topoff"><code class="xref py py-mod docutils literal notranslate"><span class="pre">topoff</span></code></a> and
+<a class="reference internal" href="#module-osprey_connectors.simulation.values" title="osprey_connectors.simulation.values"><code class="xref py py-mod docutils literal notranslate"><span class="pre">values</span></code></a>, so the build, the simulator
 view’s reader and the texture model share one rule.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.envelope.active_envelopes">
@@ -2867,8 +2961,10 @@ reading any active scenario’s <code class="docutils literal notranslate"><span
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>seeds</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Seeds by address.</p></li>
-<li><p><strong>scenarios</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Scenario records by name.</p></li>
+<li><p><strong>seeds</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>SeedRecord</em><em>]</em>) – Seeds by address.</p></li>
+<li><p><strong>scenarios</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>]</em>) – Scenario records by name, the simulator view’s or the
+facility file’s; only <code class="docutils literal notranslate"><span class="pre">still</span></code>, <code class="docutils literal notranslate"><span class="pre">drivers</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code> and
+<code class="docutils literal notranslate"><span class="pre">noise</span></code> are read.</p></li>
 <li><p><strong>active</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – The active scenario names, in order; a name <code class="docutils literal notranslate"><span class="pre">scenarios</span></code>
 lacks adds nothing.</p></li>
 </ul>
@@ -2900,10 +2996,10 @@ lacks adds nothing.</p></li>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>seed</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The channel’s seed, or None.</p></li>
-<li><p><strong>noise</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – A scenario’s noise record standing in for the seed’s, or None
+<li><p><strong>seed</strong> (<em>SeedRecord</em><em> | </em><em>None</em>) – The channel’s seed, or None.</p></li>
+<li><p><strong>noise</strong> (<em>NoiseRecord</em><em> | </em><em>None</em>) – A scenario’s noise record standing in for the seed’s, or None
 for the seed’s own.</p></li>
-<li><p><strong>couplings</strong> (<em>Iterable</em><em>[</em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Resolved couplings, each <code class="docutils literal notranslate"><span class="pre">{driver,</span> <span class="pre">gain,</span> <span class="pre">gain_wander?,</span>
+<li><p><strong>couplings</strong> (<em>Iterable</em><em>[</em><em>ResolvedCoupling</em><em>]</em>) – Resolved couplings, each <code class="docutils literal notranslate"><span class="pre">{driver,</span> <span class="pre">gain,</span> <span class="pre">gain_wander?,</span>
 <span class="pre">drive}</span></code> with <code class="docutils literal notranslate"><span class="pre">drive</span></code> the driver’s <code class="docutils literal notranslate"><span class="pre">{kind,</span> <span class="pre">amplitude,</span>
 <span class="pre">period_s}</span></code>.</p></li>
 <li><p><strong>still</strong> (<em>bool</em>) – The active scenarios still the channel.</p></li>
@@ -2939,12 +3035,15 @@ setpoint holds its writes as <code class="docutils literal notranslate"><span cl
 readback is the disconnected reading. A setpoint with no readback of its
 own reads its demand and reports the condition itself.</p></li>
 </ul>
-<p>No fault withholds a reply: a read always answers.</p>
+<p>No fault withholds a reply: a read always answers. The one exception is a
+scenario’s <code class="docutils literal notranslate"><span class="pre">stopped_servers</span></code> (<code class="xref py py-mod docutils literal notranslate"><span class="pre">servers</span></code>):
+every channel of a stopped server gives no answer while the scenario is
+active, and answers again, with its current value, once it is not.</p>
 <p>The module imports only the standard library, so the build’s validator and
 the composite share one table.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none',</span> <span class="pre">'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'setpoint',</span> <span class="pre">'none'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
 <dd><p>Every channel fault, by its word.</p>
 </dd></dl>
 
@@ -3042,7 +3141,7 @@ epoch milliseconds, matching how the texture engine keys its motion.</p>
 <dd class="field-even"><p>A float64 array of shape <code class="docutils literal notranslate"><span class="pre">(_TRACE_POINTS,)</span></code>.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3069,8 +3168,9 @@ tooth at all.</p>
 <p>A <code class="docutils literal notranslate"><span class="pre">topoff_lifetime</span></code> seed <code class="docutils literal notranslate"><span class="pre">{of}</span></code> names a channel whose seed is <code class="docutils literal notranslate"><span class="pre">topoff</span></code>
 and holds that seed’s <code class="docutils literal notranslate"><span class="pre">lifetime_h</span></code> as a constant: the lifetime readback that
 produces the decay.</p>
-<p>The module imports only the standard library, so the envelope rule and the
-facility build share it with the texture model. <a class="reference internal" href="#osprey_connectors.simulation.topoff.SHAPE_VERSION" title="osprey_connectors.simulation.topoff.SHAPE_VERSION"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHAPE_VERSION</span></code></a> is a
+<p>The module imports only the standard library and the package’s
+standard-library-only <a class="reference internal" href="#module-osprey_connectors.simulation.values" title="osprey_connectors.simulation.values"><code class="xref py py-mod docutils literal notranslate"><span class="pre">values</span></code></a>, so the
+envelope rule and the facility build share it with the texture model. <a class="reference internal" href="#osprey_connectors.simulation.topoff.SHAPE_VERSION" title="osprey_connectors.simulation.topoff.SHAPE_VERSION"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHAPE_VERSION</span></code></a> is a
 digest of the shape constants; the archive seed fingerprint consumes it, so a
 change to the shape re-seeds the stored history.</p>
 <dl class="py data">
@@ -3083,11 +3183,13 @@ change to the shape re-seeds the stored history.</p>
 <dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.held_value">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">held_value</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">seed</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookup</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/topoff.html#held_value"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.topoff.held_value" title="Link to this definition">#</a></dt>
 <dd><p>The value a <code class="docutils literal notranslate"><span class="pre">topoff</span></code> or <code class="docutils literal notranslate"><span class="pre">topoff_lifetime</span></code> seed holds.</p>
+<p>The seeds are read as plain mappings, not as the view’s seed records: the
+facility build asks for a held value before it writes the view.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>seed</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – A channel’s seed, or None.</p></li>
-<li><p><strong>lookup</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>]</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em><em>] </em><em>| </em><em>None</em>) – Returns the seed of an address, or None; resolves the channel
+<li><p><strong>seed</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – A channel’s seed, or None.</p></li>
+<li><p><strong>lookup</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>]</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em><em>] </em><em>| </em><em>None</em>) – Returns the seed of an address, or None; resolves the channel
 a <code class="docutils literal notranslate"><span class="pre">topoff_lifetime</span></code> names. Without one a <code class="docutils literal notranslate"><span class="pre">topoff_lifetime</span></code>
 holds nothing.</p></li>
 </ul>
@@ -3142,11 +3244,16 @@ the overshoot at a refill and the undershoot just before one.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.topoff_record">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">topoff_record</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">seed</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/topoff.html#topoff_record"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.topoff.topoff_record" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">topoff_record</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">SeedRecord</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">TopoffRecord</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/topoff.html#topoff_record"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.topoff.topoff_record" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">topoff_record</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></span></dt>
 <dd><p>The <code class="docutils literal notranslate"><span class="pre">topoff</span></code> record of a seed, or None when it has none.</p>
+<p>A view’s seed record answers its <code class="docutils literal notranslate"><span class="pre">topoff</span></code> record; any other seed mapping,
+such as the facility build’s seed before the view is written, answers the
+mapping under <code class="docutils literal notranslate"><span class="pre">topoff</span></code> as it stands.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Mapping</em>[str, <em>Any</em>] | None</p>
+<dd class="field-odd"><p><em>Mapping</em>[str, object] | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3165,7 +3272,10 @@ unserved model’s wiring <code class="docutils literal notranslate"><span class
 <code class="docutils literal notranslate"><span class="pre">linear</span></code> input counting as its own sum. Noise and drift are pure functions
 of the address and the epoch millisecond, so a live read and an archived
 sample at the same instant agree. Writing a setpoint holds the
-value and echoes it into the readback its <code class="docutils literal notranslate"><span class="pre">pair</span></code> names.</p>
+value and echoes it into the readback its <code class="docutils literal notranslate"><span class="pre">pair</span></code> names. A labelled readback
+takes a state by index: the index of a labelled setpoint’s label, or a number
+written to the setpoint, which must be an integral index of the readback’s
+labels; a write the readback refuses holds nothing.</p>
 <p>A <code class="docutils literal notranslate"><span class="pre">noise</span></code> record states one term: <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">sigma}</span></code> adds <code class="docutils literal notranslate"><span class="pre">sigma</span></code>
 times a keyed normal draw, and <code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">f}</span></code> adds <code class="docutils literal notranslate"><span class="pre">f</span></code> times
 <code class="docutils literal notranslate"><span class="pre">held</span> <span class="pre">+</span> <span class="pre">drift</span> <span class="pre">+</span> <span class="pre">couplings</span></code> times one. The active scenarios add motion
@@ -3208,9 +3318,9 @@ the archive seed, a subscription comparing held values – see it alike.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>variables</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> document (<code class="docutils literal notranslate"><span class="pre">models[]</span></code> and
+<li><p><strong>variables</strong> (<em>VariablesDocument</em>) – The view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> document (<code class="docutils literal notranslate"><span class="pre">models[]</span></code> and
 <code class="docutils literal notranslate"><span class="pre">channels[]</span></code>).</p></li>
-<li><p><strong>seeds</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The view’s <code class="docutils literal notranslate"><span class="pre">seeds.json</span></code> document (<code class="docutils literal notranslate"><span class="pre">seeds</span></code> by address).</p></li>
+<li><p><strong>seeds</strong> (<em>SeedsDocument</em>) – The view’s <code class="docutils literal notranslate"><span class="pre">seeds.json</span></code> document (<code class="docutils literal notranslate"><span class="pre">seeds</span></code> by address).</p></li>
 <li><p><strong>clock</strong> (<em>Callable</em><em>[</em><em>[</em><em>]</em><em>, </em><em>float</em><em>]</em>) – Returns the current instant in epoch seconds.</p></li>
 </ul>
 </dd>
@@ -3294,11 +3404,11 @@ channel it blocks, a <code class="docutils literal notranslate"><span class="pre
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>couple</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Sequence</em><em>[</em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em><em>]</em>) – Couplings by address, each <code class="docutils literal notranslate"><span class="pre">{driver,</span> <span class="pre">gain,</span> <span class="pre">gain_wander?,</span>
+<li><p><strong>couple</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Sequence</em><em>[</em><em>ResolvedCoupling</em><em>]</em><em>]</em>) – Couplings by address, each <code class="docutils literal notranslate"><span class="pre">{driver,</span> <span class="pre">gain,</span> <span class="pre">gain_wander?,</span>
 <span class="pre">drive}</span></code>: <code class="docutils literal notranslate"><span class="pre">drive</span></code> is the driver’s <code class="docutils literal notranslate"><span class="pre">{kind,</span> <span class="pre">amplitude,</span>
 <span class="pre">period_s}</span></code> and <code class="docutils literal notranslate"><span class="pre">gain_wander</span></code> an optional <code class="docutils literal notranslate"><span class="pre">{amplitude,</span>
 <span class="pre">period_s}</span></code>. Empty for no coupling.</p></li>
-<li><p><strong>noise</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Noise records by address, each <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">&lt;sigma&gt;}</span></code> or
+<li><p><strong>noise</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>NoiseRecord</em><em>]</em>) – Noise records by address, each <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">&lt;sigma&gt;}</span></code> or
 <code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}</span></code>, standing in for the seed’s.
 Empty for the seeds’ noise.</p></li>
 <li><p><strong>still</strong> (<em>frozenset</em><em>[</em><em>str</em><em>]</em>) – Addresses served without motion.</p></li>
@@ -3331,7 +3441,7 @@ term scales; a scalar or an array shaped like <code class="docutils literal notr
 without motion, stilled, or not of type float.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3388,15 +3498,15 @@ otherwise, each bounded by the view’s <code class="docutils literal notranslat
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>channel</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The channel’s record in <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>.</p></li>
-<li><p><strong>nominal</strong> (<em>Any</em>) – Its start value, in its stored representation.</p></li>
+<li><p><strong>channel</strong> (<em>ChannelRecord</em>) – The channel’s record in <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>.</p></li>
+<li><p><strong>nominal</strong> (<a class="reference internal" href="#osprey_connectors.simulation.values.StoredValue" title="osprey_connectors.simulation.values.StoredValue"><em>values.StoredValue</em></a>) – Its start value, in its stored representation.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The variable, named by the channel’s address.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Variable</em></p>
+<dd class="field-odd"><p>Variable</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3417,8 +3527,9 @@ otherwise, each bounded by the view’s <code class="docutils literal notranslat
 <code class="docutils literal notranslate"><span class="pre">data/simulator/</span></code> and serves its channels through two kinds of child:</p>
 <ul class="simple">
 <li><p>one <strong>physics child</strong> per served model whose engine is not <code class="docutils literal notranslate"><span class="pre">texture</span></code>,
-built by the engine plug-in the <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point
-group names, through <code class="docutils literal notranslate"><span class="pre">build(model,</span> <span class="pre">wiring,</span> <span class="pre">deck,</span> <span class="pre">settings,</span> <span class="pre">active=...)</span></code>;</p></li>
+built by the engine plug-in the
+<code class="xref py py-data docutils literal notranslate"><span class="pre">ENGINE_GROUP</span></code> entry-point group
+names, through <code class="docutils literal notranslate"><span class="pre">build(model,</span> <span class="pre">wiring,</span> <span class="pre">deck,</span> <span class="pre">settings,</span> <span class="pre">active=...)</span></code>;</p></li>
 <li><p>the <strong>texture</strong>, a <a class="reference internal" href="#osprey_connectors.simulation.texture.TextureModel" title="osprey_connectors.simulation.texture.TextureModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">TextureModel</span></code></a>
 holding every other channel and the motion of all of them.</p></li>
 </ul>
@@ -3427,7 +3538,14 @@ status addresses, <code class="docutils literal notranslate"><span class="pre">&
 child’s own variables that no channel names (faults, optics) are reached as
 <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;/&lt;name&gt;</span></code> through <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.model_get" title="osprey_connectors.simulation.composite.Composite.model_get"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Composite.model_get()</span></code></a> and
 <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.model_set" title="osprey_connectors.simulation.composite.Composite.model_set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Composite.model_set()</span></code></a> only.</p>
-<p><strong>IOC health.</strong> <code class="docutils literal notranslate"><span class="pre">supported_variables</span></code> also holds the view’s <code class="docutils literal notranslate"><span class="pre">ioc_health</span></code>
+<p><strong>Several addresses of one record.</strong> A wiring record of a physics child may
+state further addresses under <code class="docutils literal notranslate"><span class="pre">also</span></code>. Each is a channel of the view, and the
+composite serves it as the record’s <code class="docutils literal notranslate"><span class="pre">address</span></code>: a read of it is that
+address’s read at the same instant, motion, readout and channel fault
+included; a write to it is a write to that address; and it is emitted and
+moving when that address is. No child and no texture channel is keyed by a
+further address.</p>
+<p><strong>Server health.</strong> <code class="docutils literal notranslate"><span class="pre">supported_variables</span></code> also holds the view’s server health
 addresses, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;</span></code>, read-only and served for every model
 the view lists whether or not it is built: <code class="docutils literal notranslate"><span class="pre">HEARTBEAT</span></code> counts the whole seconds
 since the composite started, <code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> is those seconds, both on its clock, and
@@ -3583,7 +3701,7 @@ is failed and emits nothing.</p>
 <dl class="py property">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.supported_variables">
 <span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">supported_variables</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Variable</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.supported_variables" title="Link to this definition">#</a></dt>
-<dd><p>Every channel, status and IOC health address of the view, by address.</p>
+<dd><p>Every channel, status and server health address of the view, by address.</p>
 </dd></dl>
 
 <dl class="py property">
@@ -3619,6 +3737,21 @@ term moves it.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.stopped">
+<span class="sig-name descname"><span class="pre">stopped</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.stopped"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.stopped" title="Link to this definition">#</a></dt>
+<dd><p>The addresses of the simulated servers the active scenarios stop.</p>
+<p>A reader of one of them gets no answer: the in-process connector
+raises, the served virtual accelerator withholds its reply. The
+composite itself still computes them, so a channel answers with its
+current value, never a frozen one, once its server is no longer stopped.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>frozenset[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.texture_reach">
 <span class="sig-name descname"><span class="pre">texture_reach</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.texture_reach"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.texture_reach" title="Link to this definition">#</a></dt>
 <dd><p>What a write to each settable texture channel can change, by address.</p>
@@ -3634,7 +3767,11 @@ write changes nothing else.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.get">
-<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.get"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.get" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">object</span></span></span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.get"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.get" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">object</span></span></span></dt>
 <dd><p>Read channels, each as its variable declares it; a waveform as an array of its shape.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -3647,7 +3784,7 @@ write changes nothing else.</p>
 <dd class="field-odd"><p><strong>ValueError</strong> – A name is not a channel or status address of the view.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, <em>Any</em>] | <em>Any</em></p>
+<dd class="field-even"><p>dict[str, object] | object</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3657,7 +3794,8 @@ write changes nothing else.</p>
 <span class="sig-name descname"><span class="pre">readout_group</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.readout_group"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.readout_group" title="Link to this definition">#</a></dt>
 <dd><p>The channels a read of <code class="docutils literal notranslate"><span class="pre">address</span></code> reads with it, <code class="docutils literal notranslate"><span class="pre">address</span></code> among them.</p>
 <p>A monitor plane of a physics child is read with its partner planes;
-any other channel alone.</p>
+any other channel alone. A further address of a record stands in its
+group where the record’s address does.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>ValueError</strong> – <code class="docutils literal notranslate"><span class="pre">address</span></code> is not a channel of the view.</p>
@@ -3679,7 +3817,7 @@ setpoint reads its level. A failed child’s readbacks read NaN.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>levels</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>float</em><em> | </em><em>ndarray</em><em>]</em>) – Float channel levels by address, each a scalar or an array
+<li><p><strong>levels</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>float</em><em> | </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em><em>]</em>) – Float channel levels by address, each a scalar or an array
 shaped like <code class="docutils literal notranslate"><span class="pre">t_s</span></code>; a monitor plane needs every channel of its
 <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.readout_group" title="osprey_connectors.simulation.composite.Composite.readout_group"><code class="xref py py-meth docutils literal notranslate"><span class="pre">readout_group()</span></code></a>.</p></li>
 <li><p><strong>t_s</strong> (<em>object</em>) – Epoch seconds, one-dimensional.</p></li>
@@ -3693,7 +3831,7 @@ shaped like <code class="docutils literal notranslate"><span class="pre">t_s</sp
     monitor plane’s partner has no level.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, <em>ndarray</em>]</p>
+<dd class="field-even"><p>dict[str, <em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3705,10 +3843,10 @@ shaped like <code class="docutils literal notranslate"><span class="pre">t_s</sp
 <p>A texture channel returns the value the texture holds; a physics
 channel its child’s plain read; a setpoint the active scenarios hold
 the value last written to it; a faulted reading its unfaulted value;
-a status address its status; an IOC health address its value now.</p>
+a status address its status; a server health address its value now.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Channel, status or IOC health addresses.</p>
+<dd class="field-odd"><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Channel, status or server health addresses.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The value by address, in its stored representation.</p>
@@ -3762,8 +3900,9 @@ whose channel fault reports one; any other name is absent.</p>
 <dd><p>Write channels: physics children first, producers before consumers, the texture last.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>values_by_name</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Values by channel address; a waveform as a flat or
-nested list.</p>
+<dd class="field-odd"><p><strong>values_by_name</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – Values by channel address; a waveform as a flat or
+nested list. A further address of a record writes the record’s
+address; of two values for one record the later stands.</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
@@ -4209,11 +4348,14 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS"><code class="docutils literal notranslate"><span class="pre">IOC_HEALTH_SIGNALS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.MARKS"><code class="docutils literal notranslate"><span class="pre">MARKS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH"><code class="docutils literal notranslate"><span class="pre">PERIODIC_IOC_HEALTH</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH"><code class="docutils literal notranslate"><span class="pre">PERIODIC_SERVER_HEALTH</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.PLANES"><code class="docutils literal notranslate"><span class="pre">PLANES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.REFRESH"><code class="docutils literal notranslate"><span class="pre">REFRESH</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SCENARIOS_DIR"><code class="docutils literal notranslate"><span class="pre">SCENARIOS_DIR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SERVED_SIGNAL_PROPERTY"><code class="docutils literal notranslate"><span class="pre">SERVED_SIGNAL_PROPERTY</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS"><code class="docutils literal notranslate"><span class="pre">SERVER_HEALTH_SIGNALS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SCHEMAS"><code class="docutils literal notranslate"><span class="pre">SCHEMAS</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SERVED_MODELS_FILE"><code class="docutils literal notranslate"><span class="pre">SERVED_MODELS_FILE</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.STATUS_SIGNAL"><code class="docutils literal notranslate"><span class="pre">STATUS_SIGNAL</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.VIEW_RELPATH"><code class="docutils literal notranslate"><span class="pre">VIEW_RELPATH</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding"><code class="docutils literal notranslate"><span class="pre">Binding</span></code></a><ul class="visible nav section-nav flex-column">
@@ -4227,6 +4369,8 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding.element"><code class="docutils literal notranslate"><span class="pre">Binding.element</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding.record"><code class="docutils literal notranslate"><span class="pre">Binding.record</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding.marks"><code class="docutils literal notranslate"><span class="pre">Binding.marks</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding.also"><code class="docutils literal notranslate"><span class="pre">Binding.also</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding.addresses"><code class="docutils literal notranslate"><span class="pre">Binding.addresses</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding.from_record"><code class="docutils literal notranslate"><span class="pre">Binding.from_record()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.Binding.__init__"><code class="docutils literal notranslate"><span class="pre">Binding.__init__()</span></code></a></li>
 </ul>
@@ -4276,10 +4420,12 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.physics_models"><code class="docutils literal notranslate"><span class="pre">SimulatorView.physics_models()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.channels"><code class="docutils literal notranslate"><span class="pre">SimulatorView.channels()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.status_addresses"><code class="docutils literal notranslate"><span class="pre">SimulatorView.status_addresses()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.server_health_by_model"><code class="docutils literal notranslate"><span class="pre">SimulatorView.server_health_by_model()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.ioc_health_by_model"><code class="docutils literal notranslate"><span class="pre">SimulatorView.ioc_health_by_model()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.channel"><code class="docutils literal notranslate"><span class="pre">SimulatorView.channel()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.bindings"><code class="docutils literal notranslate"><span class="pre">SimulatorView.bindings()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.binding"><code class="docutils literal notranslate"><span class="pre">SimulatorView.binding()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.record_address"><code class="docutils literal notranslate"><span class="pre">SimulatorView.record_address()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.seed"><code class="docutils literal notranslate"><span class="pre">SimulatorView.seed()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.scenarios"><code class="docutils literal notranslate"><span class="pre">SimulatorView.scenarios()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SimulatorView.motion_envelope"><code class="docutils literal notranslate"><span class="pre">SimulatorView.motion_envelope()</span></code></a></li>
@@ -4421,6 +4567,7 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.models"><code class="docutils literal notranslate"><span class="pre">Composite.models</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.active"><code class="docutils literal notranslate"><span class="pre">Composite.active</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.moving"><code class="docutils literal notranslate"><span class="pre">Composite.moving()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.stopped"><code class="docutils literal notranslate"><span class="pre">Composite.stopped()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.texture_reach"><code class="docutils literal notranslate"><span class="pre">Composite.texture_reach()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.get"><code class="docutils literal notranslate"><span class="pre">Composite.get()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.readout_group"><code class="docutils literal notranslate"><span class="pre">Composite.readout_group()</span></code></a></li>

@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.simulation.topoff &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.simulation.topoff &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -456,8 +456,9 @@
 <span class="sd">and holds that seed&#39;s ``lifetime_h`` as a constant: the lifetime readback that</span>
 <span class="sd">produces the decay.</span>
 
-<span class="sd">The module imports only the standard library, so the envelope rule and the</span>
-<span class="sd">facility build share it with the texture model. :data:`SHAPE_VERSION` is a</span>
+<span class="sd">The module imports only the standard library and the package&#39;s</span>
+<span class="sd">standard-library-only :mod:`~osprey_connectors.simulation.values`, so the</span>
+<span class="sd">envelope rule and the facility build share it with the texture model. :data:`SHAPE_VERSION` is a</span>
 <span class="sd">digest of the shape constants; the archive seed fingerprint consumes it, so a</span>
 <span class="sd">change to the shape re-seeds the stored history.</span>
 <span class="sd">&quot;&quot;&quot;</span>
@@ -467,7 +468,12 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">overload</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.values</span><span class="w"> </span><span class="kn">import</span> <span class="n">_real</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.records</span><span class="w"> </span><span class="kn">import</span> <span class="n">SeedRecord</span><span class="p">,</span> <span class="n">TopoffRecord</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;SHAPE_VERSION&quot;</span><span class="p">,</span>
@@ -497,7 +503,7 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_shape_version</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Digest of the current shape constants (see :data:`_SHAPE_CONSTANT_NAMES`).&quot;&quot;&quot;</span>
-    <span class="n">module</span> <span class="o">=</span> <span class="nb">globals</span><span class="p">()</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="nb">globals</span><span class="p">()</span>
     <span class="n">text</span> <span class="o">=</span> <span class="s2">&quot;;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s1">&#39;_&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">module</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="si">!r}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_SHAPE_CONSTANT_NAMES</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">text</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">16</span><span class="p">]</span>
 
@@ -506,10 +512,19 @@
 <span class="n">SHAPE_VERSION</span> <span class="o">=</span> <span class="n">_shape_version</span><span class="p">()</span>
 
 
+<span class="nd">@overload</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">topoff_record</span><span class="p">(</span><span class="n">seed</span><span class="p">:</span> <span class="n">SeedRecord</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TopoffRecord</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
+<span class="nd">@overload</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">topoff_record</span><span class="p">(</span><span class="n">seed</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
 <div class="viewcode-block" id="topoff_record">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.topoff_record">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">topoff_record</span><span class="p">(</span><span class="n">seed</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``topoff`` record of a seed, or None when it has none.&quot;&quot;&quot;</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">topoff_record</span><span class="p">(</span><span class="n">seed</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``topoff`` record of a seed, or None when it has none.</span>
+
+<span class="sd">    A view&#39;s seed record answers its ``topoff`` record; any other seed mapping,</span>
+<span class="sd">    such as the facility build&#39;s seed before the view is written, answers the</span>
+<span class="sd">    mapping under ``topoff`` as it stands.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">seed</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="n">record</span> <span class="o">=</span> <span class="n">seed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_TOPOFF_KEY</span><span class="p">)</span>
@@ -519,24 +534,28 @@
 
 <div class="viewcode-block" id="tau_period">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.tau_period">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">TopoffRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``(tau, period_s)`` of a ``topoff`` record, both in seconds.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;lifetime_h&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">_SECONDS_PER_HOUR</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span></div>
+    <span class="k">return</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;lifetime_h&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">_SECONDS_PER_HOUR</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span></div>
 
 
 
 <div class="viewcode-block" id="period_mean">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.period_mean">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">period_mean</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">period_mean</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">TopoffRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The mean ``m`` of the unit sawtooth over one period.&quot;&quot;&quot;</span>
-    <span class="n">tau</span><span class="p">,</span> <span class="n">period</span> <span class="o">=</span> <span class="n">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
-    <span class="k">return</span> <span class="p">(</span><span class="n">tau</span> <span class="o">/</span> <span class="n">period</span><span class="p">)</span> <span class="o">*</span> <span class="o">-</span><span class="n">math</span><span class="o">.</span><span class="n">expm1</span><span class="p">(</span><span class="o">-</span><span class="n">period</span> <span class="o">/</span> <span class="n">tau</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">_unit_mean</span><span class="p">(</span><span class="o">*</span><span class="n">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">))</span></div>
 
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_unit_mean</span><span class="p">(</span><span class="n">tau</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">period</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The mean of ``exp(-(t mod period) / tau)`` over one period.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">tau</span> <span class="o">/</span> <span class="n">period</span><span class="p">)</span> <span class="o">*</span> <span class="o">-</span><span class="n">math</span><span class="o">.</span><span class="n">expm1</span><span class="p">(</span><span class="o">-</span><span class="n">period</span> <span class="o">/</span> <span class="n">tau</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="tooth_depth">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.tooth_depth">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">tooth_depth</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tooth_depth</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">TopoffRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;How far the sawtooth carries a reading from its held level ``ceiling * m``.</span>
 
 <span class="sd">    Returns:</span>
@@ -552,10 +571,13 @@
 <div class="viewcode-block" id="held_value">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.held_value">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">held_value</span><span class="p">(</span>
-    <span class="n">seed</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">lookup</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">lookup</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The value a ``topoff`` or ``topoff_lifetime`` seed holds.</span>
+
+<span class="sd">    The seeds are read as plain mappings, not as the view&#39;s seed records: the</span>
+<span class="sd">    facility build asks for a held value before it writes the view.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        seed: A channel&#39;s seed, or None.</span>
@@ -570,14 +592,16 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">record</span> <span class="o">=</span> <span class="n">topoff_record</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">record</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">period_mean</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
+        <span class="n">tau</span> <span class="o">=</span> <span class="n">_real</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;lifetime_h&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">_SECONDS_PER_HOUR</span>
+        <span class="k">return</span> <span class="n">_real</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">_unit_mean</span><span class="p">(</span><span class="n">tau</span><span class="p">,</span> <span class="n">_real</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">]))</span>
     <span class="n">lifetime</span> <span class="o">=</span> <span class="p">(</span><span class="n">seed</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_LIFETIME_KEY</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">lifetime</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">or</span> <span class="n">lookup</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="n">source</span> <span class="o">=</span> <span class="n">topoff_record</span><span class="p">(</span><span class="n">lookup</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">lifetime</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;of&quot;</span><span class="p">))))</span>
+    <span class="n">named</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="n">lifetime</span>
+    <span class="n">source</span> <span class="o">=</span> <span class="n">topoff_record</span><span class="p">(</span><span class="n">lookup</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">named</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;of&quot;</span><span class="p">))))</span>
     <span class="k">if</span> <span class="n">source</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">source</span><span class="p">[</span><span class="s2">&quot;lifetime_h&quot;</span><span class="p">])</span></div>
+    <span class="k">return</span> <span class="n">_real</span><span class="p">(</span><span class="n">source</span><span class="p">[</span><span class="s2">&quot;lifetime_h&quot;</span><span class="p">])</span></div>
 
 </pre></div>
 

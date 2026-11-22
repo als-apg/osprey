@@ -151,8 +151,9 @@ same safety hooks, then adds production capabilities. The most visible additions
    * - **Web terminal**
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
-       The Channels panel's **All PVs** view lists every PV the simulator
-       serves (:ref:`channel-finder-all-pvs`).
+       The Channels panel also has a directory view of every channel the
+       simulator serves. The simulator uses the EPICS words, so the view is
+       titled **All PVs** (:ref:`channel-finder-directory`).
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the
 human-approval prompt all behave exactly as in the Hello World Tutorial. Refer
@@ -218,7 +219,7 @@ transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
 **How it works.** The preset runs the ``graph`` channel finder. It answers
 from the facility knowledge graph that ``osprey build`` writes from the
-facility file. The channel-finder agent works with twelve tools:
+facility file. The channel-finder agent works with thirteen tools:
 
 - **Keyword lookup.** ``search_channels`` reads the search index that
   ``osprey build`` derives from the graph. It matches your words against each
@@ -231,14 +232,38 @@ facility file. The channel-finder agent works with twelve tools:
   with ``read_cypher``.
 - **The rules.** ``capabilities`` tells the agent how addresses are spelled and
   which tool fits which question.
-- **All PVs.** When the graph has no answer, ``directory_search``,
-  ``directory_properties``, ``pv_record``, ``ioc_record``, ``active_alarms``,
-  ``alarm_state`` and ``alarm_config`` read the simulator's own directory and its
-  replayed alarms.
+- **The channel directory.** When the graph has no answer, the agent turns
+  to the simulator's own directory, its server fleet and its replayed alarms
+  with ``directory_search``, ``directory_properties``, ``channel_record``,
+  ``server_record``, ``server_fleet``, ``active_alarms``, ``alarm_state`` and
+  ``alarm_config``.
 
 The agent **never fabricates PV names**: every address it returns is one the
 graph or the directory holds. For the other search strategies, see
 :doc:`../how-to/use-channel-finder`.
+
+**Stop a server.** When channels stop answering, the first question is which
+server went down. The preset's server fleet service reads the heartbeat of
+every simulated server every 10 s. The simulator uses the EPICS words, so its
+servers are IOCs, and the panel lists them in the **IOCs** view, each as
+``alive``. The ``line-server-stopped`` scenario stops the transfer-line IOC
+``sim-LINE``. Add it to the active set:
+
+.. code-block:: bash
+
+   osprey sim apply rf-thermal demo-history line-server-stopped
+
+Within two refresh periods ``sim-LINE`` turns ``silent`` and moves to the top
+of the IOCs view. Ask the agent *"which IOCs are down?"* and its
+``server_fleet`` tool names it. Everything the IOC serves goes quiet with it:
+every channel starting ``LINE:`` (BPMs, correctors, quadrupoles) and the
+status and health channels of the IOC itself give no answer, so a LINE scan
+or orbit read fails. The storage ring and the BTS and LTB lines keep
+answering. To start the IOC again, run ``osprey sim apply rf-thermal
+demo-history``, and it returns to ``alive`` within two refresh periods. Both
+commands reseed the logbook and the archive windows of the active set
+(:doc:`/how-to/control-systems/use-virtual-accelerator`).
+:ref:`channel-finder-server-fleet` explains the states.
 
 Step 4: Search the Electronic Logbook
 --------------------------------------

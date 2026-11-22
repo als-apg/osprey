@@ -12,7 +12,8 @@ the channel finder, the limits check, the simulator and the knowledge graph
 cannot disagree about which channels exist or what they are.
 
 Writing the sources is in :doc:`/how-to/describe-your-facility`. This page is
-about what the build makes of them.
+about what the build makes of them. How the facility code splits into the
+osprey-facility and osprey-panels packages is in :doc:`facility-packages`.
 
 .. raw:: html
    :file: ../_diagrams/facility-map.html
@@ -21,9 +22,9 @@ The facility file
 =================
 
 ``build/facility.json`` is every record of the facility in one document,
-under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
-``channels``, ``groups``, ``models`` with their wiring and inputs, ``limits`` and
-``scenarios``. A model's *deck* is the lattice file its simulation engine
+under a ``schema`` header: ``identity``, ``classes``, the ``signals`` and
+``relation_types`` tables, ``places``, ``devices``, ``channels``, ``groups``,
+``models`` with their wiring and inputs, ``limits`` and ``scenarios``. A model's *deck* is the lattice file its simulation engine
 loads, and its *wiring* is the set of records that tie channel addresses to
 elements of that deck.
 
@@ -36,8 +37,10 @@ computes:
 - for each wiring record, its unit, direction, value range and operating
   point, and what its model's engine says it is: engine_role, plane and refresh.
 
-The second is ``provenance``: per record, which layer and file stated each field,
-which fixes were applied and which fields the build filled.
+The second is ``provenance``: per record, which layer and file stated each field
+(and, where the layer's record says so, the rule the field rests on), which fixes
+were applied, which fields the build filled, and of those the ones it derived by
+a named rule, such as a setpoint's pair.
 ``osprey facility show <id>`` prints it.
 
 The file is the same in every render of a build. It carries no timestamp, no
@@ -86,6 +89,10 @@ filters the file's own channel records and names a model or a place.
      - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey.facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
      - Sorted keys.
      -
+   * - ``facility_sha256()``
+     - The sha256 hex digest of ``facility_bytes()``, taken from the same one serialisation, so a view can key on the document without holding its bytes.
+     - Lowercase hex.
+     -
    * - ``record(kind, id)``
      - The one record of that kind and id.
      -
@@ -111,7 +118,7 @@ filters the file's own channel records and names a model or a place.
      - Document order, each once.
      - Empty, also for an unknown id.
    * - ``wired(address)``
-     - The one wiring record naming an address, as the file holds it.
+     - The one wiring record naming an address, as its ``address`` or under ``also``, as the file holds it.
      -
      - ``None`` for an address no model wires.
    * - ``resolve(target)``
@@ -388,7 +395,7 @@ deployment runs against a simulator. Each model record names an ``engine``, a
 deck; a model of the ``injection`` engine names no deck.
 
 **Engines are plug-ins.** An engine is a module registered in the
-``osprey.simulation.engines`` entry-point group under the name a model's
+``osprey_connectors.simulation.engines`` entry-point group under the name a model's
 ``engine`` gives. OSPREY ships ``pyat`` and ``injection``. The build reaches the engine to read
 the deck (where each element sits, each wired channel's operating point, what
 each wiring record is) without building a model, and stops with
@@ -425,9 +432,10 @@ A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is ``no deck``, and every channel of that machine is
 the texture's.
 
-Every served model, ``texture`` included, also has read-only IOC health
-channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
-the IOC pages of All PVs read (:ref:`channel-finder-all-pvs`).
+Every served model, ``texture`` included, also has read-only health channels
+for its simulated server, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and
+``ENGINEER``, which the server pages of the channel directory and the server
+fleet read (:ref:`channel-finder-directory`).
 
 **A model may read another model's records.** A model record's ``inputs``
 lists records other models of the facility wire, each an ``address`` and an
@@ -478,6 +486,9 @@ How the composite serves the models over Channel Access and PVAccess is in
 
    :doc:`/how-to/describe-your-facility`
       The source tree, file by file.
+
+   :doc:`facility-packages`
+      The split into osprey-facility and osprey-panels, and its boundary check.
 
    :doc:`/how-to/control-systems/use-virtual-accelerator`
       Running the simulator and serving a facility's own model.

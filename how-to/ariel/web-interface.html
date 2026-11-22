@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Web Interface &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Web Interface &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Search Modes" href="search-modes.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -590,6 +590,10 @@ to an icon strip. Below 640 px the list and reader stack and the reader gets a
 Back button. The <strong>Status and settings</strong> button in the header opens those
 drawers; Status counts each enabled enhancement module’s entries as Complete,
 Pending, Stale, Failed and N/A, as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> does.</p>
+<p>The reader shows an entry’s text as stored. An entry that declares
+<code class="docutils literal notranslate"><span class="pre">body_format:</span> <span class="pre">markdown</span></code> is shown as formatted text instead, with tables,
+lists and links, and each picture at the place the text puts it; see
+<strong>Entry format</strong> in <a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a>.</p>
 <p>The reader’s <strong>Enhancements</strong> tab shows each enabled module’s state and output
 for the entry. A failed or stale card shows the command that re-runs it,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">&lt;name&gt;</span> <span class="pre">--entry</span> <span class="pre">&lt;id&gt;</span></code>, with a <strong>Copy</strong> button;

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Import a Middle Layer export &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Import a Middle Layer export &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="How to Use the Channel Finder" href="use-channel-finder.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -733,7 +733,14 @@ is yours and is only drafted when absent. The authored files beside them —
 <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>,
 <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code> — are created
 only when absent and never rewritten, so your edits to them survive a
-re-import. <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> is created when absent; when it exists, the import
+re-import. Beside an existing <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> the import prints a
+<code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">differ:</span> <span class="pre">&lt;address&gt;</span> <span class="pre">file</span> <span class="pre">[..]</span> <span class="pre">export</span> <span class="pre">[..]</span></code> line for each record whose
+band the export states otherwise, and one <code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">not</span> <span class="pre">recorded:</span></code> line
+counting the setpoints the export bands that the file has no record for,
+followed by the first ten with their band; it writes none of them. A
+<code class="docutils literal notranslate"><span class="pre">Range</span></code> given as one row per device whose row count is not the family’s
+device count gives no band, and the import prints one <code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">table</span>
+<span class="pre">skipped:</span></code> line for that field. <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> is created when absent; when it exists, the import
 appends only the classes it lacks and leaves its rows as written.
 <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> names, as <code class="docutils literal notranslate"><span class="pre">quad</span></code> and <code class="docutils literal notranslate"><span class="pre">sext</span></code>, the families the
 export tags as tune and chromaticity correctors, and lists every kind those
@@ -749,7 +756,33 @@ each setpoint with the one readback on the same device whose signal names the
 same quantity, so a field without a signal stays unpaired. A family whose
 devices hold one coil per plane maps its current fields to the plane-qualified
 signals (<code class="docutils literal notranslate"><span class="pre">current_x_setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">current_x_readback</span></code>, <code class="docutils literal notranslate"><span class="pre">current_y_setpoint</span></code>,
-<code class="docutils literal notranslate"><span class="pre">current_y_readback</span></code>), so the build pairs each coil with its own readback.
+<code class="docutils literal notranslate"><span class="pre">current_y_readback</span></code>), so the build pairs each coil with its own readback.</p>
+<p>One family entry serves every model that carries the family, but a field can
+carry a current in one model and another quantity in the next. A field’s
+<code class="docutils literal notranslate"><span class="pre">by_model</span></code> answers its signal for those models, keyed by the model’s system
+token as under <code class="docutils literal notranslate"><span class="pre">models</span></code>; <code class="docutils literal notranslate"><span class="pre">null</span></code> gives that model’s channels no signal:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">families</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">QF</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">fields</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Setpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Power-supply current setpoint per magnet.</span>
+<span class="w">        </span><span class="nt">provenance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">stated</span>
+<span class="w">        </span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">current_setpoint</span>
+<span class="w">        </span><span class="nt">by_model</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">TL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">normalized_strength_setpoint</span><span class="w">   </span><span class="c1"># this model states it in 1/m^2</span>
+</pre></div>
+</div>
+<p>The draft reads each model’s units on its own. A magnet field stated in a
+current gives the current signals. A multipole’s field stated in a normalized
+strength (<code class="docutils literal notranslate"><span class="pre">1/m^2</span></code>, <code class="docutils literal notranslate"><span class="pre">m^-3</span></code>) gives <code class="docutils literal notranslate"><span class="pre">normalized_strength_setpoint</span></code> and
+<code class="docutils literal notranslate"><span class="pre">normalized_strength_readback</span></code>. A corrector’s field stated in an angle
+(<code class="docutils literal notranslate"><span class="pre">rad</span></code>, <code class="docutils literal notranslate"><span class="pre">mrad</span></code>) gives <code class="docutils literal notranslate"><span class="pre">kick_angle_setpoint</span></code> and <code class="docutils literal notranslate"><span class="pre">kick_angle_readback</span></code>.
+A setpoint is drafted only for the family’s one written field of that quantity.
+The <code class="docutils literal notranslate"><span class="pre">signal</span></code> is the one most models give, and <code class="docutils literal notranslate"><span class="pre">by_model</span></code> lists only the models that differ. The mapping
+check, and with it the import, stops when a field gives a current signal to a
+model whose units for the field are not a current, and names the <code class="docutils literal notranslate"><span class="pre">by_model</span></code>
+answer to add. Any answer for the model settles it, even one that keeps the
+current where the export’s units are out of date.
 Each device carries the export’s <code class="docutils literal notranslate"><span class="pre">Position</span></code> as <code class="docutils literal notranslate"><span class="pre">s</span></code> with its <code class="docutils literal notranslate"><span class="pre">model</span></code>, and
 the build stops (<code class="docutils literal notranslate"><span class="pre">place-conflict</span></code>) when a wired device’s deck disagrees.</p>
 <p><code class="docutils literal notranslate"><span class="pre">imported/mml/rows.json</span></code> records which device each export <code class="docutils literal notranslate"><span class="pre">DeviceList</span></code> row
@@ -809,7 +842,12 @@ import.</p>
 names each file, changes nothing and exits 1. The mml format writes channel,
 device, group, model, deck, seed, limit, identity and measurement records; the
 list format writes channel and device records. A file is hand-written once its
-bundled-origin line is gone. Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>.</p></li>
+first line is neither its bundled-origin line nor the seed header the import
+writes atop the files it creates,
+<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Seeded</span> <span class="pre">once</span> <span class="pre">by</span> <span class="pre">the</span> <span class="pre">facility</span> <span class="pre">import;</span> <span class="pre">edit</span> <span class="pre">this</span> <span class="pre">file</span> <span class="pre">by</span> <span class="pre">hand.</span></code>
+A file that opens with the retired header is read as seeded, and the import
+prints one warning that lists each such file and the line to set.
+Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>.</p></li>
 <li><p>Once the facility holds an imported layer, records written by hand beside it
 stay and stop no import. They are the facility’s own additions, such as a
 model no export states, and the build combines them with the layers.</p></li>

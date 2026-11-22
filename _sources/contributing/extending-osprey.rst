@@ -89,6 +89,16 @@ Pinning test: ``tests/registry/test_mcp.py``, which resolves those definitions
 into the generated agent configuration --- permissions, hooks and environment
 included.
 
+A tool that saves to the artifact store says, on each save, whether the file is
+for the person who asked: pass ``deliver=True`` to ``save_file``,
+``save_object`` or ``save_from_path`` for a plot, a document or anything else
+the tool makes as its answer. A dispatch run lists exactly those files and a
+chat bridge posts them into the conversation. Leave the argument out for what
+the tool keeps for the agent to read --- a data record, a log, a source file:
+it stays in the store and the gallery and is never posted. Pinning test:
+``tests/stores/test_artifact_deliver.py``, which classifies every save in
+``src/osprey``.
+
 .. _extending-chat-bridge:
 
 Chat bridge
@@ -294,9 +304,10 @@ reference for one that reads no deck and is time-driven.
 What a plug-in is given and asked for:
 
 - **Registration.** A plug-in is a module registered under the
-  ``osprey.simulation.engines`` entry-point group in its package's own
-  ``pyproject.toml``, under the name a model record's ``engine`` gives. The
-  composite looks it up with ``metadata.entry_points(group="osprey.simulation.engines",
+  ``osprey_connectors.simulation.engines`` entry-point group in its package's
+  own ``pyproject.toml``, under the name a model record's ``engine`` gives.
+  ``osprey_connectors.simulation.engines.ENGINE_GROUP`` holds that name. The
+  composite looks it up with ``metadata.entry_points(group=ENGINE_GROUP,
   name=...)``; an engine no package registers fails that model.
 - **Build-time contract.** ``osprey build`` calls four pure functions of the
   module, none of which builds a model:
@@ -340,16 +351,18 @@ What a plug-in is given and asked for:
   Its ``<code>:SIM:<model>:STATUS`` channel carries the text the module's
   optional ``error_text(exc)`` gives, else the exception's own text. The
   rest of the namespace is still served.
-- **The contract in code.** ``osprey.simulation.engines.EnginePlugin`` names
-  those five functions, and ``isinstance(module, EnginePlugin)`` checks a
-  module states them. ``osprey.simulation.engines.OPTIONAL_NAMES`` lists
-  every optional name, and the protocol's docstring says what each gives and
-  what a model whose engine lacks it gets.
+- **The contract in code.**
+  ``osprey_connectors.simulation.engines.EnginePlugin`` names those five
+  functions, and ``isinstance(module, EnginePlugin)`` checks a module states
+  them. ``osprey_connectors.simulation.engines.OPTIONAL_NAMES`` lists every
+  optional name, and the protocol's docstring says what each gives and what a
+  model whose engine lacks it gets.
   ``fault_variables`` is called as ``fault_variables(wiring, settings)``,
   with the model's ``settings`` second.
 - **The time contract.** A model that changes between solves, as an
   injection chain does during a shot, is *time-driven*: its engine states the
-  four optional functions ``osprey.simulation.engines.TIME_CONTRACT`` names.
+  four optional functions
+  ``osprey_connectors.simulation.engines.TIME_CONTRACT`` names.
   ``advance(model, t_s)`` applies every step due by epoch second ``t_s``;
   ``next_deadline(model)`` gives the next due step's epoch second, or
   ``None``; ``emitted(model)`` gives the ``event`` addresses fired since the

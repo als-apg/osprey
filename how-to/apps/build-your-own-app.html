@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Build Your Own App &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Build Your Own App &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Build Your Own OSPREY Apps" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -678,7 +678,7 @@ copied:</p>
 <span class="w">  </span><span class="nt">agent_routes</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">GET</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">/api/state</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">POST</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">/api/write</span><span class="p p-Indicator">]</span>
-<span class="w">  </span><span class="nt">roster_grant</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">single_user_alias</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">roster_grant</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
 <span class="nt">tools</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scaffold_app.tools</span>
 <span class="w">  </span><span class="nt">read</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read_channel</span><span class="p p-Indicator">]</span>
@@ -822,10 +822,12 @@ app, before it reaches the backend. Show that state rather than hiding the
 control: have the backend’s state say whether writes are on, and the panel
 say <em>Writes are off</em>.</p>
 <p>The page says when it can be driven, which a browser test or a recording
-waits for: <code class="docutils literal notranslate"><span class="pre">index.html</span></code> carries <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">panel.js</span></code> imports <code class="docutils literal notranslate"><span class="pre">markPageReady</span></code> from
-<code class="docutils literal notranslate"><span class="pre">/design-system/js/page-ready.js</span></code> and calls it once the first refresh has
-drawn, error or not. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> refuses a panel without the import.</p>
+waits for: <code class="docutils literal notranslate"><span class="pre">index.html</span></code> carries <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code> and
+loads <code class="docutils literal notranslate"><span class="pre">/design-system/js/page-ready.js</span></code> by its own tag before <code class="docutils literal notranslate"><span class="pre">panel.js</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">panel.js</span></code> imports <code class="docutils literal notranslate"><span class="pre">markPageReady</span></code> from it and calls it once the first
+refresh has drawn, error or not. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> refuses a panel that
+lacks any of the three, or that loads a module of its own <code class="docutils literal notranslate"><span class="pre">async</span></code>. The wait
+ends at <code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">failed</span></code>; <code class="docutils literal notranslate"><span class="pre">failed</span></code> means the page cannot be driven.</p>
 <p><code class="docutils literal notranslate"><span class="pre">tests/panel.test.js</span></code> is a Vitest test of the page’s functions in a DOM;
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> runs it. A JavaScript library the panel needs is not
 committed: list it under <code class="docutils literal notranslate"><span class="pre">vendor</span></code> with its exact version and SHA-256, and the
@@ -1328,9 +1330,12 @@ action, such as a write of many setpoints with read-back.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[METHOD,</span> <span class="pre">/path]</span></code> pairs the agent’s tools may call; <code class="docutils literal notranslate"><span class="pre">GET</span></code>,
 <code class="docutils literal notranslate"><span class="pre">HEAD</span></code> and <code class="docutils literal notranslate"><span class="pre">OPTIONS</span></code> read, every other method writes.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant.single_user_alias</span></code> [false]</p></td>
-<td><p>The panel works for the alias login of a single-user deployment,
-which has no roster.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant</span></code></p></td>
+<td><p>Required when a roster card shows the panel: <code class="docutils literal notranslate"><span class="pre">{}</span></code> hands each such
+card’s secret to the panel’s container, and on a single-user
+deployment it names the one operator, so the panel’s writes are
+recorded under <code class="docutils literal notranslate"><span class="pre">deployment.host_identity</span></code>. The build refuses the
+panel without it.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
 <td><p>The Python module run as the tool server.</p></td>

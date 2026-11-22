@@ -1,0 +1,845 @@
+============
+Search Modes
+============
+
+ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and ``hybrid``, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the OSPREY agent layer, which calls these search modules through ARIEL's MCP tools.
+
+**Dispatch is registry-driven.** A search request names a mode as a plain string --- ``"keyword"``, ``"semantic"``, ``"hybrid"``. The ``ARIELSearchService`` looks that name up in Osprey's central registry and calls the module's own ``execute``; it carries no per-mode branch of its own. The registry is the only source of routable modes. The service, the web interface's capabilities API and the agent's MCP tools therefore cannot disagree about which modes exist. Adding a module needs no change to the service.
+
+.. note::
+
+   ``sql_query`` is a **tool, not a search mode.** It runs read-only SQL against the same database. That is precision filtering --- exact matches, exhaustive date and author ranges, counts --- not ranked retrieval. It has no relevance score to merge with the others, so it is exposed only as its own MCP tool and never appears as a ``--mode`` value.
+
+Search Architecture
+-------------------
+
+.. raw:: html
+   :file: ../../_diagrams/ariel-search-modes.html
+
+The service refuses a mode that is not registered, or is registered but disabled in configuration, rather than quietly falling back to another one.
+
+**CLI usage:**
+
+.. code-block:: bash
+
+   osprey ariel search "RF cavity fault"                  # ariel.default_search_mode
+   osprey ariel search "RF cavity fault" --mode keyword
+   osprey ariel search "RF cavity fault" --mode semantic
+   osprey ariel search "RF cavity fault" --mode hybrid
+
+The ``--mode`` choices are read from the registry when the command runs. A facility that registers its own search module therefore gets it as a choice --- and in ``--help`` --- without any code change.
+
+
+Search Modules
+==============
+
+Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API; each built-in module is exposed to the OSPREY agent through its own ARIEL MCP tool (``keyword_search``, ``semantic_search``, ``hybrid_search``). The framework ships with the following built-in search modules:
+
+.. tab-set::
+
+   .. tab-item:: Keyword Search
+
+      **Module:** ``search/keyword.py``
+
+      PostgreSQL full-text search with optional fuzzy matching fallback. Best for specific terms, equipment names, PV names, and exact phrases.
+
+      **Query syntax:**
+
+      .. code-block:: text
+
+         # Simple terms (implicit AND)
+         RF cavity fault
+
+         # Boolean operators
+         RF AND cavity
+         vacuum OR pressure
+         beam NOT injection
+
+         # Quoted phrases
+         "RF cavity trip"
+
+         # Field prefixes
+         author:smith
+         date:2024-06
+
+         # Combined
+         author:jones "beam loss" date:2024-01
+
+         # Pattern tokens
+         SR01C___BPM*
+         /SR0[1-4]C___BPM\d+/
+
+      Pattern tokens and query expansion are covered in :ref:`vocabulary-expansion`.
+
+      **How it works:**
+
+      1. Validates and preprocesses the query --- empty queries return immediately, queries longer than 1,000 characters are truncated, and unbalanced quotes are auto-balanced by removing the last unmatched quote
+      2. Parses the query to extract field filters (``author:``, ``date:``), quoted phrases, and remaining search terms
+      3. Builds a PostgreSQL ``tsquery`` using the function appropriate for the query shape:
+
+         - ``plainto_tsquery`` --- for simple terms (implicit AND)
+         - ``websearch_to_tsquery`` --- for queries with Boolean operators (AND, OR, NOT)
+         - ``phraseto_tsquery`` --- for quoted phrases
+
+         When multiple components are present (terms *and* phrases, for example), they are combined with ``&&`` (tsquery AND).
+
+      4. Executes full-text search against the entry text (and, on a migrated store, its attachment captions) with ``ts_rank`` scoring, applying any field filters (``author ILIKE``, date range) and time range constraints
+      5. If no entry holds every plain word, returns the entries holding most of them instead (see *Which entries match* below)
+      6. If there are still no results and fuzzy fallback is enabled, falls back to ``pg_trgm`` trigram similarity at or above ``fuzzy_threshold`` (default: 0.3)
+      7. Returns results as ``(entry, score, highlights)`` tuples --- highlights are generated via ``ts_headline``
+
+      **Which entries match.** A query of plain words is answered in up to three steps, all inside the same date, author and source filters:
+
+      1. **Every word.** Entries containing all the plain words. If there are any, these are the answer.
+      2. **Most of the words.** Only when no entry has them all, and the query has at least two plain words. The answer is the entries containing at least half of them, ranked by how many words they hold, then by ``ts_rank``. Half is the same share hybrid search uses to decide that a picture caption matched. Each of these hits carries ``matched_terms`` and ``missing_terms``. The response carries an INFO diagnostic of category ``partial``, for example ``no entry contains every term; showing entries with at least 4 of 8; terms found in no hit: oct, 6``. With vocabulary expansion on, a word counts as present when it or any of its alternatives is.
+      3. **Similar spelling.** Only when both steps above found nothing: the trigram fuzzy fallback.
+
+      Quoted phrases stay required in every step. A query with ``AND``, ``OR`` or ``NOT`` means exactly what its operators say and is never relaxed, and neither is a query carrying a ``*`` glob or a ``/regex/`` token. To widen a search on purpose, join the alternatives with ``OR``.
+
+      Dates and authors belong in the ``start_date``, ``end_date`` and ``author`` filters, not in the query text: ``Oct 6`` in the query is two more words an entry has to contain. A bare ``end_date`` such as ``2025-10-06`` includes that whole day (facility time); an end with a time of day is taken exactly as written.
+
+      **Configuration:**
+
+      .. code-block:: yaml
+
+         ariel:
+           search_modules:
+             keyword:
+               enabled: true
+               settings:
+                 patterns_enabled: true          # default: true
+                 pattern_timeout_seconds: 10.0   # default: 10.0
+                 fuzzy_threshold: 0.3            # default: 0.3
+
+   .. tab-item:: Semantic Search
+
+      **Module:** ``search/semantic.py``
+
+      Embedding-based similarity search using pgvector. Best for conceptual queries where exact keywords may not appear in the text.
+
+      **How it works:**
+
+      1. Resolves the similarity threshold using a 3-tier priority:
+
+         a. Per-query ``similarity_threshold`` parameter (highest)
+         b. Config value (``search_modules.semantic.settings.similarity_threshold``)
+         c. Hardcoded default: 0.5 (lowest)
+
+      2. Determines the embedding model from config (``search_modules.semantic.model``) and resolves provider credentials via Osprey's centralized ``api.providers`` configuration
+      3. Generates a query embedding using the configured provider, with a dimension-mismatch warning if the returned embedding size does not match the configured ``embedding_dimension``
+      4. Searches the per-model embedding table using cosine distance (``<=>`` operator)
+      5. Filters results by similarity threshold and optional time range
+      6. Returns results as ``(entry, similarity_score)`` tuples
+
+      **Configuration:**
+
+      .. code-block:: yaml
+
+         ariel:
+           search_modules:
+             semantic:
+               enabled: true
+               provider: ollama
+               model: nomic-embed-text
+               settings:
+                 similarity_threshold: 0.5
+                 embedding_dimension: 768
+
+      **Requirements:** Ollama (or another embedding provider) running with the configured model, embedding table populated via the ``text_embedding`` :ref:`enhancement module <Enhancement Pipeline>`, and the pgvector extension installed in PostgreSQL.
+
+      A configuration that enables semantic search on a database with no embedding table for its model is refused on every search, and the refusal names the command that creates the table; the MCP server, the web interface and ``osprey ariel status`` report it at start.
+
+   .. tab-item:: hybrid (qmd sidecar)
+
+      **Module:** ``search/qmd.py``
+
+      Hybrid keyword-plus-semantic search. The default ``qmd`` strategy leaves lexical and vector retrieval inside qmd, preserving the behavior of existing deployments. The optional lightweight ``rrf`` strategy has qmd supply a BM25 ranking from its markdown mirror, ARIEL's configured semantic search supply the dense ranking, and ARIEL combine their positions with equal-weight reciprocal-rank fusion (RRF, ``k=60``). Both are useful when a question mixes specific terms with a described situation, or when keyword search returned too little.
+
+      The ``rrf`` path searches both qmd and PostgreSQL. It needs three things running together:
+
+      1. the ``services.qmd`` sidecar (see :ref:`qmd-search-sidecar`), and
+      2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes; and
+      3. the same configured embedding model and populated pgvector table used by ``semantic`` search.
+
+      The sidecar and the export need each other: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``demo`` template enables both, together with the sidecar itself. A web-terminal login deploys no sidecar of its own. It reaches the hosting deployment's sidecar through ``services.qmd.port`` instead. The build copies that key from the hosting deployment's render into every login, so nothing pins it by hand. ``osprey build`` refuses a render that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
+
+      ``hybrid`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
+
+      **Configuration:**
+
+      .. code-block:: yaml
+
+         ariel:
+           search_modules:
+             hybrid:
+               enabled: true
+               settings:
+                 strategy: qmd        # default; or rrf
+                 rerank: true          # default
+                 candidate_limit: 40   # default
+
+      .. warning::
+
+         The knobs **must** stay under ``settings:``. ARIEL's search-config loader keeps only ``enabled``, ``provider``, ``model`` and ``settings``, and drops every other key without a word. A knob written as a sibling of ``enabled`` is inert forever --- no error, no warning, just the defaults.
+
+      **Choose the strategy first.** ``strategy: qmd`` is the compatible default and uses qmd's lexical/vector retrieval; it may optionally use qmd's LLM reranker. ``strategy: rrf`` is the lightweight option: it combines qmd BM25 with ARIEL's configured semantic provider, has no second embedding model in the logbook retrieval path, and never calls the qmd reranker. It therefore requires semantic search and its embeddings to be available, and lets the ``ariel`` sidecar skip qmd's own embedding pass (:doc:`search-sidecar`).
+
+      **The rerank decision.** For ``strategy: qmd``, ``rerank`` turns on qmd's LLM reranker, which reorders candidates for quality. It is the single most important latency knob. For ``strategy: rrf`` it is ignored because RRF returns directly. Measured against a 134,996-entry logbook:
+
+      .. list-table::
+         :header-rows: 1
+         :widths: 40 30 30
+
+         * - Corpus
+           - p95, ``rerank: false``
+           - p95, ``rerank: true``
+         * - 135,000 entries
+           - 811 ms
+           - 3927 ms
+         * - 2,000 entries
+           - --
+           - 1587 ms
+
+      An LLM reviews every candidate before the results come back, which is what makes reranking the dominant term. Its cost is dominated by the candidate pool and grows far more slowly than the corpus does, so no logbook is small enough to outrun it. Both surfaces ship with the quality path on.
+
+      **One key, both surfaces.** For the ``qmd`` strategy, ``search_modules.hybrid.settings.rerank`` governs the agent-facing ``hybrid_search`` tool *and* the web interface's search panel --- and ``candidate_limit`` likewise. There is no separate panel key. When the deployment enables reranking, the panel toggle and tool argument may turn it off for an individual search. Setting the deployment key to ``false`` is a hard disable: the panel offers no toggle and a request cannot turn the reranker back on. The ``rrf`` strategy also omits that toggle because reranking does not participate. (The OKF bundle is a different key over a different corpus and defaults the other way; see :doc:`../facility-knowledge/okf-bundle`.)
+
+      **What the panel does with a reranked search.** Rather than hold an empty screen for the length of a reranked query, the panel runs it in two phases: it fetches and paints the fast ranking first, under a status line saying the results are being reranked, then replaces them with the reranked ranking under a line saying they were updated. The second response is drawn from a larger candidate pool, so *which* entries come back can change, not only the order they come back in.
+
+      **Reranking is never load-bearing.** A reranked query that fails, for any reason, is retried once without the reranker; the results come back normally, carrying a WARNING diagnostic that says the ranking was not improved. The panel keeps the fast results on screen and says so in its status line. Only a failure of that retry is a failed search.
+
+      ``candidate_limit`` is how many BM25 and dense candidates RRF considers per lane, or qmd's candidate pool under the qmd strategy. Lowering it trades recall for latency.
+
+      **Filtering is best-effort.** ``hybrid_search`` ranks the corpus first and applies the date, author and source filters *afterwards*, to the top of that ranking --- not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as "the ranked window ran out", not as "there is nothing else". When a filter has to be exhaustive, use ``keyword_search`` or ``sql_query``, which filter in the database.
+
+      .. admonition:: The first reranked query after a sidecar start is slow
+         :class: note
+
+         The first query with ``rerank: true`` loads a 610 MB model on CPU, and that load commonly runs past the client's 30-second request timeout. That first query is not lost: it falls back to the non-reranked ordering with a warning, and every query after the model is resident is reranked normally. This is the ordinary first-run experience after starting or restarting the sidecar, not a fault to chase. Run one throwaway query when the sidecar comes up if you want the first real one to be fast.
+
+      .. admonition:: Known limitation --- entry IDs that are not numeric
+         :class: note
+
+         qmd normalises the document paths it reports: ``_`` and ``%`` both become ``-``, runs collapse, and a leading one is dropped. ARIEL rehydrates each hit from the document's title rather than the reported path, so the entries you get back are correct. But two entry IDs that differ *only* in characters qmd collapses --- ``beam_current_setpoint`` and ``beam-current-setpoint``, say --- index as one document, and one of them becomes unreachable through this mode.
+
+         Over a real 134,996-entry logbook the measured collision rate is **0.0000%**: every entry ID there is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.
+
+**Registering a custom search module:**
+
+To add your own search module, create a Python module that exports ``get_tool_descriptor()`` (and optionally ``get_parameter_descriptors()``), then register it through your application's registry configuration:
+
+.. code-block:: python
+
+   from osprey.registry.helpers import extend_framework_registry
+   from osprey.registry.base import ArielSearchModuleRegistration
+
+   app_config = extend_framework_registry(
+       ariel_search_modules=[
+           ArielSearchModuleRegistration(
+               name="my_search",
+               module_path="my_app.search.my_module",
+               description="Custom search module for my facility",
+           ),
+       ],
+   )
+
+Once the module is registered, enable it under ``config:`` in ``profile.yml`` (``ariel.search_modules.my_search.enabled: true``). It is then routable by name, with no change to ``ARIELSearchService``: through ``osprey ariel search --mode my_search`` and through the web interface's capabilities API. Making it callable by the OSPREY agent additionally requires a matching ARIEL MCP tool (contributions welcome). The ``get_tool_descriptor()`` function must return a ``SearchToolDescriptor``, whose ``search_mode`` field is simply the registered module name:
+
+:class:`~osprey.services.ariel_search.search.base.SearchToolDescriptor` — a frozen dataclass whose key fields are ``execute`` (the async search function), ``format_result`` (formats results for agent consumption), and ``args_schema`` (a Pydantic model for input validation). See the class definition in the source for the full field list.
+
+Modules may also export ``get_parameter_descriptors()`` to declare tunable parameters for the frontend capabilities API. Each :class:`~osprey.services.ariel_search.search.base.ParameterDescriptor` describes a single knob --- its name, type, default, range, and UI grouping --- so the web interface can render controls dynamically.
+
+**What a module returns.** ``execute`` may return a plain list of entries, as it always could. When it has something to report alongside them, it may return a ``ModuleOutput`` instead:
+
+* ``diagnostics`` holds the notices the caller should see (a truncated query, a skipped step).
+* ``expansion`` holds the :ref:`vocabulary groups <vocabulary-expansion>` that actually reached the query it ran.
+* ``total``, ``total_exact`` and ``has_more`` report counts and paging; ``tier`` names the step that answered; ``filter_applied`` says the module applied the entry filter itself. All are optional.
+
+A bare list stays valid and needs no change.
+
+**Opting into the shared query work.** Descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called as before, except for paging (see ``accepts_offset``).
+
+* ``accepts_expansion`` --- set it to ``True`` and the service passes ``query_expansion=`` when, and only when, expansion was resolved for that request. The module never sees the ``expand_query`` request argument itself: whether to expand is settled once, in the service.
+* ``accepts_entry_filter`` --- set it to ``True`` and the service passes ``entry_filter=`` (an ``EntryFilter``, possibly empty) for the module to apply. The service post-filters every result with ``EntryFilter.matches`` either way.
+* ``accepts_offset`` --- set it to ``True`` and the service passes ``offset=``, with ``max_results`` as the page size. Otherwise the module gets no ``offset`` and is asked for ``min(offset + max_results * 2, 200)`` results. The service then cuts the page out of them.
+* ``needs_search_calls`` --- set it to ``True`` and the service passes its search-call pool as ``search_calls=``. A module that calls a provider at search time runs that call on the pool it receives, with ``await search_calls.run(fn, *args, timeout_s=...)``, and never builds a pool of its own. The service closes the pool when it stops.
+* ``query_parser`` --- an optional callable that takes the raw query string and returns a ``ParsedKeywordQuery`` (search text, field filters, phrases, pattern spans, diagnostics). The service calls it once and hands the result to the module as ``parsed=``. Keyword search declares its own ``parse_keyword_query`` here; a module that wants a different query language supplies its own parser, and one that wants none is never given ARIEL's.
+
+.. admonition:: Collaboration Welcome
+   :class: outreach
+
+   If you implement a search module that could benefit other facilities --- for example, a structured-metadata search, a time-series correlation search, or a cross-entry linking search --- we encourage you to open a pull request so it becomes natively available in Osprey.
+
+
+.. _vocabulary-expansion:
+
+Vocabulary Expansion and Pattern Search
+=======================================
+
+Control rooms search in shorthand and write logbook entries in words. A search
+for ``t/s the bpm offset`` will not find the entry that says "troubleshoot the
+beam position monitor offset". Stemming clips word endings; it does not know
+that ``bpm`` and "beam position monitor" are the same thing.
+
+A **vocabulary** is where a facility says that they are. It is a data file
+listing each concept once: the words your prose uses, and the spellings your
+operators type. Before a search runs, ARIEL rewrites the query using that file,
+so the shorthand spelling reaches the prose spelling and the other way round.
+It is plain dictionary matching --- no model, no network call, microseconds.
+Every rewrite is reported back with the results, so a hit that looks
+surprising always arrives with the reason it appeared.
+
+Nothing is built in. With no vocabulary configured, no query is ever rewritten.
+``osprey build`` turns expansion on when the facility ships
+``data/facility/ariel/vocabulary.yml``, and states that path. The example
+facility ships one as a starting point and a format tutorial; it is meant to be
+edited down to what your control room actually says.
+
+The vocabulary file
+~~~~~~~~~~~~~~~~~~~
+
+One top-level key, ``concepts``, holding a non-empty list. Each entry has three
+required keys and no others:
+
+.. code-block:: yaml
+
+   concepts:
+     - canonical: beam position monitor   # the words logbook prose uses
+       kind: acronym                      # acronym | shorthand | synonym
+       forms: [bpm, bpms]                 # what operators type instead
+
+     - canonical: troubleshoot
+       kind: shorthand
+       forms: [ts, t/s]
+
+     - canonical: beam loss               # one event, three phrasings
+       kind: synonym
+       forms: [lost beam, beam dump]
+
+``canonical``
+   Write it exactly as it appears in entry text. It is what a matched form is
+   rewritten into. Canonicals must be unique.
+
+``kind``
+   ``acronym`` for a genuine initialism, ``shorthand`` for a clipped or slang
+   spelling of an ordinary word, ``synonym`` for a different phrasing of the
+   same thing. The first two select a direction gate (below); ``synonym`` is
+   ungated and always bidirectional.
+
+``forms``
+   One or more spellings operators type. A form may not repeat its own
+   canonical.
+
+Anything else is refused rather than ignored:
+
+* an unknown key;
+* a missing field;
+* an unknown ``kind``;
+* a duplicate canonical;
+* an empty list;
+* a file that is not a YAML mapping.
+
+The check reports **every** problem in one pass, so a file
+with three mistakes takes one run to fix, not three.
+
+**How text is matched.** The file, the query and --- when ``expand_entries`` is
+on --- the entry text all go through the same rule before anything is compared:
+
+* lowercase;
+* ``-`` becomes a space (so ``Beam-Position Monitor`` and ``beam
+  position monitor`` are one phrase);
+* ``/`` is **kept** (so ``t/s`` and ``i/o`` stay a single token);
+* runs of whitespace collapse to one.
+
+The punctuation
+characters ``, . : ; ! ? ( ) [ ] " '`` are stripped from the edges of each
+token, so ``BPM,``, ``(BPM)`` and ``BPM?`` all match the form ``bpm``. No
+stemming happens here --- PostgreSQL's stemmer runs afterwards, on the text this
+produces. Forms match on whole tokens; multi-word forms match as phrases,
+longest first, left to right, and a stretch of text that has already matched is
+never matched again.
+
+Punctuation *inside* a multi-word form is part of the form. The form
+``vert. orbit`` matches the text ``vert. orbit`` and not ``vert orbit``; write
+both spellings as forms if both occur. A phrase only matches where the text
+breaks the same way, so ``beam. position monitor`` does not match ``beam
+position monitor``. ``osprey ariel vocab-check`` warns about each form whose
+edge punctuation is ignored and each form whose interior punctuation is
+required.
+
+**The two direction gates.** Matching a form and adding its canonical is
+*always* on: type ``bpm`` and the search also finds "beam position monitor".
+The reverse direction --- spelling the canonical out and *also* searching the
+short form --- is what ``kind`` gates:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 30 25
+
+   * - Setting
+     - Applies to
+     - Default
+   * - ``ariel.vocabulary.canonical_to_acronym``
+     - ``kind: acronym`` concepts
+     - ``true``
+   * - ``ariel.vocabulary.canonical_to_shorthand``
+     - ``kind: shorthand`` concepts
+     - ``false``
+   * - *(none --- always on)*
+     - ``kind: synonym`` concepts
+     - ---
+
+The two defaults are deliberately asymmetric. An initialism means one thing, so
+a search for "beam position monitor" should also reach the entries that wrote
+"BPM". An ordinary word is not so lucky: expanding "calibration" into ``cal``
+pulls in every entry that abbreviated something else that way.
+
+**The third kind: synonym.** ``kind: synonym`` is not gated by either switch.
+It is the one kind where every member reaches *every other member*. The
+canonical reaches every form, each form reaches the canonical, and each form
+also reaches its sibling forms. Given the ``beam loss`` concept above, a search
+for ``beam dump`` finds entries that wrote "beam loss" and entries that wrote
+"lost beam". So does a search for either of the other two, whatever
+``canonical_to_acronym`` and ``canonical_to_shorthand`` are set to.
+
+Use it for different **phrasings** of one thing. Do not use it when one
+spelling is simply the other written short: a clipped or slang word is
+``shorthand``, an initialism is ``acronym``. Those two are one thing written two
+ways, which is why their gates are asymmetric. A synonym is one thing *said* two
+ways, with no short side and nothing to gate. Put the phrasing your prose uses
+most often in ``canonical``, since that is what a matched form is rewritten
+into.
+
+**Forms that mean two things.** Binding one form to two concepts is legal, and a
+query containing it expands to *both* canonicals rather than picking a winner.
+``vocab-check`` warns about it and lists every canonical the form reaches, so
+the widening is a decision you made rather than something you discover from odd
+results. Two other things warn without failing:
+
+* a form that can never fire because a longer form always wins on the same text;
+* a word PostgreSQL's English text search discards outright, which would make
+  expanding to it match nothing.
+
+What gets expanded, and where
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Expansion of a **query** runs once, in the search service, before the request
+reaches a search module. What it looks at depends on the mode:
+
+``keyword``
+   The search terms and quoted phrases only. The values of ``author:`` and
+   ``date:`` filters are never expanded, and neither is the body of a pattern
+   token --- ``author:ts bpm`` expands ``bpm`` and leaves the author alone. A
+   query carrying explicit boolean operators (``AND``, ``OR``, ``NOT``) runs
+   unexpanded, with an INFO diagnostic saying so: that query syntax cannot group
+   the alternatives. Keyword queries are also truncated at 1,000 characters, so
+   a form past that point is not seen.
+
+``semantic`` and ``hybrid``
+   The whole query, because the whole query is what gets embedded or sent to the
+   sidecar.
+
+The same query can therefore report different expansions in different modes.
+``expand_modes`` limits which modes expand at all. Unset --- the default ---
+means every enabled search module once the entries are expanded too, and only
+the modes other than ``semantic`` and ``hybrid`` until then (see below).
+
+With ``ariel.vocabulary.expand_entries: true`` the **entries** are expanded too.
+That happens once, when they are embedded and when they are written to the qmd
+mirror. Every matched span gets its alternatives inserted right after it, in the
+text itself (``BPM drifted`` is embedded as ``BPM beam position monitor
+drifted``). The same direction gates apply as for the query. An entry that already spells both terms
+next to each other (``beam position monitor (BPM)``) gains nothing. Keyword
+search never sees entry expansion: it searches the stored text, which is not
+changed.
+
+Both sides matter for the dense lanes. JLAB-TN-26-024 measured that expanding
+only the query makes ``semantic`` retrieval worse than not expanding at all
+(17--22 % lower). Expanding both the query and the entries raised P@10
+by 29 % and MRR@10 by 19 %. The default therefore never expands one side
+alone: while ``expand_entries`` is off, ``semantic`` and ``hybrid`` search the
+query as typed and only ``keyword`` expands it. Turning ``expand_entries`` on and
+re-embedding (see :ref:`turning on entry expansion
+<ariel-entry-expansion-rollout>` in :doc:`data-ingestion`) brings query
+expansion to the dense modes as well. A deployment that wants query-only
+expansion on a dense mode anyway names that mode in ``expand_modes``.
+
+.. admonition:: Hybrid feeds the expanded query to a reranker
+   :class: note
+
+   ``hybrid`` hands its query to the qmd sidecar's LLM reranker, so expansion
+   changes what the reranker sees and can change the order of the results, not
+   only which ones come back. If your reranked ordering gets worse with
+   expansion on, drop that one mode rather than the feature:
+
+   .. code-block:: yaml
+
+      ariel:
+        vocabulary:
+          expand_modes: [keyword, semantic]
+
+Turning expansion off, for a deployment or for one search
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ariel.vocabulary.enabled: false`` switches the whole thing off: nothing is
+read, and a stale ``path`` left behind is inert rather than a startup failure.
+A profile that states ``true`` and no ``path`` of its own, for a facility that
+ships no ``data/facility/ariel/vocabulary.yml``, is refused at ``osprey build``.
+
+For a single search, every surface takes an ``expand_query`` argument:
+
+* the **Expand vocabulary** toggle in the web interface's advanced options;
+* an argument on the ``keyword_search``, ``semantic_search`` and
+  ``hybrid_search`` MCP tools.
+
+Leave it unset and it follows ``ariel.vocabulary.expand_by_default``. Pass
+``false`` and that one search runs on exactly the words you typed, with no
+expansions reported. It is the switch to reach for when you want to see what a
+query finds on its own. The OSPREY agent can use it the same way when a
+rewrite looks like it widened a search too far. With the vocabulary disabled the
+toggle is not advertised at all and the argument does nothing.
+
+``expand_query`` acts on the query only. Entries embedded or mirrored with
+``expand_entries`` on keep their inserted terms, so ``semantic`` and ``hybrid``
+can still reach an entry through a vocabulary term with the toggle off. To see
+the corpus without entry expansion, set ``expand_entries: false`` and re-embed.
+
+What you see when a query expands
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Results carry an ``expanded_terms`` list --- one entry per rewritten span, each
+pairing the matched span, as normalized, with the terms that were added:
+
+.. code-block:: json
+
+   [{"original": "ts", "alternatives": ["troubleshoot"]}]
+
+It reports only what the search actually used: a mode that skipped expansion, or
+a request that turned it off, reports an empty list. In the web interface the
+pairs render as a strip above the results. The MCP tools carry
+the same list in their result envelopes. ``keyword_search`` and
+``semantic_search`` also carry ``diagnostics``: the notices explaining a
+truncated query, a skipped expansion, or a pattern searched as text.
+``osprey ariel search`` does not print the expansion --- use the panel or an MCP
+tool to see it.
+
+``expanded_terms`` lists only what was added to the **query**. Terms inserted
+into entries are not listed there. They do show up in one place: the web
+panel's ``hybrid`` result previews. Those previews are snippets of the qmd
+mirror, which holds the expanded text. A preview can therefore read
+``BPM beam position monitor drifted`` where the stored entry says
+``BPM drifted``. The entry itself, the ``keyword`` and ``semantic`` previews, and the MCP tools (which return no snippets or
+highlights) show the stored text unchanged. The inserted terms also count
+toward the sidecar's BM25 half of ``hybrid`` scoring.
+
+Pattern tokens in keyword search
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Keyword search accepts two ways of writing a control-system name you only partly
+know. A glob is matched at word boundaries; an explicit ``/…/`` regular
+expression matches anywhere in the entry text unless you anchor it yourself.
+Both are case-insensitive, and both work alongside expansion in the same query.
+
+**Globs.** A token is a glob only if it contains ``*``. Inside such a token
+``?`` matches a single character; on its own it is ordinary text, so
+``did the BPM trip?`` and ``SR01C___BPM?`` are just words.
+
+.. code-block:: text
+
+   SR01C___BPM*     matches SR01C___BPM3 and bare SR01C___BPM, not XSR01C___BPM3
+   SR0?C___BPM*     matches SR01C___BPM3 and SR02C___BPM, not SR011C___BPM3
+
+**Explicit regular expressions.** A ``/…/`` token is a PostgreSQL regular
+expression. The slashes must start and end a whole token, which is what keeps a
+slash *inside* a word from opening one --- ``t/s`` and ``i/o`` stay shorthand.
+Spaces and escaped slashes are allowed inside the body, so ``/beam loss/`` is
+one pattern.
+
+.. code-block:: text
+
+   /SR0[1-4]C___BPM\d+/       one pattern
+   t/s /SR0[1-4]C___BPM\d+/   one pattern, plus the t/s expansion
+
+One trailing ``?`` is stripped from the query before patterns are read, so
+asking ``/SR0[1-4]C___BPM\d+/?`` as a question still works. A ``?`` *inside* the
+body is left alone (``/BPMs?/`` keeps it).
+
+**A pattern that is too generic is searched as text.** A pattern needs at least
+three consecutive literal characters to use the trigram index. Below that it
+would scan the whole logbook. Such a token is neither rejected nor dropped. It
+goes back into the query as ordinary search text, and the search says so in its
+diagnostics. A rejected ``/…/`` contributes the words of its body, without the
+slashes. That is why ``test UNION SELECT * FROM users --``, ``5 * 3`` and
+``flow rate 5 / 6 / 7`` produce no pattern at all. The one exception is an empty
+pattern (``//``), which is ignored outright with an INFO notice.
+
+**When a pattern is too slow, you are told.** A pattern query runs under
+``pattern_timeout_seconds``; an ordinary keyword search never opens that
+envelope. On expiry the search returns a timeout diagnostic rather than an
+empty result; through MCP it is a ``search_timeout`` error envelope. The agent
+can therefore tell "too slow" from "nothing matched". A regular expression PostgreSQL
+cannot compile comes back the same way, as an ``invalid_pattern`` error naming
+the pattern. Both carry the expansion groups the query was going to use.
+
+Setting ``patterns_enabled: false`` makes ``*`` and ``/…/`` ordinary words again
+--- the escape hatch for a logbook whose prose is full of literal asterisks.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   ariel:
+     vocabulary:
+       enabled: true                                # stated by the build when the file exists
+       path: data/facility/ariel/vocabulary.yml     # stated by the build when the file exists
+       expand_by_default: true                      # default: true
+       expand_entries: false                        # default: false
+       canonical_to_acronym: true                   # default: true
+       canonical_to_shorthand: false                # default: false
+       # expand_modes: [keyword, semantic]          # default: every enabled module
+                                                    # (semantic/hybrid only with expand_entries)
+
+     search_modules:
+       keyword:
+         enabled: true
+         settings:
+           patterns_enabled: true          # default: true
+           pattern_timeout_seconds: 10.0   # default: 10.0
+           fuzzy_threshold: 0.3            # default: 0.3
+
+A relative ``path`` resolves against the project root of the ``config.yml``
+that was loaded (the deployment repo, not its ``build/`` render). That is the
+same rule as ``qmd_export.mirror_path`` and ``facility_knowledge.bundle_path``.
+The panel, the CLI and the MCP server therefore all read the same file, no
+matter where the process was started.
+
+``expand_entries`` expands entry text before it is embedded and before it is
+written to the qmd mirror. It has no effect while ``enabled`` is ``false``
+(``osprey ariel status`` warns ``ariel.vocabulary.expand_entries is on and has
+no effect while ariel.vocabulary.enabled is false``). With it on and a
+vocabulary that does not load, ``sync``, ``ingest``, ``watch``, ``enhance``,
+``quickstart``, ``qmd-resync`` and ``reembed`` refuse to start rather than
+build unexpanded vectors.
+
+``enabled: true`` with no ``path``, an ``expand_modes`` entry naming a module
+that is unknown or not enabled, and a malformed keyword knob are all
+configuration errors that name the offending key. Nothing is quietly defaulted.
+
+.. warning::
+
+   The keyword knobs **must** stay under ``settings:``. ARIEL's
+   search-config loader keeps only ``enabled``, ``provider``, ``model`` and
+   ``settings``, and drops every other key without a word. A knob written as a
+   sibling of ``enabled`` is inert forever --- no error, no warning, just the
+   defaults.
+
+Checking the file, and reading the status
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   osprey ariel vocab-check                            # the configured file
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml  # any file
+   osprey ariel vocab-check --json                     # one JSON document
+
+Neither this command nor the vocabulary line of ``osprey ariel status`` needs a
+database. ``vocab-check`` exits ``0`` when the file loads and ``1`` when it does
+not, listing every error it found. Warnings are printed either way and never
+fail the check.
+
+``osprey ariel status`` reports one vocabulary line, one of:
+
+* ``Vocabulary: OK (20 concepts)``;
+* ``Vocabulary: OK (20 concepts, entries expanded, key e1:3f9a0c1d2b7e4a55)``
+  when ``expand_entries`` is on;
+* ``Vocabulary: INVALID (1 errors). Run: osprey ariel vocab-check``;
+* ``Vocabulary: disabled``.
+
+Its ``--json`` output carries the same verdict under ``vocabulary``. Run
+``vocab-check`` on every edit, before you deploy. The file is read once, when
+the configuration is parsed, so a mistake in it is a startup problem rather
+than a search that quietly stops expanding.
+
+The ``e1:…`` value is the **vocabulary key**: the expansion rule and a
+fingerprint of the file and the two gates. Any edit to a concept's spellings,
+its kind or the order of the concepts changes it, and so does flipping a gate;
+comments and layout do not. Every command that writes entries or vectors
+(``sync``, ``watch``, ``reembed``, ...) prints the same line when it starts.
+``osprey ariel qmd-resync`` prints the key as ``Expansion key``. You can
+therefore check that the host and the running image read the same file.
+
+Every stored vector also records the **running key** it was built with ---
+``r1`` without entry expansion, ``r1:e1:…`` with it. When a table holds vectors
+built differently from the running configuration, status prints one line per
+cause and, on the last one, the command that rebuilds them::
+
+   text_embedding nomic-embed-text: 1200 entries embedded without entry expansion. To rebuild them with the current settings, run osprey ariel reembed --model nomic-embed-text --dimension 768 --force.
+
+The causes are ``with a different input rule``, ``without entry expansion``,
+``with entry expansion``, ``with a different expansion rule``, ``with a
+different vocabulary`` and ``with an unrecognized build key``. With the
+vocabulary disabled the causes print without a command. A table whose schema
+predates the key prints ``schema behind code: run osprey ariel migrate``; a
+vocabulary that does not load prints ``text_embedding <model>: cannot check how
+N entries were embedded: the vocabulary does not load. Run: osprey ariel
+vocab-check``. The web ``/status`` page and the MCP status tool do not report
+this.
+
+When the vocabulary is broken
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A vocabulary that cannot be loaded takes search down, loudly, and leaves
+everything else running:
+
+* The web panel starts in **CONFIGURATION INVALID** mode. A banner names the
+  errors and the fix, and the search form is disabled --- it does not look like
+  a search that found nothing.
+* A search request returns ``503`` naming ``ariel.vocabulary.path``, not a
+  generic failure.
+* Browsing entries, status and publishing keep working, and so does the settings
+  editor. That is the point: you can set ``ariel.vocabulary.enabled: false``
+  or repoint ``ariel.vocabulary.path`` from the panel itself, then restart.
+* The MCP server refuses to start, naming the same key, so the OSPREY agent
+  never gets a half-working search.
+
+A stated ``ariel.vocabulary.path`` that is not a file stops ``osprey build``
+while the vocabulary is on, so a missing file never reaches this mode (see
+:ref:`architecture-facility-settings`).
+
+If the broken file is baked into a deployed image, the panel's editor cannot
+reach it: ``vocabulary.yml`` ships inside the image, like the channel databases.
+Fix the file in the project source, then re-run the build and deploy again.
+
+.. admonition:: What expansion does not do
+   :class: note
+
+   * **Forms are literal text.** A form cannot be a regular expression or a
+     wildcard; write out the spellings you want matched.
+   * **No fuzzy matching.** A misspelled form is simply not a form. (Keyword
+     search's own trigram fallback still applies to the query as a whole.)
+   * **No disambiguation by context.** A form bound to two concepts always
+     expands to both. Split the forms (``t/s`` versus ``ts``) or drop a binding
+     if that is too wide.
+   * **Boolean keyword queries are never expanded** --- the syntax cannot group
+     the alternatives.
+   * **Pattern matches are not highlighted.** Result highlights come from
+     full-text search; a pattern match contributes none.
+   * **The vocabulary is not editable from the panel.** It is project data, not
+     a runtime setting: edit it in the source and redeploy.
+
+
+.. _choosing-semantic-or-hybrid:
+
+Choosing Between Semantic and Hybrid
+====================================
+
+Both modes retrieve by meaning rather than by matching words, and a deployment
+can run either, both, or neither. They differ in what they depend on, what they
+cost per query, and how much of their ranking you can inspect.
+
+``hybrid`` defaults to qmd's all-in-one retrieval, which combines BM25, vector
+search and an optional LLM reranker without needing an embedding provider on the
+host or pgvector in the logbook database. Deployments that already run semantic
+search can instead select the lightweight RRF strategy, which reuses that same
+embedding model and combines it with qmd BM25. The shipped templates set hybrid
+as ``default_search_mode``.
+
+``semantic`` is worth keeping — or choosing — when any of the following applies:
+
+* **You want a stronger embedding model than the sidecar bakes in.** ``semantic``
+  takes its embeddings from a configured provider. A facility with its own
+  inference endpoint can therefore point it at a far larger model than the 300M
+  embedder qmd ships.
+* **You need the ranking to be inspectable.** ``semantic`` is cosine distance
+  over a pgvector column and nothing else --- no reranker. It does apply
+  deterministic :ref:`vocabulary expansion <vocabulary-expansion>` when one is
+  configured, and reports every term it added; drop ``semantic`` from
+  ``ariel.vocabulary.expand_modes`` for the pure path. Any result can then be
+  explained with a single SQL query, which matters where retrieval has to be
+  auditable.
+* **You want it composable with structured filters.** The embeddings live in
+  ``text_embeddings_*`` tables in the logbook database. They therefore join
+  against ordinary columns and are reachable from the ``sql_query`` tool. ``hybrid``
+  ranks a markdown mirror and post-filters instead.
+* **Query latency matters more than reranking quality.** Reranking dominates a
+  qmd hybrid query's cost; a pure vector lookup is the fast path. The RRF
+  strategy is a lightweight hybrid alternative when both lexical and dense
+  retrieval are wanted without a reranker.
+
+Running both is a reasonable configuration: they are independent modules, and
+``default_search_mode`` decides only which one answers when the caller names no
+mode.
+
+
+Need behavior beyond these search modules --- multi-step reasoning, answer
+synthesis, custom prompting? That lives in the OSPREY agent layer; see
+:doc:`/reference/contracts/ariel` under "Extending the integration."
+
+
+.. _ariel-sql-readonly-role:
+
+Read-only role for the SQL tool
+===============================
+
+The agent can run raw SQL against the logbook database. That query path
+connects as its own Postgres role — ``<username>_ro``, derived from
+``services.postgresql.username`` — which can log in, read the tables in the
+``public`` schema, and do nothing else. It is not the role ingestion writes
+with, and it is not a superuser. A query naming a server-side function such
+as ``pg_read_file()`` is therefore refused by Postgres rather than by a pattern
+match over the query text. Only the agent's ARIEL server opens that role; ingestion and the
+other ``osprey ariel`` commands connect as the owner role alone.
+
+The role is created by an init script the Postgres entrypoint runs **once,
+while it initializes a fresh data volume**, the same window
+``POSTGRES_PASSWORD`` is read in. Its password is ``ARIEL_DB_READONLY_PASSWORD``
+in the deployment's ``.env``, minted by ``osprey up`` beside
+``ARIEL_DB_PASSWORD``. A new deployment gets all of this with no action from
+you.
+
+Tables created later are covered. The script grants ``SELECT`` on the schema's
+tables and sets default privileges for the owner. The ``enhanced_entries``
+table the migrations create and the per-model ``text_embeddings_*`` tables an
+enhancement module adds are therefore readable without a second grant.
+
+A deployment that names its own database with the ``uri`` key gets no
+``<username>_ro`` role. Name a SELECT-only login on that database in
+``ariel.database.readonly_uri``; without it the SQL tool is not offered (see
+:ref:`config-ariel-database-readonly-uri`).
+
+Adopting the role on an existing database
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A data volume created before the role existed never runs the init script, so it
+has no ``<username>_ro``. The agent logs one warning at start-up, and the SQL
+tool refuses every query, naming the refused login, until the role exists. The
+other ARIEL tools keep working. To adopt the role without recreating the
+volume, run the same script by hand once:
+
+.. code-block:: bash
+
+   docker exec -e ARIEL_DB_READONLY_PASSWORD="$(grep '^ARIEL_DB_READONLY_PASSWORD=' .env | cut -d= -f2-)" \
+       <project>-ariel-postgres bash /docker-entrypoint-initdb.d/10-readonly-role.sh
+
+Restart the agent afterwards so it picks up the role and the SQL tool answers.
+The script is idempotent — running it again is how you roll the role's password
+after changing it in ``.env``.
+
+
+
+See Also
+========
+
+:doc:`data-ingestion`
+    How data gets into the system --- facility adapters, enhancement modules, and database schema
+
+:doc:`/reference/contracts/ariel`
+    MCP tools, service factory, and search result structure
+
+:doc:`web-interface`
+    Web interface architecture and capabilities API
+
+:ref:`retrieval-paths`
+    How these modes relate to OSPREY's other retrieval stacks, and which of them
+    need an embedding provider reachable at query time

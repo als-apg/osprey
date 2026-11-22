@@ -1,0 +1,1395 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Search the Facility Graph &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/facility-knowledge/use-facility-graph';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/facility-knowledge/use-facility-graph.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Logbook Search Service (ARIEL)" href="../ariel/index.html" />
+    <link rel="prev" title="The OKF Bundle" href="okf-bundle.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../register-a-measurement-kind.html">Register a measurement kind</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/slack.html">Slack</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../control-systems/machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Facility Knowledge</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Facility Knowledge</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Search the Facility Graph</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="search-the-facility-graph">
+<span id="how-to-facility-graph"></span><h1>Search the Facility Graph<a class="headerlink" href="#search-the-facility-graph" title="Link to this heading">#</a></h1>
+<p>You do nothing to use the facility graph until it cannot answer: ask the
+OSPREY agent a structural question and it delegates the question to the
+<strong>facility-knowledge-graph agent</strong>, a specialist that writes Cypher (Neo4j’s
+query language, the graph counterpart of SQL) through the <code class="docutils literal notranslate"><span class="pre">graph</span></code> MCP server.
+Neither you nor the main agent writes the query. This page covers what sits
+around that: where the graph comes from, what it refuses, what its failures
+mean, and how to run it against a store your facility already has.</p>
+<p>The facility graph holds the <em>structure</em> of the machine: the devices, the
+sections they sit in, the classes they belong to, and the control system
+addresses bound to each one. The <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store serves it
+(<a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a>).</p>
+<p>It answers a different kind of question than the <a class="reference internal" href="../use-channel-finder.html"><span class="doc">channel finder</span></a>. The channel finder turns a phrase into an address —
+“beam current” into <code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code>. The graph relates addresses
+to each other: how many correctors the storage ring has, what sits in a section
+in beam order, which PVs one device exposes and which of them are written, or
+which devices share a PV.</p>
+<div class="important admonition">
+<p class="admonition-title">Two things are called “graph”</p>
+<p>This page is about the <code class="docutils literal notranslate"><span class="pre">graph</span></code> MCP server — the exploration surface the
+<strong>facility-knowledge-graph</strong> subagent uses to answer the main agent’s
+structural questions. The <strong>graph paradigm</strong> is a different thing wearing
+the same word: a channel finder mode (<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode:</span>
+<span class="pre">graph</span></code>) that puts the <em>channel finder</em> subagent on this same store to turn
+a phrase into an address, under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> server name and with
+a query catalogue written for that job. Same store, two specialist
+subagents, two jobs — see <a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>.</p>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">What a knowledge graph is, and the questions this one answers</p></li>
+<li><p class="sd-card-text">Why the server can only read, and what it refuses before dialing</p></li>
+<li><p class="sd-card-text">What each degraded state means and the remedy it names</p></li>
+<li><p class="sd-card-text">Where the graph comes from: the graph view the build writes</p></li>
+<li><p class="sd-card-text">What reads the search index the build writes from that view</p></li>
+<li><p class="sd-card-text">When to rebuild, and what a rebuild changes</p></li>
+<li><p class="sd-card-text">How to point the tools at a store the facility already runs</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> a project with a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block — the
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships one, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds.</p>
+</div>
+</details><p>What the graph holds, how its names are spelled, and what each of the four
+tools returns are in <a class="reference internal" href="../../reference/contracts/facility-graph.html"><span class="doc">Facility Graph Contracts</span></a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>The store’s first start needs egress.</strong> Its image ships the APOC plugin
+inside and moves it into place, but not <code class="docutils literal notranslate"><span class="pre">n10s</span></code> — the entrypoint downloads
+that jar from GitHub the first time the store comes up, and it is the
+plugin that imports the graph view. There is no configuration key for
+this: a disconnected site brings the store up once on a host that can reach
+GitHub, or copies the jar into the plugins volume by hand, after which the
+volume carries it and later starts need nothing.</p>
+</div>
+<section id="what-a-knowledge-graph-is">
+<h2>What a Knowledge Graph Is<a class="headerlink" href="#what-a-knowledge-graph-is" title="Link to this heading">#</a></h2>
+<p>A <strong>knowledge graph</strong> stores facts as links between things. Each fact is one
+statement of subject, predicate and object, and facts that name the same thing
+join up, so a question can follow the links across many of them. Part of the
+graph describes the machine. The rest, the <strong>ontology</strong>, describes the <em>kinds</em>
+of thing the machine is made of and how those kinds relate: a horizontal
+corrector is a corrector, and a corrector is a magnet.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 770" role="img" aria-labelledby="fgp-title fgp-desc">
+  <title id="fgp-title">A knowledge graph of a storage ring: one fact, the ontology, the facts about the machine, and one question answered as a walk</title>
+  <desc id="fgp-desc">One fact is a triple: SR/HCM01 hasBinding SR:MAG:HCM:01:CURRENT:SP. The ontology holds the kinds of thing: HCorrector and VCorrector are subclasses of Corrector; Corrector and Dipole of Magnet; BeamPositionMonitor of Instrumentation; Magnet and Instrumentation of AcceleratorDevice. Corrector carries the synonym steerer. The facts below hold four devices, SR/HCM01, SR/VCM01, SR/DIPOLE01 and SR/BPM01, each typed by a class and carrying its section and position. Each device has a binding to a channel address, and each channel reads or writes a signal, which channels share. The highlighted walk answers: what are the steerer setpoints in section 1? It goes from the word steerer to Corrector, down to its subclasses, to their devices in section SECT1, to the channels that write. On the demo machine it returns 12 addresses in beam order, though the word steerer appears in none of them. The legend names the edge styles: a solid arrow links two things, a dashed arrow ties a thing to its class, teal marks the walk. A relation claim adds an edge such as POWEREDBY between devices and places; a contested claim adds POWEREDBYCONTESTED instead, which a walk over plain edges never crosses. The demo machine's relation claims are the sector-3 example of the facility relations architecture page.</desc>
+  <defs>
+    <marker id="fgp-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fgp-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+  </defs>
+
+  <!-- 1. one fact -->
+  <rect class="zone" x="20" y="14" width="960" height="72" rx="8"/>
+  <text class="te" x="36" y="33">1 · ONE FACT</text>
+  <rect class="nb" x="130" y="44" width="120" height="28" rx="14"/>
+  <text class="ts" x="190" y="62" text-anchor="middle">SR/HCM01</text>
+  <line class="e" x1="250" y1="58" x2="360" y2="58" marker-end="url(#fgp-arr)"/>
+  <text class="ta" x="304" y="52" text-anchor="middle">HASBINDING</text>
+  <rect class="nb-st" x="360" y="44" width="180" height="28" rx="4"/>
+  <text class="ts" x="450" y="62" text-anchor="middle">SR:MAG:HCM:01:CURRENT:SP</text>
+  <text class="ta" x="190" y="33" text-anchor="middle">SUBJECT</text>
+  <text class="ta" x="304" y="33" text-anchor="middle">PREDICATE</text>
+  <text class="ta" x="450" y="33" text-anchor="middle">OBJECT</text>
+  <text class="tn" x="580" y="54">A graph is many such facts,</text>
+  <text class="tn" x="580" y="71">joined wherever two of them name the same thing.</text>
+
+  <!-- 2. the ontology -->
+  <rect class="zone" x="20" y="98" width="960" height="202" rx="8"/>
+  <text class="te" x="36" y="117">2 · THE ONTOLOGY</text>
+  <text class="ts" x="150" y="117">the kinds of thing, and what each kind is a kind of</text>
+  <text class="ta" x="964" y="222" text-anchor="end">CLASSES</text>
+
+  <!-- subclass edges -->
+  <line class="e" x1="370" y1="160" x2="485" y2="136" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="160" x2="635" y2="136" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="230" y1="202" x2="340" y2="188" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="510" y1="202" x2="405" y2="188" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="202" x2="790" y2="188" marker-end="url(#fgp-arr)"/>
+  <line class="e-acc" x1="130" y1="244" x2="200" y2="230" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="330" y1="244" x2="260" y2="230" marker-end="url(#fgp-arr-acc)"/>
+  <rect class="mask" x="672" y="139" width="66" height="12" rx="2"/>
+  <text class="ta" x="705" y="148" text-anchor="middle">SUBCLASSOF</text>
+
+  <!-- classes -->
+  <rect class="nb-in" x="485" y="118" width="150" height="28" rx="14"/>
+  <text class="ts" x="560" y="136" text-anchor="middle">AcceleratorDevice</text>
+  <rect class="nb-in" x="320" y="160" width="100" height="28" rx="14"/>
+  <text class="ts" x="370" y="178" text-anchor="middle">Magnet</text>
+  <rect class="nb-in" x="725" y="160" width="130" height="28" rx="14"/>
+  <text class="ts" x="790" y="178" text-anchor="middle">Instrumentation</text>
+  <rect class="nb-foc" x="180" y="202" width="100" height="28" rx="14"/>
+  <text class="ts t-acc" x="230" y="220" text-anchor="middle">Corrector</text>
+  <rect class="nb-in" x="465" y="202" width="90" height="28" rx="14"/>
+  <text class="ts" x="510" y="220" text-anchor="middle">Dipole</text>
+  <rect class="nb-in" x="705" y="202" width="170" height="28" rx="14"/>
+  <text class="ts" x="790" y="220" text-anchor="middle">BeamPositionMonitor</text>
+  <rect class="nb-foc" x="75" y="244" width="110" height="28" rx="14"/>
+  <text class="ts t-acc" x="130" y="262" text-anchor="middle">HCorrector</text>
+  <rect class="nb-foc" x="275" y="244" width="110" height="28" rx="14"/>
+  <text class="ts t-acc" x="330" y="262" text-anchor="middle">VCorrector</text>
+
+  <!-- the synonym -->
+  <rect class="nb-foc" x="40" y="202" width="86" height="28" rx="4"/>
+  <text class="ts t-acc" x="83" y="220" text-anchor="middle">"steerer"</text>
+  <line class="e-acc e-dash" x1="126" y1="216" x2="180" y2="216"/>
+  <text class="ta ta-acc" x="153" y="197" text-anchor="middle">ALTLABEL</text>
+
+  <!-- 3. the facts -->
+  <rect class="zone" x="20" y="312" width="960" height="240" rx="8"/>
+  <text class="te" x="36" y="331">3 · THE FACTS</text>
+  <text class="ts" x="142" y="331">what is on this machine</text>
+  <text class="ta" x="964" y="375" text-anchor="end">DEVICES</text>
+  <text class="ta" x="964" y="449" text-anchor="end">CHANNELS</text>
+  <text class="ta" x="964" y="528" text-anchor="end">SIGNALS</text>
+
+  <!-- type edges cross from facts up to classes -->
+  <line class="e-acc e-dash" x1="130" y1="350" x2="130" y2="272" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc e-dash" x1="330" y1="350" x2="330" y2="272" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e e-dash" x1="510" y1="350" x2="510" y2="230" marker-end="url(#fgp-arr)"/>
+  <line class="e e-dash" x1="790" y1="350" x2="790" y2="230" marker-end="url(#fgp-arr)"/>
+  <text class="ta" x="520" y="280">TYPE</text>
+
+  <!-- binding edges -->
+  <line class="e-acc" x1="130" y1="394" x2="130" y2="430" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="330" y1="394" x2="330" y2="430" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e" x1="510" y1="394" x2="510" y2="430" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="394" x2="790" y2="430" marker-end="url(#fgp-arr)"/>
+  <text class="ta" x="520" y="416">HASBINDING</text>
+
+  <!-- signal edges -->
+  <line class="e-acc" x1="130" y1="460" x2="205" y2="510" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="330" y1="460" x2="255" y2="510" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e" x1="510" y1="460" x2="510" y2="510" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="460" x2="790" y2="510" marker-end="url(#fgp-arr)"/>
+  <text class="ta ta-acc" x="300" y="490">WRITESSIGNAL</text>
+  <text class="ta" x="520" y="490">READSSIGNAL</text>
+
+  <!-- devices -->
+  <rect class="nb-foc" x="55" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="130" y="368" text-anchor="middle">SR/HCM01</text>
+  <text class="ts" x="130" y="384" text-anchor="middle">SECT1 · s = 4.80 m</text>
+  <rect class="nb-foc" x="255" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="330" y="368" text-anchor="middle">SR/VCM01</text>
+  <text class="ts" x="330" y="384" text-anchor="middle">SECT1 · s = 4.80 m</text>
+  <rect class="nb" x="435" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="510" y="368" text-anchor="middle">SR/DIPOLE01</text>
+  <text class="ts" x="510" y="384" text-anchor="middle">SECT1 · s = 6.78 m</text>
+  <rect class="nb" x="715" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="790" y="368" text-anchor="middle">SR/BPM01</text>
+  <text class="ts" x="790" y="384" text-anchor="middle">SECT1 · s = 4.80 m</text>
+
+  <!-- channels -->
+  <rect class="nb-foc" x="45" y="430" width="170" height="30" rx="4"/>
+  <text class="ts t-acc" x="130" y="449" text-anchor="middle">SR:MAG:HCM:01:CURRENT:SP</text>
+  <rect class="nb-foc" x="245" y="430" width="170" height="30" rx="4"/>
+  <text class="ts t-acc" x="330" y="449" text-anchor="middle">SR:MAG:VCM:01:CURRENT:SP</text>
+  <rect class="nb-st" x="420" y="430" width="180" height="30" rx="4"/>
+  <text class="ts" x="510" y="449" text-anchor="middle">SR:MAG:DIPOLE:01:CURRENT:RB</text>
+  <rect class="nb-st" x="705" y="430" width="170" height="30" rx="4"/>
+  <text class="ts" x="790" y="449" text-anchor="middle">SR:DIAG:BPM:01:POSITION:X</text>
+
+  <!-- signals -->
+  <rect class="nb-ext" x="160" y="510" width="140" height="28" rx="14"/>
+  <text class="ts" x="230" y="528" text-anchor="middle">current_setpoint</text>
+  <rect class="nb-ext" x="440" y="510" width="140" height="28" rx="14"/>
+  <text class="ts" x="510" y="528" text-anchor="middle">current_readback</text>
+  <rect class="nb-ext" x="710" y="510" width="160" height="28" rx="14"/>
+  <text class="ts" x="790" y="528" text-anchor="middle">position_x_readback</text>
+
+  <!-- 4. one question, one walk -->
+  <rect class="nb-foc" x="20" y="564" width="960" height="122" rx="8"/>
+  <text class="te" x="36" y="583">4 · ONE QUESTION IS ONE WALK</text>
+  <text class="tn" x="36" y="604">"What are the steerer setpoints in section 1?"</text>
+
+  <line class="e-acc" x1="126" y1="632" x2="146" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="226" y1="632" x2="246" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="376" y1="632" x2="396" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="526" y1="632" x2="546" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="676" y1="632" x2="696" y2="632" marker-end="url(#fgp-arr-acc)"/>
+
+  <rect class="nb" x="36" y="618" width="90" height="28" rx="4"/>
+  <text class="ts" x="81" y="636" text-anchor="middle">"steerer"</text>
+  <rect class="nb" x="146" y="618" width="80" height="28" rx="14"/>
+  <text class="ts" x="186" y="636" text-anchor="middle">Corrector</text>
+  <rect class="nb" x="246" y="618" width="130" height="28" rx="14"/>
+  <text class="ts" x="311" y="636" text-anchor="middle">its subclasses</text>
+  <rect class="nb" x="396" y="618" width="130" height="28" rx="6"/>
+  <text class="ts" x="461" y="636" text-anchor="middle">devices in SECT1</text>
+  <rect class="nb" x="546" y="618" width="130" height="28" rx="4"/>
+  <text class="ts" x="611" y="636" text-anchor="middle">channels that write</text>
+  <rect class="nb nb-acc-stroke" x="696" y="618" width="268" height="28" rx="4"/>
+  <text class="tn t-acc" x="830" y="636" text-anchor="middle">12 addresses, in beam order</text>
+
+  <text class="ts" x="36" y="670">The word "steerer" appears in none of the 12 addresses. The ontology supplies the meaning, and the facts supply the machine.</text>
+
+  <!-- legend -->
+  <g id="fgp-legend">
+    <text class="te" x="36" y="716">LEGEND</text>
+    <line class="e" x1="120" y1="712" x2="160" y2="712" marker-end="url(#fgp-arr)"/>
+    <text class="ts" x="168" y="716">a link between two things</text>
+    <line class="e e-dash" x1="380" y1="712" x2="420" y2="712" marker-end="url(#fgp-arr)"/>
+    <text class="ts" x="428" y="716">TYPE: a thing to its class</text>
+    <line class="e-acc" x1="640" y1="712" x2="680" y2="712" marker-end="url(#fgp-arr-acc)"/>
+    <text class="ts" x="688" y="716">the walk in step 4</text>
+    <line class="e" x1="120" y1="744" x2="160" y2="744" marker-end="url(#fgp-arr)"/>
+    <text class="ta" x="168" y="748">POWEREDBY</text>
+    <text class="ts" x="236" y="748">a relation claim between devices or places</text>
+    <line class="e-warn e-dash" x1="520" y1="744" x2="560" y2="744" marker-end="url(#fgp-arr)"/>
+    <text class="ta ta-warn" x="568" y="748">POWEREDBYCONTESTED</text>
+    <text class="ts" x="690" y="748">a contested claim; plain walks never cross it</text>
+  </g>
+</svg>
+</div>
+<p>An excerpt of the demo machine’s graph. Solid arrows link things, dashed arrows
+tie each device to its class, and teal marks the walk in step 4. The legend
+adds the edges relation claims write; the demo’s claims are the sector-3
+example in <a class="reference internal" href="../../architecture/facility-relations.html"><span class="doc">Facility Relations</span></a>.</p>
+<p>The walk is what a list of addresses cannot do on its own: the question says
+“steerer” and “section 1”, and no address spells either. The same shape answers
+the questions that come up around a machine:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 44.0%" />
+<col style="width: 56.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Question</p></th>
+<th class="head"><p>What the graph follows</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>How many magnets does the ring have?</p></td>
+<td><p>Every class under <code class="docutils literal notranslate"><span class="pre">Magnet</span></code>, then the devices of those classes.</p></td>
+</tr>
+<tr class="row-odd"><td><p>What sits in this section, in beam order?</p></td>
+<td><p>The section and position each device carries.</p></td>
+</tr>
+<tr class="row-even"><td><p>Which addresses belong to this device, and which of them write?</p></td>
+<td><p>The device’s bindings, then the signal each one reads or writes.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Which devices share this address?</p></td>
+<td><p>Back from the address to every device bound to it. Magnets on a common
+power supply appear here; the demo machine has no shared addresses.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-secondary sd-bg-text-secondary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-code" viewBox="0 0 16 16" aria-hidden="true"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"></path></svg></span><span class="sd-summary-text">The walk above, as a query</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">Run against the demo machine, this returns the 12 setpoints in the figure’s
+last step, six horizontal and six vertical. The agent writes queries like
+this for you.</p>
+<div class="highlight-cypher notranslate"><div class="highlight"><pre><span></span><span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">:</span><span class="n">Class</span><span class="p">)</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">ANY</span><span class="p">(</span><span class="n">l</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="n">word</span><span class="p">.</span><span class="n">altLabel</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">toLower</span><span class="p">(</span><span class="n">l</span><span class="p">)</span><span class="w"> </span><span class="n">CONTAINS</span><span class="w"> </span><span class="s">&quot;steerer&quot;</span><span class="p">)</span>
+<span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">cls</span><span class="p">:</span><span class="n">Class</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">SUBCLASSOF</span><span class="p">*</span><span class="m">0</span><span class="p">..</span><span class="o">]-&gt;</span><span class="p">(</span><span class="n">word</span><span class="p">)</span>
+<span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">d</span><span class="p">:</span><span class="n">Resource</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">TYPE</span><span class="o">]-&gt;</span><span class="p">(</span><span class="n">cls</span><span class="p">)</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">sectionCode</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;SECT1&quot;</span>
+<span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">d</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">HASBINDING</span><span class="o">]-&gt;</span><span class="p">(</span><span class="n">b</span><span class="p">:</span><span class="n">ChannelBinding</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">WRITESSIGNAL</span><span class="o">]-&gt;</span><span class="p">()</span>
+<span class="k">RETURN</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">deviceId</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">device</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">fullPv</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">setpoint</span><span class="p">,</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">sPositionM</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">s_m</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">s_m</span><span class="p">,</span><span class="w"> </span><span class="n">device</span>
+<span class="k">LIMIT</span><span class="w"> </span><span class="m">50</span>
+</pre></div>
+</div>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-secondary sd-bg-text-secondary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-info" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text">If you already work with knowledge graphs</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text"><strong>RDF in, property graph out.</strong> The corpus is NARAD-convention Turtle,
+which neosemantics projects into Neo4j; queries are Cypher, not SPARQL.</p></li>
+<li><p class="sd-card-text"><strong>Nothing is inferred at load.</strong> A device asserts only its concrete class,
+and a query walks <code class="docutils literal notranslate"><span class="pre">SUBCLASSOF*</span></code> for the rest. The query gate refuses
+<code class="docutils literal notranslate"><span class="pre">n10s</span></code> procedures, so the agent has no reasoner to call.</p></li>
+<li><p class="sd-card-text"><strong>Derived, not curated.</strong> Unless a profile names its own corpus, the build
+writes it from the facility file, so a fix belongs in that file.</p></li>
+<li><p class="sd-card-text"><strong>Structure only.</strong> The graph holds no live values and no history. Those
+stay in the control system and the archiver.</p></li>
+<li><p class="sd-card-text"><strong>A wrong name returns zero rows, not an error.</strong> The agent’s prompt carries
+the live schema and the class synonyms for this reason.</p></li>
+</ul>
+<p class="sd-card-text">For the wider field, see Hogan et al., <a class="reference external" href="https://doi.org/10.1145/3447772">Knowledge Graphs</a>, <em>ACM Computing Surveys</em> 54(4), 2021.</p>
+</div>
+</details></section>
+<section id="read-only-by-construction">
+<h2>Read-Only by Construction<a class="headerlink" href="#read-only-by-construction" title="Link to this heading">#</a></h2>
+<p>Nothing the agent passes can change the graph. Two independent layers say so:</p>
+<ul class="simple">
+<li><p>Every query runs inside a <strong>read transaction</strong>. A query that tries to write
+is refused by the store itself, and comes back as a validation error naming
+the read-only posture.</p></li>
+<li><p>A <strong>query gate</strong> runs before the store is dialed at all. It refuses extension
+procedures and functions — the <code class="docutils literal notranslate"><span class="pre">apoc</span></code>, <code class="docutils literal notranslate"><span class="pre">n10s</span></code>, <code class="docutils literal notranslate"><span class="pre">db</span></code>, <code class="docutils literal notranslate"><span class="pre">dbms</span></code> and
+<code class="docutils literal notranslate"><span class="pre">gds</span></code> namespaces, whether called with <code class="docutils literal notranslate"><span class="pre">CALL</span></code> or used as a function in a
+<code class="docutils literal notranslate"><span class="pre">RETURN</span></code> — and refuses <code class="docutils literal notranslate"><span class="pre">LOAD</span> <span class="pre">CSV</span></code>. Only two read procedures are
+allowlisted (<code class="docutils literal notranslate"><span class="pre">db.labels</span></code> and <code class="docutils literal notranslate"><span class="pre">db.relationshipTypes</span></code>, the ones
+<code class="docutils literal notranslate"><span class="pre">get_schema</span></code> itself uses). Ordinary <code class="docutils literal notranslate"><span class="pre">CALL</span> <span class="pre">{</span> <span class="pre">…</span> <span class="pre">}</span></code> subqueries pass, and the
+gate keeps scanning inside them.</p></li>
+</ul>
+<p>The gate exists because the store’s single account is write-capable and can
+reach the network: an extension procedure or a CSV import would be a way around
+both facts. The graph is rebuilt from the facility file, so a change to the
+graph belongs in that file followed by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
+</section>
+<section id="when-the-graph-cannot-answer">
+<h2>When the Graph Cannot Answer<a class="headerlink" href="#when-the-graph-cannot-answer" title="Link to this heading">#</a></h2>
+<p>Each degraded state comes back distinctly, naming its own remedy, so the agent
+can tell “no data” from “no store” and report the difference rather than
+retrying. The first five are error envelopes; a truncated result is a normal
+answer that says it was cut short.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>State</p></th>
+<th class="head"><p>What it means, and the remedy it names</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Not configured</strong></p></td>
+<td><p>No <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block. Normally you never see this: without the
+block the server is not rendered into the project at all. It appears
+only when the server was force-enabled anyway (see below). Add the
+block, and list <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> if this deployment
+should run the store.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Unreachable</strong></p></td>
+<td><p>The store did not answer. Check that the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> service is up and
+start it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; if it is running, check that
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.port_host</span></code> — or <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code> for an
+external store — names the address it is actually published on.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Authentication failed</strong></p></td>
+<td><p>Both ends read <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code>, and the store keeps the value the
+project <code class="docutils literal notranslate"><span class="pre">.env</span></code> carried when its data volume was first created. Restore
+that value in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>, or reset the store’s data volume so
+it is created again with the current one. The value is never echoed
+anywhere.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Empty</strong></p></td>
+<td><p>The store is running but holds no corpus, so no query can match. Load it
+with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Timed out</strong></p></td>
+<td><p>The query outlived <code class="docutils literal notranslate"><span class="pre">services.graphdb.query_timeout_s</span></code> and the store
+cancelled it. Narrow the query first; raise the key only for a query
+that is genuinely long-running.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Truncated</strong></p></td>
+<td><p>More rows matched than <code class="docutils literal notranslate"><span class="pre">services.graphdb.query_max_rows</span></code>. The reply
+says so and suggests a <code class="docutils literal notranslate"><span class="pre">LIMIT</span></code>, an aggregate, or a narrower <code class="docutils literal notranslate"><span class="pre">MATCH</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Both bound keys live in the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, alongside the image and
+port settings documented in <a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports the same store from the outside, under its
+<code class="docutils literal notranslate"><span class="pre">graphdb</span></code> category — bolt reachability and how many resources the graph
+holds. See <a class="reference internal" href="../health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>.</p>
+</div>
+</section>
+<section id="leaving-the-graph-tools-out">
+<h2>Leaving the Graph Tools Out<a class="headerlink" href="#leaving-the-graph-tools-out" title="Link to this heading">#</a></h2>
+<p>The server renders wherever <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> is configured. To keep the
+store but take the tools away from the agent — to shrink the tool surface, or
+while benchmarking something else — turn the server off explicitly. The
+facility-knowledge-graph agent rides the server, so switching it off removes
+the subagent and its roster entry in the same build:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">servers</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">graph</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p>The override is read after the store check, so the opposite spelling
+(<code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code>) forces the server on even with no <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code>
+block. In that build <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> and <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> can only report <em>not
+configured</em>, while <code class="docutils literal notranslate"><span class="pre">example_queries</span></code> and <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> still answer from
+their static content — which is why a reply from either says nothing about
+whether a store exists. Useful for testing the wiring, not for anything else.</p>
+</section>
+<section id="where-the-graph-comes-from">
+<h2>Where the Graph Comes From<a class="headerlink" href="#where-the-graph-comes-from" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the corpus, the <strong>graph view</strong>
+(<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> under the render), from the facility file
+(<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>), so the graph describes the same machine the channel
+finder does. Nobody edits the graph view: its first line names the hash of the
+facility file it was written from, and a change belongs in the facility file.
+The build points every rendered <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block’s <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at it
+unless the profile names a corpus of its own, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds the store
+from it whenever the store’s seed marker differs from the graph view’s digest. A change to the facility
+file reaches the graph with:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>osprey<span class="w"> </span>up
+</pre></div>
+</div>
+<p>The corpus is sent to the store in requests of a few megabytes each, cut
+between Turtle statements, so the heap the store needs
+(<code class="docutils literal notranslate"><span class="pre">services.graphdb.heap_max_size</span></code>) does not grow with the size of the corpus.
+A statement is never cut, and every statement that names a labelled blank node
+(<code class="docutils literal notranslate"><span class="pre">_:b0</span></code>) travels in one request, whatever its size: a corpus of your own that
+leans on labelled blank nodes is the one case where a larger heap may still be
+needed.</p>
+<p>A seed that fails does not stop the rest of the deployment from starting, and
+it does not pass for a finished one either. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports the failure
+in its step output when it happens, starts everything else, and then ends with
+the failed step as its last lines and a non-zero exit status. The store is left
+without a seed marker, so the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds it again. (An attached
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, without <code class="docutils literal notranslate"><span class="pre">-d</span></code>, hands the terminal to the container logs and has
+no exit status of its own: there the step output is the report.)</p>
+</section>
+<section id="what-the-preset-seeds">
+<h2>What the Preset Seeds<a class="headerlink" href="#what-the-preset-seeds" title="Link to this heading">#</a></h2>
+<p>The demo preset seeds the graph view <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from
+its facility file, <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> under the render. No
+hand-written corpus ships. Point <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at a corpus of your own to seed
+that instead.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>A build profile that ships its own <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree replaces the bundle’s
+<code class="docutils literal notranslate"><span class="pre">data/</span></code> directory wholesale, which takes <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> with it. Such
+a profile ships a facility file of its own, and the build writes the graph
+view from that.</p>
+</div>
+</section>
+<section id="browsing-the-graph">
+<span id="graph-view"></span><h2>Browsing the Graph<a class="headerlink" href="#browsing-the-graph" title="Link to this heading">#</a></h2>
+<p>To look at the graph yourself instead of asking the agent, open the KNOWLEDGE
+panel. At startup it reads the graph view <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names
+and adds a <strong>Graph</strong> view beside <strong>Knowledge</strong>. It reads the file, not the
+store: it works while the store is down, and does not show what a store the
+facility runs holds. With no <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> there is no <strong>Graph</strong> view.</p>
+<ul class="simple">
+<li><p><strong>Overview</strong> draws one mark per class, and the places, channels and signals
+as one group each. Click a mark to list its members.</p></li>
+<li><p><strong>Neighbourhood</strong> draws what lies within one to three hops of a node, at most
+120 nodes. A node with more than 12 relations is drawn but not walked
+through; its badge counts what is left out. Double-click a node to move the
+focus to it.</p></li>
+<li><p>The search field matches a node’s label — a device’s id, a place’s path, a
+channel’s address, a class or signal name — or its id, ignoring case. It
+does not search <code class="docutils literal notranslate"><span class="pre">altLabel</span></code> names.</p></li>
+<li><p>The relation checkboxes take a relation out of the drawing and out of the
+walk.</p></li>
+<li><p>Right-click a node, a relation or the empty drawing for its menu: copy a
+name, hide a relation or show it alone, reset the view.</p></li>
+</ul>
+<p>A device’s place is its stored <code class="docutils literal notranslate"><span class="pre">locatedIn</span></code> relation, and a place’s parent its
+stored <code class="docutils literal notranslate"><span class="pre">partOf</span></code>. The <strong>Overview</strong> draws no <code class="docutils literal notranslate"><span class="pre">partOf</span></code>, since both ends sit in
+the one places group; the legend still counts it. Each relation edge between
+devices and places (<code class="docutils literal notranslate"><span class="pre">poweredBy</span></code>, <code class="docutils literal notranslate"><span class="pre">cabledTo</span></code> and the rest, and their
+<code class="docutils literal notranslate"><span class="pre">Contested</span></code> twins, <a class="reference internal" href="../../reference/contracts/facility-graph.html#reference-facility-graph"><span class="std std-ref">Facility Graph Contracts</span></a>) is drawn in the same
+generic style as any other relation. Claim and group nodes, and the edges that
+end on them, are not drawn.</p>
+<p>Clicking a <code class="docutils literal notranslate"><span class="pre">facility:</span></code> link in a concept document opens the linked record in
+the <strong>Graph</strong> view, and a picked node lists the concept documents that name it.</p>
+</section>
+<section id="pointing-at-a-store-the-facility-runs">
+<span id="graph-external-store"></span><h2>Pointing at a Store the Facility Runs<a class="headerlink" href="#pointing-at-a-store-the-facility-runs" title="Link to this heading">#</a></h2>
+<p>The store does not have to be one this deployment brings up. OSPREY starts
+nothing and bootstraps nothing on a store it does not run, and never writes to
+it: the corpus is whatever the facility loaded. An external store that holds no
+corpus answers every query with zero rows.</p>
+<p>To point the deployment at the facility’s store:</p>
+<ol class="arabic">
+<li><p>In the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, give <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> an explicit
+<code class="docutils literal notranslate"><span class="pre">uri</span></code>, and the store account as <code class="docutils literal notranslate"><span class="pre">username</span></code>. <code class="docutils literal notranslate"><span class="pre">username</span></code> is read only
+on this path; a store this deployment does run authenticates as <code class="docutils literal notranslate"><span class="pre">neo4j</span></code>,
+the account its container is created with.</p></li>
+<li><p>In the same block, write out <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> without <code class="docutils literal notranslate"><span class="pre">graphdb</span></code>.
+Leaving <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in is the mistake to avoid: the build still stands up a
+local Neo4j that nobody then queries. <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is a list, so
+an edit replaces it whole — write out the services you <em>do</em> want rather
+than the one you are taking away.</p>
+<p>The block then reads:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.example:7687</span>
+<span class="w">  </span><span class="nt">services.graphdb.username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span>
+<span class="w">  </span><span class="c1"># ... the rest of your services keys, unchanged</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># no graphdb</span>
+</pre></div>
+</div>
+</li>
+<li><p>If the corpus lives in a database other than <code class="docutils literal notranslate"><span class="pre">neo4j</span></code> on that store, name
+it with <code class="docutils literal notranslate"><span class="pre">services.graphdb.database</span></code>. The store this deployment runs is a
+Community image that serves exactly one database, so the key matters only
+here. Every session — the seeder’s writes and the agent’s reads alike — is
+opened against it, so both reach the same corpus.</p></li>
+<li><p>Put that account’s password in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> as
+<code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code>. Nothing mints one here, because the store belongs to
+somebody else.</p></li>
+<li><p>To give that store the graph a deployment of its own would seed, copy the
+build’s graph view, <code class="docutils literal notranslate"><span class="pre">build/data/graph/facility.ttl</span></code>, to the store’s host.
+The <code class="docutils literal notranslate"><span class="pre">file://</span></code> path in the next step is read on that host.</p></li>
+<li><p>Load the graph view through the store’s neosemantics (<code class="docutils literal notranslate"><span class="pre">n10s</span></code>) plugin. On
+a store that has never held an import, run all three statements: the first
+two initialise the plugin with the settings OSPREY’s queries are written
+against.</p>
+<div class="highlight-cypher notranslate"><div class="highlight"><pre><span></span><span class="k">CREATE</span><span class="w"> </span><span class="n">CONSTRAINT</span><span class="w"> </span><span class="n">n10s_unique_uri</span><span class="w"> </span><span class="n">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="n">EXISTS</span>
+<span class="w">  </span><span class="n">FOR</span><span class="w"> </span><span class="p">(</span><span class="n">r</span><span class="p">:</span><span class="n">Resource</span><span class="p">)</span><span class="w"> </span><span class="n">REQUIRE</span><span class="w"> </span><span class="n">r</span><span class="p">.</span><span class="n">uri</span><span class="w"> </span><span class="k">IS</span><span class="w"> </span><span class="k">UNIQUE</span><span class="p">;</span>
+<span class="k">CALL</span><span class="w"> </span><span class="n">n10s</span><span class="p">.</span><span class="n">graphconfig</span><span class="p">.</span><span class="n">init</span><span class="p">({</span>
+<span class="w">  </span><span class="n">handleVocabUris</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;MAP&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">handleMultival</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;ARRAY&#39;</span><span class="p">,</span>
+<span class="w">  </span><span class="n">multivalPropList</span><span class="p">:</span><span class="w"> </span><span class="o">[</span><span class="s">&#39;http://www.w3.org/2004/02/skos/core#altLabel&#39;</span><span class="o">]</span><span class="p">,</span>
+<span class="w">  </span><span class="n">keepLangTag</span><span class="p">:</span><span class="w"> </span><span class="k">false</span><span class="p">,</span><span class="w"> </span><span class="n">handleRDFTypes</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;LABELS_AND_NODES&#39;</span><span class="p">,</span>
+<span class="w">  </span><span class="n">applyNeo4jNaming</span><span class="p">:</span><span class="w"> </span><span class="k">true</span>
+<span class="p">});</span>
+<span class="k">CALL</span><span class="w"> </span><span class="n">n10s</span><span class="p">.</span><span class="n">rdf</span><span class="p">.</span><span class="n">import</span><span class="p">.</span><span class="n">fetch</span><span class="p">(</span><span class="s">&#39;file:///path/to/build/data/graph/facility.ttl&#39;</span><span class="p">,</span><span class="w"> </span><span class="s">&#39;Turtle&#39;</span><span class="p">);</span>
+</pre></div>
+</div>
+</li>
+<li><p>Load the graph view again after every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> that changes it.</p></li>
+</ol>
+<p>Everything else on this page applies to an external store as written, because
+it is all client side: the same four tools, the same read-only posture, the
+same bounds and the same degraded states. The graph channel finder paradigm
+reads the same block and reaches an external store the same way
+(<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+</section>
+<section id="one-machine-several-views">
+<h2>One Machine, Several Views<a class="headerlink" href="#one-machine-several-views" title="Link to this heading">#</a></h2>
+<p>On the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset every view of the machine is written from
+the one facility file, so their address spaces line up exactly. A smaller view
+is a strict subset rather than a different machine, and the simulator adds
+only its own status channels. After <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> the views hold:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 16.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>View</p></th>
+<th class="head"><p>Addresses</p></th>
+<th class="head"><p>Relationship to the graph</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Graph view (<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>)</p></td>
+<td><p>4731</p></td>
+<td><p>Build output, written from the facility file: 1027 devices, and one
+binding per channel; the 674 setpoint channels are the write-direction
+bindings.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Channel finder — hierarchical and graph builds</p></td>
+<td><p>4731</p></td>
+<td><p>The same set, address for address. A graph-mode build keeps no database
+of its own: it answers out of the search index the build writes from
+the graph view.</p></td>
+</tr>
+<tr class="row-even"><td><p>Channel finder — middle-layer build</p></td>
+<td><p>4725</p></td>
+<td><p>A strict subset — every channel bound to a device. The few channels the
+facility file attaches to a place rather than a device belong to no
+family, so this view leaves them out.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Channel finder, in-context index</p></td>
+<td><p>571</p></td>
+<td><p>A strict subset — the channels the facility file tags <code class="docutils literal notranslate"><span class="pre">in_context</span></code>,
+every one of which is in the graph.</p></td>
+</tr>
+<tr class="row-even"><td><p>Virtual accelerator simulation</p></td>
+<td><p>all, plus status</p></td>
+<td><p>Every channel of the facility file, plus one status channel per physics
+model, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>, where <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;</span></code> is the facility’s
+identity code.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>So on an in-context or middle-layer build the agent can find a channel in the
+graph that the channel finder does not list. That is the documented shape of
+those smaller views, not a mismatch: every view is written from the one
+facility file, so a change to that file reaches all of them on the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<section id="the-search-index">
+<h3>The search index<a class="headerlink" href="#the-search-index" title="Link to this heading">#</a></h3>
+<p>On a graph-mode build the channel finder answers “which channels does this
+facility have” through a search index: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the graph view
+once and writes <code class="docutils literal notranslate"><span class="pre">data/channel_databases/graph.duckdb</span></code>, a flat table of the
+same bindings, and that file is what the running deployment reads. No process
+parses the corpus while the deployment is up, so a click answers in
+milliseconds however large the machine is.</p>
+<p>Two places read the index and get the same list:</p>
+<ul class="simple">
+<li><p><strong>The channel finder in graph mode.</strong> It keeps no database of its own and
+turns phrases into addresses out of this same list. The OSPREY agent’s
+<code class="docutils literal notranslate"><span class="pre">search_channels</span></code> tool looks addresses up here by keyword and facet; its
+Cypher tools still ask the store, which is where questions about structure
+belong.</p></li>
+<li><p><strong>The channel finder’s web view.</strong> Its search results, its ontology and
+statistics panels and its channel list all come from the index. The device
+card is the exception: it reads the store, a single keyed lookup.</p></li>
+</ul>
+<p>The virtual accelerator does not read the index either: its channel manifest
+is built from the facility file’s channels, the same source as the queue
+server’s device file. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the worker’s device file from the
+facility file — one settable per setpoint channel, reading back through its
+<code class="docutils literal notranslate"><span class="pre">pair</span></code>, one readable per readback channel — see <a class="reference internal" href="../bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
+<p>The settable/readable split comes from the facility file’s channel records in
+every channel-finder mode: a channel whose <code class="docutils literal notranslate"><span class="pre">role</span></code> is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code> is settable
+and reads back through its <code class="docutils literal notranslate"><span class="pre">pair</span></code>, settling within its <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> when it
+states one, and a readback channel is readable. No
+build derives a direction from the limits file or from an <code class="docutils literal notranslate"><span class="pre">:SP</span></code> address
+grammar.</p>
+<p>The web view lists channels from the facility file the build writes into the
+render (<code class="docutils literal notranslate"><span class="pre">facility.json</span></code>), never from the corpus or the store. A render without
+that file says so and names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, rather than reporting a facility
+with no channels. The rest of the app starts as usual, and the graph tools keep
+answering from the store.</p>
+<p>Search needs the index the build writes from the corpus. A profile whose
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names no corpus is told to set that key.</p>
+</section>
+</section>
+<section id="rebuilding-the-search-index">
+<h2>Rebuilding the Search Index<a class="headerlink" href="#rebuilding-the-search-index" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the index for you, from the corpus the render carries:
+the project’s <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>, indexed into
+<code class="docutils literal notranslate"><span class="pre">./data/channel_databases/graph.duckdb</span></code> beside the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">up</span></code> seeds the store from the same file. The two are independent derivations of
+one corpus, and only that keeps them describing one machine, so rebuild both
+together:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>osprey<span class="w"> </span>up
+</pre></div>
+</div>
+<p>A channel finder already running on the host keeps the index it opened, so
+restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
+writes the index into the image it starts from — one per render, so each
+per-user tier image carries an index derived from the corpus that render
+stages, not a copy borrowed from the deployment’s.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports both halves under the channel finder category:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_finder_seed</span></code> — the corpus the store was imported from, as the
+digest its seed marker carries. It warns when the store is unseeded, or holds
+a corpus no marker identifies.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_finder_search_index</span></code> — the index, with its binding and device
+counts. It warns when the index is absent, cannot be read, or was built from
+a different corpus than the store holds, which is the reading that catches a
+seed and an index that have drifted apart.</p></li>
+</ul>
+</section>
+<section id="multi-user-operator-terminals">
+<h2>Multi-User Operator Terminals<a class="headerlink" href="#multi-user-operator-terminals" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">demo-readonly</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-readwrite</span></code> and
+<code class="docutils literal notranslate"><span class="pre">demo-admin</span></code> tier renders (<a class="reference internal" href="../web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>)
+get the same facility-knowledge-graph agent and tools, and — the preset runs
+<code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span> <span class="pre">graph</span></code> — a channel finder that answers from the same
+store. They are attached renders that deploy no services of their own, and
+their containers run with <code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so they reach the hosting
+deployment’s store on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>. The build copies the bolt port from the
+hosting deployment’s render into each login. The graph view is the one
+thing a render is <em>not</em> told: each render keeps <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>
+as its own and derives its search index from it.</p>
+<p>Two consequences worth knowing before you move anything:</p>
+<ul class="simple">
+<li><p><strong>Move the port on the hosting deployment and every render follows.</strong> A
+login built beside its deployment is told the store’s bolt port from the
+deployment’s own render — the same way it is told the qmd sidecar’s port,
+the Postgres the logbook lives in and the rest (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>) — so
+nothing in a login file restates it, and one that restates it
+with a different number is refused at build time.</p></li>
+<li><p>A <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> pinned to a specific non-loopback interface
+publishes the store there and not on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, so the renders would no
+longer reach it. URL-backed panels have the same shape — they name
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:&lt;port&gt;</span></code> outright (<a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a>) — so a
+deployment that moves off loopback has to revisit both.</p></li>
+</ul>
+<p>The read-only tier receives <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> too: the store’s one account
+can write, so the graph server’s read transaction, not the credential, keeps
+that tier read-only, as with the ARIEL database credential.</p>
+<p><code class="docutils literal notranslate"><span class="pre">demo-logbook</span></code> has no control surface and no graph tools.
+<code class="docutils literal notranslate"><span class="pre">demo-knowledge</span></code> is the login built around the graph: it keeps
+the facility-knowledge-graph agent, the graph-backed channel finder and the
+KNOWLEDGE panel, and nothing that reads or writes the machine.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../reference/contracts/facility-graph.html"><span class="doc">Facility Graph Contracts</span></a></dt><dd><p>What the graph holds, the Cypher spelling rules, and the four tools.</p>
+</dd>
+<dt><a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block: image, ports, corpus, memory, and the
+query bounds.</p>
+</dd>
+<dt><a class="reference internal" href="../../reference/cli.html#cli-osprey-knowledge"><span class="std std-ref">osprey knowledge</span></a></dt><dd><p>Every verb in the command group, with its flags and defaults.</p>
+</dd>
+<dt><a class="reference internal" href="okf-bundle.html"><span class="doc">The OKF Bundle</span></a></dt><dd><p>The bundle of concept documents <code class="docutils literal notranslate"><span class="pre">seed-from-ttl</span></code> writes from the build’s
+graph view.</p>
+</dd>
+<dt><a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a></dt><dd><p>The other way into the same machine — phrases to addresses.</p>
+</dd>
+<dt><a class="reference internal" href="../../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a></dt><dd><p>MCP servers provided by the framework, including <code class="docutils literal notranslate"><span class="pre">graph</span></code>.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="okf-bundle.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">The OKF Bundle</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../ariel/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Logbook Search Service (ARIEL)</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-knowledge-graph-is">What a Knowledge Graph Is</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-only-by-construction">Read-Only by Construction</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-graph-cannot-answer">When the Graph Cannot Answer</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leaving-the-graph-tools-out">Leaving the Graph Tools Out</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-graph-comes-from">Where the Graph Comes From</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-preset-seeds">What the Preset Seeds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#browsing-the-graph">Browsing the Graph</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pointing-at-a-store-the-facility-runs">Pointing at a Store the Facility Runs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-machine-several-views">One Machine, Several Views</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-search-index">The search index</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rebuilding-the-search-index">Rebuilding the Search Index</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-user-operator-terminals">Multi-User Operator Terminals</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/facility-knowledge/use-facility-graph.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osprey_connectors.logger &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>osprey_connectors.logger &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -42,7 +42,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -52,7 +52,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -62,8 +62,8 @@
     <link rel="search" title="Search" href="../../search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -464,14 +464,15 @@
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">TracebackType</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeAlias</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">NamedTuple</span><span class="p">,</span> <span class="n">TypeAlias</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">rich.console</span><span class="w"> </span><span class="kn">import</span> <span class="n">Console</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">rich.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">RichHandler</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config_flag</span><span class="p">,</span> <span class="n">get_config_value</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;ComponentLogger&quot;</span><span class="p">,</span>
@@ -934,7 +935,94 @@
 <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_build_rich_handler</span><span class="p">(</span><span class="n">console</span><span class="p">:</span> <span class="n">Console</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RichHandler</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">_HandlerSettings</span><span class="p">(</span><span class="n">NamedTuple</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``logging.*`` settings the Osprey ``RichHandler`` renders by.&quot;&quot;&quot;</span>
+
+    <span class="n">rich_tracebacks</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">show_traceback_locals</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">show_full_paths</span><span class="p">:</span> <span class="nb">bool</span>
+
+
+<span class="c1">#: What a handler renders by when the configuration cannot say. Locals stay</span>
+<span class="c1">#: hidden so a traceback never exposes sensitive data.</span>
+<span class="n">_DEFAULT_HANDLER_SETTINGS</span> <span class="o">=</span> <span class="n">_HandlerSettings</span><span class="p">(</span>
+    <span class="n">rich_tracebacks</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">show_traceback_locals</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">show_full_paths</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+
+<span class="c1">#: The handler :func:`configure_logging` installed, which is the only one a</span>
+<span class="c1">#: later call re-applies settings to.</span>
+<span class="n">_installed_handler</span><span class="p">:</span> <span class="n">RichHandler</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<span class="c1">#: Whether this process has already said that it could not read the settings.</span>
+<span class="n">_settings_warning_given</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_handler_settings</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_HandlerSettings</span><span class="p">,</span> <span class="ne">Exception</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read the handler&#39;s settings from the configuration this process resolves.</span>
+
+<span class="sd">    Each switch is read through :func:`config_flag`, so a ``&quot;false&quot;`` that</span>
+<span class="sd">    reached the config as text (quoted, or a resolved ``${VAR:-false}``) is off.</span>
+<span class="sd">    A switch spelling neither on nor off is a problem like an unavailable</span>
+<span class="sd">    configuration: every setting falls back to the defaults, which hide locals</span>
+<span class="sd">    and shorten paths, rather than failing the process&#39;s start-up over a</span>
+<span class="sd">    logging key.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The settings, and what kept them from being read: the defaults and the</span>
+<span class="sd">        exception when the configuration is unavailable, else ``None``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">switch</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;logging.</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="n">config_flag</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="p">),</span> <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="n">_HandlerSettings</span><span class="p">(</span>
+                <span class="n">rich_tracebacks</span><span class="o">=</span><span class="n">switch</span><span class="p">(</span><span class="s2">&quot;rich_tracebacks&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">),</span>
+                <span class="n">show_traceback_locals</span><span class="o">=</span><span class="n">switch</span><span class="p">(</span><span class="s2">&quot;show_traceback_locals&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+                <span class="n">show_full_paths</span><span class="o">=</span><span class="n">switch</span><span class="p">(</span><span class="s2">&quot;show_full_paths&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+            <span class="p">),</span>
+            <span class="kc">None</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_DEFAULT_HANDLER_SETTINGS</span><span class="p">,</span> <span class="n">exc</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_apply_handler_settings</span><span class="p">(</span><span class="n">handler</span><span class="p">:</span> <span class="n">RichHandler</span><span class="p">,</span> <span class="n">settings</span><span class="p">:</span> <span class="n">_HandlerSettings</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Make ``handler`` render by ``settings`` from its next record on.&quot;&quot;&quot;</span>
+    <span class="n">handler</span><span class="o">.</span><span class="n">rich_tracebacks</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">rich_tracebacks</span>
+    <span class="n">handler</span><span class="o">.</span><span class="n">tracebacks_show_locals</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">show_traceback_locals</span>
+    <span class="c1"># Rich keeps the path column on its renderer and offers no public setter.</span>
+    <span class="n">handler</span><span class="o">.</span><span class="n">_log_render</span><span class="o">.</span><span class="n">show_path</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">show_full_paths</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_warn_settings_unavailable</span><span class="p">(</span><span class="n">problem</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Say, once per process, that the handler renders by the defaults.</span>
+
+<span class="sd">    A process that names no config and stands in a directory without one — a</span>
+<span class="sd">    command run outside any deployment — has no settings to miss, so that case</span>
+<span class="sd">    is not reported.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_settings_warning_given</span>
+    <span class="n">names_a_config</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OSPREY_CONFIG&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">_settings_warning_given</span> <span class="ow">or</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">problem</span><span class="p">,</span> <span class="ne">FileNotFoundError</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">names_a_config</span><span class="p">):</span>
+        <span class="k">return</span>
+    <span class="n">_settings_warning_given</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">summary</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">problem</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">problem</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+        <span class="s2">&quot;The logging.* settings could not be read from the configuration (</span><span class="si">%s</span><span class="s2">: </span><span class="si">%s</span><span class="s2">); &quot;</span>
+        <span class="s2">&quot;log output uses the defaults: Rich tracebacks on, locals hidden, short paths.&quot;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="p">(</span><span class="n">problem</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+        <span class="n">summary</span><span class="p">,</span>
+        <span class="c1"># The exception&#39;s text is not ours: brackets in it are not markup.</span>
+        <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;markup&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">},</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_rich_handler</span><span class="p">(</span>
+    <span class="n">console</span><span class="p">:</span> <span class="n">Console</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">settings</span><span class="p">:</span> <span class="n">_HandlerSettings</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RichHandler</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Build the Osprey ``RichHandler``, writing to **stderr**.</span>
 
 <span class="sd">    stdout is reserved for program output — MCP stdio JSON-RPC frames and</span>
@@ -946,19 +1034,11 @@
 <span class="sd">            the fixed-width stderr console this module has always built, so</span>
 <span class="sd">            their output is unchanged. The CLI passes the terminal-sized</span>
 <span class="sd">            stderr console it already owns.</span>
+<span class="sd">        settings: What the handler renders by. ``None`` reads them from the</span>
+<span class="sd">            configuration, falling back to the defaults when it is unavailable.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="c1"># Security-conscious defaults: hide locals to prevent sensitive data exposure</span>
-        <span class="c1"># Read for their truth, as RichHandler reads them.</span>
-        <span class="n">rich_tracebacks</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;logging.rich_tracebacks&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">))</span>
-        <span class="n">show_traceback_locals</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;logging.show_traceback_locals&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
-        <span class="n">show_full_paths</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;logging.show_full_paths&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-        <span class="c1"># Config system unavailable; use secure defaults. Cannot log here:</span>
-        <span class="c1"># the logging infrastructure is mid-configuration.</span>
-        <span class="n">rich_tracebacks</span> <span class="o">=</span> <span class="kc">True</span>
-        <span class="n">show_traceback_locals</span> <span class="o">=</span> <span class="kc">False</span>
-        <span class="n">show_full_paths</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">settings</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_read_handler_settings</span><span class="p">()</span>
 
     <span class="k">if</span> <span class="n">console</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># force_terminal keeps colors in containers and CI, where stderr is a pipe.</span>
@@ -971,12 +1051,12 @@
 
     <span class="k">return</span> <span class="n">RichHandler</span><span class="p">(</span>
         <span class="n">console</span><span class="o">=</span><span class="n">console</span><span class="p">,</span>
-        <span class="n">rich_tracebacks</span><span class="o">=</span><span class="n">rich_tracebacks</span><span class="p">,</span>
+        <span class="n">rich_tracebacks</span><span class="o">=</span><span class="n">settings</span><span class="o">.</span><span class="n">rich_tracebacks</span><span class="p">,</span>
         <span class="n">markup</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">show_path</span><span class="o">=</span><span class="n">show_full_paths</span><span class="p">,</span>
+        <span class="n">show_path</span><span class="o">=</span><span class="n">settings</span><span class="o">.</span><span class="n">show_full_paths</span><span class="p">,</span>
         <span class="n">show_time</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">show_level</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">tracebacks_show_locals</span><span class="o">=</span><span class="n">show_traceback_locals</span><span class="p">,</span>
+        <span class="n">tracebacks_show_locals</span><span class="o">=</span><span class="n">settings</span><span class="o">.</span><span class="n">show_traceback_locals</span><span class="p">,</span>
     <span class="p">)</span>
 
 
@@ -1028,16 +1108,31 @@
 <span class="sd">    never removes or clears handlers it did not install. Handlers owned by</span>
 <span class="sd">    someone else — ``caplog``&#39;s capture handler, a host application&#39;s own</span>
 <span class="sd">    handlers — survive. Calling it repeatedly is a no-op beyond re-applying the</span>
-<span class="sd">    level.</span>
+<span class="sd">    level and the ``logging.*`` settings.</span>
+
+<span class="sd">    Those settings are read from the configuration on every call and applied to</span>
+<span class="sd">    the handler this function installed. An entry point that configures logging</span>
+<span class="sd">    before it knows which deployment it serves calls again once it does, and</span>
+<span class="sd">    the handler then renders by that deployment&#39;s settings. Settings that</span>
+<span class="sd">    cannot be read fall back to the defaults, with one warning per process.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        level: Root logger level.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_installed_handler</span>
     <span class="n">root_logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">()</span>
     <span class="n">root_logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
 
+    <span class="n">settings</span><span class="p">,</span> <span class="n">problem</span> <span class="o">=</span> <span class="n">_read_handler_settings</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">handler</span><span class="p">,</span> <span class="n">RichHandler</span><span class="p">)</span> <span class="k">for</span> <span class="n">handler</span> <span class="ow">in</span> <span class="n">root_logger</span><span class="o">.</span><span class="n">handlers</span><span class="p">):</span>
-        <span class="n">root_logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">_build_rich_handler</span><span class="p">())</span>
+        <span class="n">_installed_handler</span> <span class="o">=</span> <span class="n">_build_rich_handler</span><span class="p">(</span><span class="n">settings</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+        <span class="n">root_logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">_installed_handler</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">_installed_handler</span> <span class="ow">in</span> <span class="n">root_logger</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
+        <span class="c1"># Only the handler installed here: a RichHandler someone else put on</span>
+        <span class="c1"># the root logger is theirs.</span>
+        <span class="n">_apply_handler_settings</span><span class="p">(</span><span class="n">_installed_handler</span><span class="p">,</span> <span class="n">settings</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">problem</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_warn_settings_unavailable</span><span class="p">(</span><span class="n">problem</span><span class="p">)</span>
 
     <span class="k">for</span> <span class="n">lib</span> <span class="ow">in</span> <span class="n">_QUIET_THIRD_PARTY_LOGGERS</span><span class="p">:</span>
         <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">lib</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">WARNING</span><span class="p">)</span></div>

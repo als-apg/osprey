@@ -1,0 +1,1328 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Testing &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'architecture/testing';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/architecture/testing.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Reference" href="../reference/index.html" />
+    <link rel="prev" title="Virtual Accelerator" href="virtual-accelerator.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+
+
+
+
+
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-relations.html">Facility Relations</a></li>
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="facility-packages.html">Facility Packages</a></li>
+
+
+<li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Testing</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Architecture</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Testing</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="testing">
+<span id="architecture-testing"></span><h1>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h1>
+<p>OSPREY is a harness around an agent that can reach a machine, so the suite has to
+prove several different things: that the code is correct, that the presets it ships
+build and boot, that the simulated machine behaves like one, that an agent with a
+real model does the job, and that the whole thing comes up as containers the way a
+facility runs it. This page is the inventory: what tests exist, when each of them
+runs, how a fault is staged for the agent to find, what the markers do, and what
+the benchmarks measure. How to write a test and the fixture house style are in the
+repository’s <code class="docutils literal notranslate"><span class="pre">tests/README.md</span></code>; how to run the agentic suite is in
+<code class="docutils literal notranslate"><span class="pre">tests/e2e/README.md</span></code>.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 352" role="img" aria-labelledby="testing-suite-map-title testing-suite-map-desc">
+  <title id="testing-suite-map-title">The OSPREY test suite: six families, what each proves, when each runs</title>
+  <desc id="testing-suite-map-desc">Six columns, left to right: the unit suite in process on every push; the preset lanes, static checks and build plus boot, on every push; the machine, scenario signatures and the Virtual Accelerator on a real Channel Access wire, on every push; the agent with a real model behind the full-ci label; the container stacks, most on a pull request from a branch of the repository and some behind the full-ci label, with the scripted gate tests on every pull request; and the benchmark board where the model is on trial, on demand. A strip below names what a red means in each family, and a last strip names the checks a deployed facility runs on itself.</desc>
+  <defs>
+    <marker id="testing-suite-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- zones -->
+  <rect class="zone" x="6" y="36" width="788" height="214" rx="8"/>
+  <text class="te" x="18" y="26">GATES A PULL REQUEST · A RED BLOCKS THE MERGE</text>
+  <text class="te" x="812" y="26">MEASURES · NEVER GATES</text>
+
+  <!-- column 1 · unit -->
+  <rect class="mask" x="18" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb" x="18" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="91" y="74" text-anchor="middle">the code</text>
+  <text class="ts" x="91" y="92" text-anchor="middle">tests/ · in process</text>
+  <text class="ts" x="91" y="106" text-anchor="middle">no model, no service</text>
+  <text class="ts" x="91" y="120" text-anchor="middle">4 workers in CI, then pty,</text>
+  <text class="ts" x="91" y="134" text-anchor="middle">wallclock, live CA alone</text>
+  <text class="ta" x="91" y="164" text-anchor="middle">every push</text>
+
+  <!-- column 2 · static + boot -->
+  <rect class="mask" x="176" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb" x="176" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="249" y="74" text-anchor="middle">the presets</text>
+  <text class="ts" x="249" y="92" text-anchor="middle">tests/integration</text>
+  <text class="ts" x="249" y="106" text-anchor="middle">static · YAML and skills</text>
+  <text class="ts" x="249" y="120" text-anchor="middle">smoke · build + boot</text>
+  <text class="ts" x="249" y="134" text-anchor="middle">every MCP server</text>
+  <text class="ta" x="249" y="164" text-anchor="middle">every push</text>
+
+  <!-- column 3 · the machine -->
+  <rect class="mask" x="334" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb" x="334" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="407" y="74" text-anchor="middle">the machine</text>
+  <text class="ts" x="407" y="92" text-anchor="middle">simulation, facility, va</text>
+  <text class="ts" x="407" y="106" text-anchor="middle">scenario signatures</text>
+  <text class="ts" x="407" y="120" text-anchor="middle">VA on a real CA wire</text>
+  <text class="ts" x="407" y="134" text-anchor="middle">no model</text>
+  <text class="ta" x="407" y="164" text-anchor="middle">every push</text>
+
+  <!-- column 4 · the agent -->
+  <rect class="mask" x="492" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb-foc" x="492" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="565" y="74" text-anchor="middle">the agent</text>
+  <text class="ts" x="565" y="92" text-anchor="middle">tests/e2e · real model</text>
+  <text class="ts" x="565" y="106" text-anchor="middle">a built deployment repo</text>
+  <text class="ts" x="565" y="120" text-anchor="middle">trace floor + LLM judge</text>
+  <text class="ts" x="565" y="134" text-anchor="middle">one flow per preset</text>
+  <text class="ta ta-acc" x="565" y="164" text-anchor="middle">full-ci label</text>
+
+  <!-- column 5 · the stacks -->
+  <rect class="mask" x="650" y="52" width="132" height="128" rx="6"/>
+  <rect class="nb" x="650" y="52" width="132" height="128" rx="6"/>
+  <text class="tn" x="716" y="74" text-anchor="middle">the stacks</text>
+  <text class="ts" x="716" y="92" text-anchor="middle">tests/e2e · containers</text>
+  <text class="ts" x="716" y="106" text-anchor="middle">one lane or cell each</text>
+  <text class="ts" x="716" y="120" text-anchor="middle">gate tests: every PR</text>
+  <text class="ts" x="716" y="134" text-anchor="middle">some need full-ci</text>
+  <text class="ta" x="716" y="164" text-anchor="middle">same-repo PR</text>
+
+  <!-- column 6 · the board -->
+  <rect class="mask" x="812" y="52" width="136" height="128" rx="6"/>
+  <rect class="nb-ext" x="812" y="52" width="136" height="128" rx="6"/>
+  <text class="tn" x="880" y="74" text-anchor="middle">the board</text>
+  <text class="ts" x="880" y="92" text-anchor="middle">scripts/benchmark</text>
+  <text class="ts" x="880" y="106" text-anchor="middle">agentic tests x models</text>
+  <text class="ts" x="880" y="120" text-anchor="middle">Tier 1 · basic</text>
+  <text class="ts" x="880" y="134" text-anchor="middle">Tier 2 · benchmark</text>
+  <text class="ta" x="880" y="164" text-anchor="middle">on demand</text>
+
+  <!-- what a red means -->
+  <line class="divider" x1="18" y1="196" x2="948" y2="196"/>
+  <text class="te" x="18" y="212">A RED MEANS</text>
+  <text class="ta" x="91" y="236" text-anchor="middle">the change</text>
+  <text class="ta" x="249" y="236" text-anchor="middle">a preset drifted</text>
+  <text class="ta" x="407" y="236" text-anchor="middle">the scenario or the VA</text>
+  <text class="ta ta-acc" x="565" y="236" text-anchor="middle">the agent or its prompt</text>
+  <text class="ta" x="716" y="236" text-anchor="middle">the image or compose</text>
+  <text class="ta ta-warn" x="880" y="236" text-anchor="middle">the model, not the change</text>
+
+  <!-- in deployment -->
+  <rect class="mask" x="18" y="272" width="930" height="56" rx="6"/>
+  <rect class="nb-st" x="18" y="272" width="930" height="56" rx="6"/>
+  <text class="te" x="34" y="290">IN DEPLOYMENT · THE FACILITY TESTS ITSELF</text>
+  <text class="ts" x="34" y="306">osprey health — diagnostics over config, environment, containers and services, plus the facility's own probes</text>
+  <text class="ts" x="34" y="320">osprey audit — an AI reviewer reads the built profile for safety risks</text>
+  <text class="ta" x="932" y="290" text-anchor="end">every run · on request</text>
+
+  <text class="ta" x="480" y="346" text-anchor="middle">a check is one declared command; a lane is one CI job; a marker moves a test between them</text>
+</svg>
+</div>
+<p>Four words carry the rest of the page:</p>
+<ul class="simple">
+<li><p>A <strong>check</strong> is one command declared in a <code class="docutils literal notranslate"><span class="pre">repo_checks.py</span></code> module and run by
+<code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code>: a linter, the parallel test sweep, the docs build.
+<code class="docutils literal notranslate"><span class="pre">scripts/check.py</span> <span class="pre">list</span></code> prints them all.</p></li>
+<li><p>A <strong>lane</strong> is one CI job that is not a call of the check command: a preset
+build, a container stack, an agentic run. The <code class="docutils literal notranslate"><span class="pre">LANES</span></code> table in
+<code class="docutils literal notranslate"><span class="pre">scripts/repo_checks.py</span></code> lists every lane, what it needs and which files it
+hosts.</p></li>
+<li><p>A <strong>marker</strong> says where a test runs instead of where its directory would put
+it, or names a resource it needs.</p></li>
+<li><p>A <strong>tier</strong> is one of two things, never a CI stage. <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code> has two
+tiers, <code class="docutils literal notranslate"><span class="pre">quick</span></code> and <code class="docutils literal notranslate"><span class="pre">full</span></code>. An agentic test is in Tier 1 (basic) or Tier 2
+(benchmark).</p></li>
+</ul>
+<section id="what-the-suite-is-made-of">
+<h2>What the suite is made of<a class="headerlink" href="#what-the-suite-is-made-of" title="Link to this heading">#</a></h2>
+<p><strong>The unit suite</strong> is everything under <code class="docutils literal notranslate"><span class="pre">tests/</span></code> outside <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code>, plus the
+connectors package’s own suite under <code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/tests</span></code>. It is
+one check, <code class="docutils literal notranslate"><span class="pre">pytest</span></code>, and runs under parallel workers, four in CI, with every
+file kept on one worker. It reaches no model, and resets any process-global state it
+touches. CI splits it into five shards. Three kinds of test leave the parallel
+sweep and run alone, in the <code class="docutils literal notranslate"><span class="pre">serial-suites</span></code> job: the real-terminal <code class="docutils literal notranslate"><span class="pre">pty</span></code>
+tests, which read the bytes an operator would see; the <code class="docutils literal notranslate"><span class="pre">wallclock</span></code> tests,
+which hold a time budget; and the live Channel Access suites, one process per
+module. A set of guard tests holds the repository to its own rules, for example
+that the agent SDK is imported only inside <code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/</span></code>
+(<code class="docutils literal notranslate"><span class="pre">tests/test_harness_fence.py</span></code>), that a test needing a credential lives only
+under <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> (<code class="docutils literal notranslate"><span class="pre">tests/test_api_marker_placement.py</span></code>), and that the
+published documentation still matches the code (<code class="docutils literal notranslate"><span class="pre">tests/docs/</span></code>).</p>
+<p><strong>The hooks</strong> are tested as code before any agent runs them. Each hook has its own
+tests under <code class="docutils literal notranslate"><span class="pre">tests/hooks/</span></code>, and <code class="docutils literal notranslate"><span class="pre">test_hook_chain_integration.py</span></code> runs the
+write chain in the order Claude Code would: the writes check, the limits check,
+then the approval prompt. A red here is a hole in the
+<a class="reference internal" href="safety-chain.html"><span class="doc">safety chain</span></a> that no model could have papered over.</p>
+<p><strong>The presets</strong> have three files under <code class="docutils literal notranslate"><span class="pre">tests/integration/</span></code> that the parallel
+sweep leaves to two lanes. The <code class="docutils literal notranslate"><span class="pre">static-checks</span></code> lane runs
+<code class="docutils literal notranslate"><span class="pre">test_preset_static.py</span></code>, which holds every shipped preset to the artifact
+registry and every skill’s tool references to the MCP tools that exist, and
+<code class="docutils literal notranslate"><span class="pre">test_preset_build.py</span></code>, which initialises and builds each preset without
+installing it. The <code class="docutils literal notranslate"><span class="pre">build-boot-smoke</span></code> lane runs <code class="docutils literal notranslate"><span class="pre">test_build_boot.py</span></code>, one
+case per preset and one for the demo with an application turned on: a real
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> that installs offline, then every server in the rendered
+<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, the application’s own included, must answer <code class="docutils literal notranslate"><span class="pre">initialize</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tools/list</span></code> with the documented tools. Each case is a job on Python 3.11;
+the application case, the only install of an application’s wheel beside
+osprey, is also a job on 3.12, the unit suite’s Python on pull requests. Both
+lanes run on every push and every pull request.</p>
+<p><strong>The machine</strong> is the simulator and its contracts. <code class="docutils literal notranslate"><span class="pre">tests/simulation/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tests/facility/</span></code> hold the scenario machinery: how scenarios build into the
+simulator view, compose and apply. <code class="docutils literal notranslate"><span class="pre">tests/connectors/</span></code> reads the shipped
+scenarios through the mock archiver and pins the signature each one documents,
+without a model. <code class="docutils literal notranslate"><span class="pre">tests/va/</span></code> is the
+<a class="reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>’s own suite; its live Channel
+Access modules run through <code class="docutils literal notranslate"><span class="pre">scripts/va/live_ca/gate.py</span></code>, which fails on a
+skipped module. <code class="docutils literal notranslate"><span class="pre">tests/va/e2e/</span></code> proves the container from where a client
+stands, in the <code class="docutils literal notranslate"><span class="pre">va-live-e2e</span></code> lane: the limits and approval gates hold, a
+corrector write moves a downstream BPM, the container serves the same
+values as the in-process simulator, and a scenario switch reaches the running
+IOC.</p>
+<p><strong>The agent</strong> is <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code>. A test builds a deployment repo with <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">init</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, then runs a real Claude Code session through the
+SDK against it, with the pinned Claude Code version and one named provider; a
+run that names no provider is refused before its first test. Grading is in two
+layers: a deterministic floor over the tool trace decides whether the agent did
+the thing, and an LLM judge is given only what a trace cannot show, whether the
+agent described what it did without inventing findings. <code class="docutils literal notranslate"><span class="pre">e2e-tests</span></code> is the
+shared lane: it runs every module no other lane claims. The
+<code class="docutils literal notranslate"><span class="pre">agentic-per-preset</span></code> lane runs one canonical flow per preset
+(<code class="docutils literal notranslate"><span class="pre">test_preset_agentic.py</span></code>). These lanes spend model tokens, so they run only
+when asked; see <a class="reference internal" href="#when-each-part-runs">When each part runs</a>.</p>
+<p><strong>The scripted gate tests</strong> are the part of <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> that needs no model. A
+test whose subject is a safety gate needs one forbidden tool call to be made,
+and a well-behaved model will not make it. <code class="docutils literal notranslate"><span class="pre">tests/e2e/scripted_model.py</span></code> is a
+local endpoint that makes exactly the tool calls a test lists, and the real
+Claude Code delivers them through the rendered settings, the hook chain and the
+MCP servers. These modules carry <code class="docutils literal notranslate"><span class="pre">model_free</span></code> and run in the <code class="docutils literal notranslate"><span class="pre">e2e-no-model</span></code>
+lane on every pull request, fork pull requests included; the lane fails on a
+single skip.</p>
+<p><strong>The stacks</strong> are the container-backed e2e files, each hosted by a lane of its
+own or by one cell of the <code class="docutils literal notranslate"><span class="pre">stack-e2e</span></code> matrix: the Bluesky, Tiled, archiver and
+optimizer stacks, the dispatch stacks, the privilege split inside the image, the
+auth perimeter behind nginx, the chat bridges, and the two-shape boot (bridge
+and host network) under podman-compose. The <code class="docutils literal notranslate"><span class="pre">LANES</span></code> table is the one list of
+which lane hosts which module: the shared lane derives its <code class="docutils literal notranslate"><span class="pre">--ignore</span></code> list
+from it, and the wiring test, <code class="docutils literal notranslate"><span class="pre">tests/deployment/test_ci_workflow_wiring.py</span></code>,
+parses the workflow and proves that no <code class="docutils literal notranslate"><span class="pre">dockerbuild</span></code> file is left in the
+shared lane.</p>
+<p><strong>The front end</strong> has its own checks: <code class="docutils literal notranslate"><span class="pre">vitest</span></code>, <code class="docutils literal notranslate"><span class="pre">tsc</span></code>, <code class="docutils literal notranslate"><span class="pre">eslint</span></code> and
+<code class="docutils literal notranslate"><span class="pre">prettier</span></code> in the <code class="docutils literal notranslate"><span class="pre">frontend-js</span></code> job, and the real-browser Playwright tests
+under <code class="docutils literal notranslate"><span class="pre">tests/interfaces/</span></code> (<code class="docutils literal notranslate"><span class="pre">-m</span> <span class="pre">browser</span></code>) in the <code class="docutils literal notranslate"><span class="pre">visual-theming</span></code> lanes.</p>
+<p><strong>The board</strong> is <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code>: the agentic tests run against a matrix of
+models and seeds. It measures and never gates; see <a class="reference internal" href="#benchmarks">Benchmarks</a>.</p>
+<p><strong>In deployment</strong>, a facility keeps testing itself. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> runs
+diagnostics over configuration, the Python environment, containers and the
+enabled services, plus the probes the facility declares, read in the browser’s
+Health panel, on the command line or by a CI job. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">audit</span></code> turns an AI
+reviewer on a built profile and reports the safety risks it finds in
+permissions, hooks and MCP server configuration. See
+<a class="reference internal" href="../how-to/health-and-monitoring/index.html"><span class="doc">Health and Monitoring</span></a> and <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a>.</p>
+</section>
+<section id="when-each-part-runs">
+<h2>When each part runs<a class="headerlink" href="#when-each-part-runs" title="Link to this heading">#</a></h2>
+<p>Every job is required once it runs: the <code class="docutils literal notranslate"><span class="pre">All</span> <span class="pre">CI</span> <span class="pre">Checks</span> <span class="pre">Passed</span></code> gate has no
+advisory lane. What differs is the event that starts a lane.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 44.0%" />
+<col style="width: 32.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Runs on</p></th>
+<th class="head"><p>What</p></th>
+<th class="head"><p>Why there</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>every push to <code class="docutils literal notranslate"><span class="pre">main</span></code> and every pull request</p></td>
+<td><p>the checks (lint, types, the unit shards, <code class="docutils literal notranslate"><span class="pre">serial-suites</span></code>, the docs and
+package builds, the front-end checks), <code class="docutils literal notranslate"><span class="pre">static-checks</span></code>,
+<code class="docutils literal notranslate"><span class="pre">build-boot-smoke</span></code>, <code class="docutils literal notranslate"><span class="pre">dependency-floor</span></code>, <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>, the connectors
+lanes, the <code class="docutils literal notranslate"><span class="pre">visual-theming</span></code> lanes, <code class="docutils literal notranslate"><span class="pre">teams-slack-bridge-e2e</span></code>,
+<code class="docutils literal notranslate"><span class="pre">plugin-smoke</span></code>, <code class="docutils literal notranslate"><span class="pre">canopy-contract</span></code></p></td>
+<td><p>no secret, no model</p></td>
+</tr>
+<tr class="row-odd"><td><p>every pull request, forks included</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">e2e-no-model</span></code>, <code class="docutils literal notranslate"><span class="pre">agent-record-e2e</span></code></p></td>
+<td><p>containers, but no secret and no image push</p></td>
+</tr>
+<tr class="row-even"><td><p>a pull request from a branch of the repository</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">deploy-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">stack-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">va-live-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">orm-roundtrip-e2e</span></code>,
+<code class="docutils literal notranslate"><span class="pre">privilege-split-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">dockerfile-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">full-chain-auth-e2e</span></code>,
+<code class="docutils literal notranslate"><span class="pre">two-shape-boot-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">qmd-sidecar-e2e</span></code>,
+<code class="docutils literal notranslate"><span class="pre">multi-user-deploy-lifecycle-e2e</span></code> (only when the pull request’s base
+is <code class="docutils literal notranslate"><span class="pre">main</span></code>)</p></td>
+<td><p>they build and deploy images; house policy keeps that to same-repo
+branches</p></td>
+</tr>
+<tr class="row-odd"><td><p>a pull request labelled <code class="docutils literal notranslate"><span class="pre">full-ci</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">e2e-tests</span></code>, <code class="docutils literal notranslate"><span class="pre">agentic-per-preset</span></code>, <code class="docutils literal notranslate"><span class="pre">dispatch-stack-e2e</span></code>,
+<code class="docutils literal notranslate"><span class="pre">target-switch-agentic-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">dockerfile-agent-e2e</span></code>,
+<code class="docutils literal notranslate"><span class="pre">nextcloud-talk-bridge-e2e</span></code>, <code class="docutils literal notranslate"><span class="pre">gchat-bridge-e2e</span></code></p></td>
+<td><p>they spend model tokens; <code class="docutils literal notranslate"><span class="pre">e2e-tests</span></code> also runs on a manual dispatch
+of the workflow that does not set <code class="docutils literal notranslate"><span class="pre">run_benchmarks</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>the <code class="docutils literal notranslate"><span class="pre">run_benchmarks</span></code> dispatch</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">benchmarks</span></code></p></td>
+<td><p>it measures the model, not the change</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A pull request without the label runs the unit suite on Python 3.12 only;
+<code class="docutils literal notranslate"><span class="pre">main</span></code>, a <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> pull request and a Dependabot pull request run 3.11,
+3.12 and 3.14. A push to <code class="docutils literal notranslate"><span class="pre">main</span></code> runs the first row only. <code class="docutils literal notranslate"><span class="pre">main</span></code> gets the
+other lanes from the <code class="docutils literal notranslate"><span class="pre">revalidate_secret_lanes</span></code> dispatch, which
+<code class="docutils literal notranslate"><span class="pre">.github/workflows/main-full-ci.yml</span></code> starts once a day when <code class="docutils literal notranslate"><span class="pre">main</span></code> has
+moved. <a class="reference internal" href="../contributing/workflow.html"><span class="doc">Git and GitHub Workflow</span></a> has the commands and the cost.</p>
+<p>Locally, <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span> <span class="pre">quick</span></code> runs the fast checks and the parallel sweep
+without the <code class="docutils literal notranslate"><span class="pre">slow</span></code> tests. <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span> <span class="pre">full</span></code> adds the slow tests, each
+serial suite and the builds. <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span> <span class="pre">run</span> <span class="pre">&lt;id&gt;</span></code> runs one check as CI
+does. Before opening a pull request, <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span> <span class="pre">quick</span> <span class="pre">--changed</span>
+<span class="pre">origin/main</span></code> runs the checks and tests the diff touches and names the CI lanes
+it touches. Neither tier runs a lane: the preset, container and agentic lanes
+are CI’s, so a green <code class="docutils literal notranslate"><span class="pre">quick</span></code> says nothing about them.
+<a class="reference internal" href="../contributing/workflow.html"><span class="doc">Git and GitHub Workflow</span></a> and <a class="reference internal" href="../contributing/development-setup.html"><span class="doc">Development Setup</span></a> have
+the commands.</p>
+</section>
+<section id="scenarios-how-a-fault-is-staged">
+<h2>Scenarios: how a fault is staged<a class="headerlink" href="#scenarios-how-a-fault-is-staged" title="Link to this heading">#</a></h2>
+<p>A scenario is what makes an agentic test more than a smoke test. The agent is given
+an operator’s question and a machine with a fault in it, and has to find the fault
+from the instruments, the history and the logbook, the way an operator would. The
+machinery that stages the fault is the same one a facility uses to run demos and
+training sessions on the <a class="reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 372" role="img" aria-labelledby="testing-scenario-pipeline-title testing-scenario-pipeline-desc">
+  <title id="testing-scenario-pipeline-title">How a scenario becomes a fault the agent can find</title>
+  <desc id="testing-scenario-pipeline-desc">A scenario file on the left holds the fault: channel overrides, archive events, shared drivers, model and channel faults, and a logbook narrative. osprey sim apply makes the named scenarios the active set with nominal, fixes one anchor time, and writes three things: the active-scenarios state file, the affected windows of the stored archive, and the ARIEL logbook. Two venues read the state file through one simulator: in process, and the Virtual Accelerator container over Channel Access. Below, the testing strip: contract tests pin the scenario's signature without a model before a scenario test puts an agent in front of it with a bare prompt and three tools withheld, graded by a trace floor plus a judge.</desc>
+  <defs>
+    <marker id="testing-scenario-pipeline-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges first -->
+  <line class="e" x1="214" y1="110" x2="262" y2="110" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="462" y1="110" x2="520" y2="70" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="462" y1="110" x2="520" y2="110" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="462" y1="110" x2="520" y2="150" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <!-- state file to the two substrates -->
+  <line class="e-acc" x1="640" y1="82" x2="770" y2="82" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e-acc" x1="640" y1="82" x2="770" y2="150" marker-end="url(#testing-scenario-pipeline-arr)"/>
+
+  <!-- the bundle -->
+  <text class="te" x="18" y="36">THE SCENARIO FILE</text>
+  <rect class="mask" x="18" y="46" width="196" height="128" rx="6"/>
+  <rect class="nb-in" x="18" y="46" width="196" height="128" rx="6"/>
+  <text class="tn" x="34" y="68">scenarios/&lt;name&gt;.yaml</text>
+  <text class="ts" x="34" y="86">overrides · live values</text>
+  <text class="ts" x="34" y="100">archiver · step, ramp, spike</text>
+  <text class="ts" x="34" y="114">drivers + couple · one cause</text>
+  <text class="ts" x="34" y="128">faults · model or channel</text>
+  <text class="tn" x="34" y="150">logbook</text>
+  <text class="ts" x="34" y="166">entries + plots · days ago</text>
+
+  <!-- apply -->
+  <text class="te" x="262" y="36">OSPREY SIM APPLY &lt;names&gt;</text>
+  <rect class="mask" x="262" y="46" width="200" height="128" rx="6"/>
+  <rect class="nb-foc" x="262" y="46" width="200" height="128" rx="6"/>
+  <text class="tn" x="362" y="70" text-anchor="middle">compose</text>
+  <text class="ts" x="362" y="88" text-anchor="middle">nominal is always in the set</text>
+  <text class="ts" x="362" y="102" text-anchor="middle">no target written twice</text>
+  <text class="tn" x="362" y="126" text-anchor="middle">one clock · the anchor</text>
+  <text class="ts" x="362" y="144" text-anchor="middle">events, history and entries</text>
+  <text class="ts" x="362" y="158" text-anchor="middle">all resolve against it</text>
+
+  <!-- the four writes -->
+  <text class="te" x="520" y="36">WHAT IT WRITES</text>
+  <rect class="mask" x="520" y="56" width="120" height="28" rx="4"/>
+  <rect class="nb" x="520" y="56" width="120" height="28" rx="4"/>
+  <text class="ts" x="580" y="74" text-anchor="middle">active_scenarios</text>
+  <rect class="mask" x="520" y="96" width="120" height="28" rx="4"/>
+  <rect class="nb" x="520" y="96" width="120" height="28" rx="4"/>
+  <text class="ts" x="580" y="114" text-anchor="middle">stored archive</text>
+  <rect class="mask" x="520" y="136" width="120" height="28" rx="4"/>
+  <rect class="nb" x="520" y="136" width="120" height="28" rx="4"/>
+  <text class="ts" x="580" y="154" text-anchor="middle">ARIEL logbook</text>
+  <text class="ta" x="650" y="74">re-read on change</text>
+  <text class="ta" x="650" y="114">windows rewritten</text>
+  <text class="ta" x="650" y="154">purged, reseeded</text>
+
+  <!-- two substrates, one engine -->
+  <text class="te" x="770" y="36">TWO VENUES · ONE SIMULATOR</text>
+  <rect class="mask" x="770" y="56" width="178" height="52" rx="6"/>
+  <rect class="nb" x="770" y="56" width="178" height="52" rx="6"/>
+  <text class="tn" x="859" y="76" text-anchor="middle">in process</text>
+  <text class="ts" x="859" y="94" text-anchor="middle">no container · same view</text>
+  <rect class="mask" x="770" y="124" width="178" height="80" rx="6"/>
+  <rect class="nb" x="770" y="124" width="178" height="80" rx="6"/>
+  <text class="tn" x="859" y="144" text-anchor="middle">Virtual Accelerator</text>
+  <text class="ts" x="859" y="162" text-anchor="middle">a container on real EPICS</text>
+  <text class="ts" x="859" y="176" text-anchor="middle">re-reads the state file</text>
+  <text class="ts" x="859" y="190" text-anchor="middle">session writes dropped</text>
+
+  <!-- the testing strip -->
+  <line class="divider" x1="18" y1="232" x2="948" y2="232"/>
+  <text class="te" x="18" y="250">HOW A SCENARIO IS TESTED</text>
+  <line class="e" x1="318" y1="300" x2="346" y2="300" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="646" y1="300" x2="674" y2="300" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <rect class="mask" x="18" y="262" width="300" height="76" rx="6"/>
+  <rect class="nb" x="18" y="262" width="300" height="76" rx="6"/>
+  <text class="tn" x="34" y="284">1 · contract tests pin the signature</text>
+  <text class="ts" x="34" y="302">tests/connectors · no model · every push</text>
+  <text class="ts" x="34" y="316">the correlation, the peak, the days it lands on</text>
+  <text class="ta" x="34" y="330">red here: fix the scenario, never the prompt</text>
+  <rect class="mask" x="346" y="262" width="300" height="76" rx="6"/>
+  <rect class="nb-foc" x="346" y="262" width="300" height="76" rx="6"/>
+  <text class="tn" x="362" y="284">2 · the agent is put in front of it</text>
+  <text class="ts" x="362" y="302">a bare operator prompt · no channel names</text>
+  <text class="ts" x="362" y="316">Bash, Glob and Grep withheld for the run</text>
+  <text class="ta ta-acc" x="362" y="330">tests/e2e · a real model · the benchmark board</text>
+  <rect class="mask" x="674" y="262" width="274" height="76" rx="6"/>
+  <rect class="nb" x="674" y="262" width="274" height="76" rx="6"/>
+  <text class="tn" x="690" y="284">3 · graded in two layers</text>
+  <text class="ts" x="690" y="302">floor: the tool trace — did it read the gauge?</text>
+  <text class="ts" x="690" y="316">judge: the prose — did it name sector 7?</text>
+  <text class="ta" x="690" y="330">the judge sees only what a trace cannot show</text>
+
+  <text class="ta" x="480" y="362" text-anchor="middle">the narrative the agent searches and the telemetry it reads describe one machine, against one clock</text>
+</svg>
+</div>
+<p><strong>The scenario file.</strong> A scenario is one YAML file,
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;.yaml</span></code>, and says how the machine departs from
+its baseline: <code class="docutils literal notranslate"><span class="pre">overrides</span></code> set live values, <code class="docutils literal notranslate"><span class="pre">faults</span></code> write a fault into a
+physics model, <code class="docutils literal notranslate"><span class="pre">channel_faults</span></code> make a channel stuck, frozen or disconnected,
+<code class="docutils literal notranslate"><span class="pre">archiver</span></code> events shape a channel’s history, <code class="docutils literal notranslate"><span class="pre">drivers</span></code> and <code class="docutils literal notranslate"><span class="pre">couple</span></code> give
+several channels one slow shared cause, and <code class="docutils literal notranslate"><span class="pre">logbook</span></code> entries narrate it, dated
+in days ago and not on a calendar. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> puts the scenarios into the
+simulator view under <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>. Every key is in
+<a class="reference internal" href="../reference/configuration/scenario-files.html#reference-scenario-files"><span class="std std-ref">Scenario files</span></a>.</p>
+<p><strong>Composition and one clock.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;names&gt;</span></code> makes the names the
+active set; <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always in it. Two scenarios compose only when no two
+of them write the same target, a channel or a model’s fault, and a set that
+breaks the rule is refused before anything is written. Archive events are not a
+target, so <code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code> and <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code>, which both script the beam
+current, compose. Apply fixes one anchor time and resolves everything against
+it: an archive event placed with <code class="docutils literal notranslate"><span class="pre">at_when</span></code> and the logbook entry that narrates
+it land on the same instant. <code class="docutils literal notranslate"><span class="pre">--now</span></code> freezes the anchor, so a seeded run is
+reproducible.</p>
+<p><strong>What apply writes.</strong> The active set goes into
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code>. The ARIEL logbook is purged and
+reseeded from the active scenarios’ own entries, and the affected windows of the
+stored archive are rewritten from their archive events, so live values, history
+and narrative tell one story.</p>
+<p><strong>Two venues, one simulator.</strong> The simulator serves the same view in process and
+from its container over Channel Access (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-two-venues"><span class="std std-ref">Two venues</span></a>). Either re-reads
+the state file when it changes and starts again at the new set’s start state;
+setpoints written during the session are dropped in both.
+<code class="docutils literal notranslate"><span class="pre">tests/simulation/test_sim_apply_live.py</span></code> holds the in-process half,
+<code class="docutils literal notranslate"><span class="pre">tests/va/e2e/test_scenario_reload.py</span></code> and <code class="docutils literal notranslate"><span class="pre">test_sim_apply_va.py</span></code> the
+container, and <code class="docutils literal notranslate"><span class="pre">tests/va/e2e/test_substrate_parity.py</span></code> holds the two to each
+other, channel for channel.</p>
+<p><strong>How a scenario test is built.</strong> The prompt is what an operator would say and
+nothing more: <em>“We lost about 5 mA of beam yesterday around 14:32. Did the vacuum
+do anything weird around then?”</em> No channel names, no time-window shape, no hint
+which subsystem to look at. The test builds a project from the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset
+and calls <code class="docutils literal notranslate"><span class="pre">activate_scenarios</span></code>, which applies the scenario and seeds the
+logbook against one clock. Then it closes the cheap route to a right answer. The
+scenario file’s <code class="docutils literal notranslate"><span class="pre">description</span></code> names the fault outright and the agent’s working
+directory is the render, so the agent loses <code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Glob</span></code> and <code class="docutils literal notranslate"><span class="pre">Grep</span></code> for
+the run. A test whose fault already lives in a running container’s own view also
+deletes the scenario’s files from the repo (<code class="docutils literal notranslate"><span class="pre">conceal_scenario_ground_truth</span></code>);
+a scenario the in-process simulator serves cannot be deleted, because the
+simulator reads it on every pass. Grading is the two layers every agentic test
+uses: the floor checks the trace, that a channel-finder call and an archive read
+on a vacuum gauge happened, and the judge checks the prose, that the answer
+commits to sector 7.</p>
+<p>The two demo scenario tests need a running ARIEL logbook database, which a
+GitHub runner does not have. They skip in CI and run locally and on the
+benchmark board, and carry <code class="docutils literal notranslate"><span class="pre">flaky(reruns=2)</span></code> for a local run; the board turns
+reruns off.</p>
+<p><strong>The contract comes first.</strong> <code class="docutils literal notranslate"><span class="pre">tests/connectors/test_archiver_scenario_signatures.py</span></code>
+pins each demo scenario’s signature without a model, read through the mock
+archiver the agent’s tools use: sector 7 is the most anti-correlated of the
+twelve sectors with the beam current, by a set margin; cavity 1 has three
+excursions in the week before the investigation entry, the last one the trip;
+nothing happens after the repair. When a scenario test regresses, run that file
+first. If it passes, the data is sound and the miss is the agent’s: fix the
+preset’s agent context or tool descriptions. If it fails, fix the scenario file,
+never the prompt.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id1">
+<caption><span class="caption-text">The demo preset’s scenarios and what tests them</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 44.0%" />
+<col style="width: 38.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Scenario</p></th>
+<th class="head"><p>The fault</p></th>
+<th class="head"><p>Tested by</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nominal</span></code></p></td>
+<td><p>None. It carries the background logbook of the weeks before.</p></td>
+<td><p>every apply</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code></p></td>
+<td><p>A vacuum burst in sector 7 with a beam-current drop at 14:32:08,
+recurring daily in the archive. No logbook narrative.</p></td>
+<td><p>the signature file; <code class="docutils literal notranslate"><span class="pre">tests/e2e/test_vacuum_burst_scenario.py</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code></p></td>
+<td><p>Three thermal excursions on cavity 1, the last a beam dump, with a
+logbook arc from trip to repair.</p></td>
+<td><p>the signature file;
+<code class="docutils literal notranslate"><span class="pre">tests/e2e/test_rf_cavity_correlation_scenario.py</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal-live</span></code></p></td>
+<td><p>Live thermal wander on cavity 1 from one slow shared driver.</p></td>
+<td><p>the signature file, which pins the correlation bands</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bpm-polarity</span></code></p></td>
+<td><p>BPM 17 reads inverted. No single channel is out of range.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/simulation/test_sim_apply_live.py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tests/va/e2e/test_sim_apply_va.py</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">orm-dual-fault</span></code></p></td>
+<td><p>The BPM inversion and corrector HCM01 at half gain at once.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_scenarios.py</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">demo-history</span></code></p></td>
+<td><p>Three past agent sessions with the archive events and logbook entries
+behind them.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/simulation/test_demo_history_honesty.py</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A scenario need not ship with a preset. The Tier 2 chart-reading task carries its
+own two scenario files under <code class="docutils literal notranslate"><span class="pre">tests/e2e/fixtures/chart_value_reading/scenarios/</span></code>
+and plants them into a stack it deploys: one a recent beam-current dip in the
+archive, one an older loss that survives only as a plot on a logbook entry, so
+the answer can be read only off the picture.</p>
+<p>Every e2e stack built from <code class="docutils literal notranslate"><span class="pre">demo</span></code> also states the scenarios it starts in,
+because its assertions read live values off the simulator and the preset’s
+default set moves on its own. <code class="docutils literal notranslate"><span class="pre">tests/deployment/test_e2e_scenario_pin.py</span></code>
+holds that.</p>
+</section>
+<section id="markers">
+<h2>Markers<a class="headerlink" href="#markers" title="Link to this heading">#</a></h2>
+<p>Markers are declared in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. A marked test and the lane or step
+that reads the marker are a pair, and the wiring test holds the pairs that take
+a test out of the parallel sweep, because losing either half is silent: a suite
+nobody runs under a green check.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id2">
+<caption><span class="caption-text">Hops: the marker moves the test to another step or lane</span><a class="headerlink" href="#id2" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 44.0%" />
+<col style="width: 34.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Marker</p></th>
+<th class="head"><p>What it says</p></th>
+<th class="head"><p>Who reads it</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">slow</span></code></p></td>
+<td><p>Too long for the fast local loop. Still runs in CI.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">scripts/check.py</span> <span class="pre">quick</span></code> deselects it</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pty</span></code></p></td>
+<td><p>Runs an <code class="docutils literal notranslate"><span class="pre">osprey</span></code> verb on a real terminal and asserts on repaint
+cadence, which three other workers loading the box would distort.</p></td>
+<td><p>the parallel sweep deselects it; the <code class="docutils literal notranslate"><span class="pre">pytest-pty</span></code> check runs it alone</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">wallclock</span></code></p></td>
+<td><p>Asserts an absolute time budget. A clock read beside loaded workers
+measures the workers.</p></td>
+<td><p>the parallel sweep deselects it; the <code class="docutils literal notranslate"><span class="pre">pytest-wallclock-unit</span></code> check
+times the image-free budgets alone, and <code class="docutils literal notranslate"><span class="pre">qmd-sidecar-e2e</span></code> the ones
+also marked <code class="docutils literal notranslate"><span class="pre">dockerbuild</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">canopy</span></code></p></td>
+<td><p>Needs CANOPY and PyDMConverter at the pinned commits, and refuses to
+skip without them.</p></td>
+<td><p>the parallel sweep deselects it; the <code class="docutils literal notranslate"><span class="pre">canopy-contract</span></code> job installs
+both and runs it</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dockerbuild</span></code></p></td>
+<td><p>Runs a real container build. Skips when Docker is absent.</p></td>
+<td><p>kept out of the shared e2e lane; each file is hosted by a lane of its
+own</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">qmd</span></code></p></td>
+<td><p>Needs the qmd sidecar image and refuses to skip without it, because a
+lane that skipped on a missing image would report success having
+proved nothing.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">qmd-sidecar-e2e</span></code>, which builds the image; a lane without one
+deselects it</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model_free</span></code></p></td>
+<td><p>An e2e test that reaches no model, so it runs in a session that names
+no provider.</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">e2e-no-model</span></code> and <code class="docutils literal notranslate"><span class="pre">agent-record-e2e</span></code> lanes, whose selection
+equals this set</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">browser</span></code></p></td>
+<td><p>A real-browser Playwright test. Skips without chromium.</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">visual-theming</span></code> lanes select it</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="pst-scrollable-table-container"><table class="table" id="id3">
+<caption><span class="caption-text">Resources: the test needs something the host may not have</span><a class="headerlink" href="#id3" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 44.0%" />
+<col style="width: 34.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Marker</p></th>
+<th class="head"><p>What it says</p></th>
+<th class="head"><p>Who reads it</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_e2e_provider</span></code></p></td>
+<td><p>Builds its deployment with the provider the run named in
+<code class="docutils literal notranslate"><span class="pre">OSPREY_E2E_PROVIDER</span></code> and needs that provider’s credential.</p></td>
+<td><p>the e2e lanes, which name a provider; a run naming none is refused</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_api</span></code>, <code class="docutils literal notranslate"><span class="pre">requires_als_apg</span></code>, <code class="docutils literal notranslate"><span class="pre">requires_cborg</span></code>,
+<code class="docutils literal notranslate"><span class="pre">requires_anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">requires_openai</span></code>, <code class="docutils literal notranslate"><span class="pre">requires_google</span></code></p></td>
+<td><p>Needs a provider key: any of them, or the one it names. <code class="docutils literal notranslate"><span class="pre">cborg</span></code> is
+local-only: its IP allowlist blocks GitHub runners.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/conftest.py</span></code> turns a missing key into a skip</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_typesafe</span></code>, <code class="docutils literal notranslate"><span class="pre">requires_openrouter</span></code></p></td>
+<td><p>Calls a live API and needs its key exported to the run.</p></td>
+<td><p>the same conftest check</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">requires_matlab</span></code></p></td>
+<td><p>A local Ollama, a MATLAB with the AT toolbox.</p></td>
+<td><p>the same conftest check; skips when absent</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A <code class="docutils literal notranslate"><span class="pre">requires_*</span></code> marker is refused outside <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> unless its resource is
+keyless and local, so the unit suite never makes a credentialed call whatever
+keys a developer has exported.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id4">
+<caption><span class="caption-text">The agentic markers: who is on trial</span><a class="headerlink" href="#id4" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 44.0%" />
+<col style="width: 34.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Marker</p></th>
+<th class="head"><p>What it says</p></th>
+<th class="head"><p>Who reads it</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agentic(tier,</span> <span class="pre">title,</span> <span class="pre">asks,</span> <span class="pre">passes_if)</span></code></p></td>
+<td><p>The model under test drives the agent and can fail the task. Tier 1,
+basic: the stack works and a simple workflow goes through. Tier 2,
+benchmark: a harder task a capable model may still miss. The text
+fields say in plain words what the operator asks and what passes.</p></td>
+<td><p>the benchmark board, which runs only these tests; collection refuses an
+incomplete marker</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">harness_benchmark</span></code></p></td>
+<td><p>An agent runs, but the assertion is OSPREY’s own behaviour: a hook
+fires, a write is refused, an audit record lands.</p></td>
+<td><p>CI; the board leaves these out</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_benchmark</span></code></p></td>
+<td><p>The channel-finder quality benchmarks.</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">benchmarks</span></code> job, on demand</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every e2e test in the board’s scope carries exactly one of the first two, or its
+file is named in <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/matrix_e2e_config.json</span></code> with a reason. A
+lane gate fails on an unmarked test at the start of a board cell and as a unit
+test (<code class="docutils literal notranslate"><span class="pre">tests/benchmark/test_matrix_lanes.py</span></code>). Every test under
+<code class="docutils literal notranslate"><span class="pre">tests/e2e/tier2/</span></code> is Tier 2; not every Tier 2 test lives there.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id5">
+<caption><span class="caption-text">Opt-outs and control</span><a class="headerlink" href="#id5" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 44.0%" />
+<col style="width: 34.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Marker</p></th>
+<th class="head"><p>What it says</p></th>
+<th class="head"><p>Who reads it</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">real_server_launch</span></code>, <code class="docutils literal notranslate"><span class="pre">real_workspace_watcher</span></code>,
+<code class="docutils literal notranslate"><span class="pre">real_http_posters</span></code>, <code class="docutils literal notranslate"><span class="pre">real_graph_index</span></code>, <code class="docutils literal notranslate"><span class="pre">real_fetch</span></code>,
+<code class="docutils literal notranslate"><span class="pre">real_bounded_run</span></code></p></td>
+<td><p>Opts one test out of a conftest stub that otherwise keeps a
+process-global side effect inside the test that caused it: a companion
+server, a filesystem observer, a live POST, an index build, a fetch, a
+bounded subprocess run.</p></td>
+<td><p>the conftest that installs the stub</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">flaky</span></code></p></td>
+<td><p>Rerun on failure, for nondeterminism outside the process: model sampling
+in e2e, OS event delivery in a watcher test. Not for a flaky unit test.</p></td>
+<td><p>pytest-rerunfailures; the board turns reruns off</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">xdist_group</span></code></p></td>
+<td><p>Pins a set of files to one worker, for example everything that starts a
+container.</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">--dist</span> <span class="pre">loadgroup</span></code> scheduler</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">e2e_smoke</span></code>, <code class="docutils literal notranslate"><span class="pre">e2e_tutorial</span></code>, <code class="docutils literal notranslate"><span class="pre">e2e_services</span></code></p></td>
+<td><p>Categories inside <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code>: the quick smoke set, the tutorial
+walkthroughs, the tests that need local MCP service infrastructure.</p></td>
+<td><p>selected by hand with <code class="docutils literal notranslate"><span class="pre">-m</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The e2e suite is selected by path, <code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">tests/e2e/</span></code>. An <code class="docutils literal notranslate"><span class="pre">e2e</span></code> marker is
+declared, but nothing selects by it.</p>
+</section>
+<section id="benchmarks">
+<h2>Benchmarks<a class="headerlink" href="#benchmarks" title="Link to this heading">#</a></h2>
+<p><strong>The model matrix.</strong> <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/matrix.py</span></code> runs the agentic tests against
+every model in <code class="docutils literal notranslate"><span class="pre">matrix.yaml</span></code>, three seeds each by default, forcing every model
+alias the agent uses onto the model under test and routing OpenAI-protocol models
+through a translation proxy. Each test runs once, with reruns off, so every
+result is a first attempt. The dashboard groups results by tier: Tier 1 reports
+time and tokens per task with an all-green check, and Tier 2 shows each test’s
+result per seed. Claude models run as the reference ceiling: they should score
+close to everything on a clean stack, so a miss by a reference model is read
+first as a bug on OSPREY’s side, and the board has found several that way. The
+judge is always a reachable remote model and never the model under test.</p>
+<p><strong>Tier 2 in CI.</strong> The stack-free Tier 2 tests run in the <code class="docutils literal notranslate"><span class="pre">benchmarks</span></code> job on the
+<code class="docutils literal notranslate"><span class="pre">run_benchmarks</span></code> dispatch. The two that deploy a real stack,
+<code class="docutils literal notranslate"><span class="pre">test_chart_value_reading.py</span></code> and <code class="docutils literal notranslate"><span class="pre">test_channel_directory_agentic.py</span></code>, run on the
+board only, where parallel cells take turns on a host-wide lock. A miss in
+Tier 2 says something about the model, not the change, and no pull-request lane
+runs the directory.</p>
+<p><strong>The channel-finder benchmarks</strong> run each channel-finder pipeline against the
+preset’s channels and assert aggregate quality thresholds. They run in the same
+<code class="docutils literal notranslate"><span class="pre">benchmarks</span></code> job, never on a pull request, because scoring them with a model
+on every push costs too much to gate on.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../contributing/development-setup.html"><span class="doc">Development Setup</span></a></dt><dd><p>Running the checks and the front-end rails.</p>
+</dd>
+<dt><a class="reference internal" href="../contributing/workflow.html"><span class="doc">Git and GitHub Workflow</span></a></dt><dd><p>When the model-spending lanes run and what a pull request needs.</p>
+</dd>
+<dt><a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#how-to-run-scenarios"><span class="std std-ref">Scenarios</span></a></dt><dd><p>Applying and writing scenarios.</p>
+</dd>
+<dt><a class="reference internal" href="../reference/configuration/scenario-files.html#reference-scenario-files"><span class="std std-ref">Scenario files</span></a></dt><dd><p>Every key of a scenario file.</p>
+</dd>
+<dt><a class="reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a></dt><dd><p>The machine the scenarios reach over real EPICS.</p>
+</dd>
+<dt><a class="reference internal" href="safety-chain.html"><span class="doc">Safety Chain</span></a></dt><dd><p>The hooks tested as code before any agent runs them.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="virtual-accelerator.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Virtual Accelerator</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../reference/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-suite-is-made-of">What the suite is made of</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-each-part-runs">When each part runs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios-how-a-fault-is-staged">Scenarios: how a fault is staged</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#markers">Markers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#benchmarks">Benchmarks</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/architecture/testing.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

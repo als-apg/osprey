@@ -1,0 +1,1684 @@
+.. _reference-config:
+
+Runtime Configuration — config.yml
+==================================
+
+``config.yml`` is the file an OSPREY deployment actually runs on. ``osprey
+build`` renders it from the build profile, so the profile is where you edit a
+setting and this file is where you look one up: :doc:`profile` describes the
+authoring side, and this page catalogues what the rendered result means.
+
+The parts of that file gathered here are the models its simulator serves
+(``simulation:``), the
+diagnostic suite (``health:``), the browser UI's documentation and feedback
+settings (``web:``), the artifact gallery's
+extension types (``artifact_server:``), the Python sandbox's run ceiling
+(``python_executor:``), where screenshots are written (``screen_capture:``), the
+links from an answer to a
+logbook entry (``ariel.entry_url_template``), the login the agent's SQL tool
+uses on a logbook database you run yourself (``ariel.database.readonly_uri``),
+how much of each logbook entry the agent reads (``ariel.entry_text``), whether
+the agent shows its thinking (``claude_code.thinking.display``), the Phoebus
+display bridge
+(``phoebus:``), where channel records, alarms and put history come from
+(``channel_directory:``), and the deployment keys that decide which container image each
+service runs and how ``${VAR}`` placeholders in the compose files are filled
+in. Settings that only
+ever arrive from the environment are in :doc:`environment-variables`. A closing
+note records the **protected set** — the files and keys no agent-side writer
+may touch.
+
+Each example names its file on its first line. ``# build/config.yml`` marks the
+nested form that ``osprey build`` writes. Every build wipes and re-renders that
+file, so set a key through the profile and never edit the rendered file.
+``# profile.yml, under config:`` marks
+the dotted form you write in the profile's ``config:`` block. Both spell the
+same key: ``health.disk.min_free_gb: 2.0`` under ``config:`` renders as
+``min_free_gb: 2.0`` under ``disk:`` under ``health:``. In a profile, always use
+the dotted form; the reason is under "Configuration overrides" in
+:doc:`profile`.
+
+.. _config-simulation:
+
+``simulation:`` — which models the simulator serves and how fast it ticks
+--------------------------------------------------------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - What it does
+   * - ``simulation.models``
+     - The models the simulator serves, by name from the facility file's
+       ``models.yaml``. ``null`` or absent serves every model; ``[texture]``
+       and ``[]`` serve no physics. Every shipped preset sets ``null``.
+   * - ``simulation.tick_s``
+     - Seconds between the simulator's ticks. Absent means ``1.0``; every
+       shipped preset sets ``1.0``. A value of ``0`` or less stops the build
+       with a ``profile-invalid`` line naming the key.
+   * - ``simulation.fast_tick_s``
+     - The served simulator's fast period: seconds between publications of
+       the readings a model serves faster than the tick, such as an
+       injection chain's fast current. Absent means ``0.1``; no shipped
+       preset sets it. A value of ``0`` or less stops the build with a
+       ``profile-invalid`` line naming the key.
+   * - ``simulation.default_scenarios``
+     - The scenarios a deployment that has never chosen a set starts in, by
+       name from the facility's scenarios. ``osprey up`` activates them
+       the way ``osprey sim apply`` would, before it seeds the archive and the
+       logbook, and only while no set has been chosen. Absent, the build
+       derives it from the scenarios marked ``start: true``; with no mark,
+       absent, ``null`` or ``[]`` starts in
+       ``nominal`` alone, which is the default. The demo preset sets
+       ``[rf-thermal, demo-history]`` (an existing deployment gets
+       ``demo-history``'s sessions only from a fresh ``osprey init``); the other
+       presets leave it out. A value that is not a list of non-empty
+       names, or a name that is not a scenario the facility serves (its own or
+       the built-in ``still``), stops the
+       build with a ``profile-invalid`` line naming the key (see
+       :ref:`architecture-facility-settings`).
+
+``texture`` is always served, and always last. A name the facility file does
+not hold stops the build with a ``profile-invalid`` line that lists the valid
+names.
+
+A tier's list applies when its simulator is served in process: each
+process holds its own composite. On a tier whose baseline target is a
+served ``va`` or ``standin`` the deployment's container serves the deployment's
+list, so a tier that sets the key there stops the build with
+``profile-invalid``.
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     simulation.models: [SR]
+
+.. _config-health:
+
+``health:`` — the diagnostic suite
+----------------------------------
+
+``osprey health`` always runs its built-in checks; a ``health:`` block adds a
+facility's own checks and tunes the suite's timing. Everything in the block is
+optional. For how to put these settings to work — the two recipes worth
+starting from, cost classes, and the Health dashboard — see
+:doc:`/how-to/health-and-monitoring/configure-health-checks`; for the shape of
+the ``--json`` report, see :doc:`/reference/contracts/health-json`.
+
+The ``health:`` block
+~~~~~~~~~~~~~~~~~~~~~
+
+All configuration lives under a top-level ``health:`` key. Every field is
+optional; an absent ``health:`` block runs the built-in checks with their
+default timing.
+
+.. code-block:: yaml
+
+   # build/config.yml
+   health:
+     suite_timeout_s: 30          # poll-class wall-clock budget (default 30)
+     on_demand_timeout_s: 120     # on_demand wall-clock budget (default: sum of budgets)
+     interval_s: 300              # minimum server-side re-run interval
+
+     disk:
+       min_free_gb: 1.0           # disk_space warns below this many GB free (default 1.0)
+       max_used_percent: 90       # ...and at or above this % full (default 90)
+
+     plugins:
+       - my_facility.health       # dotted module paths to plugin modules
+
+     categories:
+       beamline_services:         # a facility-defined category of probe checks
+         checks:
+           - name: archiver
+             type: http
+             url: http://archiver.example.com/healthz
+           - name: bluesky_server
+             type: mcp
+             url: http://localhost:8931/mcp
+
+       providers:                 # metadata-only override of a built-in category
+         timeout_s: 15
+
+Probe checks
+~~~~~~~~~~~~
+
+A **declarative category** is a named entry under ``health.categories`` with a
+``checks:`` list. Each check names a probe ``type`` and its parameters; the
+suite runs the checks and grades each result ``ok`` / ``warning`` / ``error`` /
+``skip``. Six probe types ship:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - ``type``
+     - Purpose and parameters
+   * - ``http``
+     - GET a URL and grade the response. ``url`` (required); ``expect_status``
+       (default ``200``); ``warn_latency_ms`` / ``error_latency_ms`` (optional
+       latency ceilings — over the warn ceiling is a ``warning``, over the error
+       ceiling an ``error``).
+   * - ``mcp``
+     - Handshake an MCP server over streamable HTTP and list its tools. ``url``
+       (required); ``expect_tools`` (optional list of tool names that must be
+       present). With no ``expect_tools``, a server exposing zero tools is an
+       ``error``.
+   * - ``container``
+     - Check a deployed container's state and healthcheck. ``container``
+       (required; alias ``service``) — the container/service name, matched
+       fuzzily against the running containers. Not-deployed or non-running is a
+       ``warning``; **no container runtime installed is a** ``skip``.
+   * - ``channel_read``
+     - Read one control-system channel through the suite's connector and grade
+       the value. ``address`` (required); ``expect`` (required exact value), or
+       inclusive numeric bands ``ok_range: [lo, hi]`` and ``warn_range:
+       [lo, hi]`` (outside the warn band is an ``error``, outside the ok band a
+       ``warning``). With neither, a successful read is a liveness ``ok``.
+   * - ``provider_canary``
+     - Make a minimal connectivity call to a model provider. ``provider`` — the
+       provider name to test (e.g. ``cborg``); ``api_key`` / ``base_url``
+       (optional, ``${VAR}`` allowed; fall back to
+       ``api.providers.<provider>``); ``model_id`` (optional). A canary never
+       emits ``error`` — an unreachable provider is a ``warning``.
+   * - ``archiver_freshness``
+     - Verify the deployment's archiver is reachable **and actually
+       accumulating data**: query the newest archived sample of a canary
+       channel through the ``archiver:`` connector. ``channel`` (required);
+       ``max_age_s`` (default 600) — a newest sample older than this is a
+       ``warning``, as is an empty query window. An unreachable archiver, or an
+       ``archiver_freshness`` check declared with no ``archiver:`` configured,
+       is an ``error``. A reachable archiver UI does not prove data is flowing
+       — this probe checks the data. A project that deploys its own archive can
+       have this check **derived** rather than declared — see
+       :doc:`/how-to/health-and-monitoring/configure-health-checks`.
+
+.. note::
+
+   For ``provider_canary``, ``name:`` and ``provider:`` are distinct: ``name``
+   is the check's **result identity** (the row label in the report), while
+   ``provider`` selects **which provider to test**. When ``provider`` is
+   omitted, the probe falls back to ``name`` — so a check named after the
+   provider works, but to test one provider under a different row label you must
+   set both.
+
+Every check also accepts the reserved keys ``name`` (required, unique within its
+category), ``timeout_s``, ``timeout_status``, and ``requires:`` (below). Any
+other key becomes a probe parameter.
+
+Built-in service categories
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Beyond the always-on framework checks, these built-in categories are
+**presence-gated**: they contribute rows only when the corresponding service is
+configured or deployed, so a minimal build shows no empty tiles.
+
+- ``ariel`` — appears when a top-level ``ariel:`` block is configured. Reads
+  the ARIEL interface's open ``/health`` page, which needs no credential, and
+  reports: reachability, logbook entry count, last ingestion time, and the
+  registered search and enhancement modules. When the interface runs without
+  its database, the reachability row is the only row. The interface sidecar
+  runs with ``osprey web``, so a CLI-only run on a stopped stack reports the
+  interface as unreachable (a ``warning``).
+- ``channel_finder`` — appears when a top-level ``channel_finder:`` block is
+  configured. Reports the active pipeline mode, verifies the pipeline's
+  channel-database file exists (a configured-but-missing database is an
+  ``error``), shows the database's age, and — for the ``middle_layer``
+  pipeline — the channel count from the materialized DuckDB.
+
+  The ``graph`` pipeline reads different rows, because it answers from the
+  graph store rather than from a file on disk. The pipeline row reports it as
+  store-backed, and in place of the database rows the category reports the
+  store's **reachability** and its **resource count** — the same two readings
+  the ``graphdb`` category takes, so a stopped store warns rather than
+  failing the suite. A graph-mode build configures no ``database.path`` and is
+  never warned about one missing: there is no channel-database file in that
+  paradigm to look for (see :doc:`/how-to/use-channel-finder`). The ``graphdb`` tile is
+  always alongside — graph mode needs that block — so these rows restate the
+  same store readings in the channel finder's own terms: whether *channel
+  search* has anything to answer from.
+- ``graphdb`` — appears when a ``services.graphdb`` block is configured (see
+  :doc:`/how-to/deploy-project/index`). Two rows: **connection**, which dials the store over
+  bolt and reports the round-trip latency, and **resources**, the number of
+  ``(:Resource)`` nodes in the graph — the nodes the TTL corpus imports.
+  Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
+  corpus was ever loaded, so counting ``(:Resource)`` specifically is what keeps
+  an empty graph from reading as a populated one; a count of zero warns and
+  names ``osprey build && osprey up`` as the remedy. The agent's own graph
+  tools report the same degraded states from the inside — see
+  :doc:`/how-to/facility-knowledge/use-facility-graph`.
+- ``channel_directory`` — appears when a ``channel_directory:`` section is configured.
+  One row per configured service (directory, alarm logger, put log), read
+  from that service's probe on the current control target: ``ok`` with the
+  service's evidence while it answers, ``warning`` with the reason when it
+  cannot, and ``skip`` when it has no source on this target.
+  ``channel_directory_alarm_feed`` (``--full``) starts the alarm feed, waits up to
+  its deadline for catch-up and reports what the feed has read.
+- ``reach`` — appears when this render has a client switched on for a shared
+  service: hybrid logbook search and the OKF panel (the qmd sidecar), the
+  graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
+  (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
+  virtual-accelerator connector. One row per service, and the address it
+  knocks on is the one **the client itself resolves** from this config, in the
+  process running the check — so the same category answers a different
+  question on the host (what ``osprey`` commands reach) and inside a per-user
+  web-terminal container, where the health MCP server runs it (what that
+  user's agent reaches). A knock is a TCP connect; a closed port warns and
+  names the config key the client resolved it from, and a client switched on
+  with nothing to resolve warns with the key that would give it one — the
+  same condition ``osprey build`` refuses (:doc:`/how-to/build-profiles`).
+- ``simulator`` — appears when the render carries a simulator view with a
+  physics model and the deployment serves a simulator from a process of its
+  own: the ``va`` target's container, the ``standin`` target, or both. One row
+  per target and model, read from the model's status channel exactly as
+  ``osprey sim status --target`` reads it: ``ok`` while the model serves,
+  ``ok`` with "no deck, not built by design" for a model that names no deck
+  and wires no channel, and ``error`` naming the error for a model that
+  failed. A failed model serves NaN while the container keeps serving every
+  other channel, so its healthcheck stays green and this row is where the
+  failure shows. A target whose channels cannot be read is one ``warning``
+  row. A simulator served only in process gives no rows.
+
+.. note::
+
+   The ``graphdb`` category dials **bolt** — ``services.graphdb.port_host``, or
+   an explicit ``services.graphdb.uri`` — never the ``http_port_host`` the Neo4j
+   Browser and the container healthcheck use. That is the address its remedies
+   name, so a probe that fails is pointing at the port the seeder also uses.
+
+   Every row it produces is ``ok`` or ``warning``, never ``error``. A store that
+   is stopped, unreachable, rejecting its credential, or simply unseeded is a
+   service that is not running rather than a broken build, and the category says
+   so in one line instead of failing the suite.
+
+All of them are ordinary categories: valid under ``--category``, tunable via a
+metadata-only override, and rendered as dashboard tiles with no extra
+configuration.
+
+Auto-derived MCP server checks (``health.auto``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every MCP server your build wires up is already described in ``config.yml``
+under ``claude_code.servers``. Rather than make you re-declare each one as an
+``mcp`` probe, the framework reads those blocks and builds an ``mcp_servers``
+category for you — one reachability check per server. It is on by default, so
+you normally configure nothing.
+
+.. code-block:: yaml
+
+   # build/config.yml
+   health:
+     auto:
+       mcp:
+         enabled: true        # default true — set false to drop the category
+         url_key: host_url    # which URL to probe (see below; set by the build when web terminals are served)
+
+A server is included when its ``claude_code.servers`` block carries a ``url`` and
+a ``network`` block with a URL to reach it. Servers without those are skipped.
+
+**Which URL is probed.** Each server block records two URLs: ``host_url`` (the
+server seen from the machine, ``http://localhost:<port>/mcp``) and ``docker_url``
+(the server seen from inside a container, ``http://<name>:<port>/mcp``). The
+category picks one automatically:
+
+- If you set ``url_key`` explicitly, that choice is always used.
+- A deployment that serves web terminals has the choice made for it. The
+  terminals run on the host's network, where a compose service name does not
+  resolve, so ``osprey build`` writes ``url_key: host_url`` into each render,
+  login renders included. That is the same address the agent dials. Setting
+  the key to anything else in such a profile is refused at build time.
+- Otherwise the framework detects whether the health check is itself running
+  inside a container — the runtime's own marker file, ``/.dockerenv`` under
+  Docker or ``/run/.containerenv`` under Podman, or an ``OSPREY_IN_CONTAINER``
+  environment variable you set yourself — and uses ``docker_url`` when
+  containerized, ``host_url`` on a plain host. Nothing in the shipped
+  deployment sets that variable. This detection decides only for a render
+  without web terminals; such a render sets ``url_key`` when the detected
+  answer is wrong for its network.
+
+**Expected tools.** If a server block declares ``permissions`` (its ``allow``
+and ``ask`` tool lists), the derived check also confirms the server actually
+exposes those tools, not just that it answers — a reachable server missing an
+expected tool is graded an ``error``. A server with no declared permissions gets
+a plain reachability check.
+
+.. warning::
+
+   ``docker_url`` assumes the container's hostname matches the server's key in
+   ``config.yml`` — a server named ``matlab`` is probed at ``http://matlab:…``.
+   If your compose service is named differently, the probe points at a host that
+   does not exist. Either rename the service to match the key, or set
+   ``url_key: host_url`` to probe the localhost URL instead. A deployment that
+   serves web terminals always probes ``host_url``, so this caveat applies only
+   where ``docker_url`` is in use.
+
+Timeouts
+~~~~~~~~
+
+``timeout_s`` bounds a single check. Omit it and the probe's per-type default
+applies:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 25
+
+   * - Check
+     - Default ``timeout_s``
+   * - ``http``
+     - 5
+   * - ``mcp``
+     - 10
+   * - ``container``
+     - 10
+   * - ``channel_read``
+     - 5
+   * - ``provider_canary``
+     - 5
+   * - ``archiver_freshness``
+     - 10
+   * - callable category (poll)
+     - ``suite_timeout_s``
+   * - callable category (on_demand)
+     - 60
+
+``timeout_status`` sets the status emitted when a check's own timeout fires —
+``error`` (the default) or ``warning``. Use ``warning`` for a dependency whose
+unresponsiveness should be treated as non-fatal:
+
+.. code-block:: yaml
+
+   # build/config.yml
+   health:
+     categories:
+       beamline_services:
+         checks:
+           - name: archiver
+             type: http
+             url: http://archiver.example.com/healthz
+             timeout_status: warning   # a slow archiver warns, never errors
+
+.. warning::
+
+   ``timeout_status: warning`` composes literally with ``requires:`` (below).
+   A ``requires:`` dependency *passes* when its status is ``ok`` **or**
+   ``warning`` — so a dependency that times out under ``timeout_status:
+   warning`` still counts as passed, and its dependents still run. Setting
+   ``timeout_status: warning`` on a check that *gates* others is therefore an
+   explicit opt-in to "an unresponsive dependency is non-fatal"; leave it at the
+   default ``error`` if a timed-out gate should skip everything downstream.
+
+Dependencies (``requires:``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A check may declare ``requires:`` — a list of *earlier* checks in the **same
+category** that must pass before it runs. A dependency passes when its status is
+``ok`` or ``warning``; if any dependency does not pass, the dependent is emitted
+as ``skip`` without running, and that ``skip`` in turn fails *its* dependents
+(the cascade). Independent checks in a category still run concurrently — only a
+genuine dependency chain serializes.
+
+.. code-block:: yaml
+
+   # build/config.yml
+   health:
+     categories:
+       beamline_services:
+         checks:
+           - name: gateway
+             type: http
+             url: http://gateway.example.com/healthz
+           - name: archiver
+             type: http
+             url: http://archiver.example.com/healthz
+             requires: [gateway]   # skipped if the gateway check did not pass
+
+A dependency must reference a check declared earlier in the list; a forward
+reference, a self-reference, an unknown name, or a duplicate check name is a
+configuration error at load time.
+
+Category metadata overrides
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A ``health.categories.<name>`` entry with **no** ``checks:`` list is a
+metadata-only override. It may set ``cost`` (``poll`` / ``on_demand``) and/or
+``timeout_s`` for a category defined elsewhere — a built-in (core) category or a
+plugin category — without redefining it:
+
+.. code-block:: yaml
+
+   # build/config.yml
+   health:
+     categories:
+       providers:
+         timeout_s: 15        # give the built-in providers category a longer budget
+       model_chat:
+         cost: poll           # run model_chat on every health check (use with care)
+
+The reverse is rejected: a ``checks:`` list under a built-in category name is a
+load-time error ("cannot redefine built-in category") — use metadata-only keys
+to adjust a built-in, and a new category name for your own probe checks.
+
+Suite timing
+~~~~~~~~~~~~
+
+Three scalar settings tune the suite as a whole:
+
+- ``health.suite_timeout_s`` (default 30) — the wall-clock budget bounding all
+  poll-class categories collectively. It is also the default budget for a
+  poll-class callable category.
+- ``health.on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
+  categories collectively (only relevant under ``--full``). When omitted it
+  defaults to the sum of the selected on_demand categories' budgets.
+- ``health.interval_s`` — the minimum interval between server-side re-runs. When
+  omitted it derives as ``max(60, 2 × suite_timeout_s)``; an explicit value must
+  be greater than ``suite_timeout_s`` or the config is rejected. This value is
+  validated but not yet enforced by ``osprey health`` itself.
+
+At a cost-class deadline, unfinished checks are not dropped — every configured
+check still produces a row (an eligible pending check becomes an ``error``
+"suite deadline exceeded"; a pending check whose dependency failed becomes a
+``skip``), so the report always accounts for every declared check.
+
+Disk-space thresholds
+~~~~~~~~~~~~~~~~~~~~~
+
+Two keys set when the built-in ``file_system.disk_space`` row warns about the
+filesystem holding the project:
+
+- ``health.disk.min_free_gb`` (default 1.0) — the row warns while free space is
+  strictly below this many GB. GB is the unit the row prints: 1024³ bytes.
+- ``health.disk.max_used_percent`` (default 90) — the row warns once usage is
+  at or above this percentage. 100 warns only on a completely full filesystem.
+
+Either key may be set alone; the other keeps its default. A value that is not a
+positive number, a percentage above 100, or any other key under
+``health.disk`` is refused at load time: the ``configuration.health_config``
+row reports it as an ``error`` naming the key, and the ``disk_space`` row is a
+``skip`` rather than grading against numbers the operator did not choose.
+
+The thresholds are not spelled as a ``file_system`` entry under
+``health.categories``: that entry is a metadata-only override, which keeps only
+``cost`` and ``timeout_s``.
+
+.. _config-web:
+
+``web:`` — documentation, feedback, the bars and the chat pool
+--------------------------------------------------------------
+
+The top-level ``web:`` section configures the browser UI the Web Terminal
+renders — not the terminal process itself, which has its own ``web_terminal:``
+section. The keys below:
+
+- aim the sidebar's two utility controls
+- bound the feedback store
+- name the deployment
+- decide who is offered the onboarding tour
+- choose whether the terminal is offered
+- size the operator-chat pool
+- bound how long a panel's own server gets to start
+- set how often the file watchers re-read the tree
+- configure the CANOPY panel
+
+.. _feedback-configuration:
+
+Documentation and feedback keys
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 26 44
+
+   * - Key
+     - Default
+     - What it does
+   * - ``web.docs_url``
+     - ``https://als-apg.github.io/osprey``
+     - Where the **Documentation** control in the sidebar points. Set it to
+       your own hosted copy of the docs.
+   * - ``web.feedback.trackers``
+     - unset (no list)
+     - Issue trackers the feedback dialog offers, one channel each. A list of
+       ``{kind, repo | url, label}`` entries: ``kind: github`` with an
+       ``owner/repo``, or ``kind: gitlab`` with the project's base URL
+       (gitlab.com or self-hosted). ``label`` captions the channel; it defaults
+       to the kind's name. See :ref:`feedback-trackers` below.
+   * - ``web.feedback.github_repo``
+     - ``als-apg/osprey``
+     - ``owner/repo`` of one more GitHub tracker, captioned **GitHub** —
+       shorthand for a ``github`` entry in ``trackers``.
+   * - ``web.feedback.email``
+     - unset (no Email channel)
+     - Recipient of the prefilled mail draft the dialog's Email channel opens.
+       Nothing ships here: the draft can carry a session's scrollback, so name
+       the mailbox your operators should reach before offering the channel.
+   * - ``web.app_name``
+     - unset (no badge)
+     - Optional name badge in the terminal header, so otherwise-identical
+       deployments are told apart. The ``OSPREY_WEB_APP_NAME`` environment
+       variable outranks it, which is what lets several containers sharing one
+       baked config image each carry their own name.
+   * - ``web.chat_turn_timeout_s``
+     - ``600``
+     - Ceiling in seconds on a single chat turn.
+   * - ``web.chat_idle_timeout_s``
+     - ``1800``
+     - How long an operator's chat session may sit idle before it is reaped.
+   * - ``web.chat_max_sessions``
+     - ``5``
+     - Cap on concurrent operator-chat sessions.
+   * - ``web.sidecar_ready_timeout_s``
+     - ``60``
+     - Seconds the terminal waits for a panel that runs its own server (the
+       **JUPYTER** and **CANOPY** tabs) to answer before it greys that tab. The terminal starts
+       serving once the panel answers or the wait passes, so a larger value also
+       lengthens a start in which the panel fails. A value that is not a
+       positive number is refused with a warning, and 60 applies.
+
+.. code-block:: yaml
+
+   # build/config.yml
+   web:
+     docs_url: https://docs.example-facility.org/osprey
+     feedback:
+       trackers:
+         - kind: gitlab
+           url: https://git.example-facility.org/controls/osprey
+           label: Facility GitLab
+         - kind: github
+           repo: als-apg/osprey
+           label: OSPREY upstream
+       github_repo: ""
+       email: controls-support@example.org
+
+``docs_url``, ``trackers``, ``github_repo`` and ``email`` are unset in every
+shipped preset — each is documented there as a commented example, so nothing
+writes the project's own address into your ``profile.yml``. All four are read
+straight from ``config.yml`` when present and fall back to the defaults above
+when not.
+
+.. _feedback-trackers:
+
+Issue trackers
+~~~~~~~~~~~~~~
+
+The dialog renders one channel per tracker, between **Local** and **Email**,
+in the order listed — ``trackers`` first, then the ``github_repo`` shorthand.
+Every tracker channel works the same way the GitHub channel always has: the
+report is recorded on the deployment, and the browser opens the tracker's
+new-issue form prefilled with it (or with a one-line pointer to the clipboard
+when session context is attached). Nothing is posted on the sender's behalf.
+
+- ``kind: github`` needs ``repo`` (``owner/name``); the form is
+  ``https://github.com/<repo>/issues/new``.
+- ``kind: gitlab`` needs ``url``, the project's base URL; the form is
+  ``<url>/-/issues/new``. The shape is the same on gitlab.com and on a
+  self-hosted instance.
+
+An entry that fits neither — an unknown ``kind``, a GitHub entry with no
+``owner/name``, a GitLab entry whose ``url`` is not ``http(s)://`` — is
+reported in the log and skipped; the rest of the list stands. Two entries
+naming the same target collapse to the first, so listing the upstream
+repository under your own label does not render it twice beside the shorthand.
+
+With no ``trackers`` and no ``github_repo`` written, the one tracker on offer
+is the shipped default, so a bare deployment still reaches the OSPREY
+maintainers. A facility that wants only its own tracker lists it and blanks
+``github_repo``, as in the example above.
+
+Blank, absent, and written-with-no-value
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Three ways of writing one of the three **string** keys (``docs_url``,
+``github_repo``, ``email``) mean three different things:
+
+- **Leave the key out** and the deployment uses the shipped default above.
+- **Set it to an explicitly blank value** (``docs_url: ""``) and the deployment
+  declares it has no such target: the Documentation link is not rendered at all,
+  or the matching feedback channel is refused with an explanation rather than
+  aimed at the upstream maintainers. This is the air-gapped posture — blanking
+  ``web.docs_url`` is how you avoid shipping a link that opens a dead tab, and
+  blanking ``web.feedback.github_repo`` retires the GitHub channel instead of
+  aiming reports at the upstream maintainers' tracker.
+- **Write the key with no value at all** (``docs_url:`` and nothing after it)
+  and it reads as *absent*, not blank — "I have not decided yet" rather than
+  "there is none" — so you get the default. Write ``""`` when you mean none.
+
+``trackers`` has no blank posture of its own: an empty list, or none, simply adds no channel.
+The feedback dialog's Local channel is always available and needs no
+configuration at all.
+
+A build profile overrides any of these keys from its ``config:`` block in the
+dotted form, e.g. ``web.feedback.email: controls-support@example.org``.
+
+.. _config-web-tour:
+
+The onboarding tour invite
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A first-time visitor to the terminal is offered a short guided tour of the
+screen. ``web.tour`` decides who is offered it, and how often:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 84
+
+   * - Value
+     - What the visitor sees
+   * - ``once``
+     - The default. The invite card appears until this browser dismisses it —
+       "Don't show this again", or finishing the tour — and then stops.
+   * - ``always``
+     - The invite appears on every load and offers no permanent dismissal.
+       This is the shared-screen posture: a wall display nobody owns should
+       still greet the next person who walks up to it.
+   * - ``never``
+     - No invite. The tour stays reachable from the sidebar's **☰ More** menu
+       and the command palette.
+
+An unrecognised value is reported in the log and treated as ``once``: a typo
+costs you the setting, never the terminal's startup.
+
+On a multi-user deployment the policy can differ per user. A roster entry's
+``tour:`` field — beside its ``theme:`` — is rendered into that user's
+container as ``OSPREY_WEB_TOUR``, and the environment variable outranks
+``web.tour`` for that container, exactly as ``OSPREY_WEB_THEME`` outranks
+``web.theme``.
+
+.. _config-control-target-picker:
+
+The control-target picker
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   # build/config.yml
+   web:
+     control_target_picker: true
+
+The control-target block in the sidebar names the machine this terminal stands on
+and opens the popover that switches it. The default is ``true``. Set it to
+``false`` only for a terminal that reaches no machine: no control-system tool
+server and no JUPYTER panel. The bundled shared logins ``logbook``,
+``knowledge`` and ``channel-finder`` do.
+
+The setting changes what the page shows, not what the agent may do. With it
+off, the sidebar has no control-target block. A value that is not a boolean is
+reported in the log and ``true`` is used.
+
+.. _config-web-terminal:
+
+Offering the terminal
+~~~~~~~~~~~~~~~~~~~~~
+
+``web.terminal: false`` removes **Open terminal** from the Agent pane's session
+switcher on every login the render serves, and ``/ws/terminal`` closes with code
+``4403`` before any process starts. The default is ``true``. A value that is
+not a boolean is reported in the log and ``true`` is used; a config file that
+cannot be read closes it. ``osprey build`` refuses a profile that still states
+``expert_view``, the key this one replaced.
+
+.. _config-file-watch-reconcile:
+
+How often the file watchers re-read the tree
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The file panel and the artifact gallery both learn about a change from the
+operating system's own change notifications. Those notifications can go quiet —
+the watch is live, and the system simply stops delivering to it for a while —
+and for as long as that lasts, neither surface hears about anything and neither
+one knows it. ``web.file_watch_reconcile_interval_s`` is the second trigger:
+on that interval, each watcher re-reads the directories it is tracking and
+announces whatever the notifications did not. It is therefore the ceiling on how
+long a change can stay invisible.
+
+.. code-block:: yaml
+
+   # build/config.yml
+   web:
+     file_watch_reconcile_interval_s: 2.0
+
+The default is ``2.0``. What the number costs is one directory listing per
+tracked directory per interval — and a directory is tracked once something in it
+has changed, never the whole workspace up front. A directory the notifications
+never announced is picked up one level per interval from the nearest tracked
+ancestor, so a deep tree costs one further listing per interval while it is
+being discovered and nothing once it is. A deployment whose workspace is very
+large or very busy can raise the interval, trading a longer worst-case delay for
+fewer listings. Lowering it does the opposite. A value that is not a
+positive number is reported in the log and the default is used; there is no
+value that switches the pass off, because a watcher with only one trigger is a
+watcher that can go blind without saying so.
+
+.. _config-web-panels-canopy:
+
+``web.panels.canopy`` — the CANOPY panel
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The CANOPY tab is a built-in panel that each web terminal serves from two
+processes of its own, one CANOPY per user (:doc:`/how-to/web-terminal/canopy`).
+Besides the ``enabled`` switch every built-in panel has, its block carries the
+settings the terminal hands to those processes. The terminal reads them each
+time it starts the panel's processes, so an edit takes effect at the next
+restart of a terminal.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 50
+
+   * - Key
+     - Default
+     - Purpose
+   * - ``web.panels.canopy.enabled``
+     - the panel's registry default
+     - Whether the tab is shown and its processes are started. A panel that is
+       absent from ``web.panels`` is off; a profile leaves it out with
+       ``exclude.web_panels``.
+   * - ``web.panels.canopy.trace_default_query``
+     - ``""``
+     - The view Trace opens with when its URL carries none, as the query
+       string Trace parses (``pv=…&pv=…&range=-1h``). Empty opens Trace with
+       no channel.
+   * - ``web.panels.canopy.correlation_default_query``
+     - ``""``
+     - The view the correlation page opens with when its URL carries none
+       (``x=…&y=…&dt=…``). Empty opens the page with no channel.
+   * - ``web.panels.canopy.waveform_default_query``
+     - ``""``
+     - The view the waveform page opens with when its URL carries none
+       (``pv=…``). Empty opens the page with no channel.
+   * - ``web.panels.canopy.home_screen``
+     - ``""``
+     - The screen CANOPY opens first, by its id in the deployment's library:
+       its path under ``screens/`` without ``.screen.json``, such as
+       ``facility/overview``. Empty opens CANOPY's first screen. ``osprey
+       build`` and ``osprey validate`` refuse an id the library does not hold.
+   * - ``web.panels.canopy.vole_bytes_max``
+     - ``268435456``
+     - Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
+       memory (256 MiB). A value that is not an integer keeps the default.
+   * - ``web.panels.canopy.theme_file``
+     - unset
+     - A colour theme for the panel. A relative path is read from the project
+       root; an absolute path is used as written. Unset keeps CANOPY's own
+       theme.
+
+There is no key for the confirmation dialog: it follows the chip's write
+switch, so a write click asks first at *asked* and not at *allowed*.
+There is no ``url``, ``label`` or ``health_endpoint`` either, because the
+terminal starts the server itself, and no key that turns the agent's screen
+tools on or off, because those follow the panel.
+
+The panel's other properties are fixed in OSPREY's panel registry
+(``osprey.profiles.sidecar_panels``), not set in configuration: which of its
+agent tools run without a prompt and which ask on every call (see
+:doc:`/how-to/web-terminal/canopy`), the two library checks an image build runs,
+and the 34 s a stopping terminal gives a write already sent.
+
+.. _config-dangerously-allow-bash:
+
+``dangerously_allow_bash`` — waiving the Bash/launch-token refusal
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``osprey up`` refuses to deploy a tier that is entitled to a Bluesky launch
+token while its ``.claude/settings.json`` does not deny both ``Bash`` and
+``Monitor`` (which runs shell commands too): a shell could
+read the token out of its own environment and arm a queue with no approval.
+One root-level key waives that refusal, for a development box with a single
+trusted operator and no live machine behind it:
+
+.. code-block:: yaml
+
+   # build/config.yml
+   dangerously_allow_bash: true
+
+It takes the boolean ``true`` and nothing else — any other value is a config
+error. Absent, the refusal stands exactly as before. It never waives the
+refusal of a tier that holds an application's launch token or a write agent
+route beside an open shell. When set, every
+``osprey up`` prints a warning naming the tiers it waved through, and the
+closing card carries a ``dangerously_allow_bash`` row. The key belongs to
+:ref:`the protected set <config-protected-set>`, so the running agent cannot
+set it. A build profile sets it from its ``config:`` block.
+
+.. _config-web-terminals:
+
+``modules.web_terminals`` — the landing page and the render catalog
+-------------------------------------------------------------------
+
+The roster itself — ``users``, ``default_tier``, ``shared`` and
+``authorization.roles`` — is described in :doc:`/how-to/web-terminal/multi-user/index`.
+Two more keys shape what the deployment serves.
+
+``landing.groups`` lays out the landing page as sections, in the order listed.
+Each entry has a ``type`` and an optional ``label``:
+
+- ``users`` — one card per person on the roster. ``names: hidden`` replaces the
+  name cards with one sign-in button; it needs ``auth.method`` ``password`` or
+  ``oidc``, and only a ``users`` entry takes it.
+- ``shared`` — one card per login in ``shared``, titled by the login's
+  ``name:``, opened by anyone on the roster (:ref:`multi-user-shared-card`).
+  The retired ``apps`` reads as ``shared`` for one release, with a lint
+  warning.
+- ``links`` — your own cards, each a ``label`` and a ``url``.
+
+.. code-block:: yaml
+
+   # build/config.yml
+   modules:
+     web_terminals:
+       landing:
+         groups:
+           - type: users
+             label: Users
+           - type: shared
+             label: Shared logins
+           - type: links
+             label: Facility
+             links:
+               - {label: Elog, url: https://elog.example.org}
+
+Left out, the page shows ``[{type: users}, {type: shared}]``. A section with no
+cards shows no heading.
+
+``modules.web_terminals.renders`` is the render catalog: one entry per file in
+``tiers/``, keyed by that file's name, with its ``kind`` (``tier``, or
+``shared`` for a login only ``shared:`` names), ``project`` and
+``project_path``. ``osprey build`` writes it into ``build/config.yml``; a
+profile that spells it is refused. Set a render's ``extra_mounts``,
+``seed_base`` or ``image`` at the top of its login file instead.
+
+.. _config-artifact-server:
+
+``artifact_server:`` — the workspace gallery's extension types
+--------------------------------------------------------------
+
+The gallery and the sidebar group artifacts by base form: ``plots``,
+``trends``, ``tables``, ``documents``, ``dashboards``, ``images``, ``data``
+(``runs`` is the script-run group, not declarable).
+``artifact_server.extension_types`` adds your own kinds, one dotted line per
+type:
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     artifact_server.extension_types.beam_study: {label: Beam study, base_form: plots}
+     artifact_server.extension_types.rf_scan:
+       {label: RF scan, base_form: tables, viewer: viewers/rf_scan.mjs}
+
+Each type takes a ``label`` (what the sidebar and gallery show), a
+``base_form`` it conforms to, and an optional ``viewer``: a ``.js`` or
+``.mjs`` path relative to the project root (see
+:ref:`profile-artifact-viewer`). An installed package declares types under the
+``osprey.artifact_types`` entry-point group, its viewer inside the package.
+``osprey build`` refuses an unknown base form, a key or label that collides
+with a base form or another type, and a missing or out-of-tree viewer; at
+runtime a bad type is logged and skipped, and a bad viewer is dropped. Types
+are read when the artifact server and the MCP workspace server start, so a new
+one arrives with ``osprey build`` and a restart.
+
+The old ``categories`` block under ``artifact_server:`` is retired:
+``osprey build`` refuses it and says to declare
+``artifact_server.extension_types`` instead.
+
+Two other keys sit in this block. ``artifact_server.max_timeseries_file_mb``
+(default 200) is the largest timeseries data file the gallery will draw as a
+chart or lay out as a table. Over it, those two views refuse with a ``413`` and
+say so; the file itself stays downloadable either way. The handler reads the
+whole file into memory to build the view, so raising the number spends that
+much memory on the machine serving the gallery — which is why it is a facility's
+to set rather than a fixed bound: how big an export gets is a property of your
+archiver, and how much memory the gallery host has is a property of your site.
+
+``artifact_server.page_size`` (default 20) is how many artifacts the gallery
+asks for at a time. It fetches the next page as the list is scrolled, so a
+store with thousands of entries opens as fast as one with twenty. The same
+number bounds any other reader of the listing; a request may name its own size
+up to 200, and a configured value above 200 is capped there.
+
+.. _config-python-executor:
+
+``python_executor:`` — how long one agent script may run, and what it inherits
+------------------------------------------------------------------------------
+
+``python_executor.execution_timeout_seconds`` is the wall-clock ceiling on a
+single agent Python run. It defaults to ``600`` — ten minutes — and a run that
+reaches it is killed and reported as a **timeout**, which the response
+deliberately classes as the sandbox's decision rather than as a failure of the
+submitted script:
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     python_executor.execution_timeout_seconds: 1800
+
+Raise it for a facility whose legitimate analyses run long — a fit over a
+day of archived data, a scan reconstruction — and lower it where a runaway
+script holding the sandbox is the worse outcome. The value is read once in
+the sandbox's MCP server process and held for that process's lifetime, so a
+change lands after ``osprey build`` and a restart of the stack. The value
+must be a finite, positive number of seconds; any other value, ``null``
+included, refuses every run, so no run is left without a time bound.
+
+Agent Python — the python executor, the visualization tools and plan
+validation — and the notebook server with its kernels start with a fixed set
+of environment variables from the host:
+paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
+control-system client settings (``EPICS_*``, ``TANGO_*``, ``ENSHOST``) and the osprey names the run itself reads. Nothing else from the
+host reaches it. ``python_executor.child_env_passthrough`` adds names to that
+set, for an analysis library that reads its own variable:
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH, OMP_NUM_THREADS]
+
+The list takes exact names only. It cannot add a credential osprey itself
+holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
+naming one is an error, and the run does not start.
+
+.. _config-ariel-entry-url:
+
+``ariel.entry_url_template`` — links from an answer to the logbook entry
+------------------------------------------------------------------------
+
+``ariel.entry_url_template`` is your logbook's own address for one entry, with
+a single ``{entry_id}`` placeholder. It is unset by default; the presets that
+ship an ``ariel:`` block carry it as a commented line.
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
+
+When the key is set, every entry the ARIEL tools return carries an
+``entry_url``: the search and browse results, ``entry_get``,
+``entries_by_ids``, the rows of ``sql_query`` that select ``entry_id``, and the
+result of ``entry_publish``. The id is URL-encoded before it is filled in. The
+agent is told to link that URL as given and never to build one, so with the key
+unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
+because the logbook has no page for it. Every write records which kind an entry
+is in ``metadata.sync_status``, and the URL reads that alone: ``local_only`` for
+an entry ``entry_create`` wrote directly, a Logbook web save, a simulation seed,
+an entry of a Generic JSON file or a publish the logbook did not take; ``pending_sync`` or ``synced`` for an
+entry the facility logbook holds. Entries stored before the field was recorded
+everywhere are stamped once by the ``ariel_only_sync_status`` migration. A
+``sql_query`` row also gets none when looking up the ``metadata`` it does not
+select fails.
+
+A template that does not format (a misspelled placeholder, an unbalanced brace)
+is logged once as a warning and emits no URL; it never fails the read. The
+ARIEL server reads the key from the loaded configuration, so a change lands
+after ``osprey build`` and a restart of the stack.
+
+.. _config-ariel-database-readonly-uri:
+
+``ariel.database.readonly_uri`` — the SQL tool's login on your own database
+---------------------------------------------------------------------------
+
+The agent's ``sql_query`` tool connects to the logbook database as a
+SELECT-only login, never as the owner ingestion writes with. When OSPREY runs
+the database, it creates that login itself. When you name your own database
+with the ``uri`` key, name the read-only login beside it:
+
+.. code-block:: yaml
+
+   config:
+     ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+     ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
+
+Set, the key is used verbatim on any store; a derived store needs it only to
+replace the ``<username>_ro`` login OSPREY creates. Without it the SQL tool is
+not offered on a database named with the ``uri`` key: it is left out of the agent's tools and guidance, and a call that
+arrives anyway is refused with a message naming this key. Every other ARIEL
+tool keeps working.
+
+The login must be SELECT-only. The role is the boundary: OSPREY cannot check
+its grants on a database it did not provision. A value equal to the ingestion
+login is refused when the configuration loads.
+
+.. _config-ariel-entry-text:
+
+``ariel.entry_text:`` — how much of each entry the agent reads
+--------------------------------------------------------------
+
+``ariel.entry_text.listing_chars`` (default 500) sets how many characters of
+each entry's text ``keyword_search``, ``semantic_search``, ``hybrid_search``
+and ``browse`` return. ``ariel.entry_text.read_chars`` (default 1000) sets the
+same for ``entries_by_ids``. ``entry_get`` is never cut.
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     ariel.entry_text.listing_chars: 800
+     ariel.entry_text.read_chars: 4000
+
+A cut entry keeps the start of its text in ``raw_text`` and adds
+``raw_text_truncated: true`` and ``raw_text_length``, the full length. An entry
+that fits carries neither field. The agent is told to call ``entry_get`` for
+the rest.
+
+Each value must be a positive whole number, and ``read_chars`` may not be below
+``listing_chars``. Anything else is refused when the configuration is parsed:
+the ARIEL MCP server does not start, and the Logbook panel reports the key. The
+keys are read at startup, so a change lands after ``osprey build`` and a
+restart. When choosing a value, the question is whether the part of an entry
+the agent needs routinely runs past 500 characters.
+
+.. _config-thinking-display:
+
+``claude_code.thinking.display`` — whether the agent shows its thinking
+-----------------------------------------------------------------------
+
+``claude_code.thinking.display`` sets whether Claude Code shows a summary of
+its thinking. ``summarized``, the default, shows the summaries, and they are
+recorded with the session, where the operator chat and the agent timeline
+display them. ``omitted`` leaves thinking out. Any other value stops
+``osprey build`` with a message naming the key.
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     claude_code.thinking.display: omitted
+
+The key reaches a launch by one of three routes:
+
+- Project settings: ``osprey build`` writes ``showThinkingSummaries`` into
+  the project's ``.claude/settings.json``. This route covers interactive
+  sessions only: the web terminals and ``osprey chat`` without ``--print``.
+- SDK runs: headless agent runs, such as the dispatch worker's, pass
+  ``--thinking-display`` to the CLI.
+- ``osprey chat --print``: the command line carries ``--thinking-display``.
+
+The two flag routes need Claude Code 2.1.228 or later. A launch through an
+older build, or one whose version cannot be read, starts without the flag,
+records no thinking, and logs one warning. The warning names the fix: pin the
+agent CLI to 2.1.228 or later under ``config:`` in ``profile.yml`` and run
+``osprey build``.
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     claude_code.cli_version: "2.1.228"
+
+The key changes only how thinking is shown. Whether the model thinks, and how
+much, is unchanged.
+
+.. _config-phoebus:
+
+``phoebus:`` — the Phoebus display bridge
+-----------------------------------------
+
+These keys configure the ``phoebus`` MCP server, which is off until
+``claude_code.servers.phoebus.enabled`` is ``true``; setting it up is covered in
+:doc:`/how-to/control-systems/phoebus-bridge`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - What it does
+   * - ``phoebus.host``
+     - Host of the Phoebus agent bridge. Default ``127.0.0.1``.
+   * - ``phoebus.port``
+     - Port of the agent bridge. Default ``7979``; it must match the bridge's
+       own port.
+   * - ``phoebus.panels``
+     - Panel name to ``.bob`` path, one dotted line per display. A relative
+       path resolves against the directory of ``config.yml``. A parameterised
+       display is written in the long form instead:
+       ``phoebus.panels.<name>.file`` is the path and
+       ``phoebus.panels.<name>.macros`` the list of macro names
+       ``phoebus_open_panel`` may pass to it. A panel that lists none, and
+       every panel in the short form, takes no macros.
+   * - ``phoebus.require_handle``
+     - ``true`` refuses the implicit ``"active"`` display, so callers pass a
+       handle or a display name. A multi-user web-terminal deployment stamps
+       ``PHOEBUS_REQUIRE_HANDLE=1`` on every terminal whose project runs a
+       Phoebus server. Elsewhere the default is ``false``, turned on with
+       ``true`` or ``PHOEBUS_REQUIRE_HANDLE=1``. ``false`` keeps ``"active"``
+       in a multi-user deployment too.
+   * - ``phoebus.agent_access``
+     - What the agent may do through the Phoebus bridge. ``read`` (default)
+       offers the reading tools only: ``phoebus_drive`` is left out of the
+       agent's tool list and permissions, and the server refuses a drive.
+       ``read_write`` offers ``phoebus_drive``, which still asks for approval
+       and still stops where the write verdict refuses
+       (:ref:`write-safety-config`).
+       Any other value is refused by name. The switch is all or nothing: a
+       panel runs whatever its widgets are wired to, so finer control belongs
+       to the EPICS gateway or access security the Phoebus product connects
+       through.
+   * - ``phoebus.archiver_url``
+     - The archiver bound into generated Data Browser plots. Unset, plots show
+       live values only.
+   * - ``phoebus.plot_dir``
+     - Where Data Browser ``.plt`` files are written. Default ``plots/`` under
+       ``agent_data.base_dir``.
+   * - ``phoebus.snapshot_dir``
+     - Where PNG snapshots are written. Default ``screenshots/`` under
+       ``agent_data.base_dir``.
+
+``PHOEBUS_BRIDGE_URL``, ``PHOEBUS_REQUIRE_HANDLE`` and ``PHOEBUS_ARCHIVER_URL``
+outrank their keys; see :doc:`environment-variables`.
+
+.. _config-channel-directory:
+
+``channel_directory:`` — channel records, alarms and put history
+----------------------------------------------------------------
+
+This section names the services behind the channel directory: the control
+system's own record of every channel and of the server that serves it, and
+optionally its alarms and its put history. The directory view of the Channels
+panel and the ``channel-directory`` MCP server read them
+(:ref:`channel-finder-directory`).
+
+Each source answers on the control targets it serves. ``type`` and the three
+sub-blocks answer on ``live`` and ``standin``; the simulator and
+``alarm_state.replay_file`` answer on ``va``. The built-in sources read
+services that EPICS facilities run, and a facility with other services names
+its own backends (:ref:`channel-directory-backends`). The panel and the agent
+name channels and servers in the control system's own words, such as PV and
+IOC at an EPICS facility (:ref:`channel-directory-words`).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - What it does
+   * - ``channel_directory.type``
+     - The directory service of the facility. ``channelfinder`` is the
+       built-in type, and a dotted path names a backend of your own. Absent,
+       the section has the simulator-only form.
+   * - ``channel_directory.settings.url``
+     - The service URL. The build refuses a ``type`` without it.
+   * - ``channel_directory.settings.timeout_s``
+     - Seconds one call may take. Default ``6.0``.
+   * - ``channel_directory.settings.auth``
+     - The login a proxy in front of the service asks for: ``token_env``, or
+       ``username`` with ``password_env``, each secret named by environment
+       variable. ``tls.ca_bundle`` is the absolute path of a PEM CA. A web
+       terminal is handed each variable a block names and each CA file that is
+       on the host.
+   * - ``channel_directory.description_property``
+     - The directory property shown as the description of a channel. Default
+       ``recordDesc``, the name ChannelFinder gives it.
+   * - ``channel_directory.display.exact_properties``
+     - Properties a search matches as whole values. Default
+       ``[pvStatus, recordType]``, two ChannelFinder properties.
+   * - ``channel_directory.display.detail_properties``
+     - The properties the page of a channel shows. Unset, every property the
+       record carries.
+   * - ``channel_directory.display.hidden_properties``
+     - Properties never shown.
+   * - ``channel_directory.display.filter_cap``
+     - The largest result set fetched whole for facets, the origin filter and
+       CSV export. Default ``5000``.
+   * - ``channel_directory.display.server_health_suffixes``
+     - The name suffix of the channel that holds each health role of a server
+       (``heartbeat``, ``uptime``, ``engineer``). Default
+       ``{heartbeat: HEARTBEAT, uptime: UPTIME}``.
+   * - ``channel_directory.display.engineer_property``
+     - The directory property that names the engineer of a server. Default
+       ``Engineer``.
+   * - ``channel_directory.alarm_log``
+     - Alarm history: ``type: phoebus_alarm_logger`` with ``settings.url``.
+   * - ``channel_directory.alarm_state``
+     - Current alarm state. ``type: phoebus_alarm_server`` reads the alarm
+       server's Kafka topic and needs ``settings.bootstrap_servers`` and
+       ``settings.topic``. Where the broker is out of reach and only HTTP
+       crosses the network, ``type: osprey_alarm_relay`` with ``settings.url``
+       reads the same state from a relay run beside the broker
+       (``python -m osprey_connectors.alarm_state.relay``).
+   * - ``channel_directory.alarm_state.settings.auth``
+     - The login a broker asks for: ``username`` with ``password_env``, sent
+       as SASL. ``mechanism`` names how: ``PLAIN`` unless it says
+       ``SCRAM-SHA-256`` or ``SCRAM-SHA-512``. A login is sent over TLS, verified against
+       ``settings.tls.ca_bundle`` or, without one, the system trust store.
+       ``cleartext: true`` sends it unencrypted, for a listener that offers
+       no TLS: anyone on the network path can then read the password.
+   * - ``channel_directory.alarm_state.replay_file``
+     - The alarm feed on ``va``: ``demo:<name>`` names a feed packaged with
+       OSPREY, any other value an ``.ndjson`` file relative to the project.
+       It may be set beside ``type``.
+   * - ``channel_directory.put_log``
+     - Put history: ``type: caputlog`` with ``settings.url``.
+   * - ``channel_directory.fleet``
+     - The server fleet (:ref:`channel-finder-server-fleet`). With the block
+       present (``fleet: {}`` is enough), the servers view, the
+       ``server_fleet`` tool and the fleet service are on. Absent or
+       ``null``, none of them exists and nothing is read periodically.
+   * - ``channel_directory.fleet.targets``
+     - The control targets refreshed, a list of ``live``, ``va`` and
+       ``standin``; each must be configured. Default: the deployment's own
+       target. A virtual accelerator served in process is never refreshed.
+   * - ``channel_directory.fleet.period_s``
+     - Seconds between refreshes. At least ``5`` and at least twice the
+       longest ``timeout_s`` of a refreshed target's connector, or the build
+       fails. Default ``30``.
+   * - ``channel_directory.fleet.retention_days``
+     - Days a server that is no longer listed is remembered after it goes
+       quiet. Default ``7``.
+   * - ``channel_directory.fleet.listing_deadline_s``
+     - Seconds one listing of the directory may take. Default ``60``.
+   * - ``channel_directory.fleet.group_by``
+     - ``host``, ``class_name`` or ``group``. Default ``host``.
+   * - ``channel_directory.fleet.classes``
+     - Named server classes (see *Server classes*), applied on ``live`` only.
+       Default none.
+   * - ``channel_directory.fleet.roster_sources``
+     - ``module:attribute`` references to roster sources, read on ``live``
+       only. Default none.
+
+**Reading the alarm feed without write access.** A Kafka broker with no
+access control lets every client that reaches it produce, so opening its port
+to OSPREY would let that host forge alarm states and acknowledge alarms. The
+feed needs one right, ``Read`` on the topic: OSPREY reads with no consumer
+group, commits no offset and never produces. A broker can grant exactly that
+on a second, authenticated listener and leave its existing clients as they
+are: turn on the ACL authorizer, keep the unauthenticated listener's
+``User:ANONYMOUS`` among ``super.users``, add a SASL listener on a new port,
+and allow the OSPREY user ``Read`` on the topic. Open only that port to the
+OSPREY host and name the user under ``alarm_state.settings.auth``.
+
+``channel_directory.caveats`` and each sub-block's ``caveats`` are lines shown with
+every answer from that source. A sub-block takes the same ``settings`` keys as
+the directory. The Kafka client is the ``alarm-state`` extra
+(``osprey-framework[alarm-state]``); without it the build warns and the feed
+is unavailable. A container gets it by setting ``OSPREY_PIP_SPEC`` to that
+requirement (:doc:`/how-to/deploy-project/project-image`).
+
+**Server classes.** A class says which channel shows that a server is alive
+and which channels show its health. A server that no roster source assigns a
+class has the default class: its liveness channel is the ``heartbeat`` of
+``channel_directory.display.server_health_suffixes``, judged as a counter, and
+it has no health channel, so it is never degraded. A named class gives
+``liveness`` with a ``kind`` (``counter``: alive when it moves; ``status``:
+alive when it answers) and a list of ``health`` channels, each with a
+``good`` range ``[low, high]`` where one side may be ``null``. Each channel is
+named by ``suffix``, looked up among the channels the directory lists for the
+server, or by ``pattern``, the channel name with ``{server}`` standing for
+the name of the server. The class name ``default`` is reserved. Every invalid
+value fails the build, which names its key. The states, findings and load
+per refresh are in :ref:`channel-finder-server-fleet`. For example, an EPICS
+facility with a class for its VxWorks IOCs:
+
+.. code-block:: yaml
+
+   # build/config.yml
+   channel_directory:
+     type: channelfinder
+     settings:
+       url: https://channelfinder.example.org/ChannelFinder
+     fleet:
+       targets: [live]
+       period_s: 30
+       group_by: class_name
+       classes:
+         vxworks:
+           liveness: {suffix: ":IOC_STS", kind: status}
+           health:
+             - {suffix: ":CPU_LOAD", good: [0, 80]}
+             - {pattern: "{server}:MEM_FREE", good: [1000000, null]}
+
+**Simulator-only form.** A section without ``type`` lists the channels of the
+simulator, the health channels of its servers included, on ``va``. A build
+with no simulator has nothing to list: it warns, and every section answers
+"not available for this target".
+
+**Off.** ``osprey set config.channel_directory=null``, or ``channel_directory: null`` in
+a profile that extends a preset with the section, removes it. That spelling
+builds only over a parent that writes the section as one nested mapping,
+never as dotted ``channel_directory.*`` keys. The shared logins
+``tiers/logbook.yml`` and ``tiers/knowledge.yml`` switch the ``channel-directory``
+server off
+(``claude_code.servers.channel-directory.enabled: false``).
+
+An EPICS facility with ChannelFinder, the Phoebus alarm services and caPutLog:
+
+.. code-block:: yaml
+
+   # build/config.yml
+   channel_directory:
+     type: channelfinder
+     settings:
+       url: https://channelfinder.example.org/ChannelFinder
+     display:
+       # Shown first on the page of a channel.
+       detail_properties: [recordDesc, iocName, hostName]
+       server_health_suffixes: {heartbeat: HEARTBEAT, uptime: UPTIME}
+     alarm_log:
+       type: phoebus_alarm_logger
+       settings:
+         url: https://alarmlogger.example.org
+     alarm_state:
+       type: phoebus_alarm_server
+       settings:
+         bootstrap_servers: kafka.example.org:9093  # osprey:not-a-port — Kafka's broker port
+         topic: Accelerator
+         # A read-only user on the broker's authenticated listener.
+         auth:
+           username: osprey
+           password_env: ALARM_FEED_PASSWORD
+       # The feed the simulator target replays.
+       replay_file: demo:example-alarms
+     put_log:
+       type: caputlog
+       settings:
+         url: https://caputlog.example.org
+       caveats: [Logs puts made through the CA gateway only.]
+
+.. _config-screen-capture:
+
+``screen_capture:`` — where screenshots are written
+---------------------------------------------------
+
+The workspace server's ``screenshot_capture`` tool saves every capture as a
+PNG file and records the file's path in the artifact gallery.
+``screen_capture.output_dir`` names the directory those files go to:
+
+.. code-block:: yaml
+
+   # profile.yml, under config:
+   config:
+     screen_capture.output_dir: /srv/operator-captures
+
+Unset, it is ``screenshots`` under the agent-data root (``agent_data.base_dir``,
+``var/agent_data`` by default), which is correct for most deployments and is
+why no preset ships the key. A relative path is anchored on the project root,
+the directory holding ``profile.yml``, never on the working directory of the
+process that started the server; ``~`` expands to the home directory. The
+directory is created on the first capture. The key is read once per MCP
+server process, so a change lands after ``osprey build`` and a restart.
+
+.. _config-deployment:
+
+Deployment — service images and ``${VAR}`` interpolation
+--------------------------------------------------------
+
+Two deployment-wide surfaces are settled in ``config.yml`` rather than in a
+compose template: which image each service runs, and how the ``${VAR}``
+placeholders in the rendered compose files are filled in. Declaring a service
+in the first place, and the env chain those placeholders resolve against, are
+covered in :doc:`/how-to/deploy-project/index` and
+:doc:`/how-to/deploy-project/env-chain`.
+
+.. _deployment-image-overrides:
+
+Overriding Service Images
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every service image resolves through the same three-layer chain — an
+environment variable wins, then a ``config.yml`` key, then the packaged
+default. One row per image:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 30 28 22
+
+   * - Service
+     - Environment variable
+     - Config key
+     - Packaged default
+   * - postgresql
+     - ``OSPREY_POSTGRES_IMAGE``
+     - ``services.postgresql.image``
+     - upstream pin
+   * - mongodb
+     - ``OSPREY_MONGODB_IMAGE``
+     - ``services.mongodb.image``
+     - upstream pin
+   * - graphdb
+     - ``OSPREY_GRAPHDB_IMAGE``
+     - ``services.graphdb.image``
+     - upstream pin
+   * - event_dispatcher
+     - ``OSPREY_DISPATCH_IMAGE``
+     - ``services.event_dispatcher.image``
+     - ``<project>-dispatch``
+   * - dispatch_worker
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.dispatch_worker.image``
+     - ``<project>``
+   * - nextcloud_bridge
+     - ``OSPREY_NEXTCLOUD_BRIDGE_IMAGE``
+     - ``services.nextcloud_bridge.image``
+     - ``<project>-nextcloud-bridge``
+   * - gchat_bridge
+     - ``OSPREY_GCHAT_BRIDGE_IMAGE``
+     - ``services.gchat_bridge.image``
+     - ``<project>-gchat-bridge``
+   * - teams_bridge
+     - ``OSPREY_TEAMS_BRIDGE_IMAGE``
+     - ``services.teams_bridge.image``
+     - ``<project>-teams-bridge``
+   * - slack_bridge
+     - ``OSPREY_SLACK_BRIDGE_IMAGE``
+     - ``services.slack_bridge.image``
+     - ``<project>-slack-bridge``
+   * - ariel_sync
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.ariel_sync.image``
+     - ``<project>``
+   * - archive
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.archive.image``
+     - ``<project>``
+   * - history
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.history.image``
+     - ``<project>``
+   * - server_fleet
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.server_fleet.image``
+     - ``<project>``
+   * - bluesky
+     - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
+     - ``services.bluesky.image``
+     - ``<project>-bluesky-bridge``
+   * - bluesky (Tiled sidecar)
+     - ``OSPREY_TILED_IMAGE``
+     - ``services.bluesky.tiled_image``
+     - upstream pin
+   * - bluesky (Redis sidecar)
+     - ``OSPREY_BLUESKY_REDIS_IMAGE``
+     - ``services.bluesky.redis_image``
+     - upstream pin
+   * - bluesky_web
+     - ``OSPREY_BLUESKY_WEB_IMAGE``
+     - ``services.bluesky_web.image``
+     - ``<project>-bluesky-web``
+   * - optimizer
+     - ``OSPREY_OPTIMIZER_IMAGE``
+     - ``services.optimizer.image``
+     - ``<project>-optimizer``
+   * - optimizer (Redis sidecar)
+     - ``OSPREY_OPTIMIZER_REDIS_IMAGE``
+     - ``services.optimizer.redis_image``
+     - upstream pin
+   * - optimizer_web
+     - ``OSPREY_OPTIMIZER_WEB_IMAGE``
+     - ``services.optimizer_web.image``
+     - ``<project>-optimizer-web``
+   * - virtual_accelerator
+     - ``OSPREY_VA_IMAGE``
+     - ``services.virtual_accelerator.image``
+     - ``<project>-va``
+   * - qmd
+     - ``OSPREY_QMD_IMAGE``
+     - ``services.qmd.image``
+     - ``<project>-qmd``
+
+Point either of the first two layers at an internal registry mirror or a
+pinned digest when your deployment host cannot (or should not) pull public
+images.
+
+The agent record's ClickHouse store is an upstream pin with no row and no
+environment variable: the profile's ``agent_record.clickhouse.image`` is the
+only way to change it.
+
+Which of these images a deploy builds, and what naming another image does to
+that, is in :ref:`deployment-image-builds`.
+
+A row whose packaged default reads *upstream pin* is an **upstream pin** — an
+image somebody else publishes, named exactly as they publish it. Every other
+row is **built by OSPREY** from your project, and its default reference is
+assembled rather than fixed: a project name, a per-service suffix, and the two
+axes below.
+
+``dispatch_worker``, ``ariel_sync``, ``archive`` and ``history`` share one
+row value on purpose: all four run the bare project image, so all four read
+``OSPREY_WORKER_IMAGE``. Set that variable and all four services move to the
+image you name. ``history`` (the history page) is rendered whenever the
+deployment's web terminals sign people in (``auth.method`` of ``password`` or
+``oidc``); it is never listed in ``deployed_services``. Browsers reach it on
+the history page's origin, a second server of the web tier on its own port:
+``modules.web_terminals.history_port`` (``deployment.port_base`` + 2 by
+default), or ``modules.web_terminals.history_origin``, the address stated
+verbatim beside ``modules.web_terminals.external_origin`` when a load balancer
+is what browsers reach. The two must share a host.
+
+.. _deployment-image-axes:
+
+The two image axes
+^^^^^^^^^^^^^^^^^^
+
+An OSPREY-built default is always spelled the same way::
+
+   <registry>/<project><service suffix>:<tag>
+
+Two stack-wide settings supply the ends of that name, so an entire deployment
+can be moved to a registry — or to a different tag — without touching any of
+the rows above:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 30 24 30
+
+   * - Axis
+     - Environment variable
+     - Config key
+     - When neither is set
+   * - Registry
+     - ``OSPREY_IMAGE_REGISTRY``
+     - ``images.registry``
+     - no prefix at all
+   * - Tag
+     - ``OSPREY_IMAGE_TAG``
+     - ``images.tag``
+     - ``local``
+   * - Platform
+     - none: set in ``profile.yml`` only
+     - ``images.platform`` (``linux/amd64`` or ``linux/arm64``)
+     - built for this host
+
+.. code-block:: yaml
+
+   # build/config.yml — every OSPREY-built image comes from the mirror,
+   # at the tag the pipeline pushed
+   images:
+     registry: registry.example.org/accelerator
+     tag: "2026.08.1"
+
+.. code-block:: bash
+
+   # or, for one build
+   OSPREY_IMAGE_REGISTRY=registry.example.org/accelerator \
+     OSPREY_IMAGE_TAG=2026.08.1 osprey build
+
+For each axis the environment variable wins, then the config key, then the
+packaged default. A blank value counts as unset on both layers — an
+exported-but-empty variable is how a shell spells "I did not set this", so a
+stray ``OSPREY_IMAGE_TAG=`` cannot render an image reference with no tag. A
+trailing slash on the registry is optional: one is added if you leave it out,
+and never doubled if you put it in.
+
+Two things about *when* and *where* this applies are worth having straight:
+
+* **The axes are the innermost layer, not an override.** They decide what the
+  packaged default of an OSPREY-built image is. A ``services.<name>.image``
+  pin still beats them for that one service, and an ``OSPREY_<SVC>_IMAGE``
+  variable still beats both. Setting an axis moves everything you have not
+  pinned individually.
+* **The axes are read when the compose files are rendered**, not when the
+  containers start. Export them for the ``osprey build`` that produces the
+  deployment; the per-image ``OSPREY_<SVC>_IMAGE`` variables, by contrast, are
+  filled in by compose at ``osprey up`` time. With neither axis set the render
+  is what it always was — ``<project>:local`` and its siblings — so a
+  deployment that never heard of them is unaffected.
+
+The axes never touch an upstream pin. Prefixing ``mongo:7`` with your
+registry would name an image that exists in no registry.
+``images.base_registry`` moves the Docker Hub ones onto a mirror; a ``services.<name>.image`` pin moves one.
+
+.. _compose-interpolation-precedence:
+
+Where ``${VAR}`` values come from
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Compose fills in ``${VAR}`` placeholders in the rendered compose files from two
+sources: the env file(s) the command passes, and the environment of the shell
+you typed the command in. **The two supported providers disagree about which of
+those wins**, and the disagreement is a straight inversion:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Provider
+     - What gets substituted when both sources set a variable
+   * - Docker Compose v2
+     - The **exported shell value**. ``--env-file`` is its lower-precedence
+       source, so a variable exported in your shell overrides the env chain.
+   * - podman-compose
+     - The **env-file value**. It resolves from the env file before the calling
+       shell, so the export reaches nothing.
+
+You do not have to remember this. ``osprey up`` compares the two sources on
+every start, and when an exported variable disagrees with the value the env
+chain resolves to it warns by name — never by value — and states which value
+the provider it just probed will actually use, plus what to do about it. The
+reliable habit is to put the value in the env chain and leave your shell out of
+it: that is the one gesture that means the same thing on both providers.
+
+.. _config-protected-set:
+
+The protected set
+-----------------
+
+A closed list of files and config keys may not be rewritten by the running
+agent, whichever surface the write arrives through: the rendered
+``config.yml``, ``.claude/settings.json``, ``.mcp.json``, ``CLAUDE.md``, the
+safety hooks, rules and skills, the limits and plan-device tables — and, inside
+``config.yml``,
+the key families that gate writes and approval (``control_system.*``,
+``approval.*``, ``hooks.*``, ``claude_code.*``, among others). These artifacts
+are owned by the build profile: edit them in the profile and run
+``osprey build``. Every refused attempt names the owning channel and is
+recorded in :ref:`the audit trail <reference-audit-trail>`, under
+an ``audit`` entry filed under the acting identity, whose ``surface`` names
+the surface that refused it.
+
+.. seealso::
+
+   :doc:`profile`
+      The build profile these settings are rendered from.
+
+   :doc:`environment-variables`
+      Settings that arrive from the environment rather than from ``config.yml``.
+
+   :doc:`/how-to/health-and-monitoring/configure-health-checks`
+      Putting the ``health:`` block to work, and the Health dashboard.
+
+   :doc:`/how-to/web-terminal/operate`
+      Running the terminal the ``web:`` settings render.

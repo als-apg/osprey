@@ -1,0 +1,225 @@
+.. _reference-python-executor:
+
+========================
+Python Executor Contract
+========================
+
+The MCP tools the OSPREY agent calls to run Python --- their parameters,
+what a successful call returns, and how a failing one reports itself. For how
+the service works and what it is allowed to touch, see
+:doc:`/architecture/python-executor`.
+
+.. _executor-mcp-tool:
+
+MCP Tool Interface
+==================
+
+The server exposes two tools, ``execute`` and ``execute_file``, registered on
+the ``python`` FastMCP server (``osprey.mcp_server.python_executor``).
+``execute_file`` runs an existing ``.py`` file on disk through the same safety
+pipeline as ``execute``; both share the parameters below (``execute_file``
+takes ``file_path`` and optional ``script_args`` in place of ``code``).
+
+.. list-table:: ``execute`` parameters
+   :header-rows: 1
+   :widths: 20 15 65
+
+   * - Parameter
+     - Default
+     - Description
+   * - ``code``
+     - *(required)*
+     - Python source code to run.
+   * - ``description``
+     - *(required)*
+     - Human-readable description of what the code does.
+   * - ``execution_mode``
+     - ``"readonly"``
+     - ``"readonly"`` blocks detected write patterns. ``"readwrite"`` may write,
+       through ``osprey.runtime.write_channel()`` only; a raw client put is
+       refused (see
+       :ref:`python-executor-armed-block`).
+   * - ``save_output``
+     - ``True``
+     - Save code and output to a workspace data file and artifact store.
+   * - ``approved_target``
+     - set by the hook
+     - On a ``"readwrite"`` call, the control target the approval hook admitted
+       it on; a value the agent passes is overwritten.
+
+On success the tool returns a JSON object whose top level describes the saved
+run:
+
+- **status** (``"success"``), **artifact_id**, **title**, and **data_file**
+  for the saved artifact.
+- **summary** --- a nested object with the run details: the truncated
+  **output** / **error** (500 characters; full output is in the saved data
+  file), a ``"Success"`` / ``"Failed"`` **status**, **has_errors**, and
+  **detected_patterns** for control-system operation metadata.
+- **artifact_ids** --- IDs for any figures or saved objects, and
+  **notebook_artifact_id** for the auto-generated notebook capturing the run.
+- **gallery_url** --- link to the artifact gallery (when available).
+
+A failing run does not return this object as a normal result: the tool raises
+a structured error (``error_type: "execution_error"``) whose ``details`` field
+carries the same information, so the agent receives an explicit error rather
+than a status field it might overlook.
+
+After ``osprey.runtime.write_channel()``, ``osprey.runtime.settle({address:
+demand})`` waits until each setpoint's readback is within the bound the
+facility file states for it: its ``tolerance``, else on the simulator its
+readback's motion band. A setpoint with neither is not waited on. A readback
+that is not inside its bound within 5 seconds raises ``SettleTimeoutError``,
+and the run fails. A readback that cannot be reached, is not a channel, or
+times out raises ``SettleReadError``, which names it, as does one that answers
+no value, and the run fails; a lost connector raises its own error.
+
+.. _executor-measurement-tools:
+
+Measurement Tools
+=================
+
+A render that carries a pyAML view (``data/pyaml/<model>/configuration.yaml``,
+written by the build for each served model with a measurement file) adds two
+tools to the ``python`` server. A render without one registers neither.
+
+``pyaml_measure``
+-----------------
+
+Steps setpoints on the control target through pyAML and writes them back. Every
+call for a kind the model's measurement file lists asks for approval at the
+switch's *asked* position; any other call reaches the tool unasked and is
+refused there. With writes off it is denied like every write tool.
+The prompt lists every setpoint the call steps; a call stepping more than 500
+is refused without asking.
+
+.. list-table:: ``pyaml_measure`` parameters
+   :header-rows: 1
+   :widths: 20 15 65
+
+   * - Parameter
+     - Default
+     - Description
+   * - ``kind``
+     - *(required)*
+     - A kind the model's rendered measurement block lists
+       (:doc:`facility-kinds`). Any other kind is refused, naming the group or
+       instrument the model lacks, or the kinds the file lists.
+   * - ``model``
+     - the one model
+     - The model measured; may be omitted only when exactly one model has a
+       pyAML view.
+   * - ``correctors``
+     - every corrector
+     - Corrector setpoint addresses, for a kind that takes them; of the
+       shipped ones, ``orm`` alone.
+   * - ``modulation``
+     - ``"bipolar"``; ``"unipolar"`` with ``by`` ``"group"``
+     - ``"bipolar"`` steps each setting to both sides of its present value,
+       ``"unipolar"`` to one side.
+   * - ``by``
+     - ``"magnet"``
+     - ``trm`` and ``crm`` only. ``"magnet"`` steps one magnet per column;
+       ``"group"`` steps every magnet of the role's array (every group the
+       role names) once, from its present
+       setting, by the same integrated strength. Group stepping is unipolar:
+       an omitted modulation is ``"unipolar"`` and ``"bipolar"`` is refused.
+   * - ``approved_target``
+     - set by the hook
+     - The control target the approval hook admitted the call on. The hook
+       fills it in; a value the agent passes is overwritten.
+   * - ``approved_view_sha256``
+     - set by the hook
+     - The ``sha256`` of the pyAML view the approval names. The hook fills it
+       in; a value the agent passes is overwritten.
+
+Each step comes from the measurement file (``corrector_delta``,
+``frequency_delta``, ``quad_delta``, ``sextu_delta``) and is shrunk until no
+setpoint's largest single write exceeds half its ``max_step`` in
+``data/facility/limits.yaml``; ``delta_limited_by`` and ``rf_limited_by`` name
+the setpoint that bounded it. A strength, ``max_step`` or write that is not a
+finite number, or a ``max_step`` not above zero, refuses the measurement before
+any setpoint moves. A group step is first sized from the view's
+``trm.json`` or ``crm.json`` so the tune or chromaticity moves no more than
+under the strongest single-magnet step, and no magnet moves by more than one
+magnet's step; ``delta_basis`` is ``tune excursion``, ``chromaticity
+excursion``, ``magnet step`` or ``max_step``. A group column is per unit
+integrated strength: the sum of its members' magnet-by-magnet columns. The
+build writes ``trm.json`` or ``crm.json`` whenever every member of the group has
+a modelled column; a group with an unmodelled member has none, and its group
+step is refused.
+
+The run starts only on the view the build recorded and the approval record
+names (``approved_view_sha256``), and every write runs under the target's run
+lock; nothing is written back. The result
+names every row, column and step by address and device id and carries the
+view's ``sha256``, the ``shape``, ``data_file`` and ``artifact_id``. The file
+saved is the one the run left in its own execution folder under the script's
+fixed name; a run that names any other file saves nothing, answers
+``data_file`` as ``null`` and says why in ``data_file_refused``. Every result
+carries ``moved``, each setpoint the call moved as ``{address, device, before}``
+with its value before the call, and ``missing``: ``{}`` for a completed run;
+for a stopped run each setpoint address not measured, or the kind when none is
+left, mapped to the first line of what stopped the run, or ``null`` when
+nothing raised (see
+:doc:`partial-answers`); a killed run's failure names ``written_channels``. A
+refusal means no setpoint moved; a completed run whose result cannot be read
+answers ``execution_error`` with the saved measurement named in
+``details.data_file``, never a refusal.
+
+``model_response_matrix``
+-------------------------
+
+Solves a served model's response on the model's own deck, in a sandbox
+child stopped at the executor's timeout. It writes nothing and asks for no
+approval.
+
+.. list-table:: ``model_response_matrix`` parameters
+   :header-rows: 1
+   :widths: 20 15 65
+
+   * - Parameter
+     - Default
+     - Description
+   * - ``model``
+     - the one model
+     - A served deck model; may be omitted only when the render serves one.
+   * - ``correctors``
+     - every corrector
+     - Corrector setpoint addresses the model wires; omitted, every one,
+       horizontal then vertical.
+   * - ``kind``
+     - ``"orbit"``
+     - ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``, the
+       first-turn response of the monitors' turn-buffer records. Any other
+       value is refused, naming the two; an engine that answers only the
+       orbit response refuses ``"trajectory"`` with its text.
+
+Each corrector steps by the measurement file's ``corrector_delta`` (radians),
+converted to the corrector's hardware unit through its wiring calibration; a
+model whose measurement file states none is refused. Each entry is a readback
+change in its hardware unit per setpoint change in its own. The result carries
+``rows`` and ``columns``, each named by address and device id and placed by
+``position``, each column's ``step``, the ``matrix`` and ``missing``.
+
+``position`` is the lattice element index, a whole number. For ``"orbit"`` it
+counts from the deck's first element. For ``"trajectory"`` it counts from the
+injection element, in the order the bunch meets the elements on its first
+turn, so of two positions the lower is upstream. It is ``null`` when the
+model's engine states no positions. Rows are ordered by position, ``x`` before
+``y``; columns are in the order asked.
+
+For ``"orbit"`` the rows are the monitor readbacks. For ``"trajectory"`` they
+are the monitors' ``turn_x`` and ``turn_y`` records, the arrays a shot is read
+from, in metres; a monitor wiring neither has no row, and a ring wiring none
+is refused.
+
+A corrector whose step has no solve
+has no column; ``missing`` maps it to the engine's text. When no corrector
+solves, the call is refused as ``nothing_answered`` with ``details.missing``
+holding the same map (see :doc:`partial-answers`). When the engine refuses the
+request itself, the call is refused as a ``validation_error`` with the engine's
+text; a defective facility file is refused the same way with the remedy to
+rebuild. When the whole request has no solve, the call fails as an
+``execution_error`` with the engine's text. Any other engine error is an
+``execution_error`` carrying the solve's stderr.

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Build Profile — profile.yml &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Build Profile — profile.yml &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Configuration" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
@@ -1590,12 +1591,25 @@ deployment’s own <code class="docutils literal notranslate"><span class="pre">
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">worker_port_base</span></code></p></td>
 <td><p><em>(from the port layout)</em></p></td>
 <td><p>Host port worker 1 publishes, in host-network mode only. Bridge-mode
-workers publish nothing on the host.</p></td>
+workers publish nothing on the host, and neither do workers on the
+dispatch bus.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">worker_port_stride</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
 <td><p>Host-port spacing between consecutive workers. Widen it to leave room
 for something else of yours between them.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">transport</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">http</span></code></p></td>
+<td><p>How the dispatcher and its workers reach each other. <code class="docutils literal notranslate"><span class="pre">http</span></code> has the
+dispatcher call one worker’s own port. <code class="docutils literal notranslate"><span class="pre">bus</span></code> has every worker connect
+to the dispatcher instead — see <a class="reference internal" href="#profile-dispatch-bus"><span class="std std-ref">Workers on the dispatch bus</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bus_port</span></code></p></td>
+<td><p><em>(from the port layout)</em></p></td>
+<td><p>Port the dispatcher binds the bus on, read only with <code class="docutils literal notranslate"><span class="pre">transport:</span> <span class="pre">bus</span></code>.
+Spent on the host only in host-network mode; on the compose bridge the
+workers reach it by the dispatcher’s service name.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timeout_sec</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">300</span></code></p></td>
@@ -1641,6 +1655,33 @@ so the bundled <code class="docutils literal notranslate"><span class="pre">admi
 </tbody>
 </table>
 </div>
+<section id="workers-on-the-dispatch-bus">
+<span id="profile-dispatch-bus"></span><h3>Workers on the dispatch bus<a class="headerlink" href="#workers-on-the-dispatch-bus" title="Link to this heading">#</a></h3>
+<p>With <code class="docutils literal notranslate"><span class="pre">transport:</span> <span class="pre">bus</span></code> the dispatcher binds one ZeroMQ socket at <code class="docutils literal notranslate"><span class="pre">bus_port</span></code>
+and every worker connects to it. What changes for a deployment:</p>
+<ul class="simple">
+<li><p><strong>No worker opens a port.</strong> The worker band is not spent even on the host
+network, and <code class="docutils literal notranslate"><span class="pre">worker_port_base</span></code> and <code class="docutils literal notranslate"><span class="pre">worker_port_stride</span></code> are not used.</p></li>
+<li><p><strong>Every worker takes runs.</strong> Over HTTP the dispatcher sends every run to
+worker 1; on the bus it sends each one to the worker with the fewest runs in
+flight.</p></li>
+<li><p><strong>Start order does not matter.</strong> A trigger that fires before any worker has
+connected waits up to 30 seconds for one. A worker that stops sending
+heartbeats for six seconds is dropped, and a run it had in flight is
+reported lost — it is never sent to another worker on its own, since an
+agent run may already have acted.</p></li>
+<li><p><strong>Each container has its own key.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes
+<code class="docutils literal notranslate"><span class="pre">.env.dispatch-bus.event-dispatcher</span></code> and one
+<code class="docutils literal notranslate"><span class="pre">.env.dispatch-bus.dispatch-worker-&lt;n&gt;</span></code> per worker at the repo root (mode
+0600, outside the env chain), and each container reads only its own.
+An existing key is kept on every start; delete a file to rotate that key, and
+the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints a new one and recreates the containers whose key
+files changed.</p></li>
+<li><p><strong>The chat bridges read runs through the dispatcher.</strong> Their <code class="docutils literal notranslate"><span class="pre">WORKER_URL</span></code>
+becomes the dispatcher’s <code class="docutils literal notranslate"><span class="pre">/worker</span></code> routes, which answer from the worker that
+owns the run. The dispatcher’s <code class="docutils literal notranslate"><span class="pre">/health</span></code> lists the workers it hears.</p></li>
+</ul>
+</section>
 </section>
 <section id="graph-mode-channel-finding">
 <span id="profile-graph-mode"></span><h2>Graph-mode channel finding<a class="headerlink" href="#graph-mode-channel-finding" title="Link to this heading">#</a></h2>
@@ -2461,7 +2502,10 @@ there; every write is then refused <code class="docutils literal notranslate"><s
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-dispatch-block">The <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-dispatch-block">The <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workers-on-the-dispatch-bus">Workers on the dispatch bus</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-mode-channel-finding">Graph-mode channel finding</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-virtual-accelerator-block">The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> block</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-simulator-runs">Where the simulator runs</a></li>

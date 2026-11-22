@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Ports &#8212; Osprey Framework 2026.11.0 documentation</title>
+    <title>Ports &#8212; Osprey Framework 2026.11.1 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c6593756"></script>
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
@@ -65,8 +65,8 @@
     <link rel="prev" title="Utilities" href="connectors-api/utilities.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="2026.11.0" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
   </head>
   
   
@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/audit-trail.html">Audit Trail Contract</a></li>
@@ -556,60 +557,74 @@ virtual accelerator is the exception, and has its own section below.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.worker_port_base</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+53</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+50</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10050</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">dispatch_bus</span></code></p></td>
+<td><p>dispatch</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.bus_port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+53</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10053</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">agent_record</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">agent_record.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+60</span> <span class="pre">to</span> <span class="pre">+69</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+60</span> <span class="pre">to</span> <span class="pre">+69</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10060-10069</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">qmd</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+70</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+70</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10070</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">tiled</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+71</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+71</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10071</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+80</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+80</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10080</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+81</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+81</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10081</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">bluesky_second_lane</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+82</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+82</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10082</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">optimizer</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.optimizer.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+83</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+83</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10083</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">optimizer_web</span></code></p></td>
 <td><p>services</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.optimizer_web.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+84</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10084</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">server_fleet</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.server_fleet.port</span></code></p></td>
 <td><p>—</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+90</span> <span class="pre">to</span> <span class="pre">+99</span></code></p></td>

@@ -1,0 +1,1101 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Facility Packages &#8212; Osprey Framework 2026.11.1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=7da5b54b"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'architecture/facility-packages';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/architecture/facility-packages.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Virtual Accelerator" href="virtual-accelerator.html" />
+    <link rel="prev" title="Facility Relations" href="facility-relations.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.11.1" />
+    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+
+
+
+
+
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-relations.html">Facility Relations</a></li>
+
+
+
+
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Facility Packages</a></li>
+
+
+<li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Architecture</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Facility Packages</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="facility-packages">
+<span id="architecture-facility-packages"></span><h1>Facility Packages<a class="headerlink" href="#facility-packages" title="Link to this heading">#</a></h1>
+<p>The facility code leaves the framework as two distributions. <strong>osprey-facility</strong>
+holds the description and its build: it reads the sources under
+<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and writes <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>. <strong>osprey-panels</strong> is the panel
+engine: it reads <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> and writes Canopy screens. The framework
+keeps the views, the settings and the command line, and reaches the
+description through its public modules only.</p>
+<p>Today all of this is one tree, <code class="docutils literal notranslate"><span class="pre">src/osprey/facility</span></code>, with an import cycle
+through the views, the scenarios and the renderer. This page states the end
+state, why each part of it is the way it is, which phase of the split realises
+it, and how a check holds the code to it while the split is under way. What the
+build writes is in <a class="reference internal" href="facility-file.html"><span class="doc">Facility File and Its Views</span></a>; the version rules of the document are
+in <a class="reference internal" href="../reference/contracts/facility-json.html#reference-facility-json"><span class="std std-ref">The facility.json Contract</span></a>.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="fp-title fp-desc">
+  <title id="fp-title">The facility packages: the framework, osprey-facility, osprey-panels and osprey-connectors, the directions each may import, and facility.json as the one seam between the facility and the panels</title>
+  <desc id="fp-desc">Read left to right along the data flow, with the import directions drawn in accent. Column 1, the source: the facility tree, its records, documents, layers and scenarios, and the panels data beside them. Column 2, the description. osprey-facility, imported as osprey_facility, holds the description and the build, imports nothing of osprey, and depends on pydantic, PyYAML, packaging and numpy; it is released under its own tags, osprey-facility-v*. The build reads the facility tree. Above it sits the framework, osprey: views, settings, the CLI and the engine implementations such as pyat. The framework imports osprey-facility through its public API only. Below it sits osprey-connectors, which holds the engine contract at osprey_connectors.simulation.engines; osprey-facility depends on it, and the framework's engines implement that contract. Column 3, the seam. The build is the sole producer of facility.json, written under the render root. Its header is osprey.facility.facility/N, it has a published JSON Schema, and every reader checks N before it reads; the framework reads it too. A box of edges that do not exist: osprey-facility never imports osprey; osprey-panels never imports osprey or osprey_facility; the framework never imports osprey_panels. Column 4, the panels. osprey-panels, imported as osprey_panels, reads facility.json, the panels data and a theme file passed in, depends on the standard library and jsonschema only, has its own command, osprey-panels write, check and classes, and is released under its own tags, osprey-panels-v*. A fork is a separate distribution that replaces it. It emits Screen-IR, validated at run time against the schema it vendors; a sync test holds the vendored schema to Canopy at the pinned commit. Footer: panels and facility meet only in facility.json; an import outside the accent arrows fails the boundary check.</desc>
+  <defs>
+    <marker id="fp-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fp-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+  </defs>
+
+  <!-- column labels -->
+  <text class="te" x="20" y="32">1 · SOURCE</text>
+  <text class="te" x="273" y="32">2 · DESCRIPTION</text>
+  <text class="te" x="526" y="32">3 · SEAM</text>
+  <text class="te" x="779" y="32">4 · PANELS</text>
+
+  <!-- framework -->
+  <rect class="nb" x="273" y="50" width="210" height="110" rx="6"/>
+  <text class="ta" x="285" y="68">OSPREY · FRAMEWORK</text>
+  <text class="ts" x="285" y="86">views · settings · CLI</text>
+  <text class="ts" x="285" y="100">engine implementations (pyat …)</text>
+  <text class="ts" x="285" y="118">imports osprey_facility's</text>
+  <text class="ts" x="285" y="132">public API, nothing else of it</text>
+  <text class="ts" x="285" y="146">reads facility.json, checks /N</text>
+
+  <!-- 1. facility tree -->
+  <rect class="nb-in" x="20" y="226" width="210" height="104" rx="6"/>
+  <text class="ta" x="32" y="244">FACILITY TREE</text>
+  <text class="ts" x="32" y="262">records/ · documents.yaml</text>
+  <text class="ts" x="32" y="276">layers · scenarios</text>
+  <text class="ts" x="32" y="294">panels/ data, read by</text>
+  <text class="ts" x="32" y="308">osprey-panels at write time</text>
+
+  <!-- 2. osprey-facility -->
+  <rect class="nb-foc" x="273" y="220" width="210" height="130" rx="6"/>
+  <text class="ta ta-acc" x="285" y="238">OSPREY-FACILITY</text>
+  <text class="ts" x="285" y="254">import osprey_facility</text>
+  <text class="ts" x="285" y="272">description + build</text>
+  <text class="ts t-acc" x="285" y="286">imports nothing of osprey</text>
+  <text class="ts" x="285" y="304">pydantic · PyYAML</text>
+  <text class="ts" x="285" y="318">packaging · numpy</text>
+  <text class="ts" x="285" y="336">tags osprey-facility-v*</text>
+
+  <!-- connectors -->
+  <rect class="nb" x="273" y="420" width="210" height="100" rx="6"/>
+  <text class="ta" x="285" y="438">OSPREY-CONNECTORS</text>
+  <text class="ts" x="285" y="456">the engine contract</text>
+  <text class="ts" x="285" y="470">osprey_connectors</text>
+  <text class="ts" x="285" y="484">  .simulation.engines</text>
+  <text class="ts" x="285" y="502">its own repository</text>
+
+  <!-- 3. facility.json -->
+  <rect class="nb-st" x="526" y="226" width="210" height="118" rx="6"/>
+  <text class="ta" x="538" y="244">FACILITY.JSON</text>
+  <text class="ts" x="538" y="262">osprey.facility.facility/N</text>
+  <text class="ts" x="538" y="276">published JSON Schema</text>
+  <text class="ts" x="538" y="294">sole producer: the build</text>
+  <text class="ts" x="538" y="308">&lt;render root&gt;/facility.json</text>
+  <text class="ts" x="538" y="326">every reader checks /N</text>
+
+  <!-- edges that do not exist -->
+  <rect class="nb-warn" x="526" y="410" width="210" height="96" rx="6"/>
+  <text class="ta ta-warn" x="538" y="428">NO IMPORT</text>
+  <text class="ts" x="538" y="446">osprey-facility → osprey</text>
+  <text class="ts" x="538" y="460">osprey-panels → osprey</text>
+  <text class="ts" x="538" y="474">osprey-panels → osprey_facility</text>
+  <text class="ts" x="538" y="488">framework → osprey_panels</text>
+
+  <!-- 4. osprey-panels -->
+  <rect class="nb-foc" x="779" y="214" width="210" height="150" rx="6"/>
+  <text class="ta ta-acc" x="791" y="232">OSPREY-PANELS</text>
+  <text class="ts" x="791" y="248">import osprey_panels</text>
+  <text class="ts" x="791" y="266">reads facility.json, checks /N</text>
+  <text class="ts" x="791" y="280">+ panels/ data + theme file</text>
+  <text class="ts" x="791" y="298">stdlib · jsonschema</text>
+  <text class="ts" x="791" y="316">osprey-panels write | check</text>
+  <text class="ts" x="791" y="330">  | classes</text>
+  <text class="ts" x="791" y="348">tags osprey-panels-v*</text>
+
+  <rect class="nb-st" x="779" y="396" width="210" height="62" rx="6"/>
+  <text class="ta" x="791" y="414">SCREEN-IR</text>
+  <text class="ts" x="791" y="430">validated at run time against</text>
+  <text class="ts" x="791" y="444">the vendored schema</text>
+
+  <rect class="nb-ext" x="779" y="482" width="210" height="62" rx="6"/>
+  <text class="ta" x="791" y="500">CANOPY · PINNED COMMIT</text>
+  <text class="ts" x="791" y="516">a sync test holds the vendored</text>
+  <text class="ts" x="791" y="530">schema to the pinned schema</text>
+
+  <!-- data flow -->
+  <line class="e" x1="230" y1="278" x2="271" y2="278" marker-end="url(#fp-arr)"/>
+  <text class="ta" x="236" y="272">read</text>
+  <line class="e-acc" x1="483" y1="285" x2="524" y2="285" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="487" y="279">writes</text>
+  <line class="e-acc" x1="736" y1="285" x2="777" y2="285" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="742" y="279">reads</text>
+  <line class="e-acc" x1="884" y1="364" x2="884" y2="394" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="892" y="383">emits</text>
+  <line class="e" x1="884" y1="458" x2="884" y2="480" marker-end="url(#fp-arr)"/>
+  <text class="ta" x="892" y="473">pinned to</text>
+
+  <!-- imports -->
+  <line class="e-acc" x1="378" y1="160" x2="378" y2="218" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="386" y="186">imports</text>
+  <text class="ta ta-acc" x="386" y="198">public API</text>
+  <line class="e-acc" x1="378" y1="350" x2="378" y2="418" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="386" y="398">depends on</text>
+  <polyline class="e-acc" points="273,140 250,140 250,470 271,470" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="32" y="452">framework engines</text>
+  <text class="ta ta-acc" x="32" y="464">implement the contract</text>
+  <polyline class="e-acc" points="483,105 631,105 631,224" marker-end="url(#fp-arr-acc)"/>
+  <text class="ta ta-acc" x="639" y="160">reads, checks /N</text>
+
+  <text class="ts" x="20" y="582">osprey-facility and osprey-panels meet only in facility.json; an import outside the accent arrows fails the boundary check.</text>
+</svg>
+</div>
+</section>
+<section id="the-decisions">
+<h1>The decisions<a class="headerlink" href="#the-decisions" title="Link to this heading">#</a></h1>
+<p>Each decision states the end state, the reason, the phase that realises it and
+what holds today.</p>
+<section id="the-panel-engine-reads-the-document-only">
+<h2>1. The panel engine reads the document only<a class="headerlink" href="#the-panel-engine-reads-the-document-only" title="Link to this heading">#</a></h2>
+<p>The engine reads <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> at a declared, checked version and imports no
+facility code. The build also writes into the document the two things the engine
+derives from the vocabulary today: the effective signal-role table (nameplate
+and title) and the relation types.</p>
+<p><em>Why:</em> a fork of the engine tracks one versioned document, not the description’s
+Python API, and importing the engine no longer loads click, the build stack and
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation</span></code>.</p>
+<p><em>Phase:</em> 2, done. <em>Today:</em> the engine reads <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> at <code class="docutils literal notranslate"><span class="pre">/4</span></code> and
+imports no description module; the build writes the <code class="docutils literal notranslate"><span class="pre">signals</span></code> and
+<code class="docutils literal notranslate"><span class="pre">relation_types</span></code> tables.</p>
+</section>
+<section id="facility-json-is-a-versioned-document-with-a-published-schema">
+<h2>2. <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> is a versioned document with a published schema<a class="headerlink" href="#facility-json-is-a-versioned-document-with-a-published-schema" title="Link to this heading">#</a></h2>
+<p>The build is the only producer. The header is <code class="docutils literal notranslate"><span class="pre">osprey.facility.facility/N</span></code>; N
+goes up when a key is removed, renamed, retyped or changes meaning, and stays
+when a key is added. Readers ignore keys they do not know, check N against the
+versions they declare, and refuse any other with “rebuild with osprey build”. A
+test pins the document’s generated JSON Schema, so a shape change fails until
+its author bumps N or marks the change additive.</p>
+<p><em>Why:</em> the document is the description’s product. A fork or a non-Python reader
+needs a contract it can check by machine, and one number is the only thing a
+reader has to compare.</p>
+<p><em>Phase:</em> the panel engine checks the version in phase 2, the framework readers
+in phase 3 with the write guard first, and the schema ships in the package in
+phase 4. <em>Today:</em> the build writes <code class="docutils literal notranslate"><span class="pre">/4</span></code>, a test pins the schema against the
+floor of each <code class="docutils literal notranslate"><span class="pre">N</span></code>, and the panel engine refuses any other version; the
+framework readers do not compare it yet. The exact rules and the reader table
+are in <a class="reference internal" href="../reference/contracts/facility-json.html#reference-facility-json"><span class="std std-ref">The facility.json Contract</span></a>.</p>
+</section>
+<section id="the-description-and-the-framework-split-as-the-code-reads">
+<h2>3. The description and the framework split as the code reads<a class="headerlink" href="#the-description-and-the-framework-split-as-the-code-reads" title="Link to this heading">#</a></h2>
+<p>osprey-facility gets the records, relations, combine, sources, compute, build,
+wiring and validate (without its command-line reporting), the serialisation half
+of the renderer, the scenario rosters and checks, the scenario session model
+(today <code class="docutils literal notranslate"><span class="pre">osprey.simulation.sessions</span></code>), the layers, the schema and vocabulary,
+the kinds with the five built-in kinds, the pure helpers now in the simulator
+and pyAML views, and its errors as plain exceptions without click.</p>
+<p>The framework keeps the views, the settings, the bundled facility, the step that
+renders the facility outputs, the check of scenario sessions against MCP server
+names, the click adapter for the errors and the command line. osprey-panels gets
+the panel engine.</p>
+<p>osprey-facility depends on osprey-connectors, pydantic, PyYAML, packaging and
+numpy, with scipy and accelerator-toolbox in an <code class="docutils literal notranslate"><span class="pre">mml</span></code> extra. It does not
+depend on pyaml-cs-osprey: the one kind name it borrows from there becomes its
+own. osprey-panels needs the standard library and jsonschema; it writes its
+files atomically itself.</p>
+<p><em>Why:</em> this is where the imports already fall once the cycle is cut.
+pyaml-cs-osprey imports the framework’s runtime, so a dependency on it would
+bring the framework back into the description.</p>
+<p><em>Phase:</em> 3 untangles the description from the framework, 4 makes it a package,
+5 makes the panel engine a package. <em>Today:</em> one package; the description
+imports the framework in the records, the scenarios, the engine contract and
+the relations layer, and imports click in nine modules.</p>
+</section>
+<section id="the-simulation-engine-contract-lives-in-osprey-connectors">
+<h2>4. The simulation-engine contract lives in osprey-connectors<a class="headerlink" href="#the-simulation-engine-contract-lives-in-osprey-connectors" title="Link to this heading">#</a></h2>
+<p>The engine Protocol, its optional names, the entry-point group name and the
+calibration math move to <code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code>.</p>
+<p><em>Why:</em> the description calls the engines, the framework implements them and the
+virtual accelerator loads them. osprey-connectors is the one layer all three
+depend on, so the contract is spelled once. The cost is a larger public API in
+osprey-connectors and its compatibility table.</p>
+<p><em>Phase:</em> 3. <em>Today:</em> the contract lives there, and the group has one spelling,
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code>, held by that module’s
+<code class="docutils literal notranslate"><span class="pre">ENGINE_GROUP</span></code>. The engine implementations, such as
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code>, stay framework code.</p>
+</section>
+<section id="names-public-modules-and-the-command-line">
+<h2>5. Names, public modules and the command line<a class="headerlink" href="#names-public-modules-and-the-command-line" title="Link to this heading">#</a></h2>
+<p>The distributions are <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> (import <code class="docutils literal notranslate"><span class="pre">osprey_facility</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">osprey-panels</span></code> (import <code class="docutils literal notranslate"><span class="pre">osprey_panels</span></code>). Each declares its public modules;
+the rest is private, and a contract enforces it the way the connectors’ public
+API is enforced. osprey-panels ships its own command,
+<code class="docutils literal notranslate"><span class="pre">osprey-panels</span> <span class="pre">write|check|classes</span></code>, and the framework’s
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span></code> goes away. Entry-point groups take the new roots, such
+as <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code>.</p>
+<p><em>Why:</em> top-level names keep the import contract enforceable. Namespace packages
+under <code class="docutils literal notranslate"><span class="pre">osprey</span></code> would share the root, import-linter skips modules that overlap,
+and which distribution owns a module would blur. A framework command over the
+engine would mean the framework imports it, and a fork would have to be wired
+into the framework’s command line too.</p>
+<p><em>Phase:</em> 4 for osprey-facility, 5 for osprey-panels. <em>Today:</em> the framework
+reaches no description module outside the declared public set, and the
+framework’s command line imports the panel engine.</p>
+</section>
+<section id="both-packages-have-their-own-tag-streams">
+<h2>6. Both packages have their own tag streams<a class="headerlink" href="#both-packages-have-their-own-tag-streams" title="Link to this heading">#</a></h2>
+<p>Releases are tagged <code class="docutils literal notranslate"><span class="pre">osprey-facility-v*</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey-panels-v*</span></code>, built by
+one release workflow that takes the package as a parameter. The framework
+depends on osprey-facility with a floor. osprey-panels declares the
+<code class="docutils literal notranslate"><span class="pre">facility.json</span></code> versions and the Screen-IR version it supports, not an
+osprey-facility floor.</p>
+<p><em>Why:</em> each package gets its own version and cadence. One parameterised workflow
+generalises the connectors’ release stream instead of copying it twice.</p>
+<p><em>Phase:</em> 6. <em>Today:</em> both are released with the framework.</p>
+</section>
+<section id="a-fork-is-a-separate-distribution-that-replaces-osprey-panels">
+<h2>7. A fork is a separate distribution that replaces osprey-panels<a class="headerlink" href="#a-fork-is-a-separate-distribution-that-replaces-osprey-panels" title="Link to this heading">#</a></h2>
+<p>A fork reads <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> at a declared version, the facility’s <code class="docutils literal notranslate"><span class="pre">panels/</span></code>
+data and a theme file the caller passes in, and emits Screen-IR and
+<code class="docutils literal notranslate"><span class="pre">index.json</span></code> at declared versions. Layout, symbols and the describe step are
+the fork’s own code. The engine carries fallback state colours and has no path
+into the framework. There are no plug-in points inside the engine.</p>
+<p><em>Why:</em> the inputs and outputs are files at declared versions, which is all a
+replacement needs. Plug-in points would be an abstraction with no second user.</p>
+<p><em>Phase:</em> 5. <em>Today:</em> the engine finds the framework’s theme by climbing from its
+own <code class="docutils literal notranslate"><span class="pre">__file__</span></code>.</p>
+</section>
+<section id="osprey-panels-owns-its-screen-ir-pin">
+<h2>8. osprey-panels owns its Screen-IR pin<a class="headerlink" href="#osprey-panels-owns-its-screen-ir-pin" title="Link to this heading">#</a></h2>
+<p>The engine vendors the Screen-IR schema of the version it emits, and a sync test
+compares that file with the pinned Canopy commit. <code class="docutils literal notranslate"><span class="pre">write</span></code> and <code class="docutils literal notranslate"><span class="pre">check</span></code>
+validate every screen against it at run time. The version is one named
+constant. The framework’s Canopy pin keeps pinning the runtime stack and names
+the engine’s Screen-IR version.</p>
+<p><em>Why:</em> an engine release, a fork or a facility edit cannot emit a screen that
+fails only once it reaches Canopy.</p>
+<p><em>Phase:</em> 5. <em>Today:</em> the version is an inline literal, and screens are
+validated only by a framework test.</p>
+</section>
+<section id="tests-live-inside-each-package">
+<h2>9. Tests live inside each package<a class="headerlink" href="#tests-live-inside-each-package" title="Link to this heading">#</a></h2>
+<p>Each package keeps its tests in <code class="docutils literal notranslate"><span class="pre">packages/&lt;package&gt;/tests/&lt;package&gt;_tests/</span></code>
+with its own pytest configuration, and a standalone CI job installs it without
+the framework and refuses the framework if it appears. The panel tests read a
+checked-in built <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>, which an osprey-facility test rebuilds from
+the fixture tree and compares byte for byte. The description helpers the
+framework tests use move into <code class="docutils literal notranslate"><span class="pre">osprey_facility_tests</span></code>; the framework’s build
+and preset fixtures stay in the framework.</p>
+<p><em>Why:</em> only a test run without the framework proves a package works without it.
+Test helpers in the wheel would become public API.</p>
+<p><em>Phase:</em> the byte-for-byte rebuild test lives in the root suite until phase 4;
+the package suites start in phases 4 and 5. <em>Today:</em> every test is in the root
+<code class="docutils literal notranslate"><span class="pre">tests/</span></code>; the panel tests read <code class="docutils literal notranslate"><span class="pre">tests/facility/panels/fixture/facility.json</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">tests/facility/test_panel_fixture_rebuild.py</span></code> rebuilds it.</p>
+</section>
+</section>
+<section id="the-boundary-check">
+<h1>The boundary check<a class="headerlink" href="#the-boundary-check" title="Link to this heading">#</a></h1>
+<p>Two tools hold the code to the end state, and both read one classification.</p>
+<p>The classification is the module lists of six import-linter contracts in
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. Every module under <code class="docutils literal notranslate"><span class="pre">src/osprey</span></code> sits on one side:
+description, panel engine, engine contract or framework. The side follows the
+end state, not today’s directory, so <code class="docutils literal notranslate"><span class="pre">osprey.simulation.sessions</span></code> is
+description while the views, settings, bundled facility, <code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code>
+and the engine implementations are framework. The renderer, scenarios, validate
+and compute are description modules whose framework imports are listed edge by
+edge.</p>
+<p><code class="docutils literal notranslate"><span class="pre">lint-imports</span></code>, run by the <code class="docutils literal notranslate"><span class="pre">import-contracts</span></code> check, follows every static
+import between <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code>. Its contracts forbid:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Contract</p></th>
+<th class="head"><p>Forbids</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility-description-standalone</span></code></p></td>
+<td><p>the description importing the framework</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility-description-without-panels</span></code></p></td>
+<td><p>the description importing the panel engine</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panels-document-only</span></code></p></td>
+<td><p>the panel engine importing the description or the engine contract</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panels-standalone</span></code></p></td>
+<td><p>the panel engine importing the framework or <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">framework-without-panels</span></code></p></td>
+<td><p>the framework importing the panel engine</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility-public-api</span></code></p></td>
+<td><p>the framework importing a description module outside the public set</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The boundary test, <code class="docutils literal notranslate"><span class="pre">tests/facility/test_package_boundary.py</span></code>, reads the sides
+from those lists and checks what import-linter cannot see: imports of
+third-party distributions outside each package’s dependency set, and dynamic
+reaches (<code class="docutils literal notranslate"><span class="pre">importlib.import_module</span></code> strings, <code class="docutils literal notranslate"><span class="pre">importlib.resources.files</span></code> and
+paths climbed from <code class="docutils literal notranslate"><span class="pre">__file__</span></code>). It also keeps the classification whole: a
+module on no side, or on two, fails, so a new module fails until a list names
+it. It runs with the invariant tests on every check; negative tests prove that
+each edge class it guards fails when introduced.</p>
+<section id="the-ratchet">
+<h2>The ratchet<a class="headerlink" href="#the-ratchet" title="Link to this heading">#</a></h2>
+<p>The edges that existed when the check landed are its baseline. Each is one
+<code class="docutils literal notranslate"><span class="pre">importer</span> <span class="pre">-&gt;</span> <span class="pre">imported</span></code> entry, in the contract’s <code class="docutils literal notranslate"><span class="pre">ignore_imports</span></code> for a
+static import or in the boundary test’s third-party and dynamic ratchets, under
+a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">phase</span> <span class="pre">N</span></code> header naming the phase that removes it. Entries are only
+removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="fpt-title fpt-desc">
+  <title id="fpt-title">Today versus target: the one facility package with its import cycle, and the edges the boundary ratchet lists, grouped by the phase that removes them</title>
+  <desc id="fpt-desc">Two halves. The left half is today. src/osprey/facility is one package. Its description, some 22 modules such as records, combine, build, validate, render, scenarios, compute, layers and kinds, imports itself in one cycle, and the cycle runs through the framework's views, scenarios and render: the description reaches into the framework, and the framework imports description modules that are not its public API. The panels code lives inside it, at facility/panels: it reads facility.json only and imports no description module, and emit climbs its own file path to reach the framework's theme and imports osprey_connectors.safety_file. The framework's facility CLI imports the panels. Beside it, third-party reaches: click in nine description modules, and kinds into pyaml_cs_osprey. Warn edges are the ones the ratchet lists; each is an allowed entry today and fails the check once its phase has passed. The right half is the ratchet, drawn by edge class and the phase that removes it, not entry by entry. Phase 2, the panels seam, is done and lists no edge: the panels read facility.json only. Phase 3, the facility untangle: every description edge into the framework, the views helpers, utils.facility, registry.mcp, the CLI, deployment, config paths, the osprey.simulation root and the engine implementations such as pyat; the edges to click and to pyaml_cs_osprey; the engine contract's osprey.simulation.engines spelling, which moves to osprey_connectors; and any description edge to the panels; this breaks the import cycle. Phase 4, the facility package: framework edges into description modules outside the public API, such as the CLI's read of the MML layer data, after which the public API is protected. Phase 5, the panels package: the framework CLI's import of the panels, the panels' climb to the framework theme, which becomes a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: both packages tag and publish. Footer: the ratchet only shrinks; an edge of none of these classes fails the boundary check today.</desc>
+  <defs>
+    <marker id="fpt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fpt-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/></marker>
+  </defs>
+
+  <!-- half labels -->
+  <text class="te" x="20" y="32">TODAY · ONE PACKAGE, ONE CYCLE</text>
+  <text class="te" x="520" y="32">TARGET · THE RATCHET BY EDGE CLASS AND REMOVING PHASE</text>
+  <line class="divider" x1="500" y1="44" x2="500" y2="556"/>
+
+  <!-- today: the one package -->
+  <rect class="zone" x="20" y="50" width="290" height="312" rx="6"/>
+  <text class="te" x="32" y="68">SRC/OSPREY/FACILITY/</text>
+
+  <rect class="nb-warn" x="32" y="80" width="266" height="124" rx="6"/>
+  <text class="ta ta-warn" x="44" y="98">DESCRIPTION · ONE IMPORT CYCLE</text>
+  <text class="ts" x="44" y="116">~22 modules import one another:</text>
+  <text class="ts" x="44" y="130">records combine build validate</text>
+  <text class="ts" x="44" y="144">render scenarios compute layers</text>
+  <text class="ts" x="44" y="158">kinds relations pairing …</text>
+  <text class="ts" x="44" y="176">the cycle runs through the</text>
+  <text class="ts" x="44" y="190">framework's views, scenarios, render</text>
+
+  <rect class="nb-warn" x="32" y="240" width="266" height="110" rx="6"/>
+  <text class="ta ta-warn" x="44" y="258">PANELS · FACILITY/PANELS/</text>
+  <text class="ts" x="44" y="276">reads facility.json only,</text>
+  <text class="ts" x="44" y="290">  no description import</text>
+  <text class="ts" x="44" y="318">emit → framework theme (path climb)</text>
+  <text class="ts" x="44" y="332">emit → osprey_connectors.safety_file</text>
+
+  <!-- today: framework -->
+  <rect class="nb" x="350" y="80" width="130" height="270" rx="6"/>
+  <text class="ta" x="362" y="98">OSPREY</text>
+  <text class="ta" x="362" y="110">FRAMEWORK</text>
+  <text class="ts" x="362" y="130">views</text>
+  <text class="ts" x="362" y="144">utils.facility</text>
+  <text class="ts" x="362" y="158">registry.mcp</text>
+  <text class="ts" x="362" y="172">cli · deployment</text>
+  <text class="ts" x="362" y="186">config paths</text>
+  <text class="ts" x="362" y="200">simulation</text>
+  <text class="ts" x="362" y="214">  engines (pyat …)</text>
+  <text class="ts" x="362" y="228">bundled</text>
+  <text class="ts" x="362" y="282">cli facility</text>
+  <text class="ts" x="362" y="296">theme</text>
+
+  <!-- today: edges -->
+  <line class="e-warn" x1="298" y1="118" x2="348" y2="118" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="112">reaches</text>
+  <line class="e" x1="350" y1="180" x2="300" y2="180" marker-end="url(#fpt-arr)"/>
+  <text class="ta" x="303" y="174">imports</text>
+  <line class="e-warn" x1="350" y1="278" x2="300" y2="278" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="272">imports</text>
+  <line class="e-warn" x1="298" y1="314" x2="348" y2="314" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="308">climbs</text>
+
+  <!-- today: third-party reaches -->
+  <rect class="nb-st" x="20" y="390" width="460" height="62" rx="6"/>
+  <text class="ta" x="32" y="408">THIRD-PARTY REACHES</text>
+  <text class="ts" x="32" y="424">click in nine description modules</text>
+  <text class="ts" x="32" y="438">kinds → pyaml_cs_osprey (step measurement)</text>
+
+  <!-- legend -->
+  <line class="e-warn" x1="20" y1="486" x2="60" y2="486" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ts" x="70" y="489">an edge the ratchet lists; removed by its phase</text>
+  <line class="e" x1="20" y1="508" x2="60" y2="508" marker-end="url(#fpt-arr)"/>
+  <text class="ts" x="70" y="511">an edge the end state keeps, through the public API</text>
+
+  <!-- target: the ratchet by phase -->
+  <rect class="nb-st" x="520" y="50" width="460" height="70" rx="6"/>
+  <text class="ta" x="532" y="68">PHASE 2 · PANELS SEAM · DONE</text>
+  <text class="ts" x="532" y="86">lists no edge</text>
+  <text class="ts t-acc" x="532" y="104">the panels read facility.json only</text>
+
+  <rect class="nb-bnd" x="520" y="148" width="460" height="130" rx="6"/>
+  <text class="ta ta-warn" x="532" y="166">PHASE 3 · FACILITY UNTANGLE</text>
+  <text class="ts" x="532" y="184">description → framework: views helpers, utils.facility,</text>
+  <text class="ts" x="532" y="198">  registry.mcp, CLI, deployment, config paths, the</text>
+  <text class="ts" x="532" y="212">  osprey.simulation root, engine implementations (pyat …)</text>
+  <text class="ts" x="532" y="226">description → click, → pyaml_cs_osprey</text>
+  <text class="ts" x="532" y="240">the engine contract's osprey. spelling → osprey_connectors</text>
+  <text class="ts" x="532" y="254">description → panels (none today)</text>
+  <text class="ts t-acc" x="532" y="268">after it, the import cycle is gone</text>
+
+  <rect class="nb-bnd" x="520" y="288" width="460" height="74" rx="6"/>
+  <text class="ta ta-warn" x="532" y="306">PHASE 4 · FACILITY PACKAGE</text>
+  <text class="ts" x="532" y="324">framework → description modules outside the public API,</text>
+  <text class="ts" x="532" y="338">  such as the CLI's read of the MML layer data</text>
+  <text class="ts t-acc" x="532" y="352">after it, the public API is protected</text>
+
+  <rect class="nb-bnd" x="520" y="372" width="460" height="88" rx="6"/>
+  <text class="ta ta-warn" x="532" y="390">PHASE 5 · PANELS PACKAGE</text>
+  <text class="ts" x="532" y="408">framework CLI → panels</text>
+  <text class="ts" x="532" y="422">panels → framework theme by path climb; a theme file is passed in</text>
+  <text class="ts" x="532" y="436">panels → osprey_connectors.safety_file</text>
+  <text class="ts t-acc" x="532" y="450">after it, the ratchet is empty</text>
+
+  <rect class="nb-st" x="520" y="470" width="460" height="56" rx="6"/>
+  <text class="ta" x="532" y="488">PHASE 6 · RELEASE WIRING</text>
+  <text class="ts" x="532" y="506">removes no edge: osprey-facility and osprey-panels</text>
+  <text class="ts" x="532" y="520">tag and publish on their own streams</text>
+
+  <text class="ts" x="20" y="582">The ratchet only shrinks: each phase deletes its classes; an edge of none of these classes fails the boundary check today.</text>
+</svg>
+</div>
+<p>The headers name these phases:</p>
+<ul class="simple">
+<li><p><strong>Phase 2</strong> removed the panel engine’s imports of facility code and its read
+of the vocabulary files; its header is empty.</p></li>
+<li><p><strong>Phase 3</strong> removes the description’s imports of the framework (views helpers,
+<code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code>, the MCP registry, the command line, deployment and
+config paths, the engine implementations), its click imports in nine modules,
+its import of pyaml-cs-osprey and the <code class="docutils literal notranslate"><span class="pre">osprey.</span></code> spelling of the engine
+contract.</p></li>
+<li><p><strong>Phase 4</strong> removes framework reaches into private description modules: none
+by static import today, one resource read of the MML layer by the command
+line.</p></li>
+<li><p><strong>Phase 5</strong> removes the framework command line’s imports of the panel engine,
+the engine’s climb to the framework theme and its atomic writes through
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.safety_file</span></code>.</p></li>
+<li><p><strong>Phase 6</strong> is the release wiring and removes no edge.</p></li>
+</ul>
+</section>
+<section id="refreshing-the-baseline">
+<h2>Refreshing the baseline<a class="headerlink" href="#refreshing-the-baseline" title="Link to this heading">#</a></h2>
+<p>Main keeps moving while the split is under way, and nothing outside the split
+knows the check. The baseline is therefore refreshed at one point only: when
+main is merged into the split’s branch, at each merge back to main. After that
+merge:</p>
+<ol class="arabic simple">
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">lint-imports</span></code> and the boundary test.</p></li>
+<li><p>Classify every module main added into a side’s module list.</p></li>
+<li><p>Enter every new crossing edge main brought under the header of the phase that
+removes it, in the matching contract’s <code class="docutils literal notranslate"><span class="pre">ignore_imports</span></code> for a static import
+and in the boundary test’s third-party or dynamic ratchet otherwise, with the
+reason and phase.</p></li>
+<li><p>Delete every entry whose edge main removed.</p></li>
+<li><p>Run both tools again; they pass with no other change.</p></li>
+</ol>
+<p>At any other time the baseline is never extended: a new edge is fixed, not
+entered.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../reference/contracts/facility-json.html#reference-facility-json"><span class="std std-ref">The facility.json Contract</span></a></dt><dd><p>The document’s header, bump rule, reader rule and published schema.</p>
+</dd>
+<dt><a class="reference internal" href="facility-file.html"><span class="doc">Facility File and Its Views</span></a></dt><dd><p>What the build writes into <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> and the views read from it.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="facility-relations.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Facility Relations</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="virtual-accelerator.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Virtual Accelerator</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Facility Packages</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#the-decisions">The decisions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-panel-engine-reads-the-document-only">1. The panel engine reads the document only</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-json-is-a-versioned-document-with-a-published-schema">2. <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> is a versioned document with a published schema</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-description-and-the-framework-split-as-the-code-reads">3. The description and the framework split as the code reads</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-simulation-engine-contract-lives-in-osprey-connectors">4. The simulation-engine contract lives in osprey-connectors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#names-public-modules-and-the-command-line">5. Names, public modules and the command line</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#both-packages-have-their-own-tag-streams">6. Both packages have their own tag streams</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-fork-is-a-separate-distribution-that-replaces-osprey-panels">7. A fork is a separate distribution that replaces osprey-panels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-panels-owns-its-screen-ir-pin">8. osprey-panels owns its Screen-IR pin</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests-live-inside-each-package">9. Tests live inside each package</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#the-boundary-check">The boundary check</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-ratchet">The ratchet</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refreshing-the-baseline">Refreshing the baseline</a></li>
+</ul>
+</li>
+</ul>
+
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/architecture/facility-packages.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
