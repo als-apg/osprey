@@ -23,6 +23,7 @@ from osprey.deployment import container_lifecycle, run_once, status_display
 from osprey.deployment.container_lifecycle import check_started_services
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.errors import ServicesNotRunningError
+from tests._scoped_stdlib import scoped
 
 # The real check, taken before the conftest seam replaces it for every test.
 _REAL_REFUSE_SERVICES_NOT_RUNNING = container_lifecycle._refuse_services_not_running
@@ -63,7 +64,7 @@ def repo(tmp_path: Path) -> Path:
 
 
 def _check(repo: Path, monkeypatch: pytest.MonkeyPatch, services: dict, *rows: dict):
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(_podman(*rows)))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_FakePs(_podman(*rows)))
     return check_started_services(repo, services)
 
 
@@ -151,10 +152,11 @@ def test_a_start_with_an_allowed_failure_succeeds_and_names_it(repo, monkeypatch
         repo / "build" / "services" / "docker-compose.yml",
         {"seed": _declared(run_once.MAY_FAIL), "api": {"image": "a"}},
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        _FakePs(_podman(_exited("seed", 4), _running("api"))),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=_FakePs(_podman(_exited("seed", 4), _running("api"))),
     )
     warned: list[tuple] = []
     monkeypatch.setattr(container_lifecycle, "_warn_fact", lambda *words: warned.append(words))
@@ -168,7 +170,7 @@ def test_a_start_with_a_failed_must_succeed_service_fails(repo, monkeypatch):
     _compose(
         repo / "build" / "services" / "docker-compose.yml", {"seed": _declared("must-succeed")}
     )
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(_podman(_exited("seed", 4))))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_FakePs(_podman(_exited("seed", 4))))
 
     with pytest.raises(ServicesNotRunningError, match=r"seed \(exited \(4\)\)"):
         _REAL_REFUSE_SERVICES_NOT_RUNNING({}, ["build/services/docker-compose.yml"], repo)

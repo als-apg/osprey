@@ -25,6 +25,7 @@ from osprey.deployment.errors import (
     UnmetPreconditionsError,
 )
 from osprey.deployment.web_terminals import postup_hooks, provision, render_images
+from tests._scoped_stdlib import scoped
 from tests.deployment._dotenv import project_env
 from tests.deployment._fake_run import completed
 
@@ -104,11 +105,13 @@ def captured_argv(stubbed_start, monkeypatch, tmp_path):
         captured["env"] = env
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: captured.update(cmd=cmd, env=env)),
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: captured.update(cmd=cmd, env=env)),
     )
     return captured
 
@@ -228,7 +231,13 @@ def test_non_dispatch_deploy_generates_no_tokens(
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=lambda *a, **k: completed())
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: completed(),
+    )
 
     stubbed_start.start(detached=True)
 
@@ -307,7 +316,8 @@ def captured_web_runs(stubbed_start, monkeypatch, tmp_path):
         calls.append({"cmd": list(cmd), "env": env})
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
     return {"calls": calls, "written": written}
 
 
@@ -513,11 +523,13 @@ def captured_combined_runs(stubbed_start, monkeypatch, tmp_path):
         calls.append({"cmd": list(cmd), "env": env})
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: calls.append({"cmd": cmd, "env": env})),
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: calls.append({"cmd": cmd, "env": env})),
     )
     return {"calls": calls, "build_calls": build_calls, "token_calls": token_calls}
 
@@ -648,10 +660,14 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(stubbed_start, monkeypatc
     # Every deployment builds the project image, which agent-record runs on;
     # that build has its own tests, and this one is about the compose argv.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda *a, **k: completed(returncode=0),
+    scoped(
+        monkeypatch, container_lifecycle, "subprocess", run=lambda *a, **k: completed(returncode=0)
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: completed(returncode=0),
     )
 
     linger_calls = []
@@ -748,7 +764,8 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
         calls.append({"cmd": list(cmd), "env": kwargs.get("env")})
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
     return calls
 
 
@@ -887,10 +904,17 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
         order.append("build_render_images")
 
     monkeypatch.setattr(provision, "build_render_images", _fake_build)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda *a, **k: order.append("compose") or completed(returncode=0),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda *a, **k: order.append("compose") or completed(returncode=0),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: order.append("compose") or completed(returncode=0),
     )
 
     stubbed_start.start(detached=False)
@@ -1016,7 +1040,8 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
             order.append("pull" if "pull" in cmd else "up")
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     stubbed_start.start(detached=False)
 
@@ -1077,7 +1102,8 @@ def test_start_runs_verify_script_when_present_ignoring_exit_code(
         is_verify_call = cmd[:1] == ["bash"]
         return completed(returncode=1 if is_verify_call else 0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     # Must not raise, despite verify.sh exiting 1.
     stubbed_start.start(detached=False)
@@ -1257,15 +1283,23 @@ def test_start_dev_mode_splits_build_from_up(stubbed_start, monkeypatch, tmp_pat
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     runs: list = []
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, env=None, **k: runs.append(cmd) or completed(),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, env=None, **k: runs.append(cmd) or completed(),
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: runs.append(cmd)),
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda cmd, env=None, **k: runs.append(cmd) or completed(),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: runs.append(cmd)),
     )
     stubbed_start.start(detached=True, dev_mode=True)
 
@@ -1295,15 +1329,23 @@ def _attached_start_stubs(stubbed_start, monkeypatch, tmp_path, runs, execd):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, env=None, **k: runs.append(list(cmd)) or completed(),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, env=None, **k: runs.append(list(cmd)) or completed(),
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: runs.append(list(cmd))),
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda cmd, env=None, **k: runs.append(list(cmd)) or completed(),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: runs.append(list(cmd))),
     )
     monkeypatch.setattr(
         container_lifecycle.os,
@@ -1544,10 +1586,17 @@ def captured_plain_runs(stubbed_start, monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, env=None, **k: calls.append(list(cmd)) or completed(),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, env=None, **k: calls.append(list(cmd)) or completed(),
+    )
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda cmd, env=None, **k: calls.append(list(cmd)) or completed(),
     )
     return calls
 
@@ -1643,11 +1692,13 @@ def test_web_services_dev_mode_splits_build_from_up(stubbed_start, monkeypatch, 
         runs.append(list(cmd))
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: runs.append(cmd)),
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: runs.append(cmd)),
     )
     stubbed_start.start(detached=True, dev_mode=True)
 
@@ -1695,11 +1746,13 @@ def test_web_services_start_does_not_build_a_service_running_an_overridden_image
         runs.append(list(cmd))
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: runs.append(list(cmd))),
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: runs.append(list(cmd))),
     )
     stubbed_start.start(detached=True)
 
@@ -2093,10 +2146,11 @@ def test_a_second_deploy_restages_the_ca_the_first_one_cleared(tmp_path, monkeyp
         "_build_project_image",
         lambda config, dev, env, ctx=None, compose_files=None: None,
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
             list(cmd), 0, stdout="", stderr=""
         ),
     )
@@ -2153,10 +2207,11 @@ def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
         "_build_project_image",
         lambda config, dev, env, ctx=None, compose_files=None: None,
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
             list(cmd), 0, stdout="", stderr=""
         ),
     )
@@ -2198,10 +2253,11 @@ def _attached_start(monkeypatch, repo, staged, **kwargs):
         "_build_project_image",
         lambda config, dev, env, ctx=None, compose_files=None: None,
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
             list(cmd), 0, stdout="", stderr=""
         ),
     )
@@ -2528,7 +2584,13 @@ def _wiring_calls(stubbed_start, monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=lambda *a, **k: completed())
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: completed(),
+    )
     # Every deployment builds the project image, which agent-record runs on;
     # that build has its own tests, and these are about the compose argv.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
@@ -2635,7 +2697,13 @@ def test_start_no_web_terminals_skips_preflight(stubbed_start, monkeypatch, tmp_
         "_build_project_image",
         lambda *a, **k: order.append("build_image"),
     )
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=lambda *a, **k: completed())
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: completed(),
+    )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
 
     stubbed_start.start(detached=True)
@@ -2809,11 +2877,13 @@ def _dev_deploy_cmds(
         cmds.append(list(cmd))
         return completed(returncode=0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: cmds.append(list(cmd))),
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: cmds.append(list(cmd))),
     )
 
     stubbed_start.start(detached=True, dev_mode=dev_mode)
@@ -3374,7 +3444,8 @@ def staged_archiver(stubbed_start, monkeypatch, tmp_path):
         rc = state["returncode"] if "stop" in cmd else 0
         return subprocess.CompletedProcess(list(cmd), rc)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     # The seed input is the archive composite of the render's simulator view,
     # exercised by its own module's tests; it does not belong in an argv test.
@@ -3641,8 +3712,8 @@ def test_pymongo_preflight_aborts_before_any_container_work(stubbed_start, monke
     monkeypatch.setattr(
         container_lifecycle, "_build_project_image", lambda *a, **k: ran.append("build")
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda *a, **k: ran.append("compose")
+    scoped(
+        monkeypatch, container_lifecycle, "subprocess", run=lambda *a, **k: ran.append("compose")
     )
     # A None entry in sys.modules is what an incomplete environment looks like to
     # `import pymongo` — the import machinery raises ImportError without touching
@@ -4139,10 +4210,11 @@ def store_preflight(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        _StoreRuntime(
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=_StoreRuntime(
             volumes=[f"{CHAIN_PROJECT}_archiver_mongodb_data"],
             container_env={
                 f"{CHAIN_PROJECT}-archiver-mongodb": {
@@ -4596,7 +4668,13 @@ def test_start_without_web_terminals_reconciles_no_orphans(stubbed_start, monkey
         "remove_orphan_terminals",
         lambda config: order.append("orphans"),
     )
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=lambda *a, **k: completed())
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: completed(),
+    )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
 
     stubbed_start.start(detached=True)
@@ -4629,10 +4707,11 @@ def test_a_failed_start_still_clears_the_ca_it_staged(tmp_path, monkeypatch):
         "_build_project_image",
         lambda config, dev, env, ctx=None, compose_files=None: None,
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
             list(cmd), 0, stdout="", stderr=""
         ),
     )
@@ -4897,14 +4976,16 @@ def _host_whose_setting_says_docker(monkeypatch):
         "_compose_provider",
         lambda config=None, runtime=None: probed.append(runtime) or ComposeProvider.DOCKER_V2,
     )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda cmd, env=None, **kwargs: (
-            runs.append({"cmd": list(cmd), "env": dict(env or {})})
-            or subprocess.CompletedProcess(list(cmd), 0, "", "")
-        ),
-    )
+
+    def _run(cmd, env=None, **kwargs):
+        runs.append({"cmd": list(cmd), "env": dict(env or {})})
+        return subprocess.CompletedProcess(list(cmd), 0, "", "")
+
+    for spawner in (
+        "osprey.deployment.subprocess_capture",
+        "osprey.deployment.web_terminals.provision",
+    ):
+        scoped(monkeypatch, spawner, "subprocess", run=_run)
     return runs, probed
 
 

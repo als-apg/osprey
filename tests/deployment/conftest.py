@@ -9,6 +9,7 @@ import pytest
 
 from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME, _reset_wheel_build_cache
 from osprey.deployment.runtime_helper import reset_runtime_cache as _reset_runtime_cache
+from tests._scoped_stdlib import scoped
 
 
 @pytest.fixture(autouse=True)
@@ -269,7 +270,9 @@ def stub_start_stack(monkeypatch, tmp_path, stubbed_start):
         if seam == "run_captured":
             monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
         elif seam == "subprocess.run":
-            monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+            # run_captured stays real and starts its child through its own module.
+            for spawner in (container_lifecycle, "osprey.deployment.subprocess_capture"):
+                scoped(monkeypatch, spawner, "subprocess", run=_fake_run)
         else:
             raise ValueError(f"unknown seam {seam!r}")
         return stubbed_start

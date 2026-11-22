@@ -41,6 +41,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.web_terminals import lifecycle
+from tests._scoped_stdlib import scoped
 from tests.deployment.test_collect_all_preflight import stubbed_start  # noqa: F401
 from tests.deployment.web_terminals.test_lifecycle import _config as _web_config
 from tests.deployment.web_terminals.test_lifecycle import _write_config
@@ -197,7 +198,7 @@ def runtime_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
         calls.append(list(argv))
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls
@@ -249,7 +250,7 @@ def test_a_missing_agent_record_container_is_not_reported(
         missing = argv[1] == "rm"
         return subprocess.CompletedProcess(argv, returncode=1 if missing else 0, stdout="")
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+    scoped(monkeypatch, lifecycle, "subprocess", run=_run)
 
     lifecycle._apply_volume_policy(
         "docker",

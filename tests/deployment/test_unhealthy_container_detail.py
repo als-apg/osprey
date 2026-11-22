@@ -23,6 +23,7 @@ from osprey.deployment.runtime_helper import (
     unhealthy_containers_in,
 )
 from osprey.deployment.subprocess_capture import captured_failure_detail
+from tests._scoped_stdlib import scoped
 
 # The abort exactly as Docker Compose v2 renders it at the end of a deploy.
 REAL_ABORT = (
@@ -55,7 +56,7 @@ class _FakeRuntime:
 @pytest.fixture
 def fake_runtime(monkeypatch: pytest.MonkeyPatch) -> _FakeRuntime:
     fake = _FakeRuntime()
-    monkeypatch.setattr(runtime_helper.subprocess, "run", fake)
+    scoped(monkeypatch, runtime_helper, "subprocess", run=fake)
     return fake
 
 
@@ -104,7 +105,7 @@ def test_the_tail_is_read_through_the_runtime_the_deployment_resolved(
 def test_a_log_that_cannot_be_read_still_names_the_container(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(runtime_helper.subprocess, "run", _FakeRuntime(tail=None, returncode=1))
+    scoped(monkeypatch, runtime_helper, "subprocess", run=_FakeRuntime(tail=None, returncode=1))
 
     text = explain_unhealthy_containers(REAL_ABORT, "docker")
 
@@ -123,7 +124,7 @@ def test_a_runtime_that_does_not_answer_is_not_a_second_failure(
     def _hang(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd, 15)
 
-    monkeypatch.setattr(runtime_helper.subprocess, "run", _hang)
+    scoped(monkeypatch, runtime_helper, "subprocess", run=_hang)
 
     text = explain_unhealthy_containers(REAL_ABORT, "docker")
 

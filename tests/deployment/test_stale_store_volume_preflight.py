@@ -29,6 +29,7 @@ import subprocess
 import pytest
 
 from osprey.deployment import container_lifecycle
+from tests._scoped_stdlib import scoped
 
 PROJECT = "osprey-demo"
 
@@ -78,7 +79,8 @@ def deploy(stubbed_start, monkeypatch, tmp_path):
     )
 
     def _run(fake: FakeRuntime):
-        monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+        scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
+        scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=fake)
         return lambda **kw: stubbed_start.start(detached=True, **kw)
 
     return _run
@@ -306,7 +308,7 @@ class TestRestartChecksBeforeItStops:
         monkeypatch.delenv("MONGO_ROOT_PASSWORD", raising=False)
 
         def _run(fake: FakeRuntime, **kw):
-            monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+            scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
             return container_lifecycle.restart_deployment(repo, **kw), stopped, repo
 
         return _run
@@ -390,7 +392,8 @@ class TestBothPostgresIdentities:
         )
 
         def _run(fake: FakeRuntime):
-            monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+            scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
+            scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=fake)
             return lambda **kw: stubbed_start.start(detached=True, **kw)
 
         return _run

@@ -25,6 +25,7 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
     runtime_reports_absent,
 )
+from tests._scoped_stdlib import scoped
 from tests.deployment._fake_run import completed
 
 
@@ -226,7 +227,7 @@ def test_get_image_id_returns_normalized_id(monkeypatch) -> None:
         recorded["cmd"] = cmd
         return completed(returncode=0, stdout="sha256:abc123\n")
 
-    monkeypatch.setattr(runtime_helper.subprocess, "run", _fake_run)
+    scoped(monkeypatch, runtime_helper, "subprocess", run=_fake_run)
 
     assert get_image_id("podman", "reg/web-terminal:latest") == "abc123"
     assert recorded["cmd"] == [
@@ -241,10 +242,11 @@ def test_get_image_id_returns_normalized_id(monkeypatch) -> None:
 
 def test_get_image_id_returns_none_for_missing_image(monkeypatch) -> None:
     """A non-zero exit (no such image) yields None rather than raising."""
-    monkeypatch.setattr(
-        runtime_helper.subprocess,
-        "run",
-        lambda cmd, **kwargs: completed(returncode=125, stderr="no such image"),
+    scoped(
+        monkeypatch,
+        runtime_helper,
+        "subprocess",
+        run=lambda cmd, **kwargs: completed(returncode=125, stderr="no such image"),
     )
     assert get_image_id("podman", "reg/nope:latest") is None
 
@@ -257,7 +259,7 @@ def test_get_container_image_id_returns_normalized_id(monkeypatch) -> None:
         recorded["cmd"] = cmd
         return completed(returncode=0, stdout="abc123\n")
 
-    monkeypatch.setattr(runtime_helper.subprocess, "run", _fake_run)
+    scoped(monkeypatch, runtime_helper, "subprocess", run=_fake_run)
 
     assert get_container_image_id("podman", "als-web-alice") == "abc123"
     assert recorded["cmd"] == [
@@ -272,20 +274,22 @@ def test_get_container_image_id_returns_normalized_id(monkeypatch) -> None:
 
 def test_get_container_image_id_returns_none_for_missing_container(monkeypatch) -> None:
     """A missing container returns None so the caller can treat it as a no-op."""
-    monkeypatch.setattr(
-        runtime_helper.subprocess,
-        "run",
-        lambda cmd, **kwargs: completed(returncode=1, stderr="no such container"),
+    scoped(
+        monkeypatch,
+        runtime_helper,
+        "subprocess",
+        run=lambda cmd, **kwargs: completed(returncode=1, stderr="no such container"),
     )
     assert get_container_image_id("podman", "als-web-ghost") is None
 
 
 def test_inspect_id_returns_none_for_empty_output(monkeypatch) -> None:
     """A zero exit with empty stdout is still treated as absent (None)."""
-    monkeypatch.setattr(
-        runtime_helper.subprocess,
-        "run",
-        lambda cmd, **kwargs: completed(returncode=0, stdout="\n"),
+    scoped(
+        monkeypatch,
+        runtime_helper,
+        "subprocess",
+        run=lambda cmd, **kwargs: completed(returncode=0, stdout="\n"),
     )
     assert get_image_id("podman", "reg/web-terminal:latest") is None
 

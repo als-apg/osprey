@@ -50,6 +50,7 @@ from osprey.deployment.deployment_record import (
     DeploymentRecord,
     write_deployment_record,
 )
+from tests._scoped_stdlib import scoped
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -130,7 +131,7 @@ def runtime(monkeypatch):
             return subprocess.CompletedProcess(argv, 0, "\n".join(record["volumes"]), "")
         raise AssertionError(f"a read-only verb ran: {argv}")
 
-    monkeypatch.setattr(status_display.subprocess, "run", _fake_run)
+    scoped(monkeypatch, status_display, "subprocess", run=_fake_run)
     return record
 
 
@@ -953,7 +954,7 @@ def test_status_asks_the_recorded_runtime(lifecycle_repo, monkeypatch):
         stdout = json.dumps(rows) if argv[1] == "ps" else ""
         return subprocess.CompletedProcess(argv, 0, stdout, "")
 
-    monkeypatch.setattr(status_display.subprocess, "run", _run)
+    scoped(monkeypatch, status_display, "subprocess", run=_run)
 
     report(lifecycle_repo)
 

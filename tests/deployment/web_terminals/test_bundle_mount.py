@@ -38,6 +38,7 @@ import yaml
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.utils.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 
 from .test_golden_render import EXAMPLE_CONFIG
 
@@ -687,7 +688,8 @@ def test_web_deploy_provisions_the_bundle_before_any_compose_invocation(monkeypa
         seen_at_first_compose.append(bundle.is_dir())
         return _Completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _run)
+    scoped(monkeypatch, provision, "subprocess", run=_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_run)
     config = _sidecar_config("local")
     config["facility_knowledge"] = {"bundle_path": BUNDLE_PATH}
 

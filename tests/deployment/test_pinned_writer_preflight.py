@@ -29,6 +29,7 @@ from osprey.deployment.container_lifecycle import (
     _deploy_written_env_vars,
     _preflight_pinned_writers,
 )
+from tests._scoped_stdlib import scoped
 
 
 def _repo(tmp_path: Path, *pinned: str) -> Path:
@@ -186,7 +187,7 @@ def test_the_start_sequence_refuses_before_the_mint(tmp_path, monkeypatch):
         order.append("subprocess")
         return subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
 
     with pytest.raises(RuntimeError, match="machine-minted"):
         container_lifecycle._start_stack(

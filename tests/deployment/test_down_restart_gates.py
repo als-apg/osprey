@@ -45,6 +45,7 @@ from osprey.cli.deploy_cmd import down_verb, restart_verb
 from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity, resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+from tests._scoped_stdlib import scoped
 from tests.deployment.test_up_as_built import (
     _RENDERED_CONFIG,
     bake_labels_override,
@@ -121,7 +122,8 @@ def runtime(monkeypatch):
             stdout = record["ps_stdout"] if record["rows"] is None else _ps_rows(argv, record)
         return subprocess.CompletedProcess(argv, failed, stdout, "boom")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     def _forbidden(*args, **kwargs):
         raise AssertionError("a stop must not render compose files")
@@ -266,7 +268,8 @@ def test_down_stops_the_web_stack_before_the_services(lifecycle_repo, monkeypatc
             order.append("services")
         return original_run(cmd, **kwargs)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _tracking_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_tracking_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_tracking_run)
 
     run_down(lifecycle_repo)
 

@@ -53,6 +53,7 @@ from osprey.deployment.runtime_helper import (
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals import lifecycle
 from osprey.deployment.web_terminals.render import render_web_terminals
+from tests._scoped_stdlib import scoped
 from tests.deployment.test_compose_generator import _packaged_compose_template
 from tests.deployment.test_container_lifecycle import _fake_popen
 from tests.deployment.test_up_as_built import (  # noqa: F401 - fixtures, taken by name
@@ -517,7 +518,7 @@ def test_reset_and_the_orphan_sweep_list_a_volume_the_copy_created(monkeypatch):
     listed = {v.name for v in RuntimeProbe("docker", run=fake).volumes_for_project(PROJECT)}
     assert "proj_eve-claude-projects" in listed
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", fake)
+    scoped(monkeypatch, lifecycle, "subprocess", run=fake)
     orphans = lifecycle._discover_orphan_volumes("docker", PROJECT, set())
     assert orphans == {"eve": ["proj_eve-claude-config", "proj_eve-claude-projects"]}
 
@@ -560,11 +561,14 @@ def _route_runtime_through(monkeypatch, fake: FakeRuntime, record: list[list[str
         record.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _run)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: record.append(list(cmd))),
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_run)
+    scoped(monkeypatch, "osprey.deployment.runtime_helper", "subprocess", run=_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_run)
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: record.append(list(cmd))),
     )
 
 
