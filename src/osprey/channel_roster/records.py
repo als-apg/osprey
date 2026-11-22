@@ -203,9 +203,9 @@ class ChannelRecord:
         direction: ``"write"`` for a settable channel, ``"read"`` for a
             readable one, ``None`` when the source could not say.
         readback: The paired readback address of a settable channel: the
-            facility file's ``pair`` when it names another channel. ``None``
-            when the setpoint is its own pair -- the worker then reads the
-            setpoint back.
+            facility file's ``pair`` when it names another channel, the
+            wiring record's for a further address. ``None`` when the setpoint
+            is its own pair -- the worker then reads the setpoint back.
         role: The facility file's ``role`` for the channel (``"setpoint"``,
             ``"readback"`` or ``"none"``), or ``None`` from a source that
             states only a direction.
@@ -220,10 +220,11 @@ class ChannelRecord:
             ``None`` when the file states none.
         command: Whether the facility file marks the channel a command; its
             status is ``readback``.
-        timeout_s: On a command, the longest one act may take, in seconds;
-            ``None`` when the file states none.
-        idle: On a status, what it reads while no act runs; ``None`` when the
-            file states none.
+        timeout_s: On a command, the longest one act may take, in seconds,
+            the wiring record's for a further address; ``None`` when the file
+            states none.
+        idle: On a status, what it reads while no act runs, the wiring
+            record's for a further address; ``None`` when the file states none.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/

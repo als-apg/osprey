@@ -323,3 +323,65 @@ class TestAbsence:
 
         assert roster.absence is not None
         assert roster.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE
+
+
+#: The measured tree's QD setpoint, the further address its wiring record states, and its pair.
+SETPOINT, FURTHER, PAIRED = "QD:SP", "RACK3:UNIT2:SP", "QD:RB"
+
+
+def _further_roster(tmp_path: Path, tree: dict[str, Any], pair: str) -> dict[str, Any]:
+    """The roster of ``tree`` with ``SETPOINT`` paired with ``pair``, by address."""
+    from tests.facility._pyaml_trees import built_document
+
+    (setpoint,) = [c for c in tree["records/channels.yaml"] if c["id"] == SETPOINT]
+    setpoint["pair"] = pair
+    document, _ = built_document(tmp_path / "project", tree)
+    (tmp_path / "facility.json").write_text(json.dumps(document), encoding="utf-8")
+    source = resolve_roster_source(_config(tmp_path)).source
+    assert source is not None
+    roster = read_facility_roster(source)
+    assert roster.absence is None
+    return {"roster": roster, **{r.address: r for r in roster.records}}
+
+
+class TestFurtherAddresses:
+    def test_a_command_under_a_further_address_answers_its_records_completion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.facility.test_command_completion import _marking
+        from tests.facility.test_wiring_also import _tree
+
+        _marking(monkeypatch, SETPOINT)
+        tree = _tree()
+        (setpoint,) = [c for c in tree["records/channels.yaml"] if c["id"] == SETPOINT]
+        setpoint["timeout_s"] = 2.0
+        tree["records/channels.yaml"].append(
+            {"id": "QD:BUSY", "value_type": "int", "idle": 0, "on": {"device": "SR/QD"}}
+        )
+
+        roster = _further_roster(tmp_path, tree, "QD:BUSY")["roster"]
+
+        assert roster.completion(SETPOINT) == (SETPOINT, "QD:BUSY", 0, 2.0)
+        assert roster.completion(FURTHER) == (FURTHER, "QD:BUSY", 0, 2.0)
+
+    def test_a_further_setpoint_reads_back_its_records_pair(self, tmp_path: Path) -> None:
+        from tests.facility.test_wiring_also import _tree
+
+        tree = _tree()
+        tree["records/channels.yaml"].append({"id": PAIRED, "on": {"device": "SR/QD"}})
+
+        records = _further_roster(tmp_path, tree, PAIRED)
+
+        assert records[SETPOINT].readback == records[FURTHER].readback == PAIRED
+        assert records[FURTHER].command is False
+        assert records["roster"].completion(FURTHER) is None
+
+    def test_a_further_address_of_a_self_paired_record_names_no_readback(
+        self, tmp_path: Path
+    ) -> None:
+        from tests.facility.test_wiring_also import _tree
+
+        records = _further_roster(tmp_path, _tree(), SETPOINT)
+
+        assert records[SETPOINT].readback is None
+        assert records[FURTHER].readback is None

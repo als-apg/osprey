@@ -861,8 +861,10 @@ Each address under ``also`` is a channel of ``records/channels.yaml`` with the
 ``role``, ``value_type``, ``options`` and ``shape`` of the record's ``address``,
 and the same ``unit`` when both state one. It reads what ``address`` reads at
 the same instant, with the same calibration, motion and readout noise, and a
-write to it is a write to ``address``. It carries no seed of its own, and a
-limit is still stated per address. A pair is stated between
+write to it is a write to ``address``. It reads back the ``pair`` of
+``address``, and a command fired under it waits as one fired under
+``address``; ``timeout_s`` and ``idle`` are stated on ``address`` only. It
+carries no seed of its own, and a limit is still stated per address. A pair is stated between
 records' ``address`` names: the build stops when an address under ``also``
 states a ``pair``, and when a setpoint's ``pair`` names an address under
 ``also``. A fault variable is named by ``address``
