@@ -317,8 +317,9 @@ def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_pat
     ]
     assert len(figures) == 3
     for node in figures:
-        (rule,) = node["rules"]
-        assert node["props"]["text"] == rule["default"] == layout.NO_VALUE  # no partial figure
+        rule, *muted = node["rules"]  # the highest also turns muted while one is missing
+        assert [r["targetProperty"] for r in muted] in ([], ["foregroundColor"])
+        assert node["props"]["text"] == rule["default"] == layout.NO_VALUE  # dash at rest
         assert len(formulas[rule["formula"]]["bindings"]) == 3  # every member
     count = formulas[figures[0]["rules"][0]["formula"]]["expression"]
     assert count.count("abs(") == 3  # a member with no value is not counted
