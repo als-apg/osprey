@@ -1365,10 +1365,17 @@ no element.</p></li>
 names no element.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">stored</span></code>: a setting that holds what is written and drives no physics,
 for an attenuation or a mode the software sets; it may name an element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">offset_x</span></code>, <code class="docutils literal notranslate"><span class="pre">offset_px</span></code>, <code class="docutils literal notranslate"><span class="pre">offset_y</span></code>, <code class="docutils literal notranslate"><span class="pre">offset_py</span></code>, <code class="docutils literal notranslate"><span class="pre">offset_delta</span></code>,
+<code class="docutils literal notranslate"><span class="pre">offset_ct</span></code>: a static injection error, added to that coordinate of
+<code class="docutils literal notranslate"><span class="pre">launch</span></code> for every shot. Each starts at <code class="docutils literal notranslate"><span class="pre">0</span></code> and names no element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mismatch_x</span></code>, <code class="docutils literal notranslate"><span class="pre">mismatch_y</span></code>: the factor on the arriving beta function
+of that plane. Each starts at the block’s <code class="docutils literal notranslate"><span class="pre">mismatch</span></code> and names no
+element.</p></li>
 </ul>
-<p>Declare <code class="docutils literal notranslate"><span class="pre">arm</span></code>, <code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>, <code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code> and <code class="docutils literal notranslate"><span class="pre">stored</span></code> channels
-<code class="docutils literal notranslate"><span class="pre">role:</span> <span class="pre">setpoint</span></code>, and each array <code class="docutils literal notranslate"><span class="pre">value_type:</span> <span class="pre">waveform</span></code> with
-<code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">[&lt;trigger_sample</span> <span class="pre">+</span> <span class="pre">turns&gt;]</span></code>, here <code class="docutils literal notranslate"><span class="pre">[260]</span></code>; every other record is a
+<p>Declare <code class="docutils literal notranslate"><span class="pre">arm</span></code>, <code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>, <code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code>, <code class="docutils literal notranslate"><span class="pre">stored</span></code>, <code class="docutils literal notranslate"><span class="pre">offset_*</span></code> and
+<code class="docutils literal notranslate"><span class="pre">mismatch_*</span></code> channels <code class="docutils literal notranslate"><span class="pre">role:</span> <span class="pre">setpoint</span></code>, and each array
+<code class="docutils literal notranslate"><span class="pre">value_type:</span> <span class="pre">waveform</span></code> with <code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">[&lt;trigger_sample</span> <span class="pre">+</span> <span class="pre">turns&gt;]</span></code>, here
+<code class="docutils literal notranslate"><span class="pre">[260]</span></code>; every other record is a
 plain float.</p>
 <p><strong>The settings.</strong> Only <code class="docutils literal notranslate"><span class="pre">injection_element</span></code> is required:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -1407,12 +1414,25 @@ plain float.</p>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">emittance_x</span></code>, <code class="docutils literal notranslate"><span class="pre">emittance_y</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma_delta</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma_z</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
-<td><p>The bunch’s size, matched to the optics at injection. All zero, every
-particle starts at <code class="docutils literal notranslate"><span class="pre">launch</span></code>.</p></td>
+<td><p>The bunch’s size: emittances in metre-radians, relative energy
+spread, bunch length in metres. All zero, every particle starts at
+<code class="docutils literal notranslate"><span class="pre">launch</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">twiss</span></code></p></td>
+<td><p>the ring’s own</p></td>
+<td><p>The optics the bunch arrives with: <code class="docutils literal notranslate"><span class="pre">beta:</span> <span class="pre">[x,</span> <span class="pre">y]</span></code> in metres,
+<code class="docutils literal notranslate"><span class="pre">alpha:</span> <span class="pre">[x,</span> <span class="pre">y]</span></code> and <code class="docutils literal notranslate"><span class="pre">dispersion:</span> <span class="pre">[x,</span> <span class="pre">px,</span> <span class="pre">y,</span> <span class="pre">py]</span></code>. A key left out
+is the ring’s periodic value at <code class="docutils literal notranslate"><span class="pre">injection_element</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mismatch</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{x:</span> <span class="pre">1,</span> <span class="pre">y:</span> <span class="pre">1}</span></code></p></td>
+<td><p>A factor above 0 on the arriving beta function of each plane.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">jitter</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{x:</span> <span class="pre">5.0e-5,</span> <span class="pre">y:</span> <span class="pre">3.0e-5}</span></code></p></td>
-<td><p>The shot-to-shot centroid jitter’s sigma, metres.</p></td>
+<td><p>The shot-to-shot centroid jitter’s sigma per coordinate: <code class="docutils literal notranslate"><span class="pre">x</span></code>,
+<code class="docutils literal notranslate"><span class="pre">px</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">py</span></code>, <code class="docutils literal notranslate"><span class="pre">delta</span></code>, <code class="docutils literal notranslate"><span class="pre">ct</span></code>, in <code class="docutils literal notranslate"><span class="pre">launch</span></code>’s units. A
+coordinate left out is <code class="docutils literal notranslate"><span class="pre">0</span></code>, but for <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">y</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">aperture</span></code></p></td>
 <td><p>none</p></td>
@@ -1455,9 +1475,70 @@ with a length.</p></td>
 </tbody>
 </table>
 </div>
-<p>Every number but <code class="docutils literal notranslate"><span class="pre">launch</span></code> is finite and not negative; an unknown key, also
-inside <code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code> or <code class="docutils literal notranslate"><span class="pre">aperture</span></code>, stops the build. The apertures
+<p>Every number but <code class="docutils literal notranslate"><span class="pre">launch</span></code>, and <code class="docutils literal notranslate"><span class="pre">alpha</span></code> and <code class="docutils literal notranslate"><span class="pre">dispersion</span></code> in <code class="docutils literal notranslate"><span class="pre">twiss</span></code>, is
+finite and not negative; an unknown key, also inside <code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code>,
+<code class="docutils literal notranslate"><span class="pre">twiss</span></code>, <code class="docutils literal notranslate"><span class="pre">mismatch</span></code> or <code class="docutils literal notranslate"><span class="pre">aperture</span></code>, stops the build. The apertures
 decide when an RF-off bunch is lost; they are the facility’s to calibrate.</p>
+<p><strong>The injected beam.</strong> A shot launches one bunch in six dimensions, in
+pyAT’s coordinates: <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">y</span></code> in metres, <code class="docutils literal notranslate"><span class="pre">px</span></code> and <code class="docutils literal notranslate"><span class="pre">py</span></code> in radians,
+<code class="docutils literal notranslate"><span class="pre">delta</span></code> the relative momentum offset and <code class="docutils literal notranslate"><span class="pre">ct</span></code> the path lag in metres. A
+phase of the RF is a <code class="docutils literal notranslate"><span class="pre">ct</span></code>: one degree is the RF wavelength over 360.</p>
+<ul class="simple">
+<li><p><strong>Where it starts.</strong> The centroid is <code class="docutils literal notranslate"><span class="pre">launch</span></code>, plus the static error the
+<code class="docutils literal notranslate"><span class="pre">offset_*</span></code> records hold, plus the shot’s jitter.</p></li>
+<li><p><strong>Its jitter.</strong> Each coordinate moves by its <code class="docutils literal notranslate"><span class="pre">jitter</span></code> sigma times a
+normal draw keyed on the model and the shot number: the same shot launches
+the same bunch in every run, and no two shots launch alike.</p></li>
+<li><p><strong>Its shape.</strong> The particles are a fixed Gaussian shape of the stated
+emittances, energy spread and bunch length, placed at normal quantiles and
+never drawn at random: 16 particles reach about 1.9 sigma and 400 about
+3 sigma. A long bunch and a wide energy spread make
+the turn-by-turn signal decohere within fewer turns.</p></li>
+<li><p><strong>Its optics.</strong> The shape is matched to the ring’s periodic optics at
+<code class="docutils literal notranslate"><span class="pre">injection_element</span></code> unless <code class="docutils literal notranslate"><span class="pre">twiss</span></code> states the optics the beam arrives
+with. <code class="docutils literal notranslate"><span class="pre">mismatch</span></code> multiplies the beta function of a plane and keeps its
+<code class="docutils literal notranslate"><span class="pre">alpha</span></code> and the emittance: at <code class="docutils literal notranslate"><span class="pre">2</span></code> the bunch is <code class="docutils literal notranslate"><span class="pre">sqrt(2)</span></code> wider in
+position and as much narrower in angle, and its size beats turn by turn. A
+<code class="docutils literal notranslate"><span class="pre">mismatch_x</span></code> or <code class="docutils literal notranslate"><span class="pre">mismatch_y</span></code> record holds the factor in place of the
+block’s. With <code class="docutils literal notranslate"><span class="pre">beta</span></code>, <code class="docutils literal notranslate"><span class="pre">alpha</span></code> and <code class="docutils literal notranslate"><span class="pre">dispersion</span></code> all stated, no periodic
+optics are solved: a ring whose errors leave it no closed orbit still
+tracks the shot, and one that leaves a key to the ring fails it.</p></li>
+</ul>
+<p>Wire the static error and the mismatch as simulation-only setpoints. A
+scenario’s <code class="docutils literal notranslate"><span class="pre">overrides</span></code> then state one machine’s injection error, and a
+client moves it while the ring is served:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">turn_by_turn</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">injection_element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ_POINT</span>
+<span class="w">        </span><span class="nt">emittance_x</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0e-8</span>
+<span class="w">        </span><span class="nt">emittance_y</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0e-9</span>
+<span class="w">        </span><span class="nt">sigma_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0e-3</span>
+<span class="w">        </span><span class="nt">sigma_z</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
+<span class="w">        </span><span class="nt">jitter</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="nv">5.0e-5</span><span class="p p-Indicator">,</span><span class="nt"> px</span><span class="p">:</span><span class="w"> </span><span class="nv">5.0e-6</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">3.0e-5</span><span class="p p-Indicator">,</span><span class="nt"> py</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0e-6</span><span class="p p-Indicator">,</span><span class="nt"> delta</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0e-4</span><span class="p p-Indicator">,</span><span class="nt"> ct</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0e-4</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">mismatch</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SIM:RING:INJ:OFFSET:X</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">offset_x</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SIM:RING:INJ:OFFSET:PX</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">offset_px</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SIM:RING:INJ:MISMATCH:X</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">mismatch_x</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># data/facility/scenarios/injection-error.yaml</span>
+<span class="nt">overrides</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">SIM:RING:INJ:OFFSET:X</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4.0e-4</span>
+<span class="w">  </span><span class="nt">SIM:RING:INJ:OFFSET:PX</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-8.0e-5</span>
+<span class="w">  </span><span class="nt">SIM:RING:INJ:MISMATCH:X</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.5</span>
+</pre></div>
+</div>
+<p>The engine draws no static error: a seed’s draw is the scenario author’s to
+make and write down, as for magnet errors. A <code class="docutils literal notranslate"><span class="pre">mismatch</span></code> record written
+<code class="docutils literal notranslate"><span class="pre">0</span></code> or below fails the next shots as any failed tracking does, until it is
+written above <code class="docutils literal notranslate"><span class="pre">0</span></code> again. The trajectory response matrix is computed from
+the block alone, so it starts at <code class="docutils literal notranslate"><span class="pre">launch</span></code> without the records’ offsets.</p>
 <p><strong>The arrays.</strong> Each array holds <code class="docutils literal notranslate"><span class="pre">trigger_sample</span> <span class="pre">+</span> <span class="pre">turns</span></code> samples. The
 samples before <code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code> see the stored beam only, and injected
 turn 1 sits at index <code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code>. The tracking starts at the injection

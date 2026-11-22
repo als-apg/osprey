@@ -815,10 +815,17 @@ and without ``stored_current`` there is no stored beam. Each wiring record's
   names no element.
 - ``stored``: a setting that holds what is written and drives no physics,
   for an attenuation or a mode the software sets; it may name an element.
+- ``offset_x``, ``offset_px``, ``offset_y``, ``offset_py``, ``offset_delta``,
+  ``offset_ct``: a static injection error, added to that coordinate of
+  ``launch`` for every shot. Each starts at ``0`` and names no element.
+- ``mismatch_x``, ``mismatch_y``: the factor on the arriving beta function
+  of that plane. Each starts at the block's ``mismatch`` and names no
+  element.
 
-Declare ``arm``, ``rf_switch``, ``pilot_tone`` and ``stored`` channels
-``role: setpoint``, and each array ``value_type: waveform`` with
-``shape: [<trigger_sample + turns>]``, here ``[260]``; every other record is a
+Declare ``arm``, ``rf_switch``, ``pilot_tone``, ``stored``, ``offset_*`` and
+``mismatch_*`` channels ``role: setpoint``, and each array
+``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``, here
+``[260]``; every other record is a
 plain float.
 
 **The settings.** Only ``injection_element`` is required:
@@ -848,11 +855,22 @@ plain float.
        ``delta``, ``ct``, each signed.
    * - ``emittance_x``, ``emittance_y``, ``sigma_delta``, ``sigma_z``
      - ``0``
-     - The bunch's size, matched to the optics at injection. All zero, every
-       particle starts at ``launch``.
+     - The bunch's size: emittances in metre-radians, relative energy
+       spread, bunch length in metres. All zero, every particle starts at
+       ``launch``.
+   * - ``twiss``
+     - the ring's own
+     - The optics the bunch arrives with: ``beta: [x, y]`` in metres,
+       ``alpha: [x, y]`` and ``dispersion: [x, px, y, py]``. A key left out
+       is the ring's periodic value at ``injection_element``.
+   * - ``mismatch``
+     - ``{x: 1, y: 1}``
+     - A factor above 0 on the arriving beta function of each plane.
    * - ``jitter``
      - ``{x: 5.0e-5, y: 3.0e-5}``
-     - The shot-to-shot centroid jitter's sigma, metres.
+     - The shot-to-shot centroid jitter's sigma per coordinate: ``x``,
+       ``px``, ``y``, ``py``, ``delta``, ``ct``, in ``launch``'s units. A
+       coordinate left out is ``0``, but for ``x`` and ``y``.
    * - ``aperture``
      - none
      - ``{x, y, shape}``: positive half-axes in metres, both required, and
@@ -883,9 +901,74 @@ plain float.
      - ``1.0``
      - Pilot-tone spike size.
 
-Every number but ``launch`` is finite and not negative; an unknown key, also
-inside ``launch``, ``jitter`` or ``aperture``, stops the build. The apertures
+Every number but ``launch``, and ``alpha`` and ``dispersion`` in ``twiss``, is
+finite and not negative; an unknown key, also inside ``launch``, ``jitter``,
+``twiss``, ``mismatch`` or ``aperture``, stops the build. The apertures
 decide when an RF-off bunch is lost; they are the facility's to calibrate.
+
+**The injected beam.** A shot launches one bunch in six dimensions, in
+pyAT's coordinates: ``x`` and ``y`` in metres, ``px`` and ``py`` in radians,
+``delta`` the relative momentum offset and ``ct`` the path lag in metres. A
+phase of the RF is a ``ct``: one degree is the RF wavelength over 360.
+
+- **Where it starts.** The centroid is ``launch``, plus the static error the
+  ``offset_*`` records hold, plus the shot's jitter.
+- **Its jitter.** Each coordinate moves by its ``jitter`` sigma times a
+  normal draw keyed on the model and the shot number: the same shot launches
+  the same bunch in every run, and no two shots launch alike.
+- **Its shape.** The particles are a fixed Gaussian shape of the stated
+  emittances, energy spread and bunch length, placed at normal quantiles and
+  never drawn at random: 16 particles reach about 1.9 sigma and 400 about
+  3 sigma. A long bunch and a wide energy spread make
+  the turn-by-turn signal decohere within fewer turns.
+- **Its optics.** The shape is matched to the ring's periodic optics at
+  ``injection_element`` unless ``twiss`` states the optics the beam arrives
+  with. ``mismatch`` multiplies the beta function of a plane and keeps its
+  ``alpha`` and the emittance: at ``2`` the bunch is ``sqrt(2)`` wider in
+  position and as much narrower in angle, and its size beats turn by turn. A
+  ``mismatch_x`` or ``mismatch_y`` record holds the factor in place of the
+  block's. With ``beta``, ``alpha`` and ``dispersion`` all stated, no periodic
+  optics are solved: a ring whose errors leave it no closed orbit still
+  tracks the shot, and one that leaves a key to the ring fails it.
+
+Wire the static error and the mismatch as simulation-only setpoints. A
+scenario's ``overrides`` then state one machine's injection error, and a
+client moves it while the ring is served:
+
+.. code-block:: yaml
+
+   - name: RING
+     settings:
+       pyat:
+         turn_by_turn:
+           injection_element: INJ_POINT
+           emittance_x: 2.0e-8
+           emittance_y: 2.0e-9
+           sigma_delta: 1.0e-3
+           sigma_z: 0.01
+           jitter: {x: 5.0e-5, px: 5.0e-6, y: 3.0e-5, py: 2.0e-6, delta: 1.0e-4, ct: 2.0e-4}
+           mismatch: {x: 1.0, y: 1.0}
+     wiring:
+       - address: SIM:RING:INJ:OFFSET:X
+         engine: {signal: offset_x}
+       - address: SIM:RING:INJ:OFFSET:PX
+         engine: {signal: offset_px}
+       - address: SIM:RING:INJ:MISMATCH:X
+         engine: {signal: mismatch_x}
+
+.. code-block:: yaml
+
+   # data/facility/scenarios/injection-error.yaml
+   overrides:
+     SIM:RING:INJ:OFFSET:X: 4.0e-4
+     SIM:RING:INJ:OFFSET:PX: -8.0e-5
+     SIM:RING:INJ:MISMATCH:X: 1.5
+
+The engine draws no static error: a seed's draw is the scenario author's to
+make and write down, as for magnet errors. A ``mismatch`` record written
+``0`` or below fails the next shots as any failed tracking does, until it is
+written above ``0`` again. The trajectory response matrix is computed from
+the block alone, so it starts at ``launch`` without the records' offsets.
 
 **The arrays.** Each array holds ``trigger_sample + turns`` samples. The
 samples before ``trigger_sample`` see the stored beam only, and injected
