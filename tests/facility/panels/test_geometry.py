@@ -424,3 +424,60 @@ def test_a_name_with_no_separator_breaks_where_a_small_letter_meets_a_capital():
     # a name that fits, or one with separators, breaks as before
     assert layout._wrap_label("PowerSupply", 400, layout.SMALL_SIZE, 2) == ["PowerSupply"]
     assert layout._wrap_label("XR01-PS1:On-Sts", 400, layout.SMALL_SIZE, 2) == ["XR01-PS1:On-Sts"]
+
+
+def _items(doc: dict[str, Any]) -> dict[str, dict[int, tuple[float, float, float, float]]]:
+    """Per item kind, per stated order: the box its widgets take (x0, y0, x1, y1)."""
+    found: dict[str, dict[int, tuple[float, float, float, float]]] = {}
+    for node in _nodes(doc["root"]):
+        comment = (node.get("meta") or {}).get("comment", "")
+        tags = dict(t.split(": ", 1) for t in comment.split("; ") if ": " in t)
+        if "item" not in tags or "order" not in tags:
+            continue
+        g = node["geometry"]
+        box = (g["x"], g["y"], g["x"] + g["width"], g["y"] + g["height"])
+        held = found.setdefault(tags["item"], {}).get(int(tags["order"]))
+        if held is not None:
+            box = (min(held[0], box[0]), min(held[1], box[1]),
+                   max(held[2], box[2]), max(held[3], box[3]))  # fmt: skip
+        found[tags["item"]][int(tags["order"])] = box
+    return found
+
+
+def test_items_read_in_the_order_their_view_states(screens):
+    """Every widget of a view item names it (kind, and its order where the view
+    states one); the items read on the screen in that order along the way their
+    kind reads (:data:`layout.ITEM_TAGS`): across, left to right and on in rows
+    below; down, top to bottom and on in columns to the right."""
+    wrong, seen = [], set()
+    for name, doc in screens.items():
+        for kind, boxes in _items(doc).items():
+            assert kind in layout.ITEM_TAGS, kind
+            seen.add(kind)
+            ordered = [boxes[k] for k in sorted(boxes)]
+            for i in range(1, len(ordered)):
+                before, done = ordered[i - 1], ordered[:i]
+                x0, y0 = ordered[i][0], ordered[i][1]
+                if layout.ITEM_TAGS[kind] == "across":
+                    on = x0 > before[0] or y0 >= max(b[3] for b in done) - 0.01
+                else:
+                    on = (
+                        y0 > before[1]
+                        or (y0 == before[1] and x0 > before[0])
+                        or x0 >= max(b[2] for b in done) - 0.01
+                    )
+                if not on:
+                    wrong.append((name, kind))
+    assert wrong == []
+    assert {"key-tile", "chain-block", "grid-row", "rack-unit", "strip-element"} <= seen
+
+
+def test_item_tags_are_no_part_of_a_drawing():
+    from osprey.facility.panels.emit import _without_meta
+
+    plain = {"root": {"children": [{"id": "w-0001", "props": {}}]}, "metadata": {}}
+    tagged = {"root": {"children": [{"id": "w-0001", "props": {}, "meta": {"comment": "item: x"}}]},
+              "metadata": {}}  # fmt: skip
+    assert _without_meta(plain, "0") == _without_meta(tagged, "0")
+    with pytest.raises(ValueError, match="no item kind"):
+        layout.item_tags("no-such-kind")
